@@ -17,7 +17,11 @@ def test_read_annotation_falls_back_to_paragraph_context():
     anchor.getString.return_value = ""
     field = MagicMock()
     field.getAnchor.return_value = anchor
-    field.getPropertyValue.side_effect = lambda p: {"Author": "Rev", "Content": "note"}.get(p, "")
+    field.getPropertyValue.side_effect = lambda p: {
+        "Author": "Rev",
+        "Content": "note",
+        "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
+    }.get(p, "")
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = 7
     with patch("plugin.writer.search.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
@@ -65,6 +69,7 @@ def test_comment_scan_tasks_with_prefixes():
             "Content": content,
             "Resolved": resolved,
             "Author": "Reviewer",
+            "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
         }.get(prop, "")
         anchor = MagicMock()
         anchor.getString.return_value = "Selected text"

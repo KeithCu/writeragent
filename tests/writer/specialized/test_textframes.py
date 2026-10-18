@@ -29,7 +29,6 @@ def test_frame_get_info_anchor_type_uses_enum_name():
         return props[name]
 
     frame.getPropertyValue.side_effect = _get
-    frame.getAnchor.side_effect = Exception("no anchor")
     frames = MagicMock()
     frames.hasByName.return_value = True
     frames.getByName.return_value = frame

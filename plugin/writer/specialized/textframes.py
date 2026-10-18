@@ -20,14 +20,10 @@ Frame tool logic adapted from nelson-mcp (MPL 2.0):
 nelson-mcp/plugin/writer/tools/frames.py
 """
 
-import logging
 from typing import Any
 
 from plugin.doc.visual_helpers import anchor_type_index
-from plugin.framework.errors import reraise_if_disposed
 from ..specialized_base import ToolWriterTextFramesBase
-
-log = logging.getLogger("writeragent.writer")
 
 
 class FrameList(ToolWriterTextFramesBase):
@@ -45,28 +41,21 @@ class FrameList(ToolWriterTextFramesBase):
 
         frames = []
         for name in text_frames.getElementNames():
-            try:
-                frame = text_frames.getByName(name)
-                size = frame.getPropertyValue("Size")
+            frame = text_frames.getByName(name)
+            size = frame.getPropertyValue("Size")
 
-                # Text content preview (first 200 chars)
-                content_preview = ""
-                try:
-                    frame_text = frame.getText()
-                    cursor = frame_text.createTextCursor()
-                    cursor.gotoStart(False)
-                    cursor.gotoEnd(True)
-                    full_text = cursor.getString()
-                    if len(full_text) > 200:
-                        content_preview = full_text[:200] + "..."
-                    else:
-                        content_preview = full_text
-                except Exception:
-                    pass
+            # Text content preview (first 200 chars)
+            frame_text = frame.getText()
+            cursor = frame_text.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            full_text = cursor.getString()
+            if len(full_text) > 200:
+                content_preview = full_text[:200] + "..."
+            else:
+                content_preview = full_text
 
-                frames.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview})
-            except Exception as e:
-                log.debug("frame_list: skip '%s': %s", name, e)
+            frames.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview})
 
         return {"status": "ok", "frames": frames, "count": len(frames)}
 
@@ -93,47 +82,21 @@ class FrameGetInfo(ToolWriterTextFramesBase):
             return frame
 
         size = frame.getPropertyValue("Size")
+        anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
+        hori_orient = int(frame.getPropertyValue("HoriOrient"))
+        vert_orient = int(frame.getPropertyValue("VertOrient"))
 
-        # Anchor type
-        anchor_type = None
-        try:
-            anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
-        except Exception as exc:
-            reraise_if_disposed(exc)
+        frame_text = frame.getText()
+        cursor = frame_text.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        content = cursor.getString()
 
-        # Orientation
-        hori_orient = None
-        vert_orient = None
-        try:
-            hori_orient = int(frame.getPropertyValue("HoriOrient"))
-        except Exception:
-            pass
-        try:
-            vert_orient = int(frame.getPropertyValue("VertOrient"))
-        except Exception:
-            pass
-
-        # Full text content
-        content = ""
-        try:
-            frame_text = frame.getText()
-            cursor = frame_text.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            content = cursor.getString()
-        except Exception:
-            pass
-
-        # Paragraph index via anchor
-        paragraph_index = -1
-        try:
-            anchor = frame.getAnchor()
-            doc_svc = ctx.services.document
-            para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
-            text_obj = ctx.doc.getText()
-            paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-        except Exception:
-            pass
+        anchor = frame.getAnchor()
+        doc_svc = ctx.services.document
+        para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
+        text_obj = ctx.doc.getText()
+        paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
 
         return {
             "status": "ok",

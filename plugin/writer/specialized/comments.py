@@ -19,13 +19,10 @@
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-import logging
 import uno
 
 from plugin.framework.tool import ToolBase
 from ..specialized_base import ToolWriterCommentBase
-
-log = logging.getLogger("writeragent.writer")
 
 
 class CommentList(ToolWriterCommentBase):
@@ -116,10 +113,7 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        try:
-            occurrence = int(kwargs.get("occurrence", 0) or 0)
-        except (TypeError, ValueError):
-            return self._tool_error("occurrence must be an integer.")
+        occurrence = int(kwargs.get("occurrence", 0) or 0)
         if occurrence < 0:
             return self._tool_error("occurrence must be non-negative.")
 
@@ -238,12 +232,9 @@ class CommentDelete(ToolWriterCommentBase):
             field = enum.nextElement()
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
-            try:
-                name = field.getPropertyValue("Name")
-                parent = field.getPropertyValue("ParentName")
-                field_author = field.getPropertyValue("Author")
-            except Exception:
-                continue
+            name = field.getPropertyValue("Name")
+            parent = field.getPropertyValue("ParentName")
+            field_author = field.getPropertyValue("Author")
             rows.append((field, name, parent, field_author))
 
         selected_indices: set[int] = set()
@@ -318,10 +309,7 @@ class CommentResolve(ToolWriterCommentBase):
             field = enum.nextElement()
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
-            try:
-                name = field.getPropertyValue("Name")
-            except Exception:
-                continue
+            name = field.getPropertyValue("Name")
             if name == comment_name:
                 target = field
                 break
@@ -353,11 +341,11 @@ class CommentResolve(ToolWriterCommentBase):
 _WORKFLOW_TASK_PREFIXES = WORKFLOW_TASK_PREFIXES
 _COMMENT_UNO = ["com.sun.star.text.TextDocument"]
 _ANNOTATION_PROPERTIES = (
-    ("Author", "author", ""),
-    ("Content", "content", ""),
-    ("Name", "name", ""),
-    ("ParentName", "parent_name", ""),
-    ("Resolved", "resolved", False),
+    ("Author", "author"),
+    ("Content", "content"),
+    ("Name", "name"),
+    ("ParentName", "parent_name"),
+    ("Resolved", "resolved"),
 )
 
 
@@ -375,10 +363,7 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        try:
-            content = field.getPropertyValue("Content")
-        except Exception:
-            continue
+        content = field.getPropertyValue("Content")
         matched_prefix = None
         for prefix in _WORKFLOW_TASK_PREFIXES:
             if content.startswith(prefix):
@@ -388,13 +373,8 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
             continue
         if prefix_filter and matched_prefix != prefix_filter:
             continue
-        if unresolved_only:
-            try:
-                resolved = field.getPropertyValue("Resolved")
-            except Exception:
-                resolved = False
-            if resolved:
-                continue
+        if unresolved_only and field.getPropertyValue("Resolved"):
+            continue
         entry = _read_annotation(field, para_ranges, text_obj, doc_svc)
         entry["prefix"] = matched_prefix
         tasks.append(entry)
@@ -409,16 +389,10 @@ def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        try:
-            author = field.getPropertyValue("Author")
-        except Exception:
-            continue
+        author = field.getPropertyValue("Author")
         if author != "MCP-WORKFLOW":
             continue
-        try:
-            content = field.getPropertyValue("Content")
-        except Exception:
-            content = ""
+        content = field.getPropertyValue("Content") or ""
         workflow = {}
         for line in content.splitlines():
             if ":" in line:
@@ -439,10 +413,7 @@ def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        try:
-            author = field.getPropertyValue("Author")
-        except Exception:
-            continue
+        author = field.getPropertyValue("Author")
         if author == "MCP-WORKFLOW":
             existing = field
             break
@@ -469,12 +440,9 @@ def _comment_check_stop(ctx: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        try:
-            content = field.getPropertyValue("Content")
-            author = field.getPropertyValue("Author")
-            resolved = field.getPropertyValue("Resolved")
-        except Exception:
-            continue
+        content = field.getPropertyValue("Content")
+        author = field.getPropertyValue("Author")
+        resolved = field.getPropertyValue("Resolved")
         if author == "MCP-WORKFLOW" and content:
             lower = content.lower()
             if "stop" in lower or "pause" in lower:
@@ -552,58 +520,30 @@ class CommentCheckStop(ToolWriterCommentBase):
 
 def _find_annotation_by_name(doc: Any, comment_name: str) -> Any | None:
     """Return the Annotation field whose Name matches *comment_name*, or None."""
-    try:
-        enum = doc.getTextFields().createEnumeration()
-    except Exception:
-        return None
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            field = enum.nextElement()
-        except Exception:
-            break
-        try:
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
-            if field.getPropertyValue("Name") == comment_name:
-                return field
-        except Exception:
+    enum = doc.getTextFields().createEnumeration()
+    while enum.hasMoreElements():
+        field = enum.nextElement()
+        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
+        if field.getPropertyValue("Name") == comment_name:
+            return field
     return None
 
 
 def _annotation_name(field: Any) -> str:
-    """LibreOffice-assigned Name after insert (empty if the property is unreadable)."""
-    try:
-        return field.getPropertyValue("Name") or ""
-    except Exception:
-        return ""
+    """LibreOffice-assigned Name (empty when Writer left it unset)."""
+    return field.getPropertyValue("Name") or ""
 
 
 def _annotation_field_names(doc: Any) -> list[str]:
-    """Name of each Annotation on *doc* (empty string when Name is unreadable)."""
+    """Name of each Annotation on *doc* (empty string when Name is unset)."""
     names: list[str] = []
-    try:
-        enum = doc.getTextFields().createEnumeration()
-    except Exception:
-        return names
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            field = enum.nextElement()
-        except Exception:
-            break
-        try:
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
-        except Exception:
+    enum = doc.getTextFields().createEnumeration()
+    while enum.hasMoreElements():
+        field = enum.nextElement()
+        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        try:
-            names.append(field.getPropertyValue("Name") or "")
-        except Exception:
-            names.append("")
+        names.append(field.getPropertyValue("Name") or "")
     return names
 
 
@@ -619,10 +559,7 @@ def _ensure_annotation_name(field: Any, doc: Any) -> str:
     while candidate in existing:
         n += 1
         candidate = "__Annotation__%d_%d" % (n, stamp)
-    try:
-        field.setPropertyValue("Name", candidate)
-    except Exception:
-        return ""
+    field.setPropertyValue("Name", candidate)
     return _annotation_name(field) or candidate
 
 
@@ -664,45 +601,29 @@ def _set_annotation_date(annotation: Any) -> None:
 def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     entry = {}
-    for prop, key, default in _ANNOTATION_PROPERTIES:
-        try:
-            entry[key] = field.getPropertyValue(prop)
-        except Exception:
-            entry[key] = default
+    for prop, key in _ANNOTATION_PROPERTIES:
+        entry[key] = field.getPropertyValue(prop)
 
-    # Date
-    try:
-        dt = field.getPropertyValue("DateTimeValue")
-        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
-    except Exception:
-        entry["date"] = ""
+    dt = field.getPropertyValue("DateTimeValue")
+    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
 
     # Paragraph index and anchor preview. An annotation field's getAnchor().getString() often
     # comes back EMPTY (the field anchor reads as a point even for spanning comments), which left
     # anchor_preview blank — the agent could not tell which passage a comment is about. Fall back
     # to the ENCLOSING PARAGRAPH's text and say so via anchor_is_paragraph_context.
-    anchor = None
-    try:
-        anchor = field.getAnchor()
-        entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-    except Exception:
-        entry["paragraph_index"] = 0
+    anchor = field.getAnchor()
     preview = ""
-    if anchor is not None:
-        try:
-            preview = anchor.getString()[:80]
-        except Exception:
-            preview = ""
+    if anchor is None:
+        entry["paragraph_index"] = 0
+    else:
+        entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        preview = anchor.getString()[:80]
         if not preview:
-            try:
-                from plugin.writer.search import enclosing_paragraph_text
+            from plugin.writer.search import enclosing_paragraph_text
 
-                ptxt = (enclosing_paragraph_text(anchor) or "").strip()
-                if ptxt:
-                    preview = ptxt[:120]
-                    entry["anchor_is_paragraph_context"] = True
-            except Exception:
-                pass
+            ptxt = (enclosing_paragraph_text(anchor) or "").strip()
+            if ptxt:
+                preview = ptxt[:120]
+                entry["anchor_is_paragraph_context"] = True
     entry["anchor_preview"] = preview
-
     return entry
