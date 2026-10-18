@@ -424,17 +424,11 @@ repack-deploy: repack register-built-oxt
 # Does not start LO (use ``make deploy`` with writer/calc/draw/impress, or ``make lo-start``).
 # Also removes LibrePy: both OXTs register org.extension.writeragent.PythonFunction,
 # so leaving LibrePy installed makes unopkg fail with "enabling: addin.py".
+REGISTER_LOGS = --log "$(HOME_DIR)/writeragent.log" --log "$(HOME_DIR)/writeragent_agent.log" --log "$(HOME_DIR)/writeragent_debug.log" --log "$(LO_DEBUG_LOG)" --log "$(LO_CONF)/user/writeragent_debug.log" --log "$(LO_CONF)/user/writeragent_agent.log"
+
 register-built-oxt:
 	@echo "Registering build/$(EXTENSION_NAME).oxt..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
-	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add build/$(EXTENSION_NAME).oxt
-	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
+	"$(PYTHON)" scripts/lo_profile.py register --oxt build/$(EXTENSION_NAME).oxt --profile "$(LO_CONF)" --remove $(LIBREPY_EXTENSION_ID) --remove org.extension.writeragent $(REGISTER_LOGS)
 	@echo "Registered org.extension.writeragent (start LibreOffice manually to load it)."
 
 manifest:
@@ -460,15 +454,7 @@ build-core-native: native build-core
 
 register-librepy-oxt:
 	@echo "Registering $(LIBREPY_OXT)..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
-	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add $(LIBREPY_OXT)
-	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
+	"$(PYTHON)" scripts/lo_profile.py register --oxt $(LIBREPY_OXT) --profile "$(LO_CONF)" --remove $(LIBREPY_EXTENSION_ID) --remove org.extension.writeragent $(REGISTER_LOGS)
 	@echo "Registered $(LIBREPY_EXTENSION_ID) (start LibreOffice manually to load it)."
 
 deploy-core: build-core register-librepy-oxt
@@ -484,12 +470,7 @@ build-harper: vendor
 
 register-libreharper-oxt:
 	@echo "Registering $(LIBREHARPER_OXT)..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREHARPER_EXTENSION_ID) 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add $(LIBREHARPER_OXT)
+	"$(PYTHON)" scripts/lo_profile.py register --oxt $(LIBREHARPER_OXT) --profile "$(LO_CONF)" --remove $(LIBREHARPER_EXTENSION_ID)
 	@echo "Registered $(LIBREHARPER_EXTENSION_ID) (WriterAgent left installed if present)."
 
 deploy-harper: build-harper register-libreharper-oxt

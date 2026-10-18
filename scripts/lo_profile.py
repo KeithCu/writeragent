@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-# WriterAgent — seed a throwaway LibreOffice profile with an extension
+# WriterAgent — seed, register, or verify LibreOffice extensions
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Install an .oxt into a fresh throwaway LibreOffice profile and verify it landed there.
+"""Seed, register, or verify LibreOffice extensions.
 
     python scripts/lo_profile.py seed --oxt build/WriterAgent.oxt --profile DIR
-
-Why the checks: when an office is already running on the profile, unopkg starts a
-helper soffice *without* ``-env:UserInstallation`` and installs into the default
-(HOME / %APPDATA%) profile instead, still exiting 0. So seed refuses a busy or used
-profile, runs unopkg with a scratch HOME as a backstop (Windows ignores HOME), and
-then checks the profile itself rather than trusting the exit code.
+    python scripts/lo_profile.py register --oxt build/WriterAgent.oxt --profile DIR [--remove ID] [--log PATH]
+    python scripts/lo_profile.py verify --id EXTENSION_ID
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +24,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.lo_kill import office_pids  # noqa: E402
+from scripts.lo_kill import kill, office_pids  # noqa: E402
 from scripts.lo_paths import find, profile_url  # noqa: E402
 
 # unopkg imports the extension's Python components in-process; keep the caller's venv out.
@@ -42,12 +39,16 @@ def _env(home: Path) -> dict[str, str]:
     return env
 
 
-def _run(cmd: list[str], env: dict[str, str]) -> str:
-    # Capture everything: piping unopkg into e.g. head kills it with SIGPIPE and leaves a stale .lock.
+def _capture(cmd: list[str], env: dict[str, str] | None = None) -> tuple[int, str]:
+    # Capture stdout and stderr; unopkg hangs or leaves stale locks if piped into broken pipes.
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300, check=False)
-    out = proc.stdout + proc.stderr
-    if proc.returncode != 0:
-        raise RuntimeError("%s failed (exit %d):\n%s" % (" ".join(cmd), proc.returncode, out))
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def _run(cmd: list[str], env: dict[str, str] | None = None) -> str:
+    code, out = _capture(cmd, env=env)
+    if code != 0:
+        raise RuntimeError("%s failed (exit %d):\n%s" % (" ".join(cmd), code, out))
     return out
 
 
@@ -80,19 +81,66 @@ def seed(oxt: Path, profile: Path) -> None:
         verify(profile, oxt.name, _run([str(unopkg), "list", "-env:UserInstallation=" + url], env))
 
 
+def register(oxt: Path, profile: Path, remove_ids: list[str], logs: list[Path]) -> None:
+    unopkg = find("unopkg")
+    if unopkg is None:
+        raise RuntimeError("LibreOffice unopkg not found")
+    kill(office_pids(None))
+    for lock in (profile / ".lock", profile / "user" / ".lock"):
+        lock.unlink(missing_ok=True)
+    for remove_id in remove_ids:
+        _capture([str(unopkg), "remove", remove_id])
+    (profile / "user" / "extensions" / "tmp" / "extensions.pmap").unlink(missing_ok=True)
+    tmp_dir = profile / "user" / "extensions" / "tmp" / "extensions"
+    if tmp_dir.is_dir():
+        for item in tmp_dir.glob("*.tmp_"):
+            if item.is_dir() and not item.is_symlink():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                item.unlink(missing_ok=True)
+    _run([str(unopkg), "add", str(oxt.resolve())])
+    for log_path in logs:
+        log_path.unlink(missing_ok=True)
+
+
+def verify_registered(ext_id: str) -> None:
+    unopkg = find("unopkg")
+    if unopkg is None:
+        raise RuntimeError("LibreOffice unopkg not found")
+    listing = _run([str(unopkg), "list"])
+    if ext_id not in listing:
+        raise RuntimeError("%s is not registered in LibreOffice" % ext_id)
+
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Seed a fresh LibreOffice profile with an extension.")
+    parser = argparse.ArgumentParser(description="Seed, register, or verify LibreOffice extensions.")
     sub = parser.add_subparsers(dest="command", required=True)
+
     seed_cmd = sub.add_parser("seed", help="unopkg add into a fresh profile and verify it")
     seed_cmd.add_argument("--oxt", required=True, type=Path)
     seed_cmd.add_argument("--profile", required=True, type=Path)
+
+    reg_cmd = sub.add_parser("register", help="register extension in LibreOffice profile")
+    reg_cmd.add_argument("--oxt", required=True, type=Path)
+    reg_cmd.add_argument("--profile", required=True, type=Path)
+    reg_cmd.add_argument("--remove", action="append", default=[], dest="remove")
+    reg_cmd.add_argument("--log", action="append", default=[], type=Path, dest="log")
+
+    ver_cmd = sub.add_parser("verify", help="verify extension is registered in default profile")
+    ver_cmd.add_argument("--id", required=True)
+
     args = parser.parse_args(argv)
     try:
-        seed(args.oxt, args.profile)
+        if args.command == "seed":
+            seed(args.oxt, args.profile)
+            print("Seeded %s into %s" % (args.oxt.name, profile_url(args.profile)))
+        elif args.command == "register":
+            register(args.oxt, args.profile, args.remove, args.log)
+        elif args.command == "verify":
+            verify_registered(args.id)
     except (RuntimeError, ValueError) as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1
-    print("Seeded %s into %s" % (args.oxt.name, profile_url(args.profile)))
     return 0
 
 
