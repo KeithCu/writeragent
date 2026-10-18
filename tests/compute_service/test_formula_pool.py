@@ -24,6 +24,8 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
+from compute_service.vision import get_vision_pool, shutdown_vision_pool
+import plugin.framework.process_worker as process_worker
 from tests.compute_service.conftest import get_free_port
 
 
@@ -2244,5 +2246,106 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
         pool.shutdown()
 
 
+def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_read = process_worker.read_pickle_frame_with_timeout
+    armed = False
+    read_entered = threading.Event()
 
+    def _read(*args: Any, **kwargs: Any) -> Any:
+        nonlocal armed
+        if armed:
+            armed = False
+            read_entered.set()
+        return real_read(*args, **kwargs)
 
+    monkeypatch.setattr(process_worker, "read_pickle_frame_with_timeout", _read)
+
+    settings = ComputeSettings(host="127.0.0.1", port=get_free_port(), workers=1, ocr_workers=0, idle_worker_ttl_sec=3600.0, shared_kernel_ttl_sec=3600.0)
+    pool = get_formula_pool(settings)
+    server = WSGIDualStackServer("127.0.0.1", settings.port, listener_threads=4)
+    server.set_app(create_wsgi_app(settings))
+    serve = threading.Thread(target=server.serve_forever, name="drain-race-serve", daemon=True)
+    client_done = threading.Event()
+    client_box: dict[str, Any] = {}
+    before = {t.ident for t in threading.enumerate()}
+
+    def _post(payload: dict[str, Any], timeout: float) -> None:
+        try:
+            req_headers = {"Content-Type": "application/json"}
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(f"http://127.0.0.1:{settings.port}/v1/execute", data=data, headers=req_headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    client_box["status"] = resp.status
+                    client_box["body"] = json.loads(resp.read().decode("utf-8"))
+                    client_box["exc"] = None
+            except urllib.error.HTTPError as e:
+                client_box["status"] = e.code
+                client_box["body"] = json.loads(e.read().decode("utf-8"))
+                client_box["exc"] = None
+        except Exception as exc:
+            client_box["exc"] = exc
+        finally:
+            client_done.set()
+
+    try:
+        serve.start()
+        # Warm so the ready handshake is not the armed read.
+        warm = threading.Thread(target=lambda: _post({"id": "warm", "code": "result = 1", "timeout_ms": 15000}, 20), daemon=True)
+        warm.start()
+        warm.join(timeout=20)
+        assert client_box["status"] == 200
+
+        armed = True
+        client_box.clear()
+        client_done.clear()
+        client = threading.Thread(target=lambda: _post({"id": "slow", "code": "import time\ntime.sleep(30)\nresult = 1", "timeout_ms": 20000}, 12), name="drain-race-client", daemon=True)
+        client.start()
+        assert read_entered.wait(timeout=10)
+
+        server.shutdown()
+        serve.join(timeout=5)
+        assert not serve.is_alive()
+        server.close_sockets()
+        server.drain_executor(0.05)
+        # Formula is still in the pipe read. Drain must have given up.
+        assert not client_done.is_set()
+        server.server_close()
+        shutdown_formula_pool(permanent=True)
+        shutdown_vision_pool(permanent=True)
+
+        client.join(timeout=8)
+        assert not client.is_alive()
+        assert client_done.is_set()
+        assert client_box["exc"] is None
+        assert client_box["status"] == 503
+        body = client_box["body"]
+        assert isinstance(body, dict)
+        assert body.get("status") == "error"
+        assert body.get("code") == "SERVICE_SHUTDOWN"
+        assert body.get("id") == "slow"
+        assert "result_json" not in body
+
+        assert pool._is_shutdown is True
+        assert pool.workers == []
+        assert pool._leased == set()
+        assert len(pool._idle) == 0
+        assert pool._sessions == {}
+        assert pool._lost_sessions == {}
+        with pytest.raises(RuntimeError, match="shut down"):
+            get_formula_pool(settings)
+        with pytest.raises(RuntimeError, match="shut down"):
+            get_vision_pool()
+
+        lingering = [t for t in threading.enumerate() if t.ident not in before and t.is_alive() and not t.daemon]
+        assert lingering == []
+    finally:
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        server.server_close()
+        serve.join(timeout=5)
+        # Non-permanent shutdown clears _closed even when the pool is already None.
+        shutdown_formula_pool()
+        shutdown_vision_pool()
