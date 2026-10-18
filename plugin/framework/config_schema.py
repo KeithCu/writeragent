@@ -601,10 +601,7 @@ def _dataclass_field_default(field: "dataclasses.Field[Any]") -> Any:
 def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
     # from __future__ import annotations stores field.type as a string.
     # get_type_hints resolves it so ``is int`` still matches on 3.9 and 3.13.
-    try:
-        resolved = typing.get_type_hints(WriterAgentConfig).get(field.name, field.type)
-    except Exception:
-        resolved = field.type
+    resolved = typing.get_type_hints(WriterAgentConfig).get(field.name, field.type)
     field_type_obj = resolved
     origin = typing.get_origin(field_type_obj) or field_type_obj
     if field_type_obj is int:

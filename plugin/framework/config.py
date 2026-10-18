@@ -531,8 +531,6 @@ def _copy_config_value(value: Any) -> Any:
 def get_config(key: str) -> Any:
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict()
-    if not isinstance(config_data, dict):
-        config_data = {}
 
     if key in config_data:
         return _copy_config_value(config_data[key])
@@ -654,8 +652,6 @@ def get_config_dict() -> dict[str, Any]:
     itself let a caller change memory without a write.
     """
     data = _get_validated_config_dict()
-    if not isinstance(data, dict):
-        return {}
     return {key: _copy_config_value(value) for key, value in data.items()}
 
 
@@ -1170,9 +1166,6 @@ def _get_validated_config_dict() -> dict[str, Any]:
 
         try:
             data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=True, fail_on_unrepairable=True)
-
-            if not isinstance(data, dict):
-                raise ConfigError("Config must be a JSON object", "CONFIG_INVALID_FORMAT")
 
             try:
                 current_mtime = os.path.getmtime(config_file_path)
