@@ -22,7 +22,7 @@ def test_run_async_worker_with_drain_next_tool_keeps_pumping():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    q = queue.Queue()
+    q = StreamQueue()
     q.put((StreamQueueKind.NEXT_TOOL,))
     q.put((StreamQueueKind.CHUNK, "kept"))
     q.put((StreamQueueKind.STREAM_DONE, "end"))
@@ -206,7 +206,7 @@ def test_worker_exception_on_error_true_still_applies_later_chunk(caplog):
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    shared: queue.Queue = queue.Queue()
+    shared: StreamQueue = StreamQueue()
     applied = []
     errors = []
 
@@ -1032,4 +1032,3 @@ def test_stream_queue_terminal_subscribers_are_independent():
     assert cell5[0] is False
 
     assert type(q).put is StreamQueue.put
-    assert not hasattr(q, "_wa_terminal_watch")

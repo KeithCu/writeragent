@@ -50,7 +50,7 @@ from typing import Any, Callable, cast
 
 from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind, _DelayedPokeTimer
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
@@ -335,7 +335,7 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
     if isinstance(item, (tuple, list)):
         # An empty sequence has no kind. item[0] on () or [] raises
         # IndexError before the invalid-tag check, including in the Stop
-        # tail and the put wrapper. None fails the StreamQueueKind check
+        # tail and StreamQueue.put. None fails the StreamQueueKind check
         # the same way a bad tag does.
         kind = item[0] if item else None
         data = item[1] if len(item) > 1 else None
@@ -524,17 +524,6 @@ _DRAIN_IDLE_REARM_SEC = 0.1
 _IDLE_REARM_RETRY_MAX_SEC = 1.0
 _IDLE_REARM_MAX_FAILURES = 8
 
-
-def _idle_rearm_max_failures() -> int:
-    # crosshair: off
-    return _IDLE_REARM_MAX_FAILURES
-
-
-def _idle_rearm_retry_delay(failures: int) -> float:
-    # crosshair: off
-    return min(_IDLE_REARM_RETRY_MAX_SEC, _DRAIN_IDLE_REARM_SEC * 2 ** min(failures - 1, 4))
-
-
 # LibreOffice evidence: on Qt (vcl/qt5/QtInstance.cxx ImplYield), macOS
 # (vcl/osx/salinst.cxx DoYield) and Windows (PostMessage SAL_MSG_USEREVENT
 # retrieved before input/paint) continuously re-posted user events can starve
@@ -582,6 +571,132 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
     session.epilogues.append(fn)
 
 
+class _IdleRearmThread:
+    """One dedicated thread that pokes the main thread after a delay.
+
+    A fresh thread per idle would churn for the whole stream. ``arm`` only
+    moves the deadline. The thread never touches UNO objects it created;
+    the fire callable (``addCallback``) is the same one workers already use.
+    """
+
+    _cv: threading.Condition
+    _deadline: float | None
+    _fire: Callable[[], None] | None
+    _on_give_up: Callable[[], None] | None
+    _generation: int
+    _failures: int
+    _started: bool
+    _stopped: bool
+
+    def __init__(self) -> None:
+        # crosshair: off
+        self._cv = threading.Condition()
+        self._deadline = None
+        self._fire = None
+        self._on_give_up = None
+        self._generation = 0
+        self._failures = 0
+        self._started = False
+        self._stopped = False
+
+    def arm(self, delay: float, fire: Callable[[], None], on_give_up: Callable[[], None] | None = None) -> None:
+        # crosshair: off
+        with self._cv:
+            if self._stopped:
+                return
+            self._generation += 1
+            self._failures = 0
+            self._fire = fire
+            self._on_give_up = on_give_up
+            self._deadline = time.monotonic() + delay
+            if not self._started:
+                run_in_background(self._run, name="drain-rearm", dedicated=True)
+                self._started = True
+            self._cv.notify()
+
+    def cancel(self) -> None:
+        # crosshair: off
+        with self._cv:
+            self._generation += 1
+            self._failures = 0
+            self._deadline = None
+            self._fire = None
+            self._on_give_up = None
+            self._cv.notify()
+
+    def stop(self) -> None:
+        # crosshair: off
+        with self._cv:
+            self._stopped = True
+            self._deadline = None
+            self._fire = None
+            self._on_give_up = None
+            self._cv.notify()
+
+    def _run(self) -> None:
+        # crosshair: off
+        while True:
+            with self._cv:
+                while self._deadline is None and not self._stopped:
+                    self._cv.wait()
+                if self._stopped:
+                    return
+                deadline = self._deadline
+                generation = self._generation
+                fire = self._fire
+                if deadline is None or fire is None:
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    self._cv.wait(timeout=remaining)
+                    continue
+                # This thread still holds the lock and did not wait, so a
+                # newer arm or cancel cannot have changed the generation.
+                self._deadline = None
+                self._fire = None
+            try:
+                fire()
+                with self._cv:
+                    self._failures = 0
+            except Exception:
+                # A lost idle re-arm means the drain never runs another slice
+                # (owner held, Send stuck on Stop, Stop cannot recover).
+                # Re-queue the same fire with capped backoff unless the drain
+                # stopped or re-armed meanwhile.
+                give_up = False
+                give_up_cb = None
+                delay = None
+                failures = 0
+                with self._cv:
+                    if not self._stopped and self._deadline is None and self._generation == generation:
+                        self._failures += 1
+                        failures = self._failures
+                        if self._failures >= _IDLE_REARM_MAX_FAILURES:
+                            # Bugfix: unbounded 1 s retries held the drain owner until process
+                            # exit when addCallback stayed dead (dispose/shutdown).
+                            self._fire = None
+                            give_up = True
+                            give_up_cb = self._on_give_up
+                        else:
+                            delay = min(_IDLE_REARM_RETRY_MAX_SEC, _DRAIN_IDLE_REARM_SEC * 2**min(failures - 1, 4))
+                            self._deadline = time.monotonic() + delay
+                            self._fire = fire
+                            self._cv.notify()
+                if give_up:
+                    log.warning("drain idle re-arm failed %d times; giving up", failures)
+                    if give_up_cb is not None:
+                        try:
+                            give_up_cb()
+                        except Exception:
+                            log.exception("drain idle give-up callback failed")
+                elif delay is None:
+                    log.debug("drain idle re-arm failed after stop/re-arm; not retrying", exc_info=True)
+                elif failures == 1:
+                    log.exception("drain idle re-arm failed")
+                else:
+                    log.warning("drain idle re-arm failed %d times, retrying in %.2fs", failures, delay)
+
+
 def _new_xcallback(fn: Callable[[], None]) -> Any:
     """UNO ``XCallback`` whose ``notify`` runs *fn* on the main thread."""
     # crosshair: off
@@ -615,7 +730,7 @@ class _AsyncCallbackRearm:
     _pending: list[Callable[[], None]]
     _closed: bool
     _callback: Any
-    _timer: _DelayedPokeTimer
+    _timer: _IdleRearmThread
     _on_idle_give_up: Callable[[], None] | None
 
     def __init__(self, service: Any) -> None:
@@ -626,14 +741,7 @@ class _AsyncCallbackRearm:
         self._closed = False
         # Created on the main thread. The timer thread only calls addCallback.
         self._callback = _new_xcallback(self._notify)
-        self._timer = _DelayedPokeTimer(
-            "drain-rearm",
-            replace=True,
-            retry=True,
-            logger=log,
-            max_failures=_idle_rearm_max_failures,
-            retry_delay=_idle_rearm_retry_delay,
-        )
+        self._timer = _IdleRearmThread()
         self._on_idle_give_up = None
 
     def bind_idle_give_up(self, fn: Callable[[], None]) -> None:
@@ -1250,7 +1358,7 @@ def run_async_worker_with_drain(
     owner is taken; a drain that fails to start never starts the worker.
     Toolkit may be ``None``.
 
-    ``q`` is a ``queue.Queue`` or a producer batcher with ``raw`` and
+    ``q`` is a :class:`StreamQueue` or a producer batcher with ``raw`` and
     ``flush``. The drain reads ``raw`` and calls ``flush`` on Stop and
     before the terminal item.
 
@@ -1279,7 +1387,11 @@ def run_async_worker_with_drain(
     # send_handlers, which closes over the real queue and puts
     # ERROR/STREAM_DONE there, so finally always posts a second STREAM_DONE.
     # That can end a recovered drain (on_error True) on a later iteration.
-    real_any: Any = _real_q
+    # Tip: a plain queue.Queue cannot report terminal puts, so the wrapper
+    # would always add a second STREAM_DONE. Fail loudly instead.
+    if not isinstance(_real_q, StreamQueue):
+        raise TypeError(f"run_async_worker_with_drain needs a StreamQueue (or a batcher over one), got {type(_real_q).__name__}")
+    real_q: StreamQueue = _real_q
 
     def worker_wrapper() -> None:
         # Skip the STREAM_DONE sentinel when this wrapper or the worker
@@ -1296,10 +1408,7 @@ def run_async_worker_with_drain(
         # second ERROR, or a recovery on_error (returning True) runs a
         # second time against the replacement worker.
         error_item: tuple[Any, Any] | None = None
-        if isinstance(real_any, StreamQueue):
-            saw_terminal = real_any.subscribe_terminal()
-        else:
-            saw_terminal = [False]
+        saw_terminal = real_q.subscribe_terminal()
         try:
             try:
                 # Pass the real queue (or batcher). Puts to StreamQueue notify subscribers.
@@ -1319,12 +1428,11 @@ def run_async_worker_with_drain(
             except Exception:
                 log.exception("producer batch flush before terminal failed")
             if error_item is not None and not saw_terminal[0]:
-                real_any.put(error_item)
+                real_q.put(error_item)
             elif not saw_terminal[0]:
-                real_any.put((StreamQueueKind.STREAM_DONE, None))
+                real_q.put((StreamQueueKind.STREAM_DONE, None))
         finally:
-            if isinstance(real_any, StreamQueue):
-                real_any.unsubscribe_terminal(saw_terminal)
+            real_q.unsubscribe_terminal(saw_terminal)
 
     from plugin.framework.uno_context import get_toolkit
 

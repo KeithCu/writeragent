@@ -209,7 +209,7 @@ class SendHandlerHost(Protocol):
     def rerender_rich_text_session(self) -> bool: ...
     _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
-        self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
+        self, q: StreamQueue, worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None: ...
     def _get_mcp_url(self) -> str | None: ...
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
@@ -355,7 +355,7 @@ class SendHandlersMixin:
             self.audio_wav_path = None
 
     def _run_unified_worker_drain_loop(
-        self: SendHandlerHost, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
+        self: SendHandlerHost, q: StreamQueue, worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None:
 
 

@@ -13,8 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.framework import async_stream
-from plugin.framework.stream_batch import StreamQueueKind, _DelayedPokeTimer
+from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import run_stream_drain_loop
 from tests.framework.stream_test_helpers import (
     DummyToolkit,
@@ -449,17 +448,12 @@ def test_event_drain_batches_one_slice_and_stops_on_terminal() -> None:
 
 
 def test_idle_rearm_thread_retries_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework import async_stream
+
     monkeypatch.setattr(async_stream, "_DRAIN_IDLE_REARM_SEC", 0.01)
     monkeypatch.setattr(async_stream, "_IDLE_REARM_RETRY_MAX_SEC", 0.01)
 
-    thread = _DelayedPokeTimer(
-        "drain-rearm",
-        replace=True,
-        retry=True,
-        logger=async_stream.log,
-        max_failures=async_stream._idle_rearm_max_failures,
-        retry_delay=async_stream._idle_rearm_retry_delay,
-    )
+    thread = async_stream._IdleRearmThread()
     calls = []
     done_event = __import__("threading").Event()
 
@@ -768,18 +762,13 @@ def test_failed_arm_does_not_call_on_drain_started() -> None:
 
 
 def test_idle_rearm_gives_up_after_max_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework import async_stream
+
     monkeypatch.setattr(async_stream, "_IDLE_REARM_MAX_FAILURES", 3)
     monkeypatch.setattr(async_stream, "_DRAIN_IDLE_REARM_SEC", 0.01)
     monkeypatch.setattr(async_stream, "_IDLE_REARM_RETRY_MAX_SEC", 0.01)
 
-    thread = _DelayedPokeTimer(
-        "drain-rearm",
-        replace=True,
-        retry=True,
-        logger=async_stream.log,
-        max_failures=async_stream._idle_rearm_max_failures,
-        retry_delay=async_stream._idle_rearm_retry_delay,
-    )
+    thread = async_stream._IdleRearmThread()
     calls = []
     give_up_event = __import__("threading").Event()
 

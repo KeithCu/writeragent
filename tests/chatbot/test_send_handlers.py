@@ -1,7 +1,7 @@
-import queue
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.stream_batch import StreamQueueKind
+from plugin.framework.async_stream import StreamQueue
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.chatbot.state_machine import EffectInterpreter, SendHandlerState
 from plugin.tests.testing_utils import MockContext, MockDocument
@@ -653,7 +653,7 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
 
     if current_turn(panel) is None:
         begin_send_turn(panel, handler_type)
-    q: queue.Queue = queue.Queue()
+    q: StreamQueue = StreamQueue()
     state = SendHandlerState(handler_type=handler_type, status="starting")
     interpreter = EffectInterpreter(panel)
 
@@ -2173,7 +2173,7 @@ def test_record_assistant_start_on_ui_thread_for_web_research():
     panel = DummyChatbotPanel()
     assert panel._record_assistant_start is False
 
-    q = queue.Queue()
+    q = StreamQueue()
     current_state = SendHandlerState("web", "ready")
 
     # We test the drain loop applies the store from the UI side correctly, but wait, the fix we
@@ -2201,7 +2201,7 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
         callback = MagicMock()
         setattr(panel, callback_name, callback)
 
-        q = queue.Queue()
+        q = StreamQueue()
         current_state = SendHandlerState("web", "ready")
         error_payload = {payload_key: False, "assistant_content": "[error message]"}
 

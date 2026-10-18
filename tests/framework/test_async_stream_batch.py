@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for async_stream batching, flushing, error handling, and drain guards."""
 
-import logging
 import queue
 import threading
 import time
@@ -12,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind, _DelayedPokeTimer
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+from plugin.framework.async_stream import StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.stream_test_helpers import DummyToolkit
 
@@ -289,7 +288,7 @@ def test_async_worker_flushes_queue_with_raw_and_flush():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    raw: queue.Queue = queue.Queue()
+    raw: StreamQueue = StreamQueue()
 
     class _HoldingQueue:
         def __init__(self) -> None:
@@ -329,7 +328,7 @@ def test_async_worker_stop_flushes_batcher_before_worker_returns():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    batched = BatchingStreamQueue(queue.Queue(), batch_interval=30.0)
+    batched = BatchingStreamQueue(StreamQueue(), batch_interval=30.0)
     produced = threading.Event()
     release = threading.Event()
     applied: list[str] = []
@@ -362,7 +361,7 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    raw: queue.Queue = queue.Queue()
+    raw: StreamQueue = StreamQueue()
     batched = BatchingStreamQueue(raw, batch_interval=30.0)
     errors: list[object] = []
     done = threading.Event()
@@ -396,7 +395,7 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
     thread.join(1)
     assert errors
     assert any("worker boom" in str(err) for err in errors)
-    assert getattr(raw, "_wa_terminal_watch", None) is None
+    assert raw._terminal_flags == []
     assert raw.put.__name__ == "put"
 
 
@@ -730,7 +729,9 @@ def test_error_item_on_error_raise_is_not_called_twice():
 
 
 def test_idle_rearm_cancel_resets_failures():
-    timer = _DelayedPokeTimer("drain-rearm", replace=True, retry=True, logger=logging.getLogger("test"))
+    from plugin.framework.async_stream import _IdleRearmThread
+
+    timer = _IdleRearmThread()
     timer._failures = 4
     timer.cancel()
     assert timer._failures == 0
