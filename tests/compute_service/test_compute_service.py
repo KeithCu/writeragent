@@ -8,7 +8,11 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+from pathlib import Path
+import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -4025,4 +4029,233 @@ def test_invalid_base64_and_params_are_400() -> None:
     )
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="subprocess SIGTERM is TerminateProcess and is not delivered to the Python handler",
+)
+def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
+    """SIGTERM during a slow cell closes the listener, logs the drain warning, and exits 0.
+
+    The production drain is 30s (compute_service/http_server.py _HTTP_DRAIN_SEC).
+    This test assigns compute_service.server._HTTP_DRAIN_SEC = 1.0 inside a
+    tmp_path wrapper before main(). server.py binds that name with
+    ``from compute_service.http_server import _HTTP_DRAIN_SEC``, so patching
+    the http_server module attribute does not affect run_server. 1.0 formats
+    as ``1s`` via ``%.0f``. The cell sleeps 8s, which is longer than the 6s
+    exit bound, so a shutdown that waits for the cell fails.
+
+    Probed on this tree: listener refused ~20ms after SIGTERM, exactly one
+    ``HTTP request drain exceeded 1s`` WARNING, exit 0 in about 1.0–1.5s.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    drain_sec = 1.0
+    cell_sleep_sec = 8
+    # Shorter than cell_sleep_sec. Observed shutdown was ~1.5s with start_new_session.
+    exit_bound_sec = 6.0
+    health_bound_sec = 10.0
+    exec_bound_sec = 10.0
+    refused_bound_sec = 2.0
+
+    wrapper = tmp_path / "boot_short_drain.py"
+    wrapper.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(repo)!r})\n"
+        "import compute_service.server as server\n"
+        f"server._HTTP_DRAIN_SEC = {drain_sec!r}\n"
+        "raise SystemExit(server.main())\n",
+        encoding="utf-8",
+    )
+
+    def _child_env() -> dict[str, str]:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("PYTHON_COMPUTE_")}
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONPATH"] = str(repo)
+        env["WRITERAGENT_UNO_THREAD_GUARD"] = "0"
+        env["MPLBACKEND"] = "Agg"
+        return env
+
+    def _pump(stream: Any, sink: list[str]) -> None:
+        for line in iter(stream.readline, ""):
+            sink.append(line)
+
+    def _refused(port: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return False
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
+
+    proc: subprocess.Popen[str] | None = None
+    lines: list[str] = []
+    readers: list[threading.Thread] = []
+    post_thread: threading.Thread | None = None
+    post_done = threading.Event()
+    try:
+        last_log = ""
+        bound_port = 0
+        for _attempt in range(3):
+            port = get_free_port()
+            config_path = tmp_path / f"python-compute-{port}.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "listen": {"host": "127.0.0.1", "port": port},
+                        "ocr": {"workers": 0},
+                        "logging": {"log_level": "INFO"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cmd = [
+                sys.executable,
+                "-u",
+                str(wrapper),
+                "--config",
+                str(config_path),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--workers",
+                "1",
+                "--ocr-workers",
+                "0",
+                "--log-level",
+                "INFO",
+            ]
+            lines = []
+            readers = []
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(repo),
+                env=_child_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                start_new_session=True,
+            )
+            assert proc.stdout is not None and proc.stderr is not None
+            for stream in (proc.stdout, proc.stderr):
+                reader = threading.Thread(target=_pump, args=(stream, lines), daemon=True)
+                reader.start()
+                readers.append(reader)
+            health_deadline = time.monotonic() + health_bound_sec
+            healthy = False
+            while time.monotonic() < health_deadline:
+                if proc.poll() is not None:
+                    break
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=0.5) as resp:
+                        body = resp.read().decode("utf-8")
+                        healthy = resp.status == 200 and '"status": "healthy"' in body
+                        break
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    time.sleep(0.05)
+            if healthy:
+                bound_port = port
+                break
+            last_log = "".join(lines)
+            if proc.poll() is not None and "Failed to bind" in last_log:
+                proc = None
+                continue
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+            proc = None
+            break
+        assert proc is not None and bound_port != 0, last_log
+
+        def _post() -> None:
+            payload = json.dumps(
+                {
+                    "id": "slow-shutdown",
+                    "code": f"import time\ntime.sleep({cell_sleep_sec})\nresult = 1",
+                    "timeout_ms": 20000,
+                }
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{bound_port}/v1/execute",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp.read()
+            except Exception:
+                # The abandoned cell closes the socket. The assertion is the
+                # server log and the exit code, not this client error.
+                pass
+            finally:
+                post_done.set()
+
+        post_thread = threading.Thread(target=_post, daemon=True)
+        post_thread.start()
+        exec_deadline = time.monotonic() + exec_bound_sec
+        while time.monotonic() < exec_deadline:
+            if any("exec /v1/execute id='slow-shutdown'" in line for line in lines):
+                break
+            if proc.poll() is not None:
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("".join(lines))
+        assert proc.poll() is None, "".join(lines)
+
+        # Listener must still be up until SIGTERM, or the later refused
+        # check does not prove shutdown closed it.
+        assert not _refused(bound_port)
+        sig_at = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        refused_deadline = sig_at + refused_bound_sec
+        refused = False
+        while time.monotonic() < refused_deadline:
+            if _refused(bound_port):
+                refused = True
+                break
+            time.sleep(0.02)
+        # Captured while the 8s cell is still running. After process exit the
+        # port can be reused, so do not poll again.
+        in_flight = not post_done.is_set()
+        try:
+            return_code = proc.wait(timeout=exit_bound_sec)
+        except subprocess.TimeoutExpired:
+            return_code = None
+        elapsed = time.monotonic() - sig_at
+        for reader in readers:
+            reader.join(timeout=2)
+        log_text = "".join(lines)
+        assert refused, log_text
+        assert in_flight, log_text
+        assert return_code == 0, log_text
+        assert elapsed < exit_bound_sec, log_text
+        assert f"Starting Python Compute Service on 127.0.0.1:{bound_port}" in log_text
+        assert "auth=no (insecure)" in log_text
+        assert "exec /v1/execute id='slow-shutdown'" in log_text
+        assert "Received signal SIGTERM, initiating graceful shutdown..." in log_text
+        assert "Stopping Python Compute Service..." in log_text
+        assert "HTTP request drain exceeded 1s; abandoning in-flight handlers" in log_text
+        assert "writeragent.framework.http_server" in log_text
+        assert "Shutting down Formula worker pool (1 workers)..." in log_text
+        assert "Received repeated signal" not in log_text
+        assert log_text.count("HTTP request drain exceeded") == 1
+    finally:
+        if proc is not None and proc.poll() is None:
+            # SIGKILL, not a second SIGTERM. A second SIGTERM hits
+            # os._exit(1) and fails the clean-exit assertion.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        if post_thread is not None:
+            post_thread.join(timeout=5)
+
 
