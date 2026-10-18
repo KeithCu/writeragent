@@ -141,7 +141,7 @@ When Calc evaluates an add-in formula like `=PY("1+1")` or `=PROMPT(...)` via a 
   RuntimeError: marshal refused: execute_on_main_thread called from synchronous host dispatch context (deadlock hazard #402, fn=...)
   ```
 - This prevents the 30-second timeout and lock inversion whenever the Yellow context is entered.
-- `pump_main_thread_work_queue` uses the same off-main rule by returning; the yellow `=PROMPT()` wait does not call it, while UI-thread waits still poll it. It does not refuse when the yellow context is on the UI thread.
+- `pump_main_thread_work_queue` uses the same off-main rule by returning, because the yellow wait polls it. It does not refuse when the yellow context is on the UI thread.
 
 ---
 

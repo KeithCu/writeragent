@@ -19,10 +19,8 @@
 Speech-to-text transcription pumps the UI (``pump_idle=True``) so Stop and an
 in-flight stream stay alive, and does not return until transcription finishes.
 Notebook cells and ``=PROMPT()`` pass ``pump_idle=False``: the caller blocks,
-and this wait must not return to the VCL loop. ``=PROMPT()`` is off the main
-thread and blocks in ``Queue.get`` until the worker finishes; a UI-thread
-``pump_idle=False`` wait still polls the marshal queue. This is not the chat
-stream drain. Re-exported from ``async_stream``.
+and this wait must not return to the VCL loop. This is not the chat stream
+drain. Re-exported from ``async_stream``.
 """
 
 from __future__ import annotations
@@ -35,7 +33,6 @@ from enum import Enum
 from typing import Any, Iterator, TypeAlias
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
-from plugin.framework.thread_guard import on_main_thread
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -135,16 +132,19 @@ def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
-    # Poll 0.1s only when a pump can run (pump_vcl, or the UI thread draining
-    # execute_on_main_thread work); off-main with no VCL pump,
-    # pump_main_thread_work_queue is a no-op, so block until the worker's put.
-    poll = pump_vcl or on_main_thread()
+    # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
+    # only wakes when the worker finishes, so it never drains the marshal
+    # queue. That deadlocked when pump_idle was True and get_toolkit failed:
+    # the worker sat in execute_on_main_thread waiting for this thread. Do not
+    # add a flag that skips the poll in some cases; that flag caused the bug.
+    # On Empty, pump_vcl calls pump_ui_idle; otherwise
+    # pump_main_thread_work_queue (no processEventsToIdle).
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
         # must propagate: catching it here and calling get again with
         # timeout=None blocks forever, because that worker has already exited.
         try:
-            item = q.get(timeout=0.1 if poll else None)
+            item = q.get(timeout=0.1)
         except queue.Empty:
             if pump_vcl:
                 pump_ui_idle(toolkit)

@@ -39,7 +39,7 @@ def test_run_blocking_in_thread_pump_idle_false_does_not_pump():
     pump_queue.assert_called()
 
 
-def test_off_main_no_pump_does_not_poll_with_timeout():
+def test_no_pump_wait_always_polls_with_timeout():
     ctx = MagicMock()
     timeouts: list[float | None] = []
     real_get = queue.Queue.get
@@ -48,13 +48,17 @@ def test_off_main_no_pump_does_not_poll_with_timeout():
         timeouts.append(timeout)
         return real_get(self, block=block, timeout=timeout)
 
-    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=False):
-        with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue") as pump_queue:
-            with patch("plugin.framework.blocking_wait.pump_ui_idle") as pump_ui:
-                with patch.object(queue.Queue, "get", spy_get):
-                    assert run_blocking_in_thread(ctx, lambda: "ok", pump_idle=False) == "ok"
-    assert timeouts == [None]
-    pump_queue.assert_not_called()
+    def _slow() -> str:
+        time.sleep(0.3)
+        return "ok"
+
+    # Off the UI thread too: never block with timeout=None (#1632 deadlock).
+    with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue") as pump_queue:
+        with patch("plugin.framework.blocking_wait.pump_ui_idle") as pump_ui:
+            with patch.object(queue.Queue, "get", spy_get):
+                assert run_blocking_in_thread(ctx, _slow, pump_idle=False) == "ok"
+    assert timeouts and all(t == 0.1 for t in timeouts)
+    pump_queue.assert_called()
     pump_ui.assert_not_called()
 
 
@@ -147,9 +151,8 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_none_drains_marshal_queue
         with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
             with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
                 def waiter() -> None:
-                    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=True):
-                        res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
-                        result_holder.append(res)
+                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                    result_holder.append(res)
 
                 waiter_thread = threading.Thread(target=waiter, daemon=True)
                 waiter_thread.start()
@@ -179,9 +182,8 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_raises_drains_marshal_que
         with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
             with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
                 def waiter() -> None:
-                    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=True):
-                        res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
-                        result_holder.append(res)
+                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                    result_holder.append(res)
 
                 waiter_thread = threading.Thread(target=waiter, daemon=True)
                 waiter_thread.start()
