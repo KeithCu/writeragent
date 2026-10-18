@@ -48,6 +48,9 @@ g_ImplementationHelper.addImplementation(SeedTest, "org.extension.writeragent.Se
 """
 
 
+# str(Path) so the expected argv uses backslashes on Windows, like the code under test.
+_UNOPKG = str(Path("/fake/bin/unopkg"))
+
 def _oxt(tmp_path: Path) -> Path:
     """Tiny extension with one Python component and a CalcAddIns.xcu, like WriterAgent's."""
     oxt = tmp_path / "SeedTest.oxt"
@@ -202,9 +205,9 @@ def test_register_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert pids_queried == [None]
     assert killed == [[111, 222]]
     assert calls == [
-        (["/fake/bin/unopkg", "remove", "id1"], None),
-        (["/fake/bin/unopkg", "remove", "id2"], None),
-        (["/fake/bin/unopkg", "add", str(oxt.resolve())], None),
+        ([_UNOPKG, "remove", "id1"], None),
+        ([_UNOPKG, "remove", "id2"], None),
+        ([_UNOPKG, "add", str(oxt.resolve())], None),
     ]
     assert not lock1.exists()
     assert not lock2.exists()
@@ -244,8 +247,8 @@ def test_register_remove_failure_proceeds_add_failure_raises(monkeypatch: pytest
         lo_profile.register(oxt, profile, ["id1"], [log])
 
     assert len(calls) == 2
-    assert calls[0] == ["/fake/bin/unopkg", "remove", "id1"]
-    assert calls[1] == ["/fake/bin/unopkg", "add", str(oxt.resolve())]
+    assert calls[0] == [_UNOPKG, "remove", "id1"]
+    assert calls[1] == [_UNOPKG, "add", str(oxt.resolve())]
     assert log.exists()
 
 
@@ -291,8 +294,8 @@ def test_register_harper_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     lo_profile.register(oxt, profile, ["org.extension.libreharper"], [])
 
     assert calls == [
-        ["/fake/bin/unopkg", "remove", "org.extension.libreharper"],
-        ["/fake/bin/unopkg", "add", str(oxt.resolve())],
+        [_UNOPKG, "remove", "org.extension.libreharper"],
+        [_UNOPKG, "add", str(oxt.resolve())],
     ]
 
 
@@ -314,7 +317,7 @@ def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Present id returns 0
     assert lo_profile.main(["verify", "--id", "org.extension.writeragent"]) == 0
-    assert calls == [(["/fake/bin/unopkg", "list"], None)]
+    assert calls == [([_UNOPKG, "list"], None)]
 
     # Absent id returns 1
     assert lo_profile.main(["verify", "--id", "org.extension.other"]) == 1
