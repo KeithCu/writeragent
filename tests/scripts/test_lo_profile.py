@@ -183,12 +183,16 @@ def test_register_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     pids_queried: list[str | None] = []
     killed: list[list[int]] = []
 
+    monkeypatch.setenv("VIRTUAL_ENV", "/venv")
     monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
     monkeypatch.setattr(lo_profile, "office_pids", lambda url: pids_queried.append(url) or [111, 222])
     monkeypatch.setattr(lo_profile, "kill", lambda pids: killed.append(pids))
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append((cmd, kwargs.get("env")))  # type: ignore[arg-type]
+        env = kwargs.get("env")
+        # The real environment minus the venv vars (no scratch HOME).
+        assert isinstance(env, dict) and "VIRTUAL_ENV" not in env and env.get("HOME") == os.environ.get("HOME")
+        calls.append((cmd, None))
         return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
@@ -293,12 +297,16 @@ def test_register_harper_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
 
 def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIRTUAL_ENV", "/venv")
     monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
 
     calls: list[tuple[list[str], dict[str, str] | None]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append((cmd, kwargs.get("env")))  # type: ignore[arg-type]
+        env = kwargs.get("env")
+        # The real environment minus the venv vars (no scratch HOME).
+        assert isinstance(env, dict) and "VIRTUAL_ENV" not in env and env.get("HOME") == os.environ.get("HOME")
+        calls.append((cmd, None))
         out = "Identifier: org.extension.writeragent\n  URL: ...\n"
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 

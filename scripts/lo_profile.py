@@ -8,6 +8,15 @@
     python scripts/lo_profile.py seed --oxt build/WriterAgent.oxt --profile DIR
     python scripts/lo_profile.py register --oxt build/WriterAgent.oxt --profile DIR [--remove ID] [--log PATH]
     python scripts/lo_profile.py verify --id EXTENSION_ID
+
+seed checks a lot because when an office is already running on the profile, unopkg
+starts a helper soffice *without* ``-env:UserInstallation`` and installs into the
+default (HOME / %APPDATA%) profile instead, still exiting 0. So seed refuses a busy
+or used profile, runs unopkg with a scratch HOME as a backstop (Windows ignores
+HOME), and then checks the profile itself rather than trusting the exit code.
+
+register is what ``make register-built-oxt`` and its LibrePy/Harper twins run: it
+installs into the user's normal profile, so it kills every office first.
 """
 
 from __future__ import annotations
@@ -32,15 +41,19 @@ _SCRUB = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
 _CONFIGMGR_INI = "user/uno_packages/cache/registry/com.sun.star.comp.deployment.configuration.PackageRegistryBackend/configmgr.ini"
 
 
+def _scrubbed_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _SCRUB}
+
+
 def _env(home: Path) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k not in _SCRUB}
+    env = _scrubbed_env()
     env["HOME"] = str(home)
     env["XDG_CONFIG_HOME"] = str(home / ".config")
     return env
 
 
 def _capture(cmd: list[str], env: dict[str, str] | None = None) -> tuple[int, str]:
-    # Capture stdout and stderr; unopkg hangs or leaves stale locks if piped into broken pipes.
+    # Capture everything: piping unopkg into e.g. head kills it with SIGPIPE and leaves a stale .lock.
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300, check=False)
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -82,14 +95,20 @@ def seed(oxt: Path, profile: Path) -> None:
 
 
 def register(oxt: Path, profile: Path, remove_ids: list[str], logs: list[Path]) -> None:
+    """Reinstall *oxt* into the normal profile at *profile* (the Makefile's LO_CONF).
+
+    Removing an id that is not installed is fine; a failed add raises.
+    *logs* are deleted only after the add worked.
+    """
     unopkg = find("unopkg")
     if unopkg is None:
         raise RuntimeError("LibreOffice unopkg not found")
     kill(office_pids(None))
     for lock in (profile / ".lock", profile / "user" / ".lock"):
         lock.unlink(missing_ok=True)
+    env = _scrubbed_env()
     for remove_id in remove_ids:
-        _capture([str(unopkg), "remove", remove_id])
+        _capture([str(unopkg), "remove", remove_id], env)
     (profile / "user" / "extensions" / "tmp" / "extensions.pmap").unlink(missing_ok=True)
     tmp_dir = profile / "user" / "extensions" / "tmp" / "extensions"
     if tmp_dir.is_dir():
@@ -98,16 +117,18 @@ def register(oxt: Path, profile: Path, remove_ids: list[str], logs: list[Path]) 
                 shutil.rmtree(item, ignore_errors=True)
             else:
                 item.unlink(missing_ok=True)
-    _run([str(unopkg), "add", str(oxt.resolve())])
+    # No -env:UserInstallation: CI's plain ``unopkg list`` reads the default profile.
+    _run([str(unopkg), "add", str(oxt.resolve())], env)
     for log_path in logs:
         log_path.unlink(missing_ok=True)
 
 
 def verify_registered(ext_id: str) -> None:
+    """Raise unless plain ``unopkg list`` (default profile) shows *ext_id*."""
     unopkg = find("unopkg")
     if unopkg is None:
         raise RuntimeError("LibreOffice unopkg not found")
-    listing = _run([str(unopkg), "list"])
+    listing = _run([str(unopkg), "list"], _scrubbed_env())
     if ext_id not in listing:
         raise RuntimeError("%s is not registered in LibreOffice" % ext_id)
 
