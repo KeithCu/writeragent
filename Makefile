@@ -81,11 +81,8 @@ ifeq ($(OS),Windows_NT)
     LO_PROGRAM := $(firstword $(wildcard C:/Progra~1/LibreOffice/program) $(wildcard C:/Progra~2/LibreOffice/program))
     ifneq ($(LO_PROGRAM),)
         UNOPKG := "$(LO_PROGRAM)/unopkg.exe"
-        LO_PYTHON ?= $(LO_PROGRAM)/python.exe
     else
         UNOPKG := unopkg
-        # No LibreOffice program dir: leave LO_PYTHON unset. A random
-        # python.exe cannot host pyuno; test-uno must fail loudly instead.
     endif
 else
     SCRIPTS = $(PROJECT_ROOT)/scripts
@@ -97,44 +94,8 @@ else
     UNAME_S := $(shell uname -s 2>/dev/null)
     ifeq ($(UNAME_S),Darwin)
     LO_CONF := $(HOME)/Library/Application Support/LibreOffice/4
-    # Official macOS entry is Contents/Resources/python (pyuno/zipcore/python.sh
-    # + mac.sh): it sets UNO_PATH, URE_BOOTSTRAP, PYTHONHOME, PYTHONPATH
-    # (Resources + Frameworks) and execs Python.app's LibreOfficePython.
-    # officehelper.py / uno.py ship in Contents/Resources (LIBO_LIB_PYUNO_FOLDER).
-    # The raw LibreOfficePython.framework .../bin/python3 does not put those
-    # modules on sys.path — macOS CI 33708366478 imported nothing and died
-    # before bootstrap. Framework python3 remains a fallback for older
-    # layouts; LO_PYTHON_ENV then supplies the wrapper variables.
-    # Never fall through to $(PYTHON) / .venv (macOS CI 33447724981 segfault).
-    LO_APP := $(firstword $(wildcard \
-        /Applications/LibreOffice.app \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app))
-    LO_PYTHON ?= $(firstword $(wildcard \
-        /Applications/LibreOffice.app/Contents/Resources/python \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Resources/python \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Resources/python \
-        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3))
-    # Recipe prefix only — do not export PYTHONPATH (would break pytest / .venv).
-    # UNO_PATH is Contents/MacOS (soffice), not Resources (wrapper default).
-    ifneq ($(LO_APP),)
-    LO_FUNDAMENTALRC := $(firstword $(wildcard \
-        $(LO_APP)/Contents/Resources/fundamentalrc \
-        $(LO_APP)/Contents/Resources/fundamental.ini))
-    LO_PYTHON_ENV = UNO_PATH="$(LO_APP)/Contents/MacOS" URE_BOOTSTRAP="vnd.sun.star.pathname:$(or $(LO_FUNDAMENTALRC),$(LO_APP)/Contents/Resources/fundamentalrc)" PYTHONPATH="$(LO_APP)/Contents/Resources:$(LO_APP)/Contents/Frameworks"
-    endif
     else
     LO_CONF := $(HOME)/.config/libreoffice/4
-    # python3-uno binds to the distro interpreter. setup-python / uv put
-    # another python3 first on PATH, so a bare `python3 -c "import uno"`
-    # fails on Ubuntu CI even when python3-uno is installed (33453027089,
-    # again 33456719039 on this branch before #532 was merged in).
-    LO_PYTHON ?= $(shell /usr/bin/python3 -c "import uno" 2>/dev/null && echo /usr/bin/python3)
     endif
     HOME_DIR = $(HOME)
     UNOPKG := unopkg
@@ -164,6 +125,13 @@ ifneq ($(wildcard $(PROJECT_ROOT)/.venv/Scripts/python.exe),)
     PYTHON := $(PROJECT_ROOT)/.venv/Scripts/python.exe
 endif
 endif
+ifeq ($(origin LO_PYTHON),undefined)
+LO_PYTHON := $(shell "$(PYTHON)" "$(SCRIPTS)/lo_paths.py" find lo-python)
+endif
+ifneq ($(origin LO_PYTHON_ENV),undefined)
+export LO_PYTHON_ENV
+endif
+
 # Optional PySpector CLI (console script; no python -m). Not part of make test.
 ifeq ($(OS),Windows_NT)
     PYSPECTOR := $(PROJECT_ROOT)/.venv/Scripts/pyspector.exe
@@ -694,18 +662,6 @@ check-ext:
 	@echo "---"
 	@"$(PYTHON)" -c "from plugin._manifest import MODULES; print('Manifest OK: %d modules, %d with config' % (len(MODULES), len([m for m in MODULES if m.get('config')])))"
 
-# Host Python that can import the real pyuno bridge.
-# Windows / Darwin set LO_PYTHON above to LibreOffice's bundled interpreter.
-# Linux (and any platform that left it unset) probes system python3, then python.
-# Do NOT fall back to the project venv: on macOS that CPython 3.13 loads pyuno
-# and segfaults with no output (CI 33447724981). If nothing can import uno,
-# LO_PYTHON stays empty and _check-lo-python fails with the paths we looked for.
-LO_PYTHON ?= $(shell python3 -c "import uno" 2>/dev/null && echo python3 || (python -c "import uno" 2>/dev/null && echo python))
-# Darwin sets this to UNO_PATH / URE_BOOTSTRAP / PYTHONPATH. Empty elsewhere.
-LO_PYTHON_ENV ?=
-# Drop host-venv leaks so LibreOffice's interpreter does not inherit
-# PYTHONHOME / VIRTUAL_ENV / __PYVENV_LAUNCHER__ (Darwin venv leak).
-LO_PYTHON_UNSET := env -u VIRTUAL_ENV -u __PYVENV_LAUNCHER__ -u PYTHONHOME
 
 # -j6 leaves a core free. Do not pass basedpyright --threads: it nests workers on this pool.
 typecheck: manifest ruff-for-build
@@ -777,33 +733,13 @@ FILTER ?=
 # python3 exists but cannot import officehelper without the Resources
 # wrapper / URE_BOOTSTRAP (CI 33708366478). Probe both modules here.
 _check-lo-python:
-	@if [ -z "$(strip $(LO_PYTHON))" ]; then \
-		echo >&2 "error: LO_PYTHON is empty — no interpreter that can import uno was found."; \
-		echo >&2 "LibreOffice pyuno cannot be hosted by an arbitrary CPython (macOS CI"; \
-		echo >&2 "segfaulted in ~150ms with no output when the project venv was used)."; \
-		echo >&2 "Looked for:"; \
-		echo >&2 "  macOS: /Applications/LibreOffice.app/Contents/Resources/python"; \
-		echo >&2 "         (official wrapper; also Homebrew Caskroom LibreOffice.app)"; \
-		echo >&2 "         fallback: LibreOfficePython.framework/.../bin/python3"; \
-		echo >&2 "  Linux: /usr/bin/python3 (python3-uno), then python3 or python on PATH"; \
-		echo >&2 "  Windows: LibreOffice/program/python.exe"; \
-		echo >&2 "Set LO_PYTHON to LibreOffice's bundled interpreter — not the project .venv."; \
-		exit 1; \
-	fi
-	@echo "LO_PYTHON=$(LO_PYTHON)"
-	@if ! $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -c "from plugin.testing_runner import _ensure_libreoffice_python_path; _ensure_libreoffice_python_path(); import officehelper, uno; print('officehelper=' + officehelper.__file__); print('uno=' + uno.__file__)"; then \
-		echo >&2 "error: $(LO_PYTHON) cannot import officehelper and uno."; \
-		echo >&2 "On macOS use Contents/Resources/python (sets URE_BOOTSTRAP / PYTHONPATH)"; \
-		echo >&2 "or set those vars yourself. officehelper.py lives in Contents/Resources."; \
-		echo >&2 "Do not fall back to the project .venv — that CPython cannot host pyuno."; \
-		exit 1; \
-	fi
+	@"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" check-lo-python --python "$(LO_PYTHON)"
 
 test-uno: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	# Release runs this from a /tmp tree with no .venv. The spill UNO test
 	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
-	PYTHONUNBUFFERED=1 WRITERAGENT_PROJECT_ROOT="$(PROJECT_ROOT)" $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 # Same office process, N times: stress Draw factory-open / close (URP DisposedException flakes).
 # FILTER defaults to the Draw native suite. PAIR=tree-math | dup-move expands --pair.
@@ -820,11 +756,11 @@ SOAK_FILTERS := --pair $(PAIR) $(FILTER)
 endif
 test-uno-soak: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --repeat $(REPEAT) $(SOAK_FILTERS); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner --repeat $(REPEAT) $(SOAK_FILTERS); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 test-mock-sidebar: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	WRITERAGENT_UNO_TEST_TIMEOUT=120 PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --user-profile $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_TEST_TIMEOUT=120 -- -u -m plugin.testing_runner --user-profile $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 # Cap xdist at 6 so subprocess-heavy compute_service / venv worker tests
 # do not starve handshake timeouts on an 8-core box (PYTEST_WORKERS=auto).
@@ -865,13 +801,13 @@ vhs:
 		-k hypothesis -s --hypothesis-verbosity=verbose
 
 test-visible: _check-lo-python
-	PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 lo-test-threadguard:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(MAKE) test-uno
 
 lo-test-threadguard-visible: _check-lo-python
-	WRITERAGENT_UNO_THREAD_GUARD=1 PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_THREAD_GUARD=1 -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 opengrep-lint:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)

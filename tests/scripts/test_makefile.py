@@ -50,53 +50,38 @@ def test_lo_kill_when_cwd_has_no_makefile(tmp_path: Path) -> None:
     assert '$(MAKE) -C "$(PROJECT_ROOT)" lo-kill' in text
 
 
-def test_makefile_darwin_lo_python_uses_bundled_interpreter() -> None:
-    """macOS must not fall through to the project venv (CI 33447724981)."""
+def test_makefile_lo_python_recipes_call_lo_paths() -> None:
+    """_check-lo-python calls check-lo-python; the five UNO recipes call run-lo-python."""
     text = MAKEFILE.read_text(encoding="utf-8")
-    darwin = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[0]
-    assert "Contents/Resources/python" in darwin
-    assert "LibreOfficePython.framework" in darwin
-    assert "Versions/Current/bin/python3" in darwin
-    assert "Caskroom/libreoffice" in darwin
-    assert "URE_BOOTSTRAP" in darwin
-    assert "UNO_PATH" in darwin
-    assert "echo $(PYTHON)" not in darwin
-    # Official wrapper before the raw framework python3 (CI 33708366478).
-    assert darwin.find("Contents/Resources/python") < darwin.find(
-        "LibreOfficePython.framework/Versions/Current/bin/python3"
+    check_recipe = text.split("_check-lo-python:", 1)[1].split("test-uno:", 1)[0]
+    assert "check-lo-python" in check_recipe
+    assert "echo $(PYTHON)" not in check_recipe
+
+    five_recipes = (
+        "test-uno:",
+        "test-uno-soak:",
+        "test-mock-sidebar:",
+        "test-visible:",
+        "lo-test-threadguard-visible:",
     )
-
-
-def test_makefile_check_lo_python_probes_officehelper_import() -> None:
-    """Non-empty LO_PYTHON is not enough — brew-cask framework python3 failed import."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    recipe = text.split("_check-lo-python:", 1)[1].split("test-uno:", 1)[0]
-    assert "import officehelper, uno" in recipe
-    assert "LO_PYTHON_ENV" in recipe
-    assert "LO_PYTHON_UNSET" in recipe
-    assert "echo $(PYTHON)" not in recipe
-    for target in ("test-uno:", "test-mock-sidebar:", "test-visible:"):
+    for target in five_recipes:
         block = text.split(target, 1)[1].split("\n\n", 1)[0]
-        assert "LO_PYTHON_ENV" in block
-        assert "LO_PYTHON_UNSET" in block
+        assert "run-lo-python" in block, f"{target} missing run-lo-python"
+
+    mock_sidebar = text.split("test-mock-sidebar:", 1)[1].split("\n\n", 1)[0]
+    assert "--set WRITERAGENT_UNO_TEST_TIMEOUT=120" in mock_sidebar
+
+    threadguard_visible = text.split("lo-test-threadguard-visible:", 1)[1].split("\n\n", 1)[0]
+    assert "--set WRITERAGENT_UNO_THREAD_GUARD=1" in threadguard_visible
 
 
-def test_makefile_lo_python_probe_does_not_silently_use_venv() -> None:
-    """The old `|| echo $(PYTHON)` launched .venv and segfaulted on macOS."""
+def test_makefile_env_u_virtual_env_and_unset_gone() -> None:
+    """LO_PYTHON_UNSET and env -u VIRTUAL_ENV are removed in favor of lo_paths.py."""
     text = MAKEFILE.read_text(encoding="utf-8")
-    assert "echo $(PYTHON)" not in text
-    assert "_check-lo-python" in text
-    assert "test-uno: _check-lo-python" in text
-
-
-def test_makefile_linux_lo_python_prefers_usr_bin() -> None:
-    """Ubuntu CI: setup-python shadows PATH python3; python3-uno is /usr/bin/python3."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    darwin = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[0]
-    linux = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[1]
-    assert '/usr/bin/python3 -c "import uno"' in linux
-    assert "echo /usr/bin/python3" in linux
-    assert "/usr/bin/python3" not in darwin
+    assert "env -u VIRTUAL_ENV" not in text
+    assert "LO_PYTHON_UNSET" not in text
+    assert "ifeq ($(origin LO_PYTHON),undefined)" in text
+    assert "export LO_PYTHON_ENV" in text
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux /usr/bin/python3 probe")

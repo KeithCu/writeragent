@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -110,4 +111,307 @@ def test_profile_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_main_usage() -> None:
     assert lo_paths.main([]) == 2
+    assert lo_paths.main(["find"]) == 2
+    assert lo_paths.main(["find", "invalid"]) == 2
+    assert lo_paths.main(["check-lo-python", "--invalid"]) == 2
+    assert lo_paths.main(["run-lo-python", "--invalid"]) == 2
     assert lo_paths.main(["bogus"]) == 2
+
+
+def test_linux_usr_bin_python3_wins_and_path_not_consulted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    fake_usr = tmp_path / "usr_bin_python3"
+    fake_usr.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_usr.chmod(0o755)
+    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(fake_usr))
+
+    path_dir = tmp_path / "path_bin"
+    path_dir.mkdir()
+    marker = tmp_path / "marker.txt"
+    fake_path_py = path_dir / "python3"
+    fake_path_py.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n", encoding="utf-8")
+    fake_path_py.chmod(0o755)
+    monkeypatch.setenv("PATH", str(path_dir))
+
+    res = lo_paths.find_lo_python()
+    assert res == fake_usr
+    assert not marker.exists()
+
+
+def test_linux_skips_usr_bin_on_failure_and_skips_venv_and_sys_executable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    fake_usr = tmp_path / "usr_bin_python3"
+    fake_usr.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake_usr.chmod(0o755)
+    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(fake_usr))
+
+    venv_dir = tmp_path / "test_venv"
+    venv_bin = venv_dir / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    venv_py = venv_bin / "python3"
+    venv_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    venv_py.chmod(0o755)
+
+    sys_exec_dir = tmp_path / "sys_exec_dir"
+    sys_exec_dir.mkdir()
+    fake_sys_py = sys_exec_dir / "python3"
+    fake_sys_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_sys_py.chmod(0o755)
+    monkeypatch.setattr(lo_paths.sys, "executable", str(fake_sys_py))
+
+    real_dir = tmp_path / "real_bin"
+    real_dir.mkdir()
+    real_py = real_dir / "python3"
+    real_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    real_py.chmod(0o755)
+
+    path_order = f"{venv_bin}{os.pathsep}{sys_exec_dir}{os.pathsep}{real_dir}"
+    monkeypatch.setenv("PATH", path_order)
+
+    res = lo_paths.find_lo_python()
+    assert res == real_py
+
+
+def test_linux_returns_nothing_when_every_probe_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(tmp_path / "nonexistent"))
+    monkeypatch.setenv("PATH", "")
+
+    assert lo_paths.find_lo_python() is None
+
+    ret = lo_paths.main(["find", "lo-python"])
+    assert ret == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "not found" in err
+
+
+def test_darwin_prefers_resources_python_and_caskroom(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    apps_dir = tmp_path / "Applications"
+    cask_dir = tmp_path / "Caskroom"
+    monkeypatch.setattr(lo_paths, "_DARWIN_APPLICATIONS_DIR", apps_dir)
+    monkeypatch.setattr(lo_paths, "_DARWIN_CASKROOM_DIRS", (cask_dir,))
+    monkeypatch.setattr(lo_paths.Path, "home", lambda: tmp_path / "home")
+
+    app = apps_dir / "LibreOffice.app"
+    res_py = _touch(app / "Contents" / "Resources" / "python")
+    fw_py = _touch(
+        app
+        / "Contents"
+        / "Frameworks"
+        / "LibreOfficePython.framework"
+        / "Versions"
+        / "Current"
+        / "bin"
+        / "python3"
+    )
+    assert lo_paths.find_lo_python() == res_py
+
+    res_py.unlink()
+    fw_py.unlink()
+    (app / "Contents" / "Frameworks" / "LibreOfficePython.framework" / "Versions" / "Current" / "bin").rmdir()
+    (app / "Contents" / "Frameworks" / "LibreOfficePython.framework" / "Versions" / "Current").rmdir()
+    (app / "Contents" / "Frameworks" / "LibreOfficePython.framework" / "Versions").rmdir()
+    (app / "Contents" / "Frameworks" / "LibreOfficePython.framework").rmdir()
+    (app / "Contents" / "Frameworks").rmdir()
+    (app / "Contents" / "Resources").rmdir()
+    (app / "Contents").rmdir()
+    app.rmdir()
+    apps_dir.rmdir()
+
+    cask_app = cask_dir / "7.6.0" / "LibreOffice.app"
+    cask_res_py = _touch(cask_app / "Contents" / "Resources" / "python")
+    assert lo_paths.find_lo_python() == cask_res_py
+
+    cask_res_py.unlink()
+    fake_path = tmp_path / "path"
+    fake_path.mkdir()
+    _touch(fake_path / "python3")
+    monkeypatch.setenv("PATH", str(fake_path))
+    assert lo_paths.find_lo_python() is None
+
+
+def test_darwin_framework_python_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    apps_dir = tmp_path / "Applications"
+    monkeypatch.setattr(lo_paths, "_DARWIN_APPLICATIONS_DIR", apps_dir)
+    monkeypatch.setattr(lo_paths, "_DARWIN_CASKROOM_DIRS", ())
+    monkeypatch.setattr(lo_paths.Path, "home", lambda: tmp_path / "home")
+
+    app = apps_dir / "LibreOffice.app"
+    fw_py = _touch(
+        app
+        / "Contents"
+        / "Frameworks"
+        / "LibreOfficePython.framework"
+        / "Versions"
+        / "Current"
+        / "bin"
+        / "python3"
+    )
+    assert lo_paths.find_lo_python() == fw_py
+
+
+def test_windows_bundled_python_wins_without_import_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "win32")
+    monkeypatch.setattr(lo_paths, "_registry_install_path", lambda: None)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "PF"))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+
+    prog = tmp_path / "PF" / "LibreOffice" / "program"
+    _touch(prog / "soffice.exe")
+    python = _touch(prog / "python.exe")
+    assert lo_paths.find_lo_python() == python
+
+
+def test_lo_python_env_darwin_and_non_darwin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    assert lo_paths.lo_python_env(tmp_path / "python") == {}
+
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    app = tmp_path / "LibreOffice.app"
+    contents = app / "Contents"
+    interp = _touch(contents / "Resources" / "python")
+    rc = _touch(contents / "Resources" / "fundamentalrc")
+
+    env = lo_paths.lo_python_env(interp)
+    assert env["UNO_PATH"] == str(contents / "MacOS")
+    assert env["URE_BOOTSTRAP"] == f"vnd.sun.star.pathname:{rc}"
+    assert env["PYTHONPATH"] == f"{contents / 'Resources'}{os.pathsep}{contents / 'Frameworks'}"
+
+    rc.unlink()
+    ini = _touch(contents / "Resources" / "fundamental.ini")
+    env_ini = lo_paths.lo_python_env(interp)
+    assert env_ini["URE_BOOTSTRAP"] == f"vnd.sun.star.pathname:{ini}"
+
+
+def test_child_env_drops_venv_keys_leaves_home_intact(tmp_path: Path) -> None:
+    base_env = {
+        "VIRTUAL_ENV": "/path/to/venv",
+        "__PYVENV_LAUNCHER__": "/path/to/bin/python",
+        "PYTHONHOME": "/path/to/home",
+        "HOME": "/home/user",
+        "CUSTOM_KEY": "keep_me",
+    }
+    child = lo_paths.build_child_env(tmp_path / "python", base_env=base_env)
+    assert "VIRTUAL_ENV" not in child
+    assert "__PYVENV_LAUNCHER__" not in child
+    assert "PYTHONHOME" not in child
+    assert child["HOME"] == "/home/user"
+    assert child["CUSTOM_KEY"] == "keep_me"
+    assert child["PYTHONUNBUFFERED"] == "1"
+    assert "WRITERAGENT_PROJECT_ROOT" in child
+
+
+def test_child_env_lo_python_env_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    app = tmp_path / "LibreOffice.app"
+    interp = _touch(app / "Contents" / "Resources" / "python")
+    _touch(app / "Contents" / "Resources" / "fundamentalrc")
+
+    base_env = {
+        "LO_PYTHON_ENV": 'CUSTOM_UNO=custom_val URE_BOOTSTRAP="vnd.sun.star.pathname:/custom/rc"',
+    }
+    child = lo_paths.build_child_env(interp, base_env=base_env)
+    assert child["CUSTOM_UNO"] == "custom_val"
+    assert child["URE_BOOTSTRAP"] == "vnd.sun.star.pathname:/custom/rc"
+    assert "UNO_PATH" not in child
+    assert "LO_PYTHON_ENV" not in child
+
+    base_empty = {"LO_PYTHON_ENV": " "}
+    child_empty = lo_paths.build_child_env(interp, base_env=base_empty)
+    assert "UNO_PATH" not in child_empty
+    assert "URE_BOOTSTRAP" not in child_empty
+
+
+def test_child_env_pythonpath_handling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    child_linux = lo_paths.build_child_env(
+        tmp_path / "python", base_env={"PYTHONPATH": "."}
+    )
+    assert child_linux["PYTHONPATH"] == "."
+
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    app = tmp_path / "LibreOffice.app"
+    interp = _touch(app / "Contents" / "Resources" / "python")
+    _touch(app / "Contents" / "Resources" / "fundamentalrc")
+    child_darwin = lo_paths.build_child_env(
+        interp, base_env={"PYTHONPATH": "."}
+    )
+    assert (
+        child_darwin["PYTHONPATH"]
+        == f"{app / 'Contents' / 'Resources'}{os.pathsep}{app / 'Contents' / 'Frameworks'}"
+    )
+
+
+def test_check_lo_python_empty_and_failed_import(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert lo_paths.check_lo_python(["--python", ""]) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "LO_PYTHON is empty" in err
+    assert "Contents/Resources/python" in err
+    assert "LibreOfficePython.framework" in err
+    assert "/usr/bin/python3" in err
+
+    bad_py = tmp_path / "bad_python"
+    bad_py.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    bad_py.chmod(0o755)
+    assert lo_paths.check_lo_python(["--python", str(bad_py)]) == 1
+    out, err = capsys.readouterr()
+    assert f"LO_PYTHON={bad_py}" in out
+    assert "cannot import officehelper and uno" in err
+    assert "project .venv" in err
+
+
+def test_run_lo_python_execs_with_env_and_set(tmp_path: Path) -> None:
+    script = tmp_path / "recorder.py"
+    script.write_text(
+        "import os, sys\n"
+        "out = sys.argv[1]\n"
+        "with open(out, 'w') as f:\n"
+        "    f.write(os.environ.get('TEST_VAR', '') + '\\n')\n"
+        "    f.write(os.environ.get('PYTHONUNBUFFERED', '') + '\\n')\n"
+        "    f.write(' '.join(sys.argv[2:]) + '\\n')\n"
+        "sys.exit(7)\n",
+        encoding="utf-8",
+    )
+    out_file = tmp_path / "out.txt"
+    code = lo_paths.run_lo_python([
+        "--python",
+        sys.executable,
+        "--set",
+        "TEST_VAR=injected",
+        "--",
+        str(script),
+        str(out_file),
+        "arg1",
+        "arg2",
+    ])
+    assert code == 7
+    lines = out_file.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "injected"
+    assert lines[1] == "1"
+    assert lines[2] == "arg1 arg2"
+
