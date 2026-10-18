@@ -13,9 +13,7 @@ import contextlib
 import logging
 import os
 import queue
-import select
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -52,7 +50,7 @@ from plugin.scripting.ipc import (
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_frame_payload,
+    read_frame_payload_with_timeout,
     unpack_pickle_frame,
 )
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
@@ -780,8 +778,11 @@ class PythonWorkerManager:
                     # with exec_started only partly read may_have_run was still
                     # false, so the outer handler resent the script. The child
                     # writes exec_started and then runs user code immediately, so
-                    # file and DuckDB side effects ran twice. POSIX already
-                    # raises TimeoutExpired for that stall.
+                    # file and DuckDB side effects ran twice. Both platforms raise
+                    # IpcPartialFrameTimeout once any byte of the current chunk has
+                    # been taken; a chunk whose buffer is still empty raises
+                    # TimeoutExpired with the configured window. Both are caught
+                    # here so neither replays.
                     log.warning("Python worker read timed out: %s", e)
                     return self._fail_no_replay(
                         "VENV_TIMEOUT",
@@ -1220,110 +1221,41 @@ class PythonWorkerManager:
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         if self._proc is None:
             raise RuntimeError("worker terminated concurrently")
-        # Do not merge this with ipc.read_pickle_frame_with_timeout: the worker
-        # path also poll()-short-circuits a dead child and (on the heartbeat
-        # path) resets the deadline. Unifying those is a hang-regression risk
-        # for =PY(). Windows select.select() only supports sockets, not pipes
-        # (WinError 10038); PeekNamedPipe there instead of a ReadFile thread.
-        if sys.platform == "win32":
-            return self._read_response_bytes_threaded(stdout, timeout_sec, stop_checker=stop_checker)
-        return self._read_response_bytes_select(stdout, timeout_sec, stop_checker=stop_checker)
+        return self._read_frame_bytes(stdout, timeout_sec, stop_checker=stop_checker)
 
-    def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
-        """POSIX path: use select() to poll the pipe with a timeout."""
-        # monotonic: a wall-clock step used to stretch the wait or kill the warm worker.
-        deadline = time.monotonic() + timeout_sec
+    def _read_frame_bytes(
+        self,
+        stdout: IO[bytes],
+        timeout_sec: float | int,
+        stop_checker: Callable[[], bool] | None = None,
+        *,
+        deadline: float | None = None,
+    ) -> bytes:
+        """Read one frame payload via ipc, mapping Stop to _StopRequested.
 
-        def _read_exact(n: int) -> bytes:
-            return self._read_exact_before_deadline(stdout, n, deadline, stop_checker, timeout_label=timeout_sec)
-
-        return self._read_frame_bytes(stdout, _read_exact)
-
-    def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
-        """Windows path: PeekNamedPipe, not a daemon thread blocked in ReadFile.
-
-        Closing the pipe while a thread was inside ReadFile crashed the xdist
-        worker (CI 33453184665). Real pipe fds use ipc's peek helper. Streams
-        without a pipe fd (BytesIO / tests) still use a join-timeout thread;
-        that read is not a Windows pipe ReadFile.
+        ipc owns the wait; this method only maps Stop to _StopRequested, passes
+        self._is_worker_alive, and forces DEFAULT_MAX_PAYLOAD_BYTES plus
+        frame_label="venv worker frame".
         """
-        deadline = time.monotonic() + float(timeout_sec)
-
-        def _read_exact(n: int) -> bytes:
+        try:
+            payload = read_frame_payload_with_timeout(
+                stdout,
+                float(timeout_sec),
+                deadline=deadline,
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                frame_label="venv worker frame",
+                cmd=self.exe,
+                is_alive=self._is_worker_alive,
+                stop_checker=stop_checker,
+            )
+        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            # ipc reports Stop as TimeoutExpired, including a mid-chunk stall
+            # (IpcPartialFrameTimeout). Re-check the checker so Windows peek and
+            # the POSIX loop both become CANCELLED.
             if _stop_requested(stop_checker):
-                raise _StopRequested()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-            return self._read_exact_win32(stdout, n, remaining, timeout_sec, stop_checker)
-
-        return self._read_frame_bytes(stdout, _read_exact)
-
-    def _read_exact_win32(self, stdout: IO[bytes], nbytes: int, remaining: float, timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
-        """One exact read on Windows: peek a real pipe, else a join-timeout thread."""
-        if sys.platform == "win32":
-            try:
-                fd = stdout.fileno()
-            except (AttributeError, OSError, ValueError):
-                fd = None
-            if isinstance(fd, int) and fd >= 0:
-                from plugin.scripting.ipc import _read_bytes_with_timeout_win32
-
-                try:
-                    return _read_bytes_with_timeout_win32(stdout, nbytes, time.monotonic() + remaining, timeout_sec, cmd=self.exe, stop_checker=stop_checker)
-                except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-                    # ipc reports Stop as a timeout. A mid-frame stall is
-                    # IpcPartialFrameTimeout, not TimeoutExpired; both must
-                    # become CANCELLED when the user already pressed Stop.
-                    if _stop_requested(stop_checker):
-                        raise _StopRequested() from None
-                    raise
-
-        result: list[bytes] = [b""]
-        error: list[BaseException | None] = [None]
-
-        def _reader() -> None:
-            try:
-                result[0] = stdout.read(nbytes)
-            except Exception as exc:
-                error[0] = exc
-
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
-        t.join(timeout=max(0.0, remaining))
-        if t.is_alive():
-            raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-        if error[0] is not None:
-            raise error[0]
-        return result[0] or b""
-
-    def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float, stop_checker: Callable[[], bool] | None = None, timeout_label: float | int | None = None) -> bytes:
-        remaining = deadline - time.monotonic()
-        # Report the configured window, not the time left. An expired wait
-        # otherwise says "timed out after 1 seconds" whatever the real window was.
-        label = timeout_label if timeout_label is not None else max(1, int(remaining))
-
-        if sys.platform == "win32":
-            if remaining <= 0:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=label)
-            return self._read_exact_win32(stdout, nbytes, remaining, label, stop_checker)
-
-        buf = bytearray()
-        while len(buf) < nbytes:
-            if _stop_requested(stop_checker):
-                raise _StopRequested()
-            if time.monotonic() >= deadline:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=label)
-            remaining = deadline - time.monotonic()
-            ready, _unused, _unused2 = select.select([stdout], [], [], min(0.2, remaining) if stop_checker else min(1.0, remaining))
-            if ready:
-                chunk = stdout.read(nbytes - len(buf))
-                if not chunk:
-                    break
-                buf.extend(chunk)
-            if self._proc is not None and self._proc.poll() is not None and not ready:
-                break
-        return bytes(buf)
+                raise _StopRequested() from None
+            raise
+        return payload or b""
 
     def _read_response_with_heartbeats(
         self,
@@ -1364,18 +1296,14 @@ class PythonWorkerManager:
         else:
             timeout_label = window
 
-        def _read_exact(n: int) -> bytes:
-            nonlocal deadline, timeout_label
-            if _stop_requested(stop_checker):
-                raise _StopRequested()
-            return self._read_exact_before_deadline(stdout, n, deadline, stop_checker, timeout_label=timeout_label)
-
         logged_unknown = False
         while True:
             now = time.monotonic()
             if now >= deadline:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_label)
-            frame_bytes = self._read_frame_bytes(stdout, _read_exact)
+            frame_bytes = self._read_frame_bytes(
+                stdout, timeout_label, stop_checker=stop_checker, deadline=deadline
+            )
             if not frame_bytes:
                 return None
             data = parse_worker_stdout_frame(frame_bytes)
@@ -1410,17 +1338,6 @@ class PythonWorkerManager:
             if not logged_unknown:
                 log.warning("venv worker ignoring unknown frame type: %r", frame_type)
                 logged_unknown = True
-
-    def _read_frame_bytes(self, stdout: IO[bytes], read_exact: Callable[[int], bytes]) -> bytes:
-        return (
-            read_frame_payload(
-                stdout,
-                read_exact=read_exact,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-                frame_label="venv worker frame",
-            )
-            or b""
-        )
 
     def _drain_stderr(self) -> str:
         """Return bounded stderr captured by the live drain thread (crash diagnostics)."""

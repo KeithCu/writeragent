@@ -28,12 +28,16 @@ from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     FRAME_HEARTBEAT,
     IpcFrameError,
+    IpcPartialFrameTimeout,
     pack_pickle_frame,
     read_pickle_frame,
+    unpack_pickle_frame,
 )
+import plugin.scripting.venv_worker as venv_worker_module
 from plugin.scripting.sandbox import scrub_subprocess_env
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
+    _StopRequested,
     _worker_error,
     _worker_error_message,
     reset_python_session,
@@ -328,6 +332,134 @@ while True:
         assert result["status"] == "ok"
         assert result["result"] == 42
         assert mgr._proc is not None and mgr._proc.poll() is None
+    finally:
+        mgr._terminate_worker()
+
+
+def test_worker_child_dies_without_response_fails_promptly(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child that dies without writing a response returns promptly with an error and retries once."""
+    counter_file = tmp_path / "counter.txt"
+    child = tmp_path / "die_worker.py"
+    child.write_text(
+        f"""
+import os
+import struct
+import sys
+
+with open({str(counter_file)!r}, "a") as f:
+    f.write("start\\n")
+    f.flush()
+
+header = sys.stdin.buffer.read(4)
+if len(header) == 4:
+    size = struct.unpack("!I", header)[0]
+    sys.stdin.buffer.read(size)
+os._exit(0)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(venv_worker_module, "_HARNESS_PATH", str(child))
+    monkeypatch.setattr(venv_worker_module, "wrap_command_for_sandbox", lambda cmd, **_kwargs: cmd)
+    monkeypatch.setattr(venv_worker_module, "WARM_WORKER_TIMEOUT_SEC", 8.0)
+    monkeypatch.setattr(venv_worker_module, "HOST_IPC_READ_GRACE_SEC", 8.0)
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    t0 = time.monotonic()
+    try:
+        res = mgr.execute("result = 1", timeout_sec=8)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 4.0
+        assert res.get("status") == "error"
+        assert res.get("code") == "WORKER_IPC_ERROR"
+        assert "without a response" in res.get("message", "")
+        assert counter_file.read_text(encoding="utf-8").splitlines() == ["start", "start"]
+        assert mgr._proc is None or mgr._proc.poll() is not None
+    finally:
+        mgr._terminate_worker()
+
+
+def test_worker_child_hung_zero_bytes_times_out_without_replay(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live child that hangs without writing times out within window and does not replay."""
+    counter_file = tmp_path / "counter.txt"
+    child = tmp_path / "hung_zero_worker.py"
+    child.write_text(
+        f"""
+import os
+import struct
+import sys
+import time
+
+with open({str(counter_file)!r}, "a") as f:
+    f.write("start\\n")
+    f.flush()
+
+header = sys.stdin.buffer.read(4)
+if len(header) == 4:
+    size = struct.unpack("!I", header)[0]
+    sys.stdin.buffer.read(size)
+time.sleep(120)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(venv_worker_module, "_HARNESS_PATH", str(child))
+    monkeypatch.setattr(venv_worker_module, "wrap_command_for_sandbox", lambda cmd, **_kwargs: cmd)
+    monkeypatch.setattr(venv_worker_module, "WARM_WORKER_TIMEOUT_SEC", 1.0)
+    monkeypatch.setattr(venv_worker_module, "HOST_IPC_READ_GRACE_SEC", 0.5)
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    t0 = time.monotonic()
+    try:
+        res = mgr.execute("result = 1", timeout_sec=1)
+        elapsed = time.monotonic() - t0
+        assert 1.0 <= elapsed < 4.0
+        assert res.get("status") == "error"
+        assert res.get("code") == "VENV_TIMEOUT"
+        assert "timed out after 1.5 seconds" in res.get("message", "")
+        assert counter_file.read_text(encoding="utf-8").splitlines() == ["start"]
+    finally:
+        mgr._terminate_worker()
+
+
+def test_worker_child_hung_partial_frame_times_out_without_replay(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live child that writes a partial frame and hangs times out without replay."""
+    counter_file = tmp_path / "counter.txt"
+    child = tmp_path / "hung_partial_worker.py"
+    child.write_text(
+        f"""
+import os
+import struct
+import sys
+import time
+
+with open({str(counter_file)!r}, "a") as f:
+    f.write("start\\n")
+    f.flush()
+
+header = sys.stdin.buffer.read(4)
+if len(header) == 4:
+    size = struct.unpack("!I", header)[0]
+    sys.stdin.buffer.read(size)
+sys.stdout.buffer.write(b"\\x00\\x00")
+sys.stdout.buffer.flush()
+time.sleep(120)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(venv_worker_module, "_HARNESS_PATH", str(child))
+    monkeypatch.setattr(venv_worker_module, "wrap_command_for_sandbox", lambda cmd, **_kwargs: cmd)
+    monkeypatch.setattr(venv_worker_module, "WARM_WORKER_TIMEOUT_SEC", 1.0)
+    monkeypatch.setattr(venv_worker_module, "HOST_IPC_READ_GRACE_SEC", 0.5)
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    t0 = time.monotonic()
+    try:
+        res = mgr.execute("result = 1", timeout_sec=1)
+        elapsed = time.monotonic() - t0
+        assert 1.0 <= elapsed < 4.0
+        assert res.get("status") == "error"
+        assert res.get("code") == "VENV_TIMEOUT"
+        assert "mid-frame" in res.get("message", "")
+        assert counter_file.read_text(encoding="utf-8").splitlines() == ["start"]
     finally:
         mgr._terminate_worker()
 
@@ -853,14 +985,12 @@ def test_partial_frame_timeout_does_not_replay():
 
 def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.MonkeyPatch):
     """Stop during a Windows mid-frame stall is CANCELLED, not a replayed timeout."""
-    import plugin.scripting.venv_worker as vw
-    from plugin.scripting.ipc import IpcPartialFrameTimeout
-
-    monkeypatch.setattr(vw.sys, "platform", "win32")
+    monkeypatch.setattr(sys, "platform", "win32")
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
+    mgr._proc = MagicMock(poll=MagicMock(return_value=None))
 
-    class _Stdout:
+    class _Stdout(io.BytesIO):
         def fileno(self) -> int:
             return 3
 
@@ -869,11 +999,11 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
         raise IpcPartialFrameTimeout("timeout mid-frame")
 
     monkeypatch.setattr("plugin.scripting.ipc._read_bytes_with_timeout_win32", _boom)
-    with pytest.raises(vw._StopRequested):
-        mgr._read_exact_win32(_Stdout(), 4, 1.0, 1, stop_checker=lambda: True)  # type: ignore[arg-type]
+    with pytest.raises(_StopRequested):
+        mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: True)
 
     with pytest.raises(IpcPartialFrameTimeout):
-        mgr._read_exact_win32(_Stdout(), 4, 1.0, 1, stop_checker=lambda: False)  # type: ignore[arg-type]
+        mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: False)
 
 
 def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.MonkeyPatch):
@@ -1659,79 +1789,8 @@ def _pack_response(obj: dict) -> bytes:
     return pack_pickle_frame(obj)
 
 
-class TestReadResponseBytesThreaded:
-    """Tests for the Windows-safe threaded reader."""
-
-    def test_reads_valid_response(self):
-        response = {"status": "ok", "result": 42, "id": "test"}
-        raw = _pack_response(response)
-        stdout = io.BytesIO(raw)
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True  # just needs to be non-None for the assert
-        got = mgr._read_response_bytes_threaded(stdout, timeout_sec=5)
-        assert got
-        decoded = pickle.loads(got)
-        assert decoded["status"] == "ok"
-        assert decoded["result"] == 42
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            pytest.param(b"", id="test_returns_empty_on_eof"),
-            pytest.param(b"\x00\x00", id="test_returns_empty_on_short_header"),
-        ],
-    )
-    def test_returns_empty_on_eof(self, value):
-        stdout = io.BytesIO(value)
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True
-        got = mgr._read_response_bytes_threaded(stdout, timeout_sec=2)
-        assert got == b""
-
-
-    def test_returns_empty_on_truncated_payload(self):
-        header = struct.pack("!I", 100)
-        stdout = io.BytesIO(header + b"short")
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True
-        got = mgr._read_response_bytes_threaded(stdout, timeout_sec=2)
-        assert got == b""
-
-    def test_timeout_raises(self):
-        """A blocking read that never yields data should raise TimeoutExpired."""
-        class SlowIO(io.RawIOBase):
-            def readable(self):
-                return True
-            def readinto(self, b):
-                time.sleep(10)
-                return 0
-        slow = io.BufferedReader(SlowIO())
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True
-        with pytest.raises(subprocess.TimeoutExpired):
-            mgr._read_response_bytes_threaded(slow, timeout_sec=1)
-
-    def test_propagates_read_error(self):
-        class ErrorIO(io.RawIOBase):
-            def readable(self):
-                return True
-            def readinto(self, b):
-                raise IOError("pipe broken")
-        broken = io.BufferedReader(ErrorIO())
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True
-        with pytest.raises(IOError, match="pipe broken"):
-            mgr._read_response_bytes_threaded(broken, timeout_sec=2)
-
-
-@pytest.mark.skipif(os.name == "nt", reason="select.select() does not support pipes/BytesIO on Windows")
 class TestReadResponseBytesSelect:
-    """Tests for the POSIX select-based reader."""
+    """Tests for reading a valid response from an unbuffered pipe."""
 
     def test_reads_valid_response(self):
         response = {"status": "ok", "result": "hello", "id": "test"}
@@ -1739,16 +1798,14 @@ class TestReadResponseBytesSelect:
         r_fd, w_fd = os.pipe()
         os.write(w_fd, raw)
         os.close(w_fd)
-        stdout = os.fdopen(r_fd, "rb")
+        stdout = os.fdopen(r_fd, "rb", buffering=0)
         mgr = PythonWorkerManager.__new__(PythonWorkerManager)
         mgr.exe = "python"
-        # _read_response_bytes_select needs _proc with a poll() method
-        class FakeProc:
-            def poll(self):
-                return None
-        mgr._proc = FakeProc()
-        got = mgr._read_response_bytes_select(stdout, timeout_sec=5)
-        stdout.close()
+        mgr._proc = MagicMock(poll=MagicMock(return_value=None))
+        try:
+            got = mgr._read_response_bytes(stdout, timeout_sec=5)
+        finally:
+            stdout.close()
         assert got
         decoded = pickle.loads(got)
         assert decoded["result"] == "hello"
@@ -1930,9 +1987,10 @@ def test_run_code_and_reset_session_missing_inputs_include_code():
 
 def test_worker_read_rejects_oversize_length_prefix():
     mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    mgr._proc = MagicMock(poll=MagicMock(return_value=None))
     too_big = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1)
     with pytest.raises(IpcFrameError, match="venv worker frame"):
-        mgr._read_frame_bytes(io.BytesIO(too_big), read_exact=lambda n: too_big[:n])
+        mgr._read_frame_bytes(io.BytesIO(too_big), timeout_sec=2)
 
 
 def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
@@ -2435,52 +2493,53 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     assert mock_execute_calls[0]["allow_heartbeat"] is True
 
 
-def test_terminate_worker_race_condition(monkeypatch):
-    from plugin.scripting import venv_worker as vw
-    import threading
+def test_terminate_worker_race_condition(monkeypatch: pytest.MonkeyPatch):
+    if sys.platform == "win32":
+        pytest.skip("select mock only tests POSIX path")
 
-    mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "dummy"
     mgr._proc_lock = threading.Lock()
     mgr._retired = False
-    # __new__ skips __init__. _terminate_worker appends the reap handle.
     mgr._reap_handles = []
 
     class DummyProc:
         def __init__(self):
             self.pid = 123
+
         def poll(self):
             return None
+
         def kill(self):
             pass
+
         def wait(self, timeout=None):
             pass
 
-    mgr._proc = DummyProc()  # type: ignore # type: ignore
+    mgr._proc = DummyProc()
     mgr._stderr_drain = None
     mgr._primed = True
 
     # Simulate a concurrent terminate inside read_response_bytes
     def mocked_select(r, w, x, timeout):
-        mgr._terminate_worker() # Nulls out _proc
+        mgr._terminate_worker()
         return [r], [], []
 
+    class MockStdout(io.BytesIO):
+        def fileno(self) -> int:
+            return 3
+
+        def read(self, n: int = -1) -> bytes:
+            return b""
+
     with monkeypatch.context() as m:
-        m.setattr(vw.select, "select", mocked_select)
-
-        class MockStdout:
-            def read(self, n):
-                return b""
-
+        m.setattr("plugin.scripting.ipc.select.select", mocked_select)
         try:
-            # POSIX path uses _read_response_bytes_select
-            if sys.platform != "win32":
-                mgr._read_response_bytes_select(MockStdout(), timeout_sec=1)  # type: ignore
-        except (vw.subprocess.TimeoutExpired, EOFError):
-            pass # Expected
+            mgr._read_response_bytes(MockStdout(), timeout_sec=1)
+        except (subprocess.TimeoutExpired, EOFError):
+            pass
 
-    if sys.platform != "win32":
-        assert mgr._proc is None
+    assert mgr._proc is None
 
 def test_read_response_with_heartbeats_swallows_callback_exceptions():
     from plugin.scripting.venv_worker import PythonWorkerManager
@@ -2520,70 +2579,34 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
     assert heartbeat_calls == [{"phase": "test"}]
 
 
-def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatch) -> None:
-    # If stop_checker returns True, the host read loop should abort and not hang.
-    import time
-    from plugin.scripting import venv_worker
-
-    # Mock _ensure_running, _write_frame_with_timeout to do nothing
-    monkeypatch.setattr(venv_worker.PythonWorkerManager, "_ensure_running", lambda self: None)
-    monkeypatch.setattr(venv_worker.PythonWorkerManager, "_write_frame_with_timeout", lambda self, stdin, req, timeout_sec, label: None)
-
-    # Mock proc and io
+def test_execute_ipc_attempts_stop_checker_aborts() -> None:
     class MockProc:
-        def __init__(self):
-            self.stdin = "stdin"
-            self.stdout = "stdout"
-            self.stderr = None
         def poll(self):
             return None
 
-    mock_proc = MockProc()
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+    mgr._proc = MockProc()
 
-    class DummyManager(venv_worker.PythonWorkerManager):
-        def __init__(self):
-            self.exe = "python"
-            self._proc = mock_proc
-            self._stderr_drain = None
+    class MockStdout(io.RawIOBase):
+        def readable(self) -> bool:
+            return True
 
-        def _ensure_running(self):
-            pass
-
-        # Bypass thread selection to test generic read select logic if possible, or just test the _read_response_bytes directly.
-        # Actually, let's just test _read_response_bytes directly.
-
-    m = DummyManager()
-
-    # We want to test _read_response_bytes_select and _read_response_bytes_threaded
-    class MockStdout:
-        def read(self, n):
+        def readinto(self, b: bytearray) -> int:
             time.sleep(10)
-            return b""
+            return 0
 
-    # threaded
     stop_called = [False]
-    def stop_checker():
+
+    def stop_checker() -> bool:
         stop_called[0] = True
         return True
 
-    with pytest.raises(venv_worker._StopRequested):
-        m._read_response_bytes_threaded(MockStdout(), timeout_sec=60, stop_checker=stop_checker)
-
+    t0 = time.monotonic()
+    with pytest.raises(_StopRequested):
+        mgr._read_response_bytes(io.BufferedReader(MockStdout()), timeout_sec=60, stop_checker=stop_checker)
+    assert time.monotonic() - t0 < 1.0
     assert stop_called[0]
-
-    # select (POSIX only: on win32 the select path delegates to the PeekNamedPipe reader)
-    if sys.platform == "win32":
-        return
-    stop_called2 = [False]
-    def stop_checker2():
-        stop_called2[0] = True
-        return True
-
-    monkeypatch.setattr(venv_worker.select, "select", lambda r,w,x,t: ([], [], []))
-    with pytest.raises(venv_worker._StopRequested):
-        m._read_response_bytes_select(MockStdout(), timeout_sec=60, stop_checker=stop_checker2)
-
-    assert stop_called2[0]
 
 
 def _raising_then_false_stop_checker():
@@ -2600,46 +2623,49 @@ def _raising_then_false_stop_checker():
 
 
 def test_raising_stop_checker_on_threaded_read_returns_frame() -> None:
-    """A broken stop_checker must not escape or abandon the queued frame."""
-    from plugin.scripting import venv_worker
-
+    """A broken stop_checker must not escape or abandon the queued frame (no-fd)."""
     payload = {"status": "ok", "result": 1}
     frame = pack_pickle_frame(payload)
     stdout = io.BytesIO(frame)
 
-    class DummyManager(venv_worker.PythonWorkerManager):
-        def __init__(self) -> None:
-            self.exe = "python"
-            self._proc = None
-            self._stderr_drain = None
+    class MockProc:
+        def poll(self):
+            return None
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+    mgr._proc = MockProc()
 
     seen, stop_checker = _raising_then_false_stop_checker()
-    result = DummyManager()._read_response_bytes_threaded(stdout, timeout_sec=5, stop_checker=stop_checker)
+    result = mgr._read_response_bytes(stdout, timeout_sec=5, stop_checker=stop_checker)
     assert seen
-    assert venv_worker.unpack_pickle_frame(result) == payload
+    assert unpack_pickle_frame(result) == payload
 
 
-def test_raising_stop_checker_on_select_read_returns_frame(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting import venv_worker
-
-    if sys.platform == "win32":
-        return
-
+def test_raising_stop_checker_on_select_read_returns_frame() -> None:
+    """A broken stop_checker must not escape or abandon the queued frame (fd path)."""
     payload = {"status": "ok", "result": 1}
     frame = pack_pickle_frame(payload)
-    stdout = io.BytesIO(frame)
+    r_fd, w_fd = os.pipe()
+    os.write(w_fd, frame)
+    os.close(w_fd)
+    stdout = os.fdopen(r_fd, "rb", buffering=0)
 
-    class DummyManager(venv_worker.PythonWorkerManager):
-        def __init__(self) -> None:
-            self.exe = "python"
-            self._proc = None
-            self._stderr_drain = None
+    class MockProc:
+        def poll(self):
+            return None
 
-    monkeypatch.setattr(venv_worker.select, "select", lambda r, w, x, t: (list(r), [], []))
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+    mgr._proc = MockProc()
+
     seen, stop_checker = _raising_then_false_stop_checker()
-    result = DummyManager()._read_response_bytes_select(stdout, timeout_sec=5, stop_checker=stop_checker)
+    try:
+        result = mgr._read_response_bytes(stdout, timeout_sec=5, stop_checker=stop_checker)
+    finally:
+        stdout.close()
     assert seen
-    assert venv_worker.unpack_pickle_frame(result) == payload
+    assert unpack_pickle_frame(result) == payload
 
 
 def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.MonkeyPatch):
@@ -2675,39 +2701,28 @@ def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.Mon
     mgr._read_response_with_heartbeats.assert_called_once()
 
 
-def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting import venv_worker
-
+def test_read_response_with_heartbeats_stop_checker() -> None:
     class MockProc:
-        def __init__(self):
-            self.stdin = "stdin"
-            self.stdout = "stdout"
-            self.stderr = None
         def poll(self):
             return None
 
-    class DummyManager(venv_worker.PythonWorkerManager):
-        def __init__(self):
-            self.exe = "python"
-            self._proc = MockProc()
-            self._stderr_drain = None
-
-        def _read_exact_before_deadline(self, stdout, nbytes, deadline):
-            return b""
-
-    m = DummyManager()
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+    mgr._proc = MockProc()
+    mgr._stderr_drain = None
 
     stop_called = [False]
-    def stop_checker():
+
+    def stop_checker() -> bool:
         stop_called[0] = True
         return True
 
-    class MockStdout:
-        def read(self, n):
+    class MockStdout(io.BytesIO):
+        def read(self, n: int = -1) -> bytes:
             return b""
 
-    with pytest.raises(venv_worker._StopRequested):
-        m._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
+    with pytest.raises(_StopRequested):
+        mgr._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
 
     assert stop_called[0]
 
