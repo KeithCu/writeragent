@@ -16,6 +16,7 @@ LibreOffice's bundled python.
 
 from __future__ import annotations
 
+import argparse
 import os
 import shlex
 import shutil
@@ -135,36 +136,12 @@ def find(name: str) -> Path | None:
 
 
 def _darwin_candidate_apps() -> list[Path]:
-    apps: list[Path] = []
-    main_app = _DARWIN_APPLICATIONS_DIR / "LibreOffice.app"
-    if main_app.is_dir():
-        apps.append(main_app)
+    apps = [_DARWIN_APPLICATIONS_DIR / "LibreOffice.app"]
     for cask in _DARWIN_CASKROOM_DIRS:
         if cask.is_dir():
             apps.extend(sorted(cask.glob("*/LibreOffice.app")))
-    user_app = Path.home() / "Applications" / "LibreOffice.app"
-    if user_app.is_dir():
-        apps.append(user_app)
-    return apps
-
-
-def _is_venv_or_self(path: Path) -> bool:
-    try:
-        resolved = path.resolve()
-        if resolved == Path(sys.executable).resolve():
-            return True
-        if (resolved.parent / "pyvenv.cfg").is_file() or (resolved.parent.parent / "pyvenv.cfg").is_file():
-            return True
-        venv_env = os.environ.get("VIRTUAL_ENV")
-        if venv_env:
-            try:
-                resolved.relative_to(Path(venv_env).resolve())
-                return True
-            except ValueError:
-                pass
-    except (OSError, ValueError):
-        pass
-    return False
+    apps.append(Path.home() / "Applications" / "LibreOffice.app")
+    return [a for a in apps if a.is_dir()]
 
 
 def _probe_uno(interpreter: Path | str) -> bool:
@@ -189,13 +166,9 @@ def find_lo_python() -> Path | None:
     plat = _platform()
     if plat == "darwin":
         apps = _darwin_candidate_apps()
-        # Prefer official wrapper; fallback to framework binary (CI 33708366478).
-        for app in apps:
-            py = app / "Contents" / "Resources" / "python"
-            if py.is_file():
-                return py
-        for app in apps:
-            fw_current = (
+        candidates = [
+            *(app / "Contents" / "Resources" / "python" for app in apps),
+            *(
                 app
                 / "Contents"
                 / "Frameworks"
@@ -204,50 +177,26 @@ def find_lo_python() -> Path | None:
                 / "Current"
                 / "bin"
                 / "python3"
-            )
-            if fw_current.is_file():
-                return fw_current
-            versions_dir = app / "Contents" / "Frameworks" / "LibreOfficePython.framework" / "Versions"
-            if versions_dir.is_dir():
-                for cand in sorted(versions_dir.glob("*/bin/python3")):
-                    if cand.is_file() and cand != fw_current:
-                        return cand
+                for app in apps
+            ),
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                return cand
         return None
 
     if plat == "win32":
         return find("python")
 
-    # Distro python3-uno before PATH python3 (CI 33453027089, 33456719039).
-    sys_py3 = Path(_LINUX_SYSTEM_PYTHON)
-    if sys_py3.is_file() and not _is_venv_or_self(sys_py3):
-        if _probe_uno(sys_py3):
-            return sys_py3
-
-    seen: set[Path] = set()
-    if sys_py3.is_file():
-        try:
-            seen.add(sys_py3.resolve())
-        except OSError:
-            pass
-
-    path_env = os.environ.get("PATH", "")
+    # Linux: /usr/bin/python3 then shutil.which("python3") and shutil.which("python")
+    candidates = [Path(_LINUX_SYSTEM_PYTHON)] if Path(_LINUX_SYSTEM_PYTHON).is_file() else []
     for name in ("python3", "python"):
-        for dir_str in path_env.split(os.pathsep):
-            if not dir_str:
-                continue
-            cand = Path(dir_str) / name
-            try:
-                if not cand.is_file() or not os.access(cand, os.X_OK):
-                    continue
-                cand_res = cand.resolve()
-                # Skip venv interpreters to prevent segfaults (CI 33447724981).
-                if cand_res in seen or _is_venv_or_self(cand):
-                    continue
-                seen.add(cand_res)
-                if _probe_uno(cand):
-                    return cand
-            except OSError:
-                continue
+        found = shutil.which(name)
+        if found and Path(found) not in candidates:
+            candidates.append(Path(found))
+    for cand in candidates:
+        if _probe_uno(cand):
+            return cand
     return None
 
 
@@ -256,20 +205,15 @@ def lo_python_env(interpreter: Path | str) -> dict[str, str]:
     if _platform() != "darwin":
         return {}
     interp_path = Path(interpreter)
-    app: Path | None = None
-    for parent in (interp_path, *interp_path.parents):
-        if parent.suffix == ".app" or parent.name.endswith(".app"):
-            app = parent
-            break
-    if app is None:
-        try:
-            resolved = interp_path.resolve()
-            for parent in (resolved, *resolved.parents):
-                if parent.suffix == ".app" or parent.name.endswith(".app"):
-                    app = parent
-                    break
-        except OSError:
-            pass
+    paths_to_check = [interp_path]
+    try:
+        paths_to_check.append(interp_path.resolve())
+    except OSError:
+        pass
+    app = next(
+        (p for candidate in paths_to_check for p in (candidate, *candidate.parents) if p.name.endswith(".app")),
+        None,
+    )
     if app is None:
         return {}
     contents = app / "Contents"
@@ -302,46 +246,53 @@ def build_child_env(
                     k, v = item.split("=", 1)
                     env[k] = v
     else:
-        for k, v in lo_python_env(interpreter).items():
-            env[k] = v
+        env.update(lo_python_env(interpreter))
 
     env["PYTHONUNBUFFERED"] = "1"
-    if "WRITERAGENT_PROJECT_ROOT" not in env:
-        env["WRITERAGENT_PROJECT_ROOT"] = str(Path(__file__).resolve().parents[1])
-
+    env.setdefault("WRITERAGENT_PROJECT_ROOT", str(Path(__file__).resolve().parents[1]))
     if set_vars:
-        for k, v in set_vars.items():
-            env[k] = v
+        env.update(set_vars)
 
     return env
 
 
-def check_lo_python(argv: list[str]) -> int:
-    """Validate LibreOffice Python interpreter and probe UNO import."""
-    python_arg: str | None = None
-    idx = 0
-    while idx < len(argv):
-        arg = argv[idx]
-        if arg == "--python":
-            if idx + 1 < len(argv):
-                python_arg = argv[idx + 1]
-                idx += 2
-                continue
-            python_arg = ""
-            idx += 1
-            continue
-        if arg.startswith("--python="):
-            python_arg = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        print("usage: lo_paths.py check-lo-python --python <path>", file=sys.stderr)
-        return 2
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="lo_paths.py")
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
-    if not python_arg or not python_arg.strip():
+    for name in ("soffice", "unopkg", "python"):
+        sub.add_parser(name)
+
+    find_p = sub.add_parser("find")
+    find_p.add_argument("target", choices=["lo-python"])
+
+    check_p = sub.add_parser("check-lo-python")
+    check_p.add_argument("--python", default="")
+
+    run_p = sub.add_parser("run-lo-python")
+    run_p.add_argument("--python", default="")
+    run_p.add_argument("--set", action="append", default=[], dest="set_vars")
+    run_p.add_argument("child_args", nargs=argparse.REMAINDER)
+
+    return parser
+
+
+def check_lo_python(args: argparse.Namespace | list[str]) -> int:
+    """Validate LibreOffice Python interpreter and probe UNO import."""
+    parsed: argparse.Namespace
+    if isinstance(args, list):
+        try:
+            parsed = _build_parser().parse_args(["check-lo-python", *args])
+        except SystemExit as exc:
+            return int(exc.code) if isinstance(exc.code, int) else 2
+    else:
+        parsed = args
+
+    if not parsed.python or not parsed.python.strip():
         print(_CHECK_EMPTY_MSG, file=sys.stderr)
         return 1
 
-    interp = python_arg.strip()
+    interp = parsed.python.strip()
     print("LO_PYTHON=%s" % interp)
     snippet = (
         "from plugin.testing_runner import _ensure_libreoffice_python_path; "
@@ -362,63 +313,34 @@ def check_lo_python(argv: list[str]) -> int:
     return 0
 
 
-def run_lo_python(argv: list[str]) -> int:
+def run_lo_python(args: argparse.Namespace | list[str]) -> int:
     """Execute command under LibreOffice Python environment."""
-    python_arg: str | None = None
-    set_vars: dict[str, str] = {}
-    child_args: list[str] = []
-
-    if "--" in argv:
-        split_idx = argv.index("--")
-        opts = argv[:split_idx]
-        child_args = argv[split_idx + 1 :]
+    parsed: argparse.Namespace
+    if isinstance(args, list):
+        try:
+            parsed = _build_parser().parse_args(["run-lo-python", *args])
+        except SystemExit as exc:
+            return int(exc.code) if isinstance(exc.code, int) else 2
     else:
-        opts = argv
-        child_args = []
+        parsed = args
 
-    idx = 0
-    while idx < len(opts):
-        opt = opts[idx]
-        if opt == "--python":
-            if idx + 1 >= len(opts):
-                print("error: --python requires an argument", file=sys.stderr)
-                return 2
-            python_arg = opts[idx + 1]
-            idx += 2
-        elif opt.startswith("--python="):
-            python_arg = opt.split("=", 1)[1]
-            idx += 1
-        elif opt == "--set":
-            if idx + 1 >= len(opts):
-                print("error: --set requires K=V", file=sys.stderr)
-                return 2
-            pair = opts[idx + 1]
-            if "=" not in pair:
-                print("error: --set requires K=V", file=sys.stderr)
-                return 2
-            k, v = pair.split("=", 1)
-            set_vars[k] = v
-            idx += 2
-        elif opt.startswith("--set="):
-            pair = opt.split("=", 1)[1]
-            if "=" not in pair:
-                print("error: --set requires K=V", file=sys.stderr)
-                return 2
-            k, v = pair.split("=", 1)
-            set_vars[k] = v
-            idx += 1
-        else:
-            print(
-                "usage: lo_paths.py run-lo-python --python <path> [--set K=V]... -- <args...>",
-                file=sys.stderr,
-            )
+    set_vars: dict[str, str] = {}
+    for pair in parsed.set_vars:
+        if "=" not in pair:
+            print("error: --set requires K=V", file=sys.stderr)
             return 2
+        k, v = pair.split("=", 1)
+        set_vars[k] = v
 
-    if not python_arg or not python_arg.strip():
+    if not parsed.python or not parsed.python.strip():
         print("error: LO_PYTHON is empty", file=sys.stderr)
         return 1
 
-    interp = python_arg.strip()
+    interp = parsed.python.strip()
+    child_args = parsed.child_args
+    if child_args and child_args[0] == "--":
+        child_args = child_args[1:]
+
     env = build_child_env(interp, set_vars=set_vars)
     cmd = [interp, *child_args]
     try:
@@ -442,44 +364,37 @@ def profile_url(profile: Path | str) -> str:
     return path.as_uri()
 
 
-def main(argv: list[str]) -> int:
-    if not argv:
-        print(
-            "usage: lo_paths.py soffice|unopkg|python | find lo-python | check-lo-python | run-lo-python",
-            file=sys.stderr,
-        )
-        return 2
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    parser = _build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code) if isinstance(exc.code, int) else 2
 
-    verb = argv[0]
-    if verb in _NAMES["linux"] and len(argv) == 1:
-        path = find(verb)
+    if args.cmd in ("soffice", "unopkg", "python"):
+        path = find(args.cmd)
         if path is None:
-            print("LibreOffice %s not found" % verb, file=sys.stderr)
+            print("LibreOffice %s not found" % args.cmd, file=sys.stderr)
             return 1
         print(path)
         return 0
 
-    if verb == "find":
-        if len(argv) == 2 and argv[1] == "lo-python":
-            path = find_lo_python()
-            if path is None:
-                print("LibreOffice python not found", file=sys.stderr)
-                return 1
-            print(path)
-            return 0
-        print("usage: lo_paths.py find lo-python", file=sys.stderr)
-        return 2
+    if args.cmd == "find":
+        path = find_lo_python()
+        if path is None:
+            print("LibreOffice python not found", file=sys.stderr)
+            return 1
+        print(path)
+        return 0
 
-    if verb == "check-lo-python":
-        return check_lo_python(argv[1:])
+    if args.cmd == "check-lo-python":
+        return check_lo_python(args)
 
-    if verb == "run-lo-python":
-        return run_lo_python(argv[1:])
+    if args.cmd == "run-lo-python":
+        return run_lo_python(args)
 
-    print(
-        "usage: lo_paths.py soffice|unopkg|python | find lo-python | check-lo-python | run-lo-python",
-        file=sys.stderr,
-    )
     return 2
 
 

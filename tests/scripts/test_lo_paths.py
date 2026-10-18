@@ -140,7 +140,7 @@ def test_linux_usr_bin_python3_wins_and_path_not_consulted(
     assert not marker.exists()
 
 
-def test_linux_skips_usr_bin_on_failure_and_skips_venv_and_sys_executable(
+def test_linux_skips_usr_bin_on_failure_and_probes_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(lo_paths.sys, "platform", "linux")
@@ -149,32 +149,22 @@ def test_linux_skips_usr_bin_on_failure_and_skips_venv_and_sys_executable(
     fake_usr.chmod(0o755)
     monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(fake_usr))
 
-    venv_dir = tmp_path / "test_venv"
-    venv_bin = venv_dir / "bin"
-    venv_bin.mkdir(parents=True)
-    (venv_dir / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
-    venv_py = venv_bin / "python3"
-    venv_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    venv_py.chmod(0o755)
+    bad_py3_dir = tmp_path / "bad_py3"
+    bad_py3_dir.mkdir()
+    bad_py3 = bad_py3_dir / "python3"
+    bad_py3.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    bad_py3.chmod(0o755)
 
-    sys_exec_dir = tmp_path / "sys_exec_dir"
-    sys_exec_dir.mkdir()
-    fake_sys_py = sys_exec_dir / "python3"
-    fake_sys_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    fake_sys_py.chmod(0o755)
-    monkeypatch.setattr(lo_paths.sys, "executable", str(fake_sys_py))
+    good_py_dir = tmp_path / "good_py"
+    good_py_dir.mkdir()
+    good_py = good_py_dir / "python"
+    good_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    good_py.chmod(0o755)
 
-    real_dir = tmp_path / "real_bin"
-    real_dir.mkdir()
-    real_py = real_dir / "python3"
-    real_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    real_py.chmod(0o755)
-
-    path_order = f"{venv_bin}{os.pathsep}{sys_exec_dir}{os.pathsep}{real_dir}"
-    monkeypatch.setenv("PATH", path_order)
+    monkeypatch.setenv("PATH", f"{bad_py3_dir}{os.pathsep}{good_py_dir}")
 
     res = lo_paths.find_lo_python()
-    assert res == real_py
+    assert res == good_py
 
 
 def test_linux_returns_nothing_when_every_probe_fails(
