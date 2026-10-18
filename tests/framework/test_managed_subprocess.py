@@ -52,7 +52,8 @@ def test_managed_subprocess_explicit_start_and_cwd(tmp_path):
     cwd = str(tmp_path)
     env = {"TEST_VAR": "hello"}
 
-    cmd = [sys.executable, "-c", "import os; print(os.getcwd()); print(os.environ.get('TEST_VAR'))"]
+    # Child waits for stdin to close, so it is still alive when we check (fast Macs finished first).
+    cmd = [sys.executable, "-c", "import os, sys; print(os.getcwd()); print(os.environ.get('TEST_VAR')); sys.stdin.read()"]
 
     proc = ManagedSubprocess(cmd, env=env, cwd=cwd)
     assert not proc.is_alive()
@@ -63,6 +64,7 @@ def test_managed_subprocess_explicit_start_and_cwd(tmp_path):
     assert proc.stdout is not None
     assert proc.stderr_tail is not None
 
+    proc.stdin.close()
     stdout = proc.stdout.read()
     proc.stdout.close()
     output = stdout.decode("utf-8").strip().splitlines()
