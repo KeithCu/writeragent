@@ -10,6 +10,8 @@ import logging
 from typing import Any, Iterator
 
 log = logging.getLogger("writeragent.notebook")
+ 
+from plugin.framework.errors import best_effort
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
@@ -72,10 +74,12 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     enum = text.createEnumeration()
     while enum.hasMoreElements():
         block = enum.nextElement()
-        try:
-            portion_enum = block.createEnumeration()
-        except Exception:
-            # TextTable blocks have no portion enumeration. Skip the block.
+        # TextTable blocks have no portion enumeration. Skip the block.
+        portion_enum = best_effort(
+            lambda: block.createEnumeration(),
+            "notebook form lookup: text block has no portion enumeration",
+        )
+        if portion_enum is None:
             continue
         while portion_enum.hasMoreElements():
             portion = portion_enum.nextElement()

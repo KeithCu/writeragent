@@ -110,6 +110,27 @@ def test_find_control_shape_by_name_from_draw_page():
     assert find_control_shape_by_name(doc, "") is None
 
 
+def test_text_fallback_skips_block_without_portion_enumeration():
+    table = MagicMock()
+    table.createEnumeration.side_effect = AttributeError("text table")
+
+    field_model = MagicMock()
+    field_model.Name = "nb_cell_0_code"
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = "Frame"
+    portion.TextField = field_model
+    para = MagicMock()
+    para.createEnumeration.return_value = _enum_of([portion])
+
+    dp = MagicMock()
+    dp.getCount.return_value = 0
+    doc = MagicMock()
+    doc.getDrawPage.return_value = dp
+    doc.getText.return_value.createEnumeration.return_value = _enum_of([table, para])
+
+    assert find_form_control_model_by_name(doc, "nb_cell_0_code") is field_model
+
+
 def _enum_of(items):
     enum = MagicMock()
     enum.hasMoreElements.side_effect = [True] * len(items) + [False]

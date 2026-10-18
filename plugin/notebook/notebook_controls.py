@@ -30,6 +30,7 @@ import uno
 from com.sun.star.awt import Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
@@ -193,14 +194,14 @@ def _anchor_control_as_character(shape: Any) -> None:
 
 
 def _set_model_prop(model: Any, name: str, value: Any) -> None:
-    """Best-effort style set. Skip names this model lacks (form CommandButton has no
-    ``Border``, the form TextField no ``AutoVScroll``) instead of logging a traceback."""
+    """Set one form-model property. Skip names this model lacks.
+
+    CommandButton has no ``Border``; the form TextField has no ``AutoVScroll``.
+    A rejected value must not abort insertion of the code field.
+    """
     if not model.getPropertySetInfo().hasPropertyByName(name):
         return
-    try:
-        model.setPropertyValue(name, value)
-    except Exception:
-        log.debug("notebook controls could not set model %s", name, exc_info=True)
+    best_effort(lambda: model.setPropertyValue(name, value), f"notebook controls could not set model {name}")
 
 
 def _style_code_field_model(model: Any) -> None:
@@ -226,7 +227,8 @@ def _style_run_button_model(model: Any) -> None:
 
 def _style_control_paragraph(doc: Any) -> None:
     """Field-only paragraph: full text-area width, no hanging indent for ▶."""
-    try:
+
+    def _style() -> None:
         text = doc.getText()
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
@@ -238,8 +240,8 @@ def _style_control_paragraph(doc: Any) -> None:
         cursor.setPropertyValue("ParaTopMargin", 0)
         cursor.setPropertyValue("ParaBottomMargin", 150)
         cursor.setPropertyValue("ParaKeepTogether", False)
-    except Exception:
-        log.debug("notebook controls paragraph style failed", exc_info=True)
+
+    best_effort(_style, "notebook controls paragraph style failed")
 
 
 def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated: bool = False, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:
@@ -357,7 +359,7 @@ def ensure_form_design_mode_off(doc: Any) -> None:
     ApplyFormDesignMode=False is the load-time switch so the view that attaches after the filter returns is in user mode.
     setFormDesignMode(False) still needed when a controller already exists (Import into an open doc).
     """
-    try:
+    def _off() -> None:
         # Load-time switch for File Open (runs before view/controller exists)
         doc.ApplyFormDesignMode = False
 
@@ -365,8 +367,8 @@ def ensure_form_design_mode_off(doc: Any) -> None:
         controller = doc.getCurrentController()
         if controller is not None and hasattr(controller, "setFormDesignMode"):
             controller.setFormDesignMode(False)
-    except Exception:
-        log.debug("notebook controls: setFormDesignMode failed", exc_info=True)
+
+    best_effort(_off, "notebook controls: setFormDesignMode failed")
 
 
 def _query_interface(obj: Any, typename: str) -> Any:
@@ -473,12 +475,9 @@ def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
             return None
         # SwXTextView exposes getControl on XControlAccess; PyUNO needs getTypeByName for QI.
         if hasattr(controller, "getControl"):
-            try:
-                view = controller.getControl(model)
-                if view is not None:
-                    return view
-            except Exception:
-                log.debug("notebook controls: controller.getControl failed", exc_info=True)
+            view = best_effort(lambda: controller.getControl(model), "notebook controls: controller.getControl failed")
+            if view is not None:
+                return view
         access = _query_interface(controller, "com.sun.star.view.XControlAccess")
         if access is None:
             log.debug("notebook controls: controller has no XControlAccess")
@@ -516,14 +515,7 @@ def prune_dead_listeners() -> None:
     survivor_keys: set[tuple[str, str]] = set()
     survivor_forms: set[str] = set()
     for lis in refs:
-        try:
-            doc = lis._resolve_doc()
-        except Exception:
-            # Was ``except Exception: pass`` after survivors.append, which hid
-            # AttributeError on the container listener's missing ``_hex_id``
-            # and any real ``_resolve_doc`` failure.
-            log.debug("notebook controls: prune resolve failed", exc_info=True)
-            continue
+        doc = best_effort(lis._resolve_doc, "notebook controls: prune resolve failed")
         if doc is None:
             continue
         survivors.append(lis)
@@ -562,23 +554,22 @@ class NotebookRunButtonListener(BaseActionListener):
         # get_active_document; PyUNO wrappers usually cannot be weakref'd, so
         # ▶ looked wired but actionPerformed returned "document gone".
         self._runtime_uid = _read_runtime_uid(doc) or ""
-        try:
-            import weakref
+        import weakref
 
-            self._doc_weak: Any | None = weakref.ref(doc)
-        except Exception:
-            self._doc_weak = None
+        self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
 
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import get_active_document, resolve_document_by_url
 
         if self._doc_url:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
+            resolved = best_effort(
+                lambda: resolve_document_by_url(self._ctx, self._doc_url),
+                "notebook controls: doc resolution failed",
+            )
+            if resolved is not None:
+                doc, _doc_type = resolved
                 if doc is not None:
                     return doc
-            except Exception:
-                log.debug("notebook controls: doc resolution failed", exc_info=True)
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -587,18 +578,20 @@ class NotebookRunButtonListener(BaseActionListener):
             if ref_doc is not None:
                 return ref_doc
         if self._runtime_uid:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
+            resolved = best_effort(
+                lambda: resolve_document_by_url(self._ctx, self._runtime_uid),
+                "notebook controls: runtime uid resolution failed",
+            )
+            if resolved is not None:
+                doc, _doc_type = resolved
                 if doc is not None:
                     return doc
-            except Exception:
-                pass
-        try:
-            active = get_active_document(self._ctx)
-            if active is not None and _doc_key(active) == self._doc_key_val:
-                return active
-        except Exception:
-            pass
+        active = best_effort(
+            lambda: get_active_document(self._ctx),
+            "notebook controls: active document resolution failed",
+        )
+        if active is not None and _doc_key(active) == self._doc_key_val:
+            return active
         return None
 
     def on_action_performed(self, rEvent: Any) -> None:
@@ -668,7 +661,7 @@ def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> 
         return False
     if name in listener._attached_names:
         return True
-    try:
+    def _attach() -> bool:
         btn = _query_interface(control, "com.sun.star.awt.XButton")
         if btn is not None:
             btn.addActionListener(listener)
@@ -678,9 +671,8 @@ def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> 
             return False
         listener._attached_names.add(name)
         return True
-    except Exception:
-        log.debug("notebook controls: form attach failed for %s", name, exc_info=True)
-        return False
+
+    return best_effort(_attach, f"notebook controls: form attach failed for {name}") is True
 
 
 def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
@@ -778,17 +770,18 @@ def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> boo
 
 
 def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
-    try:
-        container.removeContainerListener(container_lis)
-    except Exception:
-        log.debug("notebook controls: removeContainerListener failed", exc_info=True)
-    try:
+    best_effort(
+        lambda: container.removeContainerListener(container_lis),
+        "notebook controls: removeContainerListener failed",
+    )
+
+    def _remove_actions() -> None:
         controls = container.getControls() if hasattr(container, "getControls") else ()
         for control in controls or ():
             if hasattr(control, "removeActionListener"):
                 control.removeActionListener(listener)
-    except Exception:
-        log.debug("notebook controls: removeActionListener failed", exc_info=True)
+
+    best_effort(_remove_actions, "notebook controls: removeActionListener failed")
 
 
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
@@ -825,26 +818,28 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
-    try:
+    def _attach_existing() -> None:
+        nonlocal attached
         controls = container.getControls() if hasattr(container, "getControls") else ()
         for control in controls or ():
             if _attach_action_listener(control, listener):
                 attached += 1
-    except Exception:
-        log.debug("notebook controls: getControls attach failed", exc_info=True)
+
+    best_effort(_attach_existing, "notebook controls: getControls attach failed")
 
     container_lis = NotebookFormContainerListener(listener, container)
     try:
         container.addContainerListener(container_lis)
     except Exception:
         log.debug("notebook controls: addContainerListener failed", exc_info=True)
-        try:
+
+        def _rollback() -> None:
             controls = container.getControls() if hasattr(container, "getControls") else ()
             for control in controls or ():
                 if hasattr(control, "removeActionListener"):
                     control.removeActionListener(listener)
-        except Exception:
-            pass
+
+        best_effort(_rollback, "notebook controls: removeActionListener during failed attach failed")
         return 0
 
     with _lock:

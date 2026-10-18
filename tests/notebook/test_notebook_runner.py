@@ -71,6 +71,13 @@ def test_format_run_output_text_skips_image_result():
     assert text == ""
 
 
+def test_format_run_output_text_unpack_failure_renders_raw_wire():
+    wire = {"raw": "payload"}
+    with patch("plugin.notebook.notebook_runner.host_unpack_data", side_effect=ValueError("bad")):
+        text = format_run_output_text({"status": "ok", "result": wire}, execution_count=2)
+    assert repr(wire) in text
+
+
 def test_read_code_from_field_finds_textfield():
     field_model = MagicMock()
     field_model.Name = "nb_cell_0_code"

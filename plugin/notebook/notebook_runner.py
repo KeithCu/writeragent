@@ -15,7 +15,7 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import is_disposed_exception, is_document_disposed
+from plugin.framework.errors import best_effort, is_disposed_exception, is_document_disposed
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
@@ -191,13 +191,10 @@ def _paragraph_string(cursor: Any) -> str:
     selected = _plain_text(cursor.getString() or "")
     if selected.strip():
         return selected
-    try:
-        probe = cursor.getText().createTextCursorByRange(cursor)
-        probe.gotoStartOfParagraph(False)
-        probe.gotoEndOfParagraph(True)
-        return _plain_text(probe.getString() or "")
-    except Exception:
-        return selected
+    probe = cursor.getText().createTextCursorByRange(cursor)
+    probe.gotoStartOfParagraph(False)
+    probe.gotoEndOfParagraph(True)
+    return _plain_text(probe.getString() or "")
 
 
 def _paragraph_is_empty(cursor: Any) -> bool:
@@ -225,15 +222,12 @@ def _style_is_preformatted(para_style: str) -> bool:
 
 def _same_paragraph(a: Any, b: Any) -> bool:
     """True when *a* and *b* are in the same Writer paragraph."""
-    try:
-        text = a.getText()
-        ca = text.createTextCursorByRange(a)
-        cb = text.createTextCursorByRange(b)
-        ca.gotoStartOfParagraph(False)
-        cb.gotoStartOfParagraph(False)
-        return int(text.compareRegionStarts(ca, cb)) == 0
-    except Exception:
-        return False
+    text = a.getText()
+    ca = text.createTextCursorByRange(a)
+    cb = text.createTextCursorByRange(b)
+    ca.gotoStartOfParagraph(False)
+    cb.gotoStartOfParagraph(False)
+    return int(text.compareRegionStarts(ca, cb)) == 0
 
 
 def _paragraph_has_frame(cursor: Any) -> bool:
@@ -406,15 +400,14 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
 
 def _selection_start_range(doc: Any) -> Any | None:
     """Collapsed start of the view cursor / selection, or None if unavailable."""
-    try:
+
+    def _lookup() -> Any:
         vc = doc.getCurrentController().getViewCursor()
-        text = doc.getText()
-        cur = text.createTextCursorByRange(vc)
+        cur = doc.getText().createTextCursorByRange(vc)
         cur.collapseToStart()
         return cur
-    except Exception:
-        log.debug("notebook run from here: no view selection", exc_info=True)
-        return None
+
+    return best_effort(_lookup, "notebook run from here: no view selection")
 
 
 def _cell_end_range(doc: Any, cell: NotebookCodeCell) -> Any | None:
@@ -453,13 +446,10 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
     if insert_at is None and current is not None:
         notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
         if _is_next_cell_boundary(_para_style_name(current), _paragraph_string(current), notebook_in):
-            try:
-                prev = doc.getText().createTextCursorByRange(current)
-                if prev.gotoPreviousParagraph(False):
-                    prev.gotoEndOfParagraph(False)
-                    insert_at = prev
-            except Exception:
-                insert_at = None
+            prev = doc.getText().createTextCursorByRange(current)
+            if prev.gotoPreviousParagraph(False):
+                prev.gotoEndOfParagraph(False)
+                insert_at = prev
     if insert_at is None:
         return current
     try:
@@ -488,7 +478,8 @@ def _delete_paragraph_at(cursor: Any) -> bool:
     is the empty body plus PARAGRAPH_BREAK — not the next paragraph's first
     character (``goRight(1)`` after ``gotoEndOfParagraph`` is version-fragile).
     """
-    try:
+
+    def _delete() -> bool:
         text = cursor.getText()
         sel = text.createTextCursorByRange(cursor)
         sel.gotoStartOfParagraph(False)
@@ -500,9 +491,8 @@ def _delete_paragraph_at(cursor: Any) -> bool:
             sel.gotoEndOfParagraph(True)
         sel.setString("")
         return True
-    except Exception:
-        log.debug("notebook run: delete empty paragraph failed", exc_info=True)
-        return False
+
+    return best_effort(_delete, "notebook run: delete empty paragraph failed", False)
 
 
 def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, notebook_in: str | None) -> None:
@@ -651,11 +641,7 @@ def format_run_output_text(result: dict[str, Any], execution_count: int | None =
             return False
 
         if wire is not None and not is_only_images(wire):
-            try:
-                value = host_unpack_data(wire)
-            except Exception:
-                log.debug("notebook run: host_unpack_data failed", exc_info=True)
-                value = wire
+            value = best_effort(lambda: host_unpack_data(wire), "notebook run: host_unpack_data failed", wire)
             rendered = repr(value)
             if execution_count is not None:
                 parts.append(f"Out [{execution_count}]: {rendered}")
@@ -909,16 +895,9 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
         last = portion
     if first is None or last is None:
         return None
-    try:
-        # Expand from the first portion's start to the last portion's end.
-        # Starting on the portion itself and calling gotoRange(portion, True)
-        # raises RuntimeException on a real gutter, so this always fell back.
-        cursor = text.createTextCursorByRange(first.getStart())
-        cursor.gotoRange(last.getEnd(), True)
-        return cursor
-    except Exception:
-        log.debug("notebook run: could not build leading text cursor", exc_info=True)
-        return None
+    cursor = text.createTextCursorByRange(first.getStart())
+    cursor.gotoRange(last.getEnd(), True)
+    return cursor
 
 
 def _gutter_text_cursor(text: Any, para: Any) -> Any | None:
@@ -928,16 +907,15 @@ def _gutter_text_cursor(text: Any, para: Any) -> Any | None:
         return cursor
     # Fallback when portion enumeration is unavailable (unit mocks): expand only
     # as far as getString() so we do not cover AS_CHARACTER positions it omits.
-    try:
+    def _fallback() -> Any:
         content = para.getString() or ""
         cursor = text.createTextCursorByRange(para.getStart())
         n = min(len(content), 32767)
         if n:
             cursor.goRight(n, True)
         return cursor
-    except Exception:
-        log.debug("notebook run: gutter text cursor fallback failed", exc_info=True)
-        return None
+
+    return best_effort(_fallback, "notebook run: gutter text cursor fallback failed")
 
 
 def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | None) -> None:
@@ -952,17 +930,13 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
     # ``Cell N: Code``).
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
     if shape is not None:
-        try:
-            anchor = shape.getAnchor()
-            cursor = text.createTextCursorByRange(anchor)
-            if cursor.gotoPreviousParagraph(False):
-                para_rng = text.createTextCursorByRange(cursor)
-                para_rng.gotoStartOfParagraph(False)
-                para_rng.gotoEndOfParagraph(True)
-                para = para_rng
-        except Exception:
-            log.debug("notebook run: gutter from code field failed", exc_info=True)
-            para = None
+        anchor = shape.getAnchor()
+        cursor = text.createTextCursorByRange(anchor)
+        if cursor.gotoPreviousParagraph(False):
+            para_rng = text.createTextCursorByRange(cursor)
+            para_rng.gotoStartOfParagraph(False)
+            para_rng.gotoEndOfParagraph(True)
+            para = para_rng
     if para is None:
         log.warning("notebook run: could not find code field %r to update In prompt for cell %d", cell.code_field_name, cell.index)
         return
@@ -976,29 +950,27 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
 
 
 def _save_view_cursor(doc: Any) -> Any | None:
-    try:
-        vc = doc.getCurrentController().getViewCursor()
-        return clone_text_range(vc)
-    except Exception:
-        return None
+    return best_effort(
+        lambda: clone_text_range(doc.getCurrentController().getViewCursor()),
+        "notebook run: save view cursor failed",
+    )
 
 
 def _restore_view_to_cell(doc: Any, cell: NotebookCodeCell, saved: Any | None = None) -> None:
     """Keep the view on the cell that ran instead of jumping to the document end."""
-    vc = None
-    try:
-        vc = doc.getCurrentController().getViewCursor()
-    except Exception:
+    vc = best_effort(lambda: doc.getCurrentController().getViewCursor(), "notebook run: no view cursor")
+    if vc is None:
         return
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
-    try:
+
+    def _go() -> None:
         if shape is not None:
             vc.gotoRange(shape.getAnchor(), False)
             return
         if saved is not None:
             vc.gotoRange(saved, False)
-    except Exception:
-        log.debug("notebook run: restore view to cell failed", exc_info=True)
+
+    best_effort(_go, "notebook run: restore view to cell failed")
 
 
 # ---------------------------------------------------------------------------
@@ -1124,10 +1096,11 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
         if end is None:
             continue
         found_end = True
-        try:
-            cmp = int(text.compareRegionStarts(sel, end))
-        except Exception:
-            log.debug("notebook run from here: compareRegionStarts failed", exc_info=True)
+        cmp = best_effort(
+            lambda: int(text.compareRegionStarts(sel, end)),
+            "notebook run from here: compareRegionStarts failed",
+        )
+        if cmp is None:
             continue
         if cmp >= 0:
             return i
@@ -1147,7 +1120,8 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     ``flush_ui_idle`` (hamburger Stop, and the tests that patch it). Do not
     pump inside ``execute_code`` (LayoutIdle).
     """
-    try:
+
+    def _pump() -> None:
         from plugin.framework.async_drain_guard import get_drain_owner
         from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
         from plugin.framework.uno_context import get_toolkit
@@ -1158,8 +1132,8 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
             pump_ui_idle(get_toolkit(ctx), max_queue_items=1)
         else:
             flush_ui_idle(ctx)
-    except Exception:
-        log.debug("notebook run: between-cell pump failed", exc_info=True)
+
+    best_effort(_pump, "notebook run: between-cell pump failed")
 
 
 def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
