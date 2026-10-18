@@ -105,8 +105,6 @@ def _odf_locale_from_fodt(path: str) -> str | None:
     except (OSError, ET.ParseError):
         log.debug("fodt locale read failed for %s", path, exc_info=True)
         return None
-    if root is None:
-        return None
     tag = _odf_locale_from_styles_root(root)
     if tag:
         return tag
@@ -492,8 +490,6 @@ def extract_odf_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]
     try:
         if ext == ".fodt":
             root = ET.parse(path).getroot()
-            if root is None:
-                return None
             return _odf_paragraph_runs_from_roots(root, styles_root=root, doc_default=doc_default)
         with zipfile.ZipFile(path) as zf:
             content_root = _read_zip_member(zf, "content.xml")

@@ -362,7 +362,7 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
         return _vector_backend_is_empty(mode, listing_root, meta_path)
     if db_path is None:
         db_path = meta_path.parent / CORPUS_DB_FILENAME
-    if db_path is not None and not db_path.is_file():
+    if not db_path.is_file():
         return True
     # Missing meta beside a live corpus.db is empty: needs_cold_rebuild and
     # cold maintain may wipe that db. Corrupt or non-object JSON is the
@@ -375,7 +375,7 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
     # Corrupt or non-object meta with a live DB is not "empty". Treating it as
     # empty selects a cold rebuild and deletes the corpus. #1153 covered JSON
     # decode errors; a JSON list or string took the chunk_count-0 path.
-    if _load_meta_object(meta_path) is None and db_path is not None and db_path.is_file():
+    if _load_meta_object(meta_path) is None and db_path.is_file():
         return False
     return chunk_count_from_meta(meta_path) <= 0
 
@@ -419,12 +419,9 @@ def clear_folder_cache(listing_root: str) -> None:
     _remove_path(base / "zvec")
     _remove_path(base / "lancedb")
 
-    try:
-        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+    from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
 
-        zvec_clear_cache(str(base / "zvec"))
-    except ImportError:
-        pass
+    zvec_clear_cache(str(base / "zvec"))
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:

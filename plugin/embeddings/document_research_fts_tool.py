@@ -73,16 +73,10 @@ class SearchNearbyFiles(ToolBase):
             return self._tool_error("query is required")
 
         k_raw = kwargs.get("k", _DEFAULT_SEARCH_K)
-        try:
-            k = max(1, min(int(k_raw), _MAX_SEARCH_K))
-        except (TypeError, ValueError):
-            k = _DEFAULT_SEARCH_K
+        k = max(1, min(int(k_raw), _MAX_SEARCH_K))
 
         near_raw = kwargs.get("near_slop", _DEFAULT_NEAR_SLOP)
-        try:
-            near_slop = max(0, int(near_raw))
-        except (TypeError, ValueError):
-            near_slop = _DEFAULT_NEAR_SLOP
+        near_slop = max(0, int(near_raw))
 
         file_subset = kwargs.get("file_subset")
 

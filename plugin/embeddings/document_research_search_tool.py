@@ -67,10 +67,7 @@ class SearchEmbeddings(ToolBase):
             return self._tool_error("query is required")
 
         k_raw = kwargs.get("k", _DEFAULT_SEARCH_K)
-        try:
-            k = max(1, min(int(k_raw), _MAX_SEARCH_K))
-        except (TypeError, ValueError):
-            k = _DEFAULT_SEARCH_K
+        k = max(1, min(int(k_raw), _MAX_SEARCH_K))
 
         from plugin.embeddings.embeddings_cache import (
             index_is_empty,
