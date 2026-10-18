@@ -192,14 +192,7 @@ def start_native_script_run(
             log.exception("native script run failed")
             _deliver({"ok": False, "message": str(exc)})
 
-    try:
-        run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
-    except Exception:
-        # What was wrong: Delivering an error outcome on scheduling failure resulted in duplicate error reporting.
-        # How it happened: run_in_background raised, and the except block both delivered to on_complete and re-raised to caller.
-        # Why this change fixes it: Log and re-raise without calling _deliver, leaving error reporting solely to the caller.
-        log.exception("start_native_script_run: failed to schedule background worker")
-        raise
+    run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
 
 
 def native_run_script_modeless_enabled() -> bool:

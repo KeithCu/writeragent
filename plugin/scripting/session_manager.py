@@ -42,11 +42,9 @@ def _call_reset_python_session(ctx: Any, session_id: str) -> dict[str, Any]:
 
 
 def _has_notebook_registry(doc: Any) -> bool:
-    """Writer notebook registry; ImportError only if the notebook package is absent."""
-    try:
-        from plugin.notebook.cell_registry import has_notebook_registry
-    except ImportError:
-        return False
+    """Writer notebook registry."""
+    from plugin.notebook.cell_registry import has_notebook_registry
+
     return has_notebook_registry(doc)
 
 
@@ -167,11 +165,7 @@ _reset_marshal_tls = threading.local()
 
 def existing_calc_session_id(doc: Any) -> str | None:
     """``calc:`` id from a URL or stored prop. Does not mint a new prop."""
-    try:
-        key = _existing_workbook_session_key(doc)
-    except Exception:
-        log.debug("existing_calc_session_id: lookup failed", exc_info=True)
-        return None
+    key = _existing_workbook_session_key(doc)
     if not key:
         return None
     return f"calc:{key}"
@@ -570,11 +564,8 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     # The menubar handler is registered with no document. Reset the focused
     # window. Searching every open component used to clear a background Calc
     # kernel when the user pressed reset from Writer.
-    try:
-        desktop = get_desktop(ctx)
-        current = desktop.getCurrentComponent() if desktop else None
-    except Exception:
-        current = None
+    desktop = get_desktop(ctx)
+    current = desktop.getCurrentComponent() if desktop else None
 
     if current is not None:
         if not (is_writer(current) or is_draw(current) or is_calc(current)):

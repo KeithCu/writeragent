@@ -180,9 +180,8 @@ def format_result_for_writer(result: Any) -> str:
         return ""
 
     if is_dataframe_payload(result):
-        d = result if isinstance(result, dict) else {}
-        cols = d.get("columns") or []
-        data = d.get("data") or []
+        cols = result.get("columns") or []
+        data = result.get("data") or []
         return _format_list_to_table(data if isinstance(data, list) else [], headers=cols if cols else None)
 
     if isinstance(result, list):
@@ -223,37 +222,29 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     transferable paste (insert_cell_html_rich). This registers a native C++
     ScUndo action in LibreOffice Calc, allowing single-step Ctrl+Z undo.
     """
-    try:
-        if result is None:
-            return
-        if is_shape_tool_status_result(result):
-            log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result.keys()) if isinstance(result, dict) else type(result).__name__)
-            return
+    if result is None:
+        return
+    if is_shape_tool_status_result(result):
+        log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result.keys()))
+        return
 
-        # Determine anchor cell from selection
-        controller = doc.getCurrentController() if doc else None
-        selection = controller.getSelection() if controller else None
+    # Determine anchor cell from selection
+    controller = doc.getCurrentController() if doc else None
+    selection = controller.getSelection() if controller else None
 
-        start_col = 0
-        start_row = 0
-        if selection and hasattr(selection, "getRangeAddress"):
-            addr = selection.getRangeAddress()
-            start_col = addr.StartColumn
-            start_row = addr.StartRow
+    start_col = 0
+    start_row = 0
+    if selection and hasattr(selection, "getRangeAddress"):
+        addr = selection.getRangeAddress()
+        start_col = addr.StartColumn
+        start_row = addr.StartRow
 
-        anchor_addr = f"{index_to_column(start_col)}{start_row + 1}"
-        formatted = format_result_for_writer(result)
-        if formatted:
-            from plugin.calc.rich_html import insert_cell_html_rich
+    anchor_addr = f"{index_to_column(start_col)}{start_row + 1}"
+    formatted = format_result_for_writer(result)
+    if formatted:
+        from plugin.calc.rich_html import insert_cell_html_rich
 
-            insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
-
-    except Exception:
-        # The message box returns normally, so execute_and_insert_result would
-        # report ok=True. Writer insert lets the error reach
-        # rps_insert_failed_outcome; Calc must do the same.
-        log.exception("Failed to insert result into Calc")
-        raise
+        insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
 
 def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
@@ -371,13 +362,8 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
-        # topics/sentiment return list[str] (one string per section).
-        # str(text) made that the list repr, and json.dumps then bound one
-        # document whose body was "['sec', ...]". Lists already dump as JSON
-        # arrays, which the template analyzes per section.
-        if not isinstance(text, (str, list)):
-            text = str(text)
-        exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context if isinstance(document_context, dict) else {}})
+        # topics/sentiment return list[str]. Do not str() that list.
+        exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context})
 
     from plugin.scripting.session_manager import pin_script_document, release_script_document, rps_session_id
     from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
@@ -416,7 +402,7 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
         params = prepared["params"]
         image_name = prepared.get("image_name")
 
-        params_dict = dict(params) if isinstance(params, dict) else {}
+        params_dict = dict(params)
         if image_name:
             params_dict["image_name"] = image_name
 
@@ -515,8 +501,8 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
                 if post is not None:
                     return post
 
-            if is_shape_tool_status_result(result_data):
-                log.debug("Skipping result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
+            if isinstance(result_data, dict) and is_shape_tool_status_result(result_data):
+                log.debug("Skipping result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()))
             elif is_calc(doc):
                 insert_result_into_calc(doc, ctx, result_data)
             elif is_writer(doc):
@@ -577,16 +563,15 @@ def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str 
 
 def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dict[str, Any]:
     """Map a native-run outcome to the Monaco saved or error frame."""
-    if not isinstance(outcome, dict) or not outcome.get("ok"):
+    if not outcome.get("ok"):
         message = _("Unknown error")
         traceback_text = None
-        if isinstance(outcome, dict):
-            raw = outcome.get("message")
-            if isinstance(raw, str) and raw:
-                message = raw
-            tb = outcome.get("traceback")
-            if isinstance(tb, str) and tb:
-                traceback_text = tb
+        raw = outcome.get("message")
+        if isinstance(raw, str) and raw:
+            message = raw
+        tb = outcome.get("traceback")
+        if isinstance(tb, str) and tb:
+            traceback_text = tb
         payload: dict[str, Any] = {"type": "error", "message": message}
         if traceback_text:
             payload["traceback"] = traceback_text
@@ -666,7 +651,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         # button. The Monaco frame is delivered when that run finishes.
         _monaco_run_in_flight.add(run_key)
         snapshot = code
-        binding = data_binding if isinstance(data_binding, str) else None
+        binding = data_binding
 
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
             def _on_complete(outcome: dict[str, Any]) -> None:
@@ -702,12 +687,9 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         "doc_url": "",
         "resource": "run_script",
     }
-    try:
-        from plugin.scripting.document_scripts import document_scripts_identity
+    from plugin.scripting.document_scripts import document_scripts_identity
 
-        load_msg["doc_url"] = document_scripts_identity(doc)
-    except Exception:
-        log.debug("python_runner: doc_url for session target failed", exc_info=True)
+    load_msg["doc_url"] = document_scripts_identity(doc)
     return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
