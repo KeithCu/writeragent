@@ -790,7 +790,11 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             continue
         # Same filter as MCP's _real_active_document: the Start Center is a live component but
         # not an OfficeDocument, so skip it — listing it would confuse multi-document targeting.
-        if not uno_read(lambda: model.supportsService("com.sun.star.document.OfficeDocument"), True):
+
+        def _is_office_doc(m: Any = model) -> Any:
+            return m.supportsService("com.sun.star.document.OfficeDocument")
+
+        if not uno_read(_is_office_doc, True):
             continue
         url = model.getURL()
         if not url:
@@ -814,7 +818,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             continue
         
         path = _system_path_from_url(str(url)) or ""
-        doc_type_guess = guess_doc_type_from_path(path) if path else "unknown"
+        # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
+        doc_type_guess: str = guess_doc_type_from_path(path) if path else "unknown"
         if doc_type_guess == "unknown":
             doc_type_guess = uno_read(
                 lambda: doc_type_label_for_enum(get_document_type(model), impress_as_draw=True),
