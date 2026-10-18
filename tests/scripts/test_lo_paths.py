@@ -118,53 +118,38 @@ def test_main_usage() -> None:
     assert lo_paths.main(["bogus"]) == 2
 
 
+def _fake_linux_pythons(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, works: set[str]) -> list[str]:
+    # Fake interpreters + a fake import probe, so this also runs on Windows/macOS.
+    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
+    usr = tmp_path / "usr_bin_python3"
+    usr.write_text("", encoding="utf-8")
+    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(usr))
+    on_path = {"python3": tmp_path / "bin" / "python3", "python": tmp_path / "bin" / "python"}
+    monkeypatch.setattr(lo_paths.shutil, "which", lambda name: str(on_path[name]) if name in on_path else None)
+    probed: list[str] = []
+
+    def probe(interp: Path | str) -> bool:
+        probed.append(Path(interp).name)
+        return Path(interp).name in works
+
+    monkeypatch.setattr(lo_paths, "_probe_uno", probe)
+    return probed
+
+
 def test_linux_usr_bin_python3_wins_and_path_not_consulted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
-    fake_usr = tmp_path / "usr_bin_python3"
-    fake_usr.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    fake_usr.chmod(0o755)
-    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(fake_usr))
-
-    path_dir = tmp_path / "path_bin"
-    path_dir.mkdir()
-    marker = tmp_path / "marker.txt"
-    fake_path_py = path_dir / "python3"
-    fake_path_py.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n", encoding="utf-8")
-    fake_path_py.chmod(0o755)
-    monkeypatch.setenv("PATH", str(path_dir))
-
-    res = lo_paths.find_lo_python()
-    assert res == fake_usr
-    assert not marker.exists()
+    probed = _fake_linux_pythons(monkeypatch, tmp_path, {"usr_bin_python3", "python3"})
+    assert lo_paths.find_lo_python() == tmp_path / "usr_bin_python3"
+    assert probed == ["usr_bin_python3"]
 
 
 def test_linux_skips_usr_bin_on_failure_and_probes_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(lo_paths.sys, "platform", "linux")
-    fake_usr = tmp_path / "usr_bin_python3"
-    fake_usr.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    fake_usr.chmod(0o755)
-    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(fake_usr))
-
-    bad_py3_dir = tmp_path / "bad_py3"
-    bad_py3_dir.mkdir()
-    bad_py3 = bad_py3_dir / "python3"
-    bad_py3.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    bad_py3.chmod(0o755)
-
-    good_py_dir = tmp_path / "good_py"
-    good_py_dir.mkdir()
-    good_py = good_py_dir / "python"
-    good_py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    good_py.chmod(0o755)
-
-    monkeypatch.setenv("PATH", f"{bad_py3_dir}{os.pathsep}{good_py_dir}")
-
-    res = lo_paths.find_lo_python()
-    assert res == good_py
+    probed = _fake_linux_pythons(monkeypatch, tmp_path, {"python"})
+    assert lo_paths.find_lo_python() == tmp_path / "bin" / "python"
+    assert probed == ["usr_bin_python3", "python3", "python"]
 
 
 def test_linux_returns_nothing_when_every_probe_fails(
