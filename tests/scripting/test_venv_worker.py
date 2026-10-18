@@ -3331,13 +3331,20 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
             stderr = mgr._drain_stderr()
             raise AssertionError(f"_ensure_running failed on helper: {helper_err}{stderr}") from helper_err
 
-        time.sleep(0.5)
+        # A round trip proves the harness is past _die_with_parent (main() arms
+        # PR_SET_PDEATHSIG before its first stdin read). A fixed sleep raced
+        # interpreter startup under CI load: if the spawn thread exited before
+        # prctl ran, nothing was armed and the worker never died.
+        result = mgr.execute("result = 42", timeout_sec=30)
+        assert result.get("status") == "ok", result
         assert mgr._proc is not None
         assert mgr._proc.poll() is None
 
         mgr._stop_spawn_thread(wait=True)
 
-        deadline = time.monotonic() + 2.0
+        # The kernel delivers SIGKILL when the spawn OS thread exits, which can
+        # trail Thread.join() slightly; allow for a loaded CI runner.
+        deadline = time.monotonic() + 15.0
         exit_code = None
         while time.monotonic() < deadline:
             exit_code = mgr._proc.poll()
