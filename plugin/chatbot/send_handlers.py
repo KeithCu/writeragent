@@ -337,8 +337,7 @@ class SendHandlersMixin:
                 )
 
             try:
-                # This wait runs to the end so Stop can keep the transcript;
-                # run_blocking_in_thread has no stop_checker.
+                # Runs to the end: Stop keeps the transcript.
                 transcript_text = run_blocking_in_thread(self.ctx, _call)
             except Exception as e:
                 log.exception("Transcription error in _transcribe_audio")

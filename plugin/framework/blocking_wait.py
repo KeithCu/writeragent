@@ -135,13 +135,9 @@ def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
-    # What was wrong: an off-main waiter used get(timeout=0.1); pump_main_thread_work_queue
-    # returns immediately off-main, so =PROMPT() woke up for a no-op every 100 ms and could
-    # wait up to 100 ms after the worker finished.
-    # How it happened: the 0.1s poll was unconditionally added to drain marshal work.
-    # Why this fixes it: timeout=None returns immediately on the worker's put when no pump
-    # can run. The 0.1s poll stays when pump_vcl or on_main_thread() so a UI-thread waiter
-    # still drains execute_on_main_thread.
+    # Poll 0.1s only when a pump can run (pump_vcl, or the UI thread draining
+    # execute_on_main_thread work); off-main with no VCL pump,
+    # pump_main_thread_work_queue is a no-op, so block until the worker's put.
     poll = pump_vcl or on_main_thread()
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
