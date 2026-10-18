@@ -2100,7 +2100,6 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     config.open_streams -= 1
 
         def _write_sse(self, completion: Completion, model: str, hang: bool) -> None:
-            delay = response_delay_s(config, stream=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -2132,6 +2131,9 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 if max_chunks is not None and written >= max_chunks:
                     self._drop_client_socket()
                     return
+                # Read the delay per chunk so a test that lowers delay_ms mid-stream
+                # speeds up the stream already running (T2 on slower macOS runners).
+                delay = response_delay_s(config, stream=True)
                 if delay:
                     time.sleep(delay)
             self.wfile.write(b"data: [DONE]\n\n")
