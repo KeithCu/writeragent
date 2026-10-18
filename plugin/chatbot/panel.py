@@ -1923,11 +1923,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                                     if self.stop_control and self.stop_control.getModel() and not self.sidebar_state.send.is_recording:
                                                         with suppress_disposed("disable stop after speech", logger=log):
                                                             self.stop_control.getModel().Enabled = False
-                                                    # What was wrong: speech completion reset the status to Ready while
-                                                    # a take was still recording, overwriting "Hands-free off" or "Recording audio...".
-                                                    # How it happened: the else branch restored prior_status whenever sticky was False,
-                                                    # even if a take was actively recording.
-                                                    # Why this fixes it: only restore prior_status when recording has ended.
+                                                    # A take may still be recording (sticky restart or a manual take).
+                                                    # Ready would hide that status or "Hands-free off", so only restore it after.
                                                     if self.sidebar_state.send.is_recording:
                                                         if self._record_gesture.sticky:
                                                             self._set_status(hands_free_status_text())
