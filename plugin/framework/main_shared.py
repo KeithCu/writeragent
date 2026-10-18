@@ -57,18 +57,14 @@ def report_action_failure(command: str, exc: BaseException) -> None:
 
 def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: Any, **kwargs: Any) -> None:
     """Safely open a dialog with standardized error handling and reporting."""
-    from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+    from plugin.framework.errors import UnoObjectError, is_disposed_exception
     from plugin.framework.uno_context import get_ctx
 
     try:
         dialog_func(get_ctx(), *args, **kwargs)
-    except DocumentDisposedError:
-        log.debug("Dialog opening aborted: document disposed")
     except UnoObjectError as e:
         log.warning("UNO error opening dialog: %s", e.message)
     except Exception as e:
-        from plugin.framework.errors import is_disposed_exception
-
         if is_disposed_exception(e):
             log.debug("Dialog opening aborted: document disposed")
             return
