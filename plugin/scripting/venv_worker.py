@@ -297,11 +297,11 @@ class PythonWorkerManager:
         self.env["WRITERAGENT_IS_WORKER"] = "1"
         self._proc: subprocess.Popen[Any] | None = None
         self._io_lock = threading.Lock()
-        # Owner of _io_lock. A script tool that calls this pool again on the
-        # same thread, or any thread while a tool RPC is in progress, deadlocks
-        # the pipe: the holder is waiting for that thread. RLock would
-        # interleave frames, so we refuse. The UI thread also refuses when the
-        # lock is already held, instead of blocking the UI.
+        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
+        # locked -> busy; UI never blocks (_acquire_io timeout=0). _io_owner and
+        # _serving_tool_call are plain GIL-atomic attributes read without _io_lock on
+        # purpose: the holder keeps it across host RPC. Readers load self._proc once
+        # into a local: _terminate_worker stores None without taking _io_lock.
         self._io_owner: int | None = None
         self._serving_tool_call: bool = False
         self._primed = False
@@ -408,7 +408,9 @@ class PythonWorkerManager:
         return False
 
     def _is_worker_alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        # One load: _terminate_worker may store None concurrently.
+        proc = self._proc
+        return proc is not None and proc.poll() is None
 
     def _ensure_warmed_unlocked(self) -> dict[str, Any] | None:
         """Spawn worker and prime auto-imports. Returns error dict or None."""
@@ -1152,7 +1154,9 @@ class PythonWorkerManager:
         # A settings change reaps the previous interpreter off the UI thread.
         # Join that reap before reuse or spawn so the old tree is gone first.
         self._join_reaps()
-        if self._proc is not None and self._proc.poll() is None:
+        # One load: _terminate_worker may store None concurrently.
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
             # What was wrong: _retired was checked only on entry. get() and
             # shutdown_all set the flag, then kill. _join_reaps() can block, so
             # the flag can flip during that wait and this return handed the

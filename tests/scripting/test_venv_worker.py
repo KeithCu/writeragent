@@ -3357,3 +3357,67 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
             mgr._terminate_worker(wait=True)
         mgr._stop_spawn_thread(wait=True)
 
+
+class _ProcLoads:
+    def __init__(self, values: list[object]) -> None:
+        self.values = values
+        self.seen: list[object] = []
+
+    def __set__(self, obj: object, value: object) -> None:
+        del obj, value
+
+    def __get__(self, obj: object, objtype: type | None = None) -> Any:
+        if obj is None:
+            return self
+        val = self.values[min(len(self.seen), len(self.values) - 1)]
+        self.seen.append(val)
+        return val
+
+
+class _MockProc:
+    def __init__(self, returncode: int | None = None) -> None:
+        self.returncode = returncode
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+
+def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    alive = _MockProc(None)
+    loads = _ProcLoads([alive, None])
+    monkeypatch.setattr(PythonWorkerManager, "_proc", loads, raising=False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._is_worker_alive() is True
+    assert loads.seen == [alive]
+
+    loads.seen.clear()
+    loads.values = [None]
+    assert mgr._is_worker_alive() is False
+    assert loads.seen == [None]
+
+    loads.seen.clear()
+    dead = _MockProc(0)
+    loads.values = [dead, None]
+    assert mgr._is_worker_alive() is False
+    assert loads.seen == [dead]
+
+
+def test_ensure_running_live_proc_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    alive = _MockProc(None)
+    loads = _ProcLoads([alive, None])
+    monkeypatch.setattr(PythonWorkerManager, "_proc", loads, raising=False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    started = False
+
+    def _fail_start(managed: Any) -> None:
+        del managed
+        nonlocal started
+        started = True
+        raise AssertionError("_start_child should not be called")
+
+    monkeypatch.setattr(mgr, "_start_child", _fail_start)
+    mgr._ensure_running()
+    assert not started
+    assert loads.seen == [alive]
+
+
