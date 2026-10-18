@@ -42,16 +42,9 @@ ensure_plugin_on_path(
     also_add_vendor=True,           # root-level vendor/ when present (optional dev wheels)
 )
 
-def _install_native_binaries() -> None:
-    try:
-        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
+from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
-        ensure_native_binaries_on_path()
-    except Exception:
-        logging.getLogger(__name__).debug("ensure_native_binaries_on_path failed", exc_info=True)
-
-
-_install_native_binaries()
+ensure_native_binaries_on_path()
 
 import unohelper
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
@@ -1093,7 +1086,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
         try:
             args = Event
-            if args and isinstance(args, str) and ("." in args or args.startswith("plugin.")):
+            if args and ("." in args or args.startswith("plugin.")):
                 cmd = args
                 if cmd.startswith("plugin."):
                     cmd = cmd[7:]

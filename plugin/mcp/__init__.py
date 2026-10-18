@@ -405,10 +405,7 @@ class McpModule(ModuleBase):
     def _unregister_mcp_routes(self, services: Any) -> None:
         with self._registry.batch():
             for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
-                try:
-                    self._registry.remove(method, path)
-                except Exception:
-                    pass
+                self._registry.remove(method, path)
             self._mcp_routes_registered = False
             self._mcp_protocol = None
         log.info("MCP routes unregistered from HTTP server")

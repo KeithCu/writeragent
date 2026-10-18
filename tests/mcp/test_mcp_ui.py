@@ -22,7 +22,7 @@ from plugin.mcp.tunnel import TunnelManager
 
 
 class TestMcpUi:
-    @patch("plugin.mcp.mcp_ui.get_config_int", return_value=18765)
+    @patch("plugin.mcp.mcp_ui.get_config_int_safe", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)

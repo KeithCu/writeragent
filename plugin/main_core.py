@@ -91,12 +91,9 @@ def bootstrap(ctx: Any | None = None) -> None:
         from plugin.framework.config import init_config
 
         init_config(ctx)
-        try:
-            from plugin.scripting.native_binaries import ensure_native_binaries_on_path
+        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
-            ensure_native_binaries_on_path()
-        except Exception:
-            log.debug("Native binary path setup failed", exc_info=True)
+        ensure_native_binaries_on_path()
         from plugin.framework.i18n import init_i18n
 
         init_i18n(ctx)
@@ -179,7 +176,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except Exception as e:
             log.exception("LibrePy trigger bootstrap failed: %s", e)
         args = Event
-        if args and isinstance(args, str) and "." in args:
+        if args and "." in args:
             cmd = args[7:] if args.startswith("plugin.") else args
             _dispatch_command(cmd, self.ctx)
 

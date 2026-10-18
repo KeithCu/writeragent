@@ -24,7 +24,7 @@ from com.sun.star.awt import XItemListener, XTextListener
 if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.config import get_config_int
+from plugin.framework.config import get_config_int_safe
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
@@ -67,10 +67,7 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
     """Return suggested MCP client JSON configuration for Claude Desktop / Cursor."""
     if not url:
         if port is None:
-            try:
-                port = get_config_int("mcp.mcp_port")
-            except Exception:
-                port = 18765
+            port = get_config_int_safe("mcp.mcp_port")
         url = f"http://localhost:{port}/mcp"
 
     return json.dumps({"mcpServers": {"libreoffice": {"url": url}}}, indent=2)

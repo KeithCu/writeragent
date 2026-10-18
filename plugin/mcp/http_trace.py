@@ -18,10 +18,7 @@ log = logging.getLogger("writeragent.mcp.http")
 
 
 def _client(handler: Any) -> str:
-    try:
-        return "%s:%s" % handler.client_address[:2]
-    except Exception:
-        return "?"
+    return "%s:%s" % handler.client_address[:2]
 
 
 def _header(handler: Any, name: str) -> str | None:
@@ -60,7 +57,7 @@ def log_cors_preflight(handler: Any, path: str) -> None:
 def log_forbidden_origin(handler: Any) -> None:
     """Origin present and not on the allow list — request rejected with HTTP 403."""
     origin = _header(handler, "Origin")
-    method = handler.command if hasattr(handler, "command") else "?"
+    method = getattr(handler, "command", "?")
     path = getattr(handler, "path", "?")
     log.warning("[MCP-CORS] %s %s: Origin %r forbidden — HTTP 403 (no Access-Control-*). Enable mcp.cors_allow_private_origins or add the origin to mcp.cors_allowed_origins in writeragent.json.", method, path, origin)
 
@@ -69,7 +66,7 @@ def log_mcp_transport_entry(handler: Any, transport: str) -> None:
     """Log when POST/GET/DELETE reaches an MCP protocol handler (past routing)."""
     log.info(
         "[MCP-HTTP] %s /%s from %s origin=%r protocol_version=%r session=%r content_length=%s",
-        handler.command if hasattr(handler, "command") else "?",
+        getattr(handler, "command", "?"),
         transport,
         _client(handler),
         _header(handler, "Origin"),
