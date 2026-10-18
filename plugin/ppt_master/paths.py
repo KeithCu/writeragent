@@ -46,12 +46,9 @@ def _resolve_user_path(raw: Path) -> Path | None:
 
 
 def _user_venv_site_package_roots(ctx: Any | None = None) -> list[Path]:
-    try:
-        from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config_str
 
-        venv_dir = get_config_str("scripting.python_venv_path").strip()
-    except Exception:
-        venv_dir = ""
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return []
     lib = Path(venv_dir).expanduser() / "lib"
@@ -89,14 +86,12 @@ def find_data_root_in_site_packages(ctx: Any | None = None) -> Path | None:
 
 
 def _configured_data_root() -> Path | None:
-    try:
-        from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config_str
+    from plugin.framework.errors import best_effort
 
-        cfg_path = get_config_str("scripting.ppt_master_data_path").strip()
-        if cfg_path:
-            return _resolve_user_path(Path(cfg_path))
-    except Exception:
-        pass
+    cfg_path = (best_effort(lambda: get_config_str("scripting.ppt_master_data_path"), "ppt_master_data_path") or "").strip()
+    if cfg_path:
+        return _resolve_user_path(Path(cfg_path))
     return None
 
 

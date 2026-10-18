@@ -35,10 +35,9 @@ class HostRpcModel(Model):
     ) -> ChatMessage:
         del response_format, kwargs
         if self._status_callback:
-            try:
-                self._status_callback("Thinking...")
-            except Exception:
-                pass
+            from plugin.framework.errors import best_effort
+
+            best_effort(lambda: self._status_callback("Thinking..."), "ppt-master status callback")
 
         msg_dicts: list[dict[str, Any]] = []
         for m in messages:

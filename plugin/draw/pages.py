@@ -186,7 +186,7 @@ class ReadSlideText(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge, find_notes_shape
-        from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+        from plugin.framework.errors import is_disposed_exception
 
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page")
@@ -194,10 +194,7 @@ class ReadSlideText(ToolBase):
         if actual_idx is None:
             actual_idx = bridge.get_active_page_index()
 
-        try:
-            page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc))
+        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
 
         texts = []
         for i in range(page.getCount()):

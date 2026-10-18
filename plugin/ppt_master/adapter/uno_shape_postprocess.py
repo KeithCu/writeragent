@@ -17,6 +17,8 @@ import os
 import tempfile
 from typing import Any, cast
 
+from plugin.framework.errors import best_effort
+
 log = logging.getLogger(__name__)
 
 # Primitives only. Graphic / GraphicURL / FillBitmap / Background are SfxItems
@@ -61,18 +63,15 @@ _TEXT_CHAR_PROPS = (
 
 
 def _copy_property(source: Any, dest: Any, name: str) -> None:
-    try:
-        dest.setPropertyValue(name, source.getPropertyValue(name))
-    except Exception as exc:
-        log.debug("copy prop %s: %s", name, exc)
+    best_effort(lambda: dest.setPropertyValue(name, source.getPropertyValue(name)), f"copy prop {name}")
 
 
 def _copy_text_portion_props(source_portion: Any, dest_portion: Any) -> None:
     for prop in _TEXT_CHAR_PROPS:
-        try:
-            dest_portion.setPropertyValue(prop, source_portion.getPropertyValue(prop))
-        except Exception as exc:
-            log.debug("copy text prop %s: %s", prop, exc)
+        best_effort(
+            lambda prop=prop: dest_portion.setPropertyValue(prop, source_portion.getPropertyValue(prop)),
+            f"copy text prop {prop}",
+        )
 
 
 def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
@@ -82,10 +81,10 @@ def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
         dst_text = dest_shape.getText()
         dst_text.setString(src_text.getString())
         for prop in _TEXT_CHAR_PROPS:
-            try:
-                dest_shape.setPropertyValue(prop, source_shape.getPropertyValue(prop))
-            except Exception as exc:
-                log.debug("copy shape text prop %s: %s", prop, exc)
+            best_effort(
+                lambda prop=prop: dest_shape.setPropertyValue(prop, source_shape.getPropertyValue(prop)),
+                f"copy shape text prop {prop}",
+            )
         src_portions = []
         src_enum = src_text.createEnumeration()
         while src_enum.hasMoreElements():
@@ -109,10 +108,7 @@ def _is_graphic_shape(shape: Any) -> bool:
 
 
 def _shape_graphic(source_shape: Any) -> Any | None:
-    try:
-        return source_shape.getPropertyValue("Graphic")
-    except Exception:
-        return None
+    return best_effort(lambda: source_shape.getPropertyValue("Graphic"), "read shape Graphic")
 
 
 def _graphic_load_prop(name: str, value: Any) -> Any:
@@ -223,10 +219,7 @@ def clone_shape_to_page(source_shape: Any, target_doc: Any, target_page: Any, un
             if hasattr(source_shape, "getPropertyValue") and hasattr(new_shape, "setPropertyValue"):
                 _copy_property(source_shape, new_shape, prop)
         if hasattr(new_shape, "setPropertyValue"):
-            try:
-                new_shape.setPropertyValue("TextAutoGrowHeight", False)
-            except Exception as exc:
-                log.debug("TextAutoGrowHeight: %s", exc)
+            best_effort(lambda: new_shape.setPropertyValue("TextAutoGrowHeight", False), "TextAutoGrowHeight")
         _copy_shape_text(source_shape, new_shape)
         if hasattr(source_shape, "getSize") and hasattr(new_shape, "setSize"):
             new_shape.setSize(source_shape.getSize())

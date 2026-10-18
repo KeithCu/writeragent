@@ -19,6 +19,7 @@ from typing import Any, cast
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
+from plugin.framework.errors import best_effort
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
@@ -466,10 +467,7 @@ def evaluate_slide_fidelity(
 
         return result
     finally:
-        try:
-            doc.close(True)
-        except Exception as exc:
-            log.debug("close impress doc: %s", exc)
+        best_effort(lambda: doc.close(True), "close impress doc")
 
 
 def run_project_fidelity(

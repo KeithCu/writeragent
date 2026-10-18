@@ -18,7 +18,7 @@ from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
 from plugin.draw.bridge import DrawBridge, find_notes_shape
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import best_effort, is_disposed_exception
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
 from plugin.framework.queue_executor import execute_on_main_thread
@@ -83,10 +83,7 @@ def _drop_front_shapes(page: Any, drop_count: int) -> None:
 
 
 def _drop_page(pages: Any, page: Any) -> None:
-    try:
-        pages.remove(page)
-    except Exception as exc:
-        log.debug("drop unused import page: %s", exc)
+    best_effort(lambda: pages.remove(page), "drop unused import page")
 
 
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
@@ -156,20 +153,16 @@ def _import_slides_from_source(
         replace = clear_existing or out_index > 0
         existed = execute_on_main_thread(lambda: out_index < int(pages.getCount()))
         target_page = execute_on_main_thread(lambda: _ensure_target_page(bridge, out_index))
-        try:
-            previous_count = execute_on_main_thread(lambda: int(target_page.getCount()))
-        except Exception as exc:
-            log.debug("count target shapes: %s", exc)
-            previous_count = None
+        previous_count = execute_on_main_thread(lambda: int(target_page.getCount()))
         copied = execute_on_main_thread(lambda: copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx))
         if copied < 1:
             if not existed:
                 execute_on_main_thread(lambda: _drop_page(pages, target_page))
-            elif previous_count is not None:
+            else:
                 trim_count = previous_count
                 execute_on_main_thread(lambda: _trim_appended_shapes(target_page, trim_count))
             return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
-        if replace and previous_count is not None:
+        if replace:
             drop_count = previous_count
             execute_on_main_thread(lambda: _drop_front_shapes(target_page, drop_count))
         execute_on_main_thread(lambda: _apply_target_page_size(target_page))
@@ -205,10 +198,7 @@ def import_pptx_to_doc(
                 result["mirror_odp"] = str(save_mirror_odp)
         return result
     finally:
-        try:
-            source_doc.close(True)
-        except Exception as exc:
-            log.debug("close source pptx doc: %s", exc)
+        best_effort(lambda: source_doc.close(True), "close source pptx doc")
 
 
 def import_pptx_slide_to_odp(
@@ -247,7 +237,4 @@ def import_pptx_slide_to_odp(
         target_doc.storeToURL(odp_path.as_uri(), ())
         return target_doc, page
     finally:
-        try:
-            source_doc.close(True)
-        except Exception as exc:
-            log.debug("close source pptx doc: %s", exc)
+        best_effort(lambda: source_doc.close(True), "close source pptx doc")

@@ -37,28 +37,25 @@ _ASPECT_CONTENT = 1
 
 def _visual_size_to_hundredth_mm(sz: Any, map_unit: int) -> tuple[int, int] | None:
     """Convert embed visual Size + EmbedMapUnits to shape units (1/100 mm)."""
-    try:
-        w, h = int(sz.Width), int(sz.Height)
-        if w <= 0 or h <= 0:
-            return None
+    w, h = int(sz.Width), int(sz.Height)
+    if w <= 0 or h <= 0:
+        return None
 
-        mu = int(map_unit)
-        if mu == _MAP_ONE_100TH_MM:
-            return w, h
-        if mu == _MAP_TWIP:
-            return round(w * 2540 / 1440), round(h * 2540 / 1440)
-        if mu == _MAP_POINT:
-            return round(w * 2540 / 72), round(h * 2540 / 72)
-        if mu == _MAP_ONE_MM:
-            return w * 100, h * 100
-        if mu == _MAP_ONE_100TH_INCH:
-            return round(w * 254 / 10), round(h * 254 / 10)
-        if mu == _MAP_ONE_10TH_MM:
-            return w * 10, h * 10
-        if mu == _MAP_ONE_CM:
-            return w * 1000, h * 1000
-    except Exception:
-        log.debug("math_insert: map unit conversion failed", exc_info=True)
+    mu = int(map_unit)
+    if mu == _MAP_ONE_100TH_MM:
+        return w, h
+    if mu == _MAP_TWIP:
+        return round(w * 2540 / 1440), round(h * 2540 / 1440)
+    if mu == _MAP_POINT:
+        return round(w * 2540 / 72), round(h * 2540 / 72)
+    if mu == _MAP_ONE_MM:
+        return w * 100, h * 100
+    if mu == _MAP_ONE_100TH_INCH:
+        return round(w * 254 / 10), round(h * 254 / 10)
+    if mu == _MAP_ONE_10TH_MM:
+        return w * 10, h * 10
+    if mu == _MAP_ONE_CM:
+        return w * 1000, h * 1000
     return None
 
 
@@ -198,15 +195,9 @@ class InsertMathDraw(ToolDrawSpecialBase):
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
-        try:
-            page_val = kwargs.get("page")
-            if page_val is None:
-                return self._tool_error("page, x, and y must be integers.")
-            page_index = int(page_val)
-            x = int(kwargs["x"])
-            y = int(kwargs["y"])
-        except (KeyError, TypeError, ValueError):
-            return self._tool_error("page, x, and y must be integers.")
+        page_index = kwargs["page"]
+        x = kwargs["x"]
+        y = kwargs["y"]
 
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
@@ -240,10 +231,9 @@ class InsertMathDraw(ToolDrawSpecialBase):
                 h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
                 shape.setSize(Size(w, h))
             except Exception:
-                try:
-                    page.remove(shape)
-                except Exception:
-                    pass
+                from plugin.framework.errors import best_effort
+
+                best_effort(lambda: page.remove(shape), "remove partial math shape")
                 raise
         except Exception as e:
             from plugin.framework.errors import is_disposed_exception

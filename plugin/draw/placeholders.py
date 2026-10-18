@@ -42,17 +42,16 @@ def _role_from_label(label: Any) -> str | None:
 
 
 def _shape_class_name(shape: Any) -> str:
-    try:
-        if hasattr(shape, "ClassName") and shape.ClassName:
-            return str(shape.ClassName)
-    except Exception:
-        pass
-    try:
-        cn = shape.getPropertyValue("ClassName")
-        if cn:
-            return str(cn)
-    except Exception:
-        pass
+    from plugin.framework.errors import uno_probe
+
+    # ClassName is missing on text-layout placeholders (UnknownPropertyException).
+    # ShapeType below is the service name on that build.
+    class_name = uno_probe(lambda: getattr(shape, "ClassName", None), None)
+    if class_name:
+        return str(class_name)
+    prop = uno_probe(lambda: shape.getPropertyValue("ClassName"), None)
+    if prop:
+        return str(prop)
     # A text layout's title is
     # com.sun.star.presentation.TitleTextShape and the body is
     # OutlinerShape. ClassName and PresObj raise
