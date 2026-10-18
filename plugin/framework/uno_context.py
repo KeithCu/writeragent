@@ -51,7 +51,6 @@ from plugin.framework.constants import (
 )
 from plugin.framework.errors import (
     DocumentDisposedError,
-    check_disposed,
     is_real_disposal,
     safe_call,
     suppress_disposed,
@@ -364,17 +363,8 @@ def get_active_document(ctx: Any | None = None) -> Any:
         desktop = get_desktop(ctx)
         if desktop is None:
             return None
-        check_disposed(desktop, "Desktop")
         doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _guard_returned_uno(doc)
-    except DocumentDisposedError:
-        # Re-raise disposal so callers cannot treat a dying document as
-        # "no document". DocumentDisposedError directly subclasses
-        # WriterAgentException (not UnoObjectError); re-raising here prevents
-        # the broader Exception handler below from swallowing disposal. None
-        # stays the answer when get_desktop() is None or the component itself
-        # is missing.
-        raise
     except Exception as e:
         # DisposedException from get_desktop() is a plain Exception, so a
         # dying desktop looks like nothing open. safe_call already re-raises
@@ -760,11 +750,9 @@ def get_document_from_frame(frame: Any) -> Any:
         return None
 
     with suppress_disposed("resolve document from frame", logger=log):
-        check_disposed(frame, "Frame")
         controller = frame.getController()
         if controller is None:
             return None
-        check_disposed(controller, "Controller")
         model = controller.getModel()
         if model is not None:
             return _guard_returned_uno(model)

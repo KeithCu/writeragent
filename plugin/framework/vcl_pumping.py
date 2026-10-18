@@ -121,11 +121,8 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
 
     pumped = False
     for _idx in range(max(1, rounds)):
-        try:
-            if _pump_vcl_events(tk):
-                pumped = True
-        except Exception:
-            log.debug("process_events_to_idle failed", exc_info=True)
+        if _pump_vcl_events(tk):
+            pumped = True
     return pumped
 
 
