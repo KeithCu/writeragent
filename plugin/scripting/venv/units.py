@@ -181,14 +181,13 @@ def _finite_magnitude(value: Any, *, empty_message: str) -> float:
         text = value.strip()
         if text == "":
             raise ValueError(empty_message)
-        try:
-            num = float(text)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
+        num = float(text)
     else:
         try:
             num = float(value)
-        except (TypeError, ValueError) as exc:
+        except TypeError as exc:
+            # Map TypeError from float({}) or float(object()) to ValueError so _guarded
+            # routes it to PARSE_ERROR; ValueError already propagates directly.
             raise ValueError(str(exc)) from exc
     if not math.isfinite(num):
         raise ValueError("magnitude must be finite")

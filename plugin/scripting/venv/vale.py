@@ -46,10 +46,7 @@ def _subprocess_creationflags() -> dict[str, Any]:
 
 def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, Any]:
     """Run Vale linter on the text segment and return the style errors list."""
-    try:
-        vale_bin = _get_vale_binary()
-    except Exception as e:
-        raise RuntimeError(str(e))
+    vale_bin = _get_vale_binary()
         
     ini_path = Path(user_config_dir) / ".vale.ini"
     styles_path = Path(user_config_dir) / "vale_styles"
