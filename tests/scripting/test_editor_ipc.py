@@ -25,7 +25,11 @@ from plugin.scripting.editor_ipc import (
     target_identity_key,
     write_message,
 )
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcPayloadSizeError
+from plugin.scripting.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcPayloadSizeError,
+    IpcTruncatedFrame,
+)
 
 
 def test_roundtrip_simple():
@@ -55,7 +59,8 @@ def test_truncated_payload_returns_none():
     buf.write(struct.pack("!I", 100))
     buf.write(b"short")
     buf.seek(0)
-    assert read_message(buf) is None
+    with pytest.raises(IpcTruncatedFrame):
+        read_message(buf)
 
 
 def test_invalid_size_raises():
