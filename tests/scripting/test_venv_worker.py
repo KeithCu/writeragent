@@ -34,6 +34,7 @@ from plugin.scripting.ipc import (
 from plugin.scripting.sandbox import scrub_subprocess_env
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
+    _ExecRequest,
     _worker_error,
     _worker_error_message,
     reset_python_session,
@@ -496,12 +497,16 @@ def test_initial_write_timeout_retries_once():
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert "timed out after 1 seconds" in result["message"]
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
+    first = mgr._write_frame_with_timeout.call_args_list[0].args[1]
+    second = mgr._write_frame_with_timeout.call_args_list[1].args[1]
+    assert first is second
+    assert first["id"] == second["id"]
 
 
 def test_write_timeout_skips_terminate_when_writer_already_detached():
@@ -528,16 +533,16 @@ def test_write_timeout_skips_terminate_when_writer_already_detached():
 
     def read(*args: object, **kwargs: object) -> dict[str, object]:
         del kwargs
-        request = args[2]
-        assert isinstance(request, dict)
-        return {"id": request.get("id"), "status": "ok", "result": 1}
+        wire = args[3]
+        assert isinstance(wire, dict)
+        return {"id": wire.get("id"), "status": "ok", "result": 1}
 
     mgr._ensure_running = MagicMock(side_effect=ensure)  # type: ignore[method-assign]
     mgr._write_frame_with_timeout = write  # type: ignore[method-assign]
     mgr._read_until_terminal = read  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "ok"
     assert result["result"] == 1
@@ -572,7 +577,9 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, caller="ppt_master_venv")
+    result = mgr._execute_ipc_unlocked(
+        _ExecRequest("result = 1", timeout_sec=1, caller="ppt_master_venv")
+    )
 
     assert result["status"] == "error"
     assert "host RPC response timed out" in result["message"]
@@ -606,7 +613,9 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, caller="ppt_master_venv")
+    result = mgr._execute_ipc_unlocked(
+        _ExecRequest("result = 1", timeout_sec=1, caller="ppt_master_venv")
+    )
 
     assert result["status"] == "error"
     assert mgr._write_frame_with_timeout.call_count == 1
@@ -644,7 +653,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_intermediate_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -667,7 +676,7 @@ def test_stdout_close_before_start_retries_once():
     mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert "without a response" in result["message"]
@@ -689,7 +698,7 @@ def test_runtime_error_before_exec_started_retries_once():
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError("pipe died"))  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert "pipe died" in result["message"]
@@ -725,7 +734,7 @@ def test_runtime_error_after_exec_started_does_not_replay():
     mgr._read_response_bytes = _read  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -762,7 +771,7 @@ def test_stdout_close_after_exec_started_does_not_replay():
     mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -787,7 +796,7 @@ def test_exec_started_wrong_id_is_refused_without_replay():
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["code"] == "WORKER_IPC_ERROR"
     assert "id mismatch" in result["message"]
@@ -810,7 +819,7 @@ def test_host_read_timeout_does_not_retry():
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert "timed out after 1 seconds" in result["message"]
@@ -841,7 +850,7 @@ def test_partial_frame_timeout_does_not_replay():
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "VENV_TIMEOUT"
@@ -997,11 +1006,26 @@ def test_automatic_imports_numpy(value, value_2, expected):
     assert r["result"] == expected
 
 def test_build_request_sets_heartbeat_on_trusted_action():
-    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-    request = mgr._build_request(action="run_trusted_action", allow_heartbeat=True, data={"domain": "embeddings_index"})
+    req = _ExecRequest(
+        action="run_trusted_action",
+        allow_heartbeat=True,
+        data={"domain": "embeddings_index"},
+    )
+    request = req.wire()
+    assert request == req.wire()
+    assert request["id"] == req.request_id
     assert request["allow_heartbeat"] is True
     assert request["action"] == "run_trusted_action"
-    assert request["data"]["domain"] == "embeddings_index"
+    assert request["data"] is req.data
+    assert "code" not in request
+    assert "timeout_sec" not in request
+    assert "cancellation_scope" not in request
+    assert "script_session_id" not in request
+    empty = _ExecRequest(session_id="", allow_heartbeat=False, bindings={}, code=None).wire()
+    assert empty["code"] == ""
+    assert "session_id" not in empty
+    assert "allow_heartbeat" not in empty
+    assert "bindings" not in empty
 
 
 @pytest.mark.parametrize("exc_type", [ValueError, OverflowError, TypeError])
@@ -1056,7 +1080,7 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_intermediate_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -1335,10 +1359,12 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
     mgr._read_response_bytes = _read  # type: ignore[method-assign]
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         result = mgr._execute_ipc_unlocked(
-            "result = 1",
-            timeout_sec=1,
-            session_id=session_id,
-            script_session_id=script_session_id,
+            _ExecRequest(
+                "result = 1",
+                timeout_sec=1,
+                session_id=session_id,
+                script_session_id=script_session_id,
+            )
         )
     return captured["request"], mock_tool.call_args, result
 
@@ -1366,8 +1392,12 @@ def test_execute_forwards_script_session_id_not_as_kernel_session():
         patch.object(mgr, "_execute_ipc_unlocked", return_value={"status": "ok"}) as ipc,
     ):
         mgr.execute("result = 1", script_session_id="doc:pin")
-    assert ipc.call_args.kwargs["script_session_id"] == "doc:pin"
-    assert ipc.call_args.kwargs["session_id"] is None
+    req = ipc.call_args.args[0]
+    assert ipc.call_args.kwargs == {}
+    assert req.script_session_id == "doc:pin"
+    assert req.session_id is None
+    assert "session_id" not in req.wire()
+    assert "script_session_id" not in req.wire()
 
 
 def test_split_grid_pickle_and_json_round_trip():
@@ -2656,18 +2686,12 @@ def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.Mon
     result = mgr._read_until_terminal(
         io.BytesIO(),
         io.BytesIO(),
+        _ExecRequest(allow_heartbeat=True),
         {"id": "abc"},
         vw._TurnState(),
         host_read_timeout_sec=1,
         write_timeout_sec=1,
-        allow_heartbeat=True,
-        heartbeat_grace_sec=1,
-        on_heartbeat=None,
-        on_worker_event=None,
-        stop_checker=None,
-        cancellation_scope=None,
         allowed_tools=None,
-        caller="script",
         resolved_script_session_id=None,
     )
 
@@ -2729,7 +2753,7 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -2745,7 +2769,7 @@ def test_missing_proc_after_concurrent_terminate():
     mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -2767,7 +2791,7 @@ def test_stop_checker_returns_cancelled_code():
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
     mgr._read_response_bytes = MagicMock(side_effect=_StopRequested())  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, stop_checker=lambda: True)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1, stop_checker=lambda: True))
 
     assert result["status"] == "error"
     assert result["code"] == "CANCELLED"
@@ -3131,12 +3155,12 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
 
     mgr._write_frame_with_timeout = _write  # type: ignore[method-assign]
 
-    def _read(stdout: Any, stdin: Any, request: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {"id": request["id"], "status": "ok", "result": 1}
+    def _read(stdout: Any, stdin: Any, req: Any, wire: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"id": wire["id"], "status": "ok", "result": 1}
 
     mgr._read_until_terminal = _read  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, python_tool_domain="")
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1, python_tool_domain=""))
 
     assert result["status"] == "ok"
     assert result["result"] == 1
@@ -3159,7 +3183,7 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -3211,7 +3235,7 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
         lambda: cleared.append(True),
     )
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["code"] == "WORKER_IPC_ERROR"
     assert "Invalid pickle request: nope" in result["message"]
@@ -3253,7 +3277,7 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
     mgr._read_response_bytes = _read  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
 
     assert result["code"] == "WORKER_IPC_ERROR"
     assert "id mismatch" in result["message"]

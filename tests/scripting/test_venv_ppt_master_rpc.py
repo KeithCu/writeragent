@@ -248,8 +248,13 @@ def test_execute_ppt_master_turn_passes_frame_session_id():
             {"query": "q", "session_id": "ppt_master:file:///deck-b.odp"},
             timeout_sec=5,
         )
-    assert mock_ipc.call_args.kwargs["session_id"] == "ppt_master:file:///deck-b.odp"
-    assert mock_ipc.call_args.kwargs["data"]["session_id"] == "ppt_master:file:///deck-b.odp"
+    req = mock_ipc.call_args.args[0]
+    assert req.session_id == "ppt_master:file:///deck-b.odp"
+    assert req.data["session_id"] == "ppt_master:file:///deck-b.odp"
+    assert req.action == "ppt_master_turn"
+    assert req.caller == "ppt_master_venv"
+    assert req.wire()["session_id"] == "ppt_master:file:///deck-b.odp"
+    assert "code" not in req.wire()
 
 
 def test_execute_ppt_master_turn_does_not_pickle_cancellation_scope():
@@ -265,8 +270,12 @@ def test_execute_ppt_master_turn_does_not_pickle_cancellation_scope():
     ):
         manager.execute_ppt_master_turn({"query": "q"}, timeout_sec=5, cancellation_scope=scope)
 
-    assert mock_ipc.call_args.kwargs["cancellation_scope"] is scope
-    assert "cancellation_scope" not in mock_ipc.call_args.kwargs["data"]
+    req = mock_ipc.call_args.args[0]
+    assert req.cancellation_scope is scope
+    assert "cancellation_scope" not in req.data
+    assert "cancellation_scope" not in req.wire()
+    assert req.wire()["data"] is req.data
+
 
 def test_handle_llm_request_returns_user_stopped_via_client_stopped():
     from plugin.ppt_master.venv.host_rpc import handle_llm_request

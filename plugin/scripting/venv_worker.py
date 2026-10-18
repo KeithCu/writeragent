@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Iterator, NoReturn
 
 from plugin.framework.config import get_config_str
@@ -276,6 +276,63 @@ class _SpawnJob:
     error: BaseException | None = None
 
 
+@dataclass(frozen=True)
+class _ExecRequest:
+    """One host execute. ``wire()`` is the child pickle; host-only fields stay off it.
+
+    ``request_id`` is minted once so a pre-start retry writes the same ``id``.
+    """
+
+    code: str | None = None
+    data: Any = None
+    bindings: dict[str, Any] | None = None
+    timeout_sec: int | None = None
+    session_id: str | None = None
+    action: str | None = None
+    init_script: str | None = None
+    init_session_id: str | None = None
+    init_script_hash: str | None = None
+    allow_heartbeat: bool = False
+    heartbeat_grace_sec: int | None = None
+    on_heartbeat: Callable[[dict[str, Any]], None] | None = None
+    on_worker_event: Callable[[dict[str, Any]], None] | None = None
+    stop_checker: Callable[[], bool] | None = None
+    cancellation_scope: Any | None = None
+    python_tool_domain: str | None = None
+    caller: str = "script"
+    script_session_id: str | None = None
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def wire(self) -> dict[str, Any]:
+        # Key insertion order is the pickle order. Do not sort, do not
+        # dataclasses.asdict (it would copy host fields and deepcopy ``data``).
+        request: dict[str, Any] = {"id": self.request_id}
+        if self.timeout_sec is not None:
+            request["timeout_sec"] = self.timeout_sec
+        if self.session_id:
+            request["session_id"] = self.session_id
+        if self.data is not None:
+            request["data"] = self.data
+        # allow_heartbeat belongs on every long job, not only the code branch.
+        # run_trusted_action (embeddings, folder index) never received it, so
+        # the child sent no heartbeat and the host killed a long job.
+        if self.allow_heartbeat:
+            request["allow_heartbeat"] = True
+        if self.action:
+            request["action"] = self.action
+        else:
+            request["code"] = self.code if self.code is not None else ""
+            if self.bindings:
+                request["bindings"] = self.bindings
+            if self.init_script:
+                request["init_script"] = self.init_script
+            if self.init_session_id:
+                request["init_session_id"] = self.init_session_id
+            if self.init_script_hash:
+                request["init_script_hash"] = self.init_script_hash
+        return request
+
+
 class PythonWorkerManager:
     """One warm child process per (pool, Python executable path) pair."""
 
@@ -414,7 +471,9 @@ class PythonWorkerManager:
         """Spawn worker and prime auto-imports. Returns error dict or None."""
         if self._primed and self._is_worker_alive():
             return None
-        prime = self._execute_ipc_unlocked("result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC)
+        prime = self._execute_ipc_unlocked(
+            _ExecRequest("result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC)
+        )
         if prime.get("status") != "ok":
             return prime
         self._primed = True
@@ -482,96 +541,6 @@ class PythonWorkerManager:
         if err is not None:
             log.warning("Python worker warm failed: %s", err.get("message"))
 
-    def _build_request(
-        self,
-        code: str | None = None,
-        *,
-        data: Any = None,
-        bindings: dict[str, Any] | None = None,
-        session_id: str | None = None,
-        action: str | None = None,
-        init_script: str | None = None,
-        init_session_id: str | None = None,
-        init_script_hash: str | None = None,
-        allow_heartbeat: bool = False,
-        timeout_sec: int | None = None,
-    ) -> dict[str, Any]:
-        request: dict[str, Any] = {
-            "id": str(uuid.uuid4()),
-        }
-        if timeout_sec is not None:
-            request["timeout_sec"] = timeout_sec
-        if session_id:
-            request["session_id"] = session_id
-        if data is not None:
-            request["data"] = data
-        # allow_heartbeat belongs on every long job, not only the code branch.
-        # run_trusted_action (embeddings, folder index) never received it, so
-        # the child sent no heartbeat and the host killed a long job.
-        if allow_heartbeat:
-            request["allow_heartbeat"] = True
-        if action:
-            request["action"] = action
-        else:
-            request["code"] = code if code is not None else ""
-            if bindings:
-                request["bindings"] = bindings
-            if init_script:
-                request["init_script"] = init_script
-            if init_session_id:
-                request["init_session_id"] = init_session_id
-            if init_script_hash:
-                request["init_script_hash"] = init_script_hash
-        return request
-
-    def _execute_ipc_unlocked(
-        self,
-        code: str | None = None,
-        *,
-        data: Any = None,
-        bindings: dict[str, Any] | None = None,
-        timeout_sec: int,
-        session_id: str | None = None,
-        action: str | None = None,
-        init_script: str | None = None,
-        init_session_id: str | None = None,
-        init_script_hash: str | None = None,
-        allow_heartbeat: bool = False,
-        heartbeat_grace_sec: int | None = None,
-        on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
-        on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        cancellation_scope: Any | None = None,
-        python_tool_domain: str | None = None,
-        caller: str = "script",
-        script_session_id: str | None = None,
-    ) -> dict[str, Any]:
-        request = self._build_request(
-            code,
-            data=data,
-            bindings=bindings,
-            session_id=session_id,
-            action=action,
-            init_script=init_script,
-            init_session_id=init_session_id,
-            init_script_hash=init_script_hash,
-            allow_heartbeat=allow_heartbeat,
-            timeout_sec=timeout_sec,
-        )
-        return self._execute_ipc_attempts(
-            request,
-            timeout_sec=timeout_sec,
-            allow_heartbeat=allow_heartbeat,
-            heartbeat_grace_sec=heartbeat_grace_sec,
-            on_heartbeat=on_heartbeat,
-            on_worker_event=on_worker_event,
-            stop_checker=stop_checker,
-            cancellation_scope=cancellation_scope,
-            python_tool_domain=python_tool_domain,
-            caller=caller,
-            script_session_id=script_session_id,
-        )
-
     def _fail_no_replay(self, code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
         """Kill the desynced worker and return an error without resending the request.
 
@@ -590,19 +559,13 @@ class PythonWorkerManager:
         self,
         stdout: IO[bytes],
         stdin: IO[bytes],
-        request: dict[str, Any],
+        req: _ExecRequest,
+        wire: dict[str, Any],
         state: _TurnState,
         *,
         host_read_timeout_sec: float,
         write_timeout_sec: float,
-        allow_heartbeat: bool,
-        heartbeat_grace_sec: int | None,
-        on_heartbeat: Callable[[dict[str, Any]], None] | None,
-        on_worker_event: Callable[[dict[str, Any]], None] | None,
-        stop_checker: Callable[[], bool] | None,
-        cancellation_scope: Any | None,
         allowed_tools: frozenset[str] | None,
-        caller: str,
         resolved_script_session_id: str | None,
     ) -> dict[str, Any]:
         """Serve intermediate frames until a terminal one; flags go into *state*.
@@ -637,21 +600,21 @@ class PythonWorkerManager:
             raise RuntimeError(message)
 
         while True:
-            if allow_heartbeat:
-                grace = int(heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
+            if req.allow_heartbeat:
+                grace = int(req.heartbeat_grace_sec if req.heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
                 # Already unpickled. A second unpack of a multi-megabyte
                 # result frame was pure CPU on this path.
                 response = self._read_response_with_heartbeats(
                     stdout,
                     host_read_timeout_sec,
                     grace,
-                    on_heartbeat,
-                    stop_checker=stop_checker,
+                    req.on_heartbeat,
+                    stop_checker=req.stop_checker,
                 )
                 if response is None:
                     _closed_without_response()
             else:
-                response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=stop_checker)
+                response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=req.stop_checker)
                 if not response_bytes:
                     _closed_without_response()
                 response = unpack_pickle_frame(response_bytes)
@@ -659,7 +622,7 @@ class PythonWorkerManager:
                     raise RuntimeError("Worker response must be a dict")
             if response.get("type") == EXEC_STARTED:
                 state.execution_started = True
-                if response.get("id") != request.get("id"):
+                if response.get("id") != wire.get("id"):
                     # Hand the mismatched frame back; the caller's id check
                     # refuses it without replaying the request.
                     return response
@@ -677,10 +640,10 @@ class PythonWorkerManager:
                     response,
                     stdin_write=_stdin_write,
                     allowed_tools=allowed_tools,
-                    caller=caller,
-                    on_worker_event=on_worker_event,
-                    stop_checker=stop_checker,
-                    cancellation_scope=cancellation_scope,
+                    caller=req.caller,
+                    on_worker_event=req.on_worker_event,
+                    stop_checker=req.stop_checker,
+                    cancellation_scope=req.cancellation_scope,
                     script_session_id=resolved_script_session_id,
                 )
             finally:
@@ -690,21 +653,11 @@ class PythonWorkerManager:
                 continue
             return response
 
-    def _execute_ipc_attempts(
-        self,
-        request: dict[str, Any],
-        *,
-        timeout_sec: int,
-        allow_heartbeat: bool,
-        heartbeat_grace_sec: int | None,
-        on_heartbeat: Callable[[dict[str, Any]], None] | None,
-        on_worker_event: Callable[[dict[str, Any]], None] | None,
-        stop_checker: Callable[[], bool] | None,
-        cancellation_scope: Any | None,
-        python_tool_domain: str | None,
-        caller: str,
-        script_session_id: str | None = None,
-    ) -> dict[str, Any]:
+    def _execute_ipc_unlocked(self, req: _ExecRequest) -> dict[str, Any]:
+        wire = req.wire()
+        timeout_sec = req.timeout_sec
+        if timeout_sec is None:
+            raise RuntimeError("timeout_sec is required")
         for attempt in range(2):
             try:
                 self._ensure_running()
@@ -726,17 +679,17 @@ class PythonWorkerManager:
                 # retry. The child does not have the request yet.
                 from plugin.scripting.host_rpc import resolve_allowed_tools
 
-                allowed_tools = resolve_allowed_tools(python_tool_domain)
+                allowed_tools = resolve_allowed_tools(req.python_tool_domain)
                 # Pin wins over the kernel session id. Chat passes doc:… and
                 # leaves request session_id unset. RPS / =PY() / PPT-Master
                 # omit the pin and keep the request id.
-                resolved_script_session_id = host_script_session_id(request.get("session_id"), script_session_id)
+                resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
                 # The host read timeout includes a grace buffer so the child's in-process
                 # signal/thread timeout fires first and returns a clean error frame without
                 # terminating the warm subprocess (preserving shared workbook sessions).
                 host_read_timeout_sec = float(timeout_sec) + float(HOST_IPC_READ_GRACE_SEC)
                 try:
-                    self._write_frame_with_timeout(stdin, request, timeout_sec=write_timeout_sec, label="request")
+                    self._write_frame_with_timeout(stdin, wire, timeout_sec=write_timeout_sec, label="request")
                 except IpcFrameError as e:
                     # An oversize request fails in pack_pickle_frame before any byte
                     # reaches the pipe. That must not hit the retry handler,
@@ -759,18 +712,12 @@ class PythonWorkerManager:
                     response = self._read_until_terminal(
                         stdout,
                         stdin,
-                        request,
+                        req,
+                        wire,
                         state,
                         host_read_timeout_sec=host_read_timeout_sec,
                         write_timeout_sec=write_timeout_sec,
-                        allow_heartbeat=allow_heartbeat,
-                        heartbeat_grace_sec=heartbeat_grace_sec,
-                        on_heartbeat=on_heartbeat,
-                        on_worker_event=on_worker_event,
-                        stop_checker=stop_checker,
-                        cancellation_scope=cancellation_scope,
                         allowed_tools=allowed_tools,
-                        caller=caller,
                         resolved_script_session_id=resolved_script_session_id,
                     )
                 except (subprocess.TimeoutExpired, IpcPartialFrameTimeout) as e:
@@ -808,7 +755,7 @@ class PythonWorkerManager:
                         raise
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
                     return self._fail_ipc_no_replay(e)
-                req_id = request.get("id")
+                req_id = wire.get("id")
                 # What was wrong: the harness writes {"id": "", "status": "error",
                 # "message": "Invalid pickle request: ..."} and loops. The host treated
                 # that as an id mismatch and _fail_no_replay killed a child that was
@@ -935,22 +882,24 @@ class PythonWorkerManager:
 
         return self._run_in_session(
             lambda: self._execute_ipc_unlocked(
-                code,
-                data=data,
-                bindings=bindings,
-                timeout_sec=timeout_sec,
-                session_id=session_id,
-                action=action,
-                init_script=init_script,
-                init_session_id=init_session_id,
-                init_script_hash=init_script_hash,
-                allow_heartbeat=allow_heartbeat,
-                heartbeat_grace_sec=heartbeat_grace_sec,
-                on_heartbeat=on_heartbeat,
-                python_tool_domain=python_tool_domain,
-                script_session_id=script_session_id,
-                stop_checker=stop_checker,
-                cancellation_scope=cancellation_scope,
+                _ExecRequest(
+                    code,
+                    data=data,
+                    bindings=bindings,
+                    timeout_sec=timeout_sec,
+                    session_id=session_id,
+                    action=action,
+                    init_script=init_script,
+                    init_session_id=init_session_id,
+                    init_script_hash=init_script_hash,
+                    allow_heartbeat=allow_heartbeat,
+                    heartbeat_grace_sec=heartbeat_grace_sec,
+                    on_heartbeat=on_heartbeat,
+                    python_tool_domain=python_tool_domain,
+                    script_session_id=script_session_id,
+                    stop_checker=stop_checker,
+                    cancellation_scope=cancellation_scope,
+                )
             )
         )
 
@@ -983,15 +932,16 @@ class PythonWorkerManager:
         session_id = raw_session.strip() if isinstance(raw_session, str) else ""
         raw = self._run_in_session(
             lambda: self._execute_ipc_unlocked(
-                None,
-                data=payload,
-                timeout_sec=timeout_sec,
-                action="ppt_master_turn",
-                session_id=session_id or None,
-                on_worker_event=on_worker_event,
-                stop_checker=stop_checker,
-                cancellation_scope=cancellation_scope,
-                caller="ppt_master_venv",
+                _ExecRequest(
+                    data=payload,
+                    timeout_sec=timeout_sec,
+                    action="ppt_master_turn",
+                    session_id=session_id or None,
+                    on_worker_event=on_worker_event,
+                    stop_checker=stop_checker,
+                    cancellation_scope=cancellation_scope,
+                    caller="ppt_master_venv",
+                )
             )
         )
         if raw.get("status") == "error":
