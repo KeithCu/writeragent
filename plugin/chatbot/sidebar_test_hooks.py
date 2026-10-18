@@ -1925,7 +1925,11 @@ def send_listener_for_uid(uid: str) -> Any:
         frame = getattr(sl, "frame", None)
         if frame is None:
             continue
-        model = uno_probe(lambda: frame.getController().getModel(), None)
+
+        def _model(f: Any = frame) -> Any:
+            return f.getController().getModel()
+
+        model = uno_probe(_model, None)
         if model is not None and str(get_runtime_uid(model) or "") == token:
             return sl
     return None
@@ -2133,7 +2137,11 @@ def _slash_control_near_query(query: Any) -> Any:
             hops += 1
             get_control = getattr(cur, "getControl", None)
             if callable(get_control):
-                ctrl = uno_probe(lambda: get_control("slash_popup"), None)
+
+                def _slash_ctrl(gc: Any = get_control) -> Any:
+                    return gc("slash_popup")
+
+                ctrl = uno_probe(_slash_ctrl, None)
                 if ctrl is not None:
                     return ctrl
             parent = getattr(cur, "getParent", None)
