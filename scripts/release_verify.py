@@ -49,6 +49,8 @@ DESELECTED_K = (
     "test_sync_tool_marshaled_from_background",
     "test_execute_on_main_thread_timeout",
     "test_execute_python_addin_from_background_thread",
+    # --strip drops log.debug calls, so this caplog check sees nothing.
+    "test_best_effort_logs_and_swallows_everything",
 )
 
 
