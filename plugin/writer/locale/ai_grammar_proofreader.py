@@ -131,60 +131,45 @@ def _is_text_document(model: Any) -> bool:
     """
     if model is None:
         return False
-    try:
-        supports = getattr(model, "supportsService", None)
-        if not callable(supports):
-            return False
-        return supports(_TEXT_DOCUMENT_SERVICE) is True
-    except Exception:
+    supports = getattr(model, "supportsService", None)
+    if not callable(supports):
         return False
+    return supports(_TEXT_DOCUMENT_SERVICE) is True
 
 
 def _writer_from_desktop_element(elem: Any) -> Any | None:
     """Writer model for a desktop component or the frame that holds one."""
     if _is_text_document(elem):
         return elem
-    try:
-        get_controller = getattr(elem, "getController", None)
-        if not callable(get_controller):
-            return None
-        controller = get_controller()
-        if controller is None:
-            return None
-        get_model = getattr(controller, "getModel", None)
-        if not callable(get_model):
-            return None
-        model = get_model()
-    except Exception:
+    get_controller = getattr(elem, "getController", None)
+    if not callable(get_controller):
         return None
+    controller = get_controller()
+    if controller is None:
+        return None
+    get_model = getattr(controller, "getModel", None)
+    if not callable(get_model):
+        return None
+    model = get_model()
     return model if _is_text_document(model) else None
 
 
 def _open_writer_models(desktop: Any) -> list[Any]:
     """Open Writer models. Stops if the enumeration is not a real boolean."""
     writers: list[Any] = []
-    try:
-        comps = desktop.getComponents()
-        enum = comps.createEnumeration() if comps is not None else None
-    except Exception:
-        return writers
+    comps = desktop.getComponents()
+    enum = comps.createEnumeration() if comps is not None else None
     if enum is None:
         return writers
     # Real ``hasMoreElements()`` is bool (or 1). A MagicMock stays truthy forever
     # and would spin the main thread, same guard as ``resolve_document_by_url``.
     seen = 0
     while seen < 64:
-        try:
-            more = enum.hasMoreElements()
-        except Exception:
-            break
+        more = enum.hasMoreElements()
         if more is not True and more != 1:
             break
         seen += 1
-        try:
-            elem = enum.nextElement()
-        except Exception:
-            break
+        elem = enum.nextElement()
         model = _writer_from_desktop_element(elem)
         if model is not None:
             writers.append(model)
@@ -220,11 +205,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         if uid and uid == doc_id:
             return model
 
-    try:
-        current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
-    except Exception:
-        log.debug("[grammar] persistence bind: current component unavailable", exc_info=True)
-        current = None
+    current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
     if _is_text_document(current):
         return current
 
@@ -349,14 +330,10 @@ def _locale_tuple() -> tuple[Any, ...]:
     if uno_mod is None:
         return ()
     out: list[Any] = []
-    try:
-        for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-            la, ctry = bcp47_to_uno_lang_country(tag)
-            out.append(cast("Any", uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
-        return tuple(out)
-    except Exception:
-        log.exception("[grammar] _locale_tuple: Locale construction failed")
-        return ()
+    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+        la, ctry = bcp47_to_uno_lang_country(tag)
+        out.append(cast("Any", uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
+    return tuple(out)
 
 
 def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
@@ -400,32 +377,28 @@ def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: s
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
     if uno_mod is None:
         raise RuntimeError("uno not available")
-    try:
-        a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
-        a_res.aDocumentIdentifier = a_document_identifier
-        a_res.aText = a_text
-        a_res.aLocale = a_locale
-        a_res.nStartOfSentencePosition = n_start_of_sentence_position
-        a_res.nStartOfNextSentencePosition = n_suggested_behind_end_of_sentence_position
-        a_res.aProperties = ()
-        a_res.xProofreader = proofreader
-        a_res.aErrors = ()
+    a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
+    a_res.aDocumentIdentifier = a_document_identifier
+    a_res.aText = a_text
+    a_res.aLocale = a_locale
+    a_res.nStartOfSentencePosition = n_start_of_sentence_position
+    a_res.nStartOfNextSentencePosition = n_suggested_behind_end_of_sentence_position
+    a_res.aProperties = ()
+    a_res.xProofreader = proofreader
+    a_res.aErrors = ()
 
-        # Default: follow LO’s suggested end + Lightproof-style space adjustment (see
-        # ``_apply_proofreading_end_positions`` when we cover a computed sentence span).
-        n_next = n_suggested_behind_end_of_sentence_position
-        if n_next < len(a_text):
-            before = n_next
-            n_next = _advance_past_leading_whitespace(a_text, n_next)
-            ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
-            if n_next == before and ch != "":
-                n_next = n_suggested_behind_end_of_sentence_position + 1
-        a_res.nStartOfNextSentencePosition = n_next
-        a_res.nBehindEndOfSentencePosition = n_next
-        return a_res
-    except Exception as e:
-        log.exception("[grammar] _create_empty_result failed: %s", e)
-        raise
+    # Default: follow LO’s suggested end + Lightproof-style space adjustment (see
+    # ``_apply_proofreading_end_positions`` when we cover a computed sentence span).
+    n_next = n_suggested_behind_end_of_sentence_position
+    if n_next < len(a_text):
+        before = n_next
+        n_next = _advance_past_leading_whitespace(a_text, n_next)
+        ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
+        if n_next == before and ch != "":
+            n_next = n_suggested_behind_end_of_sentence_position + 1
+    a_res.nStartOfNextSentencePosition = n_next
+    a_res.nBehindEndOfSentencePosition = n_next
+    return a_res
 
 
 def _apply_proofreading_end_positions(a_res: Any, a_text: str, covered_end: int) -> None:
@@ -539,20 +512,17 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
     if uno_mod is None:
         return ()
     out: list[Any] = []
-    for idx, e in enumerate(norms):
-        try:
-            a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
-            a_err.nErrorStart = e.n_error_start
-            a_err.nErrorLength = e.n_error_length
-            a_err.nErrorType = _proofreading_markup_type()
-            a_err.aRuleIdentifier = e.rule_identifier
-            a_err.aSuggestions = tuple(e.suggestions)
-            a_err.aShortComment = e.short_comment
-            a_err.aFullComment = e.full_comment
-            a_err.aProperties = ()
-            out.append(a_err)
-        except Exception as ex:
-            log.warning("[grammar] _errors_to_uno_tuple: skipped error index=%s rule=%r: %s", idx, getattr(e, "rule_identifier", ""), ex, exc_info=True)
+    for e in norms:
+        a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
+        a_err.nErrorStart = e.n_error_start
+        a_err.nErrorLength = e.n_error_length
+        a_err.nErrorType = _proofreading_markup_type()
+        a_err.aRuleIdentifier = e.rule_identifier
+        a_err.aSuggestions = tuple(e.suggestions)
+        a_err.aShortComment = e.short_comment
+        a_err.aFullComment = e.full_comment
+        a_err.aProperties = ()
+        out.append(a_err)
     return tuple(out)
 
 
@@ -606,13 +576,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return normalize_uno_locale_to_bcp47(a_locale)
 
     def hasLocale(self, aLocale: Any) -> bool:
-        try:
-            if aLocale is None or not self._locales:
-                return False
-            return self._normalize_locale(aLocale) is not None
-        except Exception as e:
-            log.warning("[grammar] hasLocale: %s", e, exc_info=True)
+        if aLocale is None or not self._locales:
             return False
+        return self._normalize_locale(aLocale) is not None
 
     def getLocales(self) -> tuple[Any, ...]:
         return self._locales
@@ -783,11 +749,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
                 raise RuntimeError("uno not available")
 
-            # Build the empty result before the try. ``_create_empty_result`` already
-            # logs and re-raises (missing ``uno``, ``createUnoStruct`` failure). The
-            # handler used to call it again with the same arguments when ``a_res``
-            # was still None. That second failure left the Linguistic worker with an
-            # unhandled exception and could crash or hang Writer.
+            # Build the empty result before the try. A failure here (missing ``uno``,
+            # ``createUnoStruct``) must propagate out of ``doProofreading``. The
+            # handler used to call ``_create_empty_result`` again with the same
+            # arguments when ``a_res`` was still None. That second failure left the
+            # Linguistic worker with an unhandled exception and could crash or hang Writer.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             try:
                 from plugin.writer.locale.grammar_persistence import get_document_model_for_id

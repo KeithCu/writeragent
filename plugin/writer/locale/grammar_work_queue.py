@@ -365,12 +365,9 @@ class GrammarWorkQueue:
             groups = filter_stale_and_group(batch, self._is_stale)
 
             for (doc_id, locale), group_items in groups.items():
-                try:
-                    grammar_obs("queue_execute_batch", doc_id=doc_id, locale=locale, item_count=len(group_items))
-                    import plugin.writer.locale.grammar_worker as grammar_worker
-                    grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
-                except Exception:
-                    log.exception("[grammar] queue worker batch failed doc=%s loc=%s", doc_id, locale)
+                grammar_obs("queue_execute_batch", doc_id=doc_id, locale=locale, item_count=len(group_items))
+                import plugin.writer.locale.grammar_worker as grammar_worker
+                grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
 
 
 _grammar_queue_singleton = GrammarWorkQueue()

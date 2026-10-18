@@ -9,7 +9,6 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.framework.config import grammar_checker_identity
@@ -22,8 +21,6 @@ from .grammar_proofread_locale import (
     fingerprint_for_text,
     looks_complete_sentence,
 )
-
-log = logging.getLogger("writeragent.grammar")
 
 
 def _sanitize_checker_identity(identity: str) -> str:
@@ -197,10 +194,7 @@ def recheck_active_document_grammar(ctx: Any) -> None:
         fn = getattr(pr, "broadcast_proofread_again", None)
         if not callable(fn):
             continue
-        try:
-            fn()
-        except Exception:
-            log.debug("[grammar] PROOFREAD_AGAIN broadcast failed", exc_info=True)
+        fn()
 
 
 def _populate_memory_cache_only(

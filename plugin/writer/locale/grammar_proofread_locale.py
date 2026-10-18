@@ -438,15 +438,12 @@ def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
 
     Regional variants (e.g. ``de-AT``) map to the same canonical tag as ``de-DE`` for cache/LLM.
     """
-    try:
-        if a_locale is None:
-            return None
-        lang = (getattr(a_locale, "Language", None) or "").strip()
-        if not lang:
-            return None
-        country = (getattr(a_locale, "Country", None) or "").strip().upper()
-    except Exception:
+    if a_locale is None:
         return None
+    lang = (getattr(a_locale, "Language", None) or "").strip()
+    if not lang:
+        return None
+    country = (getattr(a_locale, "Country", None) or "").strip().upper()
 
     lang_l = lang.lower()
     key = (lang_l, country)

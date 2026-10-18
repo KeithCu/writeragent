@@ -286,17 +286,13 @@ def persisted_grammar_skip_lang_detect(
     empty errors for 'good' sentences) implies prior proofreading. The lookup is
     locale-specific so another CharLocale's clean row does not skip detection.
     """
-    try:
-        if not doc_id:
-            return False
-        fp = grammar_proofread_cache.sentence_identity_fp(text)
-        p = grammar_persistence.get_persistence(ctx, doc_id)
-        # Do not adopt a v2/v3 row here. That probe would retag an unknown
-        # locale as this chunk's CharLocale before proofreading reads it.
-        return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
-    except Exception as e:
-        log.debug("[grammar] persisted grammar heuristic lookup failed: %s", e, exc_info=True)
+    if not doc_id:
         return False
+    fp = grammar_proofread_cache.sentence_identity_fp(text)
+    p = grammar_persistence.get_persistence(ctx, doc_id)
+    # Do not adopt a v2/v3 row here. That probe would retag an unknown
+    # locale as this chunk's CharLocale before proofreading reads it.
+    return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
 
 
 def get_active_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:

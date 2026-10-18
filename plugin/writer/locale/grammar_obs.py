@@ -95,12 +95,9 @@ def _frame_from_existing_desktop_singleton(ctx: Any) -> Any | None:
         desktop = cast("Any", gvn("/singletons/com.sun.star.frame.theDesktop"))
         if desktop is None:
             return None
-        try:
-            frame = desktop.getCurrentFrame()
-            if frame is not None:
-                return frame
-        except Exception:
-            pass
+        frame = desktop.getCurrentFrame()
+        if frame is not None:
+            return frame
         component = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
         return _frame_from_controller(component) if component is not None else None
     except Exception:

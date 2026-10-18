@@ -150,10 +150,7 @@ class GrammarRegistry:
             self.doc_locales_cache.pop(doc_id, None)
             dp = self.doc_persistence_instances.pop(doc_id, None)
         if dp:
-            try:
-                dp._teardown()
-            except Exception as e:
-                log.debug("[grammar] GrammarRegistry.clear_for_doc failure: %s", e)
+            dp._teardown()
 
     def clear_all(self, ctx: Any | None = None) -> None:
         with self.lock:
@@ -165,10 +162,7 @@ class GrammarRegistry:
             self.doc_persistence_instances.clear()
 
         for dp in snap:
-            try:
-                dp._teardown()
-            except Exception as e:
-                log.debug("[grammar] GrammarRegistry.clear_all persistence cleanup failure: %s", e)
+            dp._teardown()
 
     def get_cached_language(self, text: str) -> str | None:
         with self.lock:
@@ -709,21 +703,18 @@ def get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
                 ctrl = getattr(model, "getCurrentController", lambda: None)()
                 view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
                 if view_cursor:
-                    try:
-                        tc = view_cursor.getText().createTextCursorByRange(view_cursor)
-                        tc.goLeft(500, False)
-                        for _unused in range(1000):
-                            if not tc.goRight(1, True):
-                                break
-                            loc = getattr(tc, "CharLocale", None)
-                            from . import grammar_proofread_locale
+                    tc = view_cursor.getText().createTextCursorByRange(view_cursor)
+                    tc.goLeft(500, False)
+                    for _unused in range(1000):
+                        if not tc.goRight(1, True):
+                            break
+                        loc = getattr(tc, "CharLocale", None)
+                        from . import grammar_proofread_locale
 
-                            bcp = grammar_proofread_locale.normalize_uno_locale_to_bcp47(loc)
-                            if bcp:
-                                locales.add(bcp)
-                            tc.collapseToEnd()
-                    except Exception as e:
-                        log.debug("[grammar] Failed to scan near cursor for locales: %s", e)
+                        bcp = grammar_proofread_locale.normalize_uno_locale_to_bcp47(loc)
+                        if bcp:
+                            locales.add(bcp)
+                        tc.collapseToEnd()
 
                 log.debug("[grammar] Document locale detection finished (cursor scan). Found: %s", locales)
         except Exception as e:
@@ -773,27 +764,24 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
         search_desc.SearchCaseSensitive = True
 
         found_range = None
-        try:
-            # The paragraph-relative cursor is built for every start_pos,
-            # including 0. n_start is the sentence offset inside the
-            # proofread paragraph, so 0 is its first sentence, not "search
-            # from the caret". findNext from the view cursor retags a
-            # different copy of the same sentence when 0 is treated as "no
-            # offset". Offset 0 still selects from the start of that
-            # paragraph. start_pos > 0 still moves, then expands, on the same
-            # cursor.
-            if view_cursor is not None and start_pos >= 0:
-                text_obj = model.getText()
-                doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
-                if hasattr(doc_cursor, "gotoStartOfParagraph"):
-                    doc_cursor.gotoStartOfParagraph(False)
-                    if start_pos > 0:
-                        doc_cursor.goRight(start_pos, False)
-                    doc_cursor.goRight(len(sentence_text), True)
-                    if doc_cursor.getString() == sentence_text:
-                        found_range = doc_cursor
-        except Exception:
-            pass
+        # The paragraph-relative cursor is built for every start_pos,
+        # including 0. n_start is the sentence offset inside the
+        # proofread paragraph, so 0 is its first sentence, not "search
+        # from the caret". findNext from the view cursor retags a
+        # different copy of the same sentence when 0 is treated as "no
+        # offset". Offset 0 still selects from the start of that
+        # paragraph. start_pos > 0 still moves, then expands, on the same
+        # cursor.
+        if view_cursor is not None and start_pos >= 0:
+            text_obj = model.getText()
+            doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
+            if hasattr(doc_cursor, "gotoStartOfParagraph"):
+                doc_cursor.gotoStartOfParagraph(False)
+                if start_pos > 0:
+                    doc_cursor.goRight(start_pos, False)
+                doc_cursor.goRight(len(sentence_text), True)
+                if doc_cursor.getString() == sentence_text:
+                    found_range = doc_cursor
 
         # Caret-relative findNext is for a positive offset whose paragraph
         # selection did not match. Offset 0 must not search forward from the caret.
@@ -803,12 +791,9 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
         if not found_range:
             # Document-wide search from the start — view-cursor-relative findNext can miss
             # the sentence Writer just proofread when the caret is elsewhere.
-            try:
-                text_obj = model.getText()
-                doc_start = text_obj.getStart()
-                found_range = model.findNext(doc_start, search_desc)
-            except Exception:
-                found_range = model.findFirst(search_desc)
+            text_obj = model.getText()
+            doc_start = text_obj.getStart()
+            found_range = model.findNext(doc_start, search_desc)
 
         if not found_range:
             found_range = model.findFirst(search_desc)

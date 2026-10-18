@@ -398,7 +398,7 @@ def _is_span_overlapping(span: tuple[int, int], used_spans: list[tuple[int, int]
     return any(not (span[1] <= o[0] or span[0] >= o[1]) for o in used_spans)
 
 
-def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: str, idx: int) -> NormalizedProofError | None:
+def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: str) -> NormalizedProofError:
     """Construct a NormalizedProofError from the raw JSON payload properties."""
     reason = it.get("reason", "")
     existing = str(it.get("rule_identifier") or "").strip()
@@ -413,18 +413,14 @@ def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: 
     full = provider_full or reason or short
     if provider_short or provider_full:
         short = f"{short} {_suggestion_hint(sugg)}"
-    try:
-        return NormalizedProofError(
-            n_error_start=pos,
-            n_error_length=length,
-            suggestions=sugg,
-            short_comment=short[:500],
-            full_comment=full[:2000],
-            rule_identifier=rule_id,
-        )
-    except Exception as e:
-        grammar_obs("normalize_error", idx=idx, error=str(e))
-        return None
+    return NormalizedProofError(
+        n_error_start=pos,
+        n_error_length=length,
+        suggestions=sugg,
+        short_comment=short[:500],
+        full_comment=full[:2000],
+        rule_identifier=rule_id,
+    )
 
 
 def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
@@ -480,9 +476,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
             used_spans.append(span)
 
         # 4. Build and append the NormalizedProofError
-        err = _build_normalized_error(pos, length, it, correct, idx)
-        if err is not None:
-            results.append(err)
+        results.append(_build_normalized_error(pos, length, it, correct))
 
     return results
 
