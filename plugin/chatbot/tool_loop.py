@@ -603,7 +603,7 @@ class ToolCallingMixin:
             if not isinstance(turn, TurnController) or not turn.alive or session is None:
                 emit((StreamQueueKind.STOPPED,))
                 return
-            last_streamed: list[str] = [] if final else []
+            last_streamed: list[str] = []
             response: Any = None
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
@@ -650,14 +650,11 @@ class ToolCallingMixin:
                             content_cb(c)
                             last_streamed.append(c)
 
-                        def append_t(t: str) -> None:
-                            thinking_cb(t)
-
                         client.stream_chat_response(
                             view,
                             max_tokens,
                             append_c,
-                            append_t,
+                            thinking_cb,
                             stop_checker=stop_checker,
                             status_callback=status_cb,
                         )
