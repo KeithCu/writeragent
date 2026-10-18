@@ -550,7 +550,7 @@ class TestSettingsEnhancements:
         api_key_ctrl.setFocus.assert_called_once()
         mock_open_url.assert_called_once_with(ctx, "https://api.together.ai/settings/api-keys")
 
-    @patch("plugin.mcp.mcp_ui.get_config_int", return_value=18765)
+    @patch("plugin.mcp.mcp_ui.get_config_int_safe", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         import json
         from plugin.chatbot.dialog_views import build_mcp_config_snippet
