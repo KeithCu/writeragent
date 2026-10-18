@@ -192,6 +192,13 @@ def _translate_exception_message(message: Any) -> str:
     return _(text)
 
 
+class BlockingWaitStopped(Exception):
+    """Raised by llm_request_lane when the captured send scope is already cancelled while waiting for the LLM lock.
+
+    Callers turn it into a Stopped queue item; intentionally not a WriterAgentException.
+    """
+
+
 class WriterAgentException(Exception):
     """Base exception for all WriterAgent errors.
 
@@ -771,6 +778,7 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
 # are implemented in json_utils and re-exported as stable public imports (intentional).
 __all__ = [
     "AgentParsingError",
+    "BlockingWaitStopped",
     "CalcError",
     "ConfigError",
     "ConfigValidationError",

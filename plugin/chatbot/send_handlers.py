@@ -24,6 +24,7 @@ from plugin.framework.async_stream import defer_until_drain_done, run_async_work
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
+    BlockingWaitStopped,
     best_effort,
     format_error_payload,
     is_disposed_exception,
@@ -336,9 +337,8 @@ class SendHandlersMixin:
                 )
 
             try:
-                # Do not pass stop_checker here. That raises BlockingWaitStopped
-                # and returns before the worker reaps the child, and Stop is
-                # meant to keep the transcript, so the worker runs to the end.
+                # This wait runs to the end so Stop can keep the transcript;
+                # run_blocking_in_thread has no stop_checker.
                 transcript_text = run_blocking_in_thread(self.ctx, _call)
             except Exception as e:
                 log.exception("Transcription error in _transcribe_audio")
@@ -777,13 +777,11 @@ class SendHandlersMixin:
                     q.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
                     adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
+            except BlockingWaitStopped:
+                q.put((StreamQueueKind.STOPPED,))
             except Exception as e:
-                from plugin.framework.blocking_wait import BlockingWaitStopped
-                if isinstance(e, BlockingWaitStopped):
-                    q.put((StreamQueueKind.STOPPED,))
-                else:
-                    log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
-                    q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+                log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
+                q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         def on_approval_required(item: Any) -> None:
             # item = ("approval_required", description, tool_name, args, request_id)

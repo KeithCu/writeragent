@@ -24,11 +24,17 @@ if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.panel import ChatSession
 
-from plugin.framework.blocking_wait import BlockingWaitStopped
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import best_effort, format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
+from plugin.framework.errors import (
+    BlockingWaitStopped,
+    best_effort,
+    format_error_message,
+    is_disposed_exception,
+    suppress_disposed,
+    UnoObjectError,
+)
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,

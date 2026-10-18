@@ -1,3 +1,4 @@
+import gc
 import queue
 import threading
 import time
@@ -5,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.blocking_wait import BlockingWaitStopped, run_blocking_in_thread
+from plugin.framework.blocking_wait import automatic_gc_suspended, run_blocking_in_thread
 
 
 class DummyToolkit:
@@ -38,22 +39,23 @@ def test_run_blocking_in_thread_pump_idle_false_does_not_pump():
     pump_queue.assert_called()
 
 
-def test_run_blocking_in_thread_stop_checker_returns_without_pump():
+def test_off_main_no_pump_does_not_poll_with_timeout():
     ctx = MagicMock()
-    stop = threading.Event()
+    timeouts: list[float | None] = []
+    real_get = queue.Queue.get
 
-    def _slow():
-        time.sleep(2)
-        return "done"
+    def spy_get(self, block=True, timeout=None):
+        timeouts.append(timeout)
+        return real_get(self, block=block, timeout=timeout)
 
-    def _checker():
-        return stop.is_set()
-
-    stop.set()
-    with patch("plugin.framework.blocking_wait.pump_ui_idle") as pump:
-        with pytest.raises(BlockingWaitStopped):
-            run_blocking_in_thread(ctx, _slow, pump_idle=False, stop_checker=_checker)
-    pump.assert_not_called()
+    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=False):
+        with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue") as pump_queue:
+            with patch("plugin.framework.blocking_wait.pump_ui_idle") as pump_ui:
+                with patch.object(queue.Queue, "get", spy_get):
+                    assert run_blocking_in_thread(ctx, lambda: "ok", pump_idle=False) == "ok"
+    assert timeouts == [None]
+    pump_queue.assert_not_called()
+    pump_ui.assert_not_called()
 
 
 def test_run_blocking_in_thread_toolkit_fail_runs_off_caller():
@@ -145,8 +147,9 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_none_drains_marshal_queue
         with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
             with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
                 def waiter() -> None:
-                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
-                    result_holder.append(res)
+                    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=True):
+                        res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                        result_holder.append(res)
 
                 waiter_thread = threading.Thread(target=waiter, daemon=True)
                 waiter_thread.start()
@@ -176,8 +179,9 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_raises_drains_marshal_que
         with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
             with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
                 def waiter() -> None:
-                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
-                    result_holder.append(res)
+                    with patch("plugin.framework.blocking_wait.on_main_thread", return_value=True):
+                        res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                        result_holder.append(res)
 
                 waiter_thread = threading.Thread(target=waiter, daemon=True)
                 waiter_thread.start()
@@ -223,10 +227,6 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_present_calls_pump_ui_idl
 
 
 # ---- automatic GC stays off while a pump_idle=False wait holds SolarMutex ----
-
-import gc  # noqa: E402
-
-from plugin.framework.blocking_wait import automatic_gc_suspended  # noqa: E402
 
 
 @pytest.fixture

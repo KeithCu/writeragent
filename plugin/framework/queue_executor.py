@@ -45,6 +45,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
+from plugin.framework.errors import BlockingWaitStopped
 from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
@@ -399,7 +400,6 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     while True:
         cancellation = get_current_send_cancellation()
         if cancellation and cancellation.is_cancelled():
-            from plugin.framework.blocking_wait import BlockingWaitStopped
             raise BlockingWaitStopped("stopped")
         remaining = deadline - time.monotonic()
         if remaining <= 0:

@@ -134,8 +134,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     ``pump_idle=False``: ``processEventsToIdle`` waits for ``LayoutIdle``, which
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
     controls — the same bug ``flush_ui_idle`` documents after import. Drain
-    *between* cells in Run All, never here. ``stop_checker`` is polled on this
-    wait (notebook Event or chat ``SendCancellation``). Both Stop buttons run
+    *between* cells in Run All, never here. Both Stop buttons run
     on this same UI thread, and this wait does not pump, so a click during the
     cell is not seen until the worker returns. Stop therefore skips cells that
     have not started; it does not abort the in-flight cell.

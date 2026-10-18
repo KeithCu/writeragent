@@ -9,6 +9,7 @@ import pytest
 import plugin.framework.queue_executor as mt
 
 from unittest.mock import patch, MagicMock
+from plugin.framework.errors import BlockingWaitStopped
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.queue_executor import _WorkItem, execute_on_main_thread, post_to_main_thread, default_executor
 
@@ -1678,7 +1679,6 @@ def test_llm_request_lane_uncontended_does_not_call_status():
 
 
 def test_llm_request_lane_stop_while_waiting():
-    from plugin.framework.blocking_wait import BlockingWaitStopped
     from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK
 
     # Block the lane
@@ -1849,7 +1849,6 @@ def test_llm_request_lane_acquire_is_capped_by_remaining() -> None:
 
 
 def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
-    from plugin.framework.blocking_wait import BlockingWaitStopped
     from plugin.framework.queue_executor import _LLM_REQUEST_LOCK, llm_request_lane
 
     stop_event = threading.Event()

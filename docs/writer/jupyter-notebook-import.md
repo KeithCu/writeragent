@@ -153,7 +153,7 @@ flowchart TB
 - Chrome: hamburger items only, and only when `load_registry(doc)` is non-None. Not on the LibrePy / WriterAgent menubar, not on the WriterAgent toolbar, not on ordinary Writer / Calc / Draw.
 - **Run All** executes code cells in sequence with UI event drains **between** cells — never `processEventsToIdle` during `execute_code` (same `LayoutIdle` livelock as post-import flush on notebooks with many in-flow form controls).
 - **Run From Here** execution from current selection.
-- **Stop** sets a per-document flag checked between cells (after `flush_ui_idle`). It does not abort the cell whose `execute_code` wait is already on the UI thread: that wait polls `stop_checker` without pumping VCL, so the hamburger click is not dispatched until the worker returns. In `[n]` / outputs update for the cell that finished. Remaining cells do not start.
+- **Stop** sets a per-document flag checked between cells (after `flush_ui_idle`). It does not abort the cell whose `execute_code` wait is already on the UI thread: that wait does not pump VCL (`pump_idle=False`), so the hamburger click is not dispatched until the worker returns. In `[n]` / outputs update for the cell that finished. Remaining cells do not start.
 
 ### Phase 3: Cell CRUD & Re-import Merge — **Planned**
 - Interactive addition, deletion, and reordering of code and markdown cells.

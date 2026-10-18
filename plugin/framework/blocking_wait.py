@@ -19,8 +19,10 @@
 Speech-to-text transcription pumps the UI (``pump_idle=True``) so Stop and an
 in-flight stream stay alive, and does not return until transcription finishes.
 Notebook cells and ``=PROMPT()`` pass ``pump_idle=False``: the caller blocks,
-and this wait must not return to the VCL loop. This is not the chat stream
-drain. Re-exported from ``async_stream``.
+and this wait must not return to the VCL loop. ``=PROMPT()`` is off the main
+thread and blocks in ``Queue.get`` until the worker finishes; a UI-thread
+``pump_idle=False`` wait still polls the marshal queue. This is not the chat
+stream drain. Re-exported from ``async_stream``.
 """
 
 from __future__ import annotations
@@ -30,9 +32,10 @@ import gc
 import logging
 import queue
 from enum import Enum
-from typing import Any, Callable, Iterator, TypeAlias
+from typing import Any, Iterator, TypeAlias
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
+from plugin.framework.thread_guard import on_main_thread
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -43,10 +46,6 @@ class BlockingPumpKind(str, Enum):
 
     DONE = "done"
     ERROR = "error"
-
-
-class BlockingWaitStopped(Exception):
-    """``stop_checker`` fired while waiting for a background func (no VCL pump)."""
 
 
 BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
@@ -78,7 +77,7 @@ def automatic_gc_suspended() -> Iterator[None]:
             gc.collect()
 
 
-def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = True, stop_checker: Callable[[], bool] | None = None, **kwargs: Any) -> Any:
+def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = True, **kwargs: Any) -> Any:
     """
     Run a blocking function in a background thread.
 
@@ -89,10 +88,6 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     cell execute because ``LayoutIdle`` livelocks on documents with many
     in-flow form controls. ``=PY()`` already avoids this helper for the recalc
     reason.
-
-    *stop_checker* (notebook Stop): poll the queue with a short timeout and
-    return via :class:`BlockingWaitStopped` when the predicate is true. Never
-    pumps VCL for that poll — same LayoutIdle livelock as ``pump_idle=False``.
 
     This wait is not the chat stream drain. Do not turn it into the
     event-driven slice scheduler: ``pump_idle=False`` (notebook cells,
@@ -129,36 +124,32 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
             toolkit = None
 
     pump_vcl = pump_idle and toolkit is not None
-    if pump_vcl:
+    # GC off before the worker starts when this wait will not return to VCL.
+    with (automatic_gc_suspended() if not pump_vcl else contextlib.nullcontext()):
         run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
-        return _wait_for_worker(q, toolkit, pump_vcl, stop_checker)
-    # Without the VCL pump this wait never yields SolarMutex. GC goes off
-    # before the worker starts and stays off until it is done.
-    with automatic_gc_suspended():
-        run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
-        return _wait_for_worker(q, toolkit, pump_vcl, stop_checker)
+        return _wait_for_worker(q, toolkit, pump_vcl)
 
 
-def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump_vcl: bool, stop_checker: Callable[[], bool] | None) -> Any:
+def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump_vcl: bool) -> Any:
     # crosshair: off
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
-    # Always wait 0.1s. timeout=None returns only when the worker finishes, so
-    # this thread never drains the marshal queue. That deadlocked when pump_idle
-    # was True and get_toolkit failed: the worker sat in execute_on_main_thread.
-    # pump_vcl or not pump_vcl is always true, so the old else-None branch never
-    # ran. On Empty, pump_vcl calls pump_ui_idle; otherwise
-    # pump_main_thread_work_queue (no processEventsToIdle).
+    # What was wrong: an off-main waiter used get(timeout=0.1); pump_main_thread_work_queue
+    # returns immediately off-main, so =PROMPT() woke up for a no-op every 100 ms and could
+    # wait up to 100 ms after the worker finished.
+    # How it happened: the 0.1s poll was unconditionally added to drain marshal work.
+    # Why this fixes it: timeout=None returns immediately on the worker's put when no pump
+    # can run. The 0.1s poll stays when pump_vcl or on_main_thread() so a UI-thread waiter
+    # still drains execute_on_main_thread.
+    poll = pump_vcl or on_main_thread()
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
         # must propagate: catching it here and calling get again with
         # timeout=None blocks forever, because that worker has already exited.
         try:
-            item = q.get(timeout=0.1)
+            item = q.get(timeout=0.1 if poll else None)
         except queue.Empty:
-            if stop_checker is not None and stop_checker():
-                raise BlockingWaitStopped("stopped")
             if pump_vcl:
                 pump_ui_idle(toolkit)
             else:
