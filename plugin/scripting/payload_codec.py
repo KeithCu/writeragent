@@ -276,12 +276,9 @@ def load_cython_accelerator() -> None:
         return
 
     # Ensure native binary directories (installed user_config or in-tree repo contrib) are on sys.path
-    try:
-        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
+    from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
-        ensure_native_binaries_on_path()
-    except Exception as exc:
-        log.debug("load_cython_accelerator path ensure exception: %s", exc)
+    ensure_native_binaries_on_path()
 
     fn2d = None
     fn1d = None
@@ -930,12 +927,8 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
             return "list[]"
         first = obj[0]
         if isinstance(first, (list, tuple)):
-            # Be defensive: some list elements may not be rows (e.g. hypothesis fancier results with mixed nesting).
-            try:
-                ncols = max((len(r) for r in obj if isinstance(r, (list, tuple))), default=0)
-                return f"list[{n}x{ncols}] sample_row={list(first)[:sample]!r}"
-            except Exception:
-                return f"list[{n}x?] sample_row={list(first)[:sample]!r}"
+            ncols = max((len(r) for r in obj if isinstance(r, (list, tuple))), default=0)
+            return f"list[{n}x{ncols}] sample_row={list(first)[:sample]!r}"
         return f"list[{n}] sample={list(obj)[:sample]!r}"
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
