@@ -160,7 +160,11 @@ def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -
             if slot_idx is not None and slot_idx >= image_count:
                 to_remove.append(shape)
         for s in to_remove:
-            best_effort(lambda s=s: draw_page.remove(s), "_drop_extra_plot_slots: remove shape")
+
+            def _remove(shape: Any = s) -> None:
+                draw_page.remove(shape)
+
+            best_effort(_remove, "_drop_extra_plot_slots: remove shape")
     except Exception:
         log.debug("_drop_extra_plot_slots scan failed", exc_info=True)
 

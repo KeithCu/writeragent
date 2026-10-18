@@ -100,8 +100,13 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
         if current is None:
             return None
         supports = getattr(current, "supportsService", None)
-        if callable(supports) and uno_probe(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
-            return current
+        if callable(supports):
+
+            def _is_calc(check: Any = supports) -> Any:
+                return check("com.sun.star.sheet.SpreadsheetDocument")
+
+            if uno_probe(_is_calc, False) is True:
+                return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):
             return None

@@ -79,7 +79,11 @@ def _desktop_writer_uids(desktop: Any) -> list[str]:
         except Exception:
             break
         n += 1
-        if uno_probe(lambda comp=component: comp.supportsService("com.sun.star.text.TextDocument"), False):
+
+        def _is_writer(comp: Any = component) -> Any:
+            return comp.supportsService("com.sun.star.text.TextDocument")
+
+        if uno_probe(_is_writer, False):
             uids.append(_writer_runtime_uid(component))
     return uids
 
