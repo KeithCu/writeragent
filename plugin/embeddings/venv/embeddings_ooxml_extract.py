@@ -45,12 +45,9 @@ def extract_docx_paragraphs(path: str) -> list[str]:
         raise RuntimeError(f"extract_docx_paragraphs failed for {path}") from exc
     passages: list[str] = []
     for paragraph in document.paragraphs:
-        try:
-            # Extract all text elements, including those nested in w:hyperlink
-            texts = [node.text for node in paragraph._element.xpath(".//w:t") if node.text]
-            text = "".join(texts).strip()
-        except Exception:
-            text = str(paragraph.text or "").strip()
+        # .//w:t includes text nested in w:hyperlink. CT_P.xpath injects nsmap and does not raise on a paragraph Document() just loaded.
+        texts = [node.text for node in paragraph._element.xpath(".//w:t") if node.text]
+        text = "".join(texts).strip()
         if text:
             passages.append(text)
     return passages
