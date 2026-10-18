@@ -760,6 +760,26 @@ def test_final_stream_done_and_stop_partial(test_instance):
     assert not any(item[0] == StreamQueueKind.FINAL_DONE for item in items2)
     assert take_stop_partial(current_turn(test_instance)) == "ab"
 
+    # 3. Stop pressed before the final stream starts: no lane, no request.
+    q3: queue.Queue[Any] = queue.Queue()
+    turn.queue = q3
+    turn.batcher = None
+    client._stopped = True
+    client.stream_chat_response.reset_mock()
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+    ):
+        test_instance._spawn_final_stream(q3, client, 256)
+        captured["fn"]()
+        mock_lane.assert_not_called()
+
+    client.stream_chat_response.assert_not_called()
+    assert q3.get_nowait() == (StreamQueueKind.STOPPED,)
+
 
 def test_start_tool_calling_resets_overflow_attempts(test_instance):
     test_instance._spawn_llm_worker = MagicMock()
