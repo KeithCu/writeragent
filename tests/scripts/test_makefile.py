@@ -184,3 +184,13 @@ def test_check_lo_python_rejects_interpreter_without_officehelper(tmp_path: Path
     assert "cannot import officehelper" in combined
     assert "project .venv" in combined
     assert "-m plugin.testing_runner" not in combined
+
+
+def test_makefile_translation_and_clean_one_line_recipes() -> None:
+    text = MAKEFILE.read_text(encoding="utf-8")
+    assert 'clean: clean-native\n\t"$(PYTHON)" scripts/clean.py' in text
+    assert 'extract-strings:\n\t"$(PYTHON)" scripts/extract_strings.py' in text
+    assert 'refresh-pot:\n\t"$(PYTHON)" scripts/extract_strings.py --pot-only' in text
+    assert 'merge-translations:\n\t"$(PYTHON)" scripts/extract_strings.py --merge-only' in text
+    assert 'auto-translate:\n\t"$(PYTHON)" scripts/extract_strings.py --auto-translate' in text
+

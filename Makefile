@@ -194,7 +194,7 @@ endif
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
-        set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
+        set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
         eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
@@ -326,24 +326,10 @@ docker-build:
 	@echo "Done: build/writeragent.oxt"
 
 auto-translate:
-	@echo "Regenerating translation templates (.pot)..."; \
-	$(MAKE) extract-strings; \
-	"$(PYTHON)" scripts/translate_missing.py --preview; \
-	if [ -n "$$OPENROUTER_API_KEY" ]; then \
-		echo "Auto-translating missing strings with AI..."; \
-		"$(PYTHON)" scripts/translate_missing.py --execute --skip-initial-status; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --auto-translate
 
 refresh-pot:
-	@if command -v xgettext >/dev/null 2>&1; then \
-		echo "Regenerating translation templates (.pot) without updating .po..."; \
-		"$(PYTHON)" scripts/extract_xdl_strings.py; \
-		xgettext --add-location=file -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
-		"$(PYTHON)" scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
-		rm -f plugin/xdl_strings.py; \
-	else \
-		echo "Skipping .pot regeneration (xgettext not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --pot-only
 
 preview-translations: refresh-pot
 	"$(PYTHON)" scripts/translate_missing.py --preview
@@ -524,9 +510,7 @@ proxy-stubs:
 xcu: manifest
 
 clean: clean-native
-	$(RM_RF) build
-	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-	find . -name "*.pyc" -delete 2>/dev/null || true
+	"$(PYTHON)" scripts/clean.py
 
 # ── Install ──────────────────────────────────────────────────────────────────
 
@@ -616,24 +600,10 @@ nuke-cache-force:
 
 # ── Translation ──────────────────────────────────────────────────────────────
 extract-strings:
-	@if command -v xgettext >/dev/null 2>&1; then \
-		"$(PYTHON)" scripts/extract_xdl_strings.py; \
-		xgettext --add-location=file --keyword=N_ -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
-		"$(PYTHON)" scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
-		rm -f plugin/xdl_strings.py; \
-		$(MAKE) merge-translations; \
-	else \
-		echo "Skipping string extraction (xgettext not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py
 
-# Merge each locale .po with writeragent.pot, then strip obsolete entries (#~) so removed
-# source strings do not accumulate. (msgattrib --no-obsolete: portable where msgmerge lacks --no-obsolete.)
 merge-translations:
-	@if command -v msgmerge >/dev/null 2>&1; then \
-		find locales -name writeragent.po -exec sh -c 'f="$$1"; msgmerge --add-location=file --update --backup=none "$$f" locales/writeragent.pot && msgattrib --no-obsolete -o "$$f.tmp" "$$f" && mv -f "$$f.tmp" "$$f"' _ {} \;; \
-	else \
-		echo "Skipping .po merge (msgmerge not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --merge-only
 
 
 add-language:
