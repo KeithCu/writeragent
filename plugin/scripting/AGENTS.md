@@ -13,6 +13,7 @@ Topic docs: [docs/scripting/librepy-split.md](../../docs/scripting/librepy-split
 [docs/scripting/serialization-verification.md](../../docs/scripting/serialization-verification.md),
 [docs/scripting/numpy-domains.md](../../docs/scripting/numpy-domains.md),
 [docs/scripting/ms-py-compatibility.md](../../docs/scripting/ms-py-compatibility.md),
+[docs/scripting/venv-worker-history.md](../../docs/scripting/venv-worker-history.md),
 [docs/archive/scripting-domain-debt-dev-plan.md](../../docs/archive/scripting-domain-debt-dev-plan.md).
 
 ## Sharp edges
