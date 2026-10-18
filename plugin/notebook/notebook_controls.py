@@ -540,6 +540,7 @@ class NotebookRunButtonListener(BaseActionListener):
     _doc_key_val: str
     _doc_url: str
     _runtime_uid: str
+    _doc_weak: Any | None
 
     def __init__(self, ctx: Any, doc: Any, hex_id: str) -> None:
         self._ctx = ctx
