@@ -1282,12 +1282,14 @@ def _specialized_inner_completion(
         if "image_generate" in called:
             return _finish("Mock image task complete.")
         return _image_generate_completion(scenario)
+    # Only python_slow calls the venv tool. Check called first: the follow-up's query is
+    # the "Observation: ..." message, so the phrase no longer matches there.
+    if PYTHON_TOOL in tool_names and PYTHON_TOOL in called:
+        # Echo the tool result so the sidebar shows how the script ended. Smol agents
+        # send it back as the last message, not as role=tool.
+        last = messages[-1] if messages and isinstance(messages[-1], dict) else {}
+        return _finish("Python tool result: " + _as_text(last.get("content"))[:300])
     if scenario == "python_slow" and PYTHON_TOOL in tool_names:
-        if PYTHON_TOOL in called:
-            # Echo the tool result so the sidebar shows how the script ended. Smol agents
-            # send it back as the last message ("Observation: ..."), not as role=tool.
-            last = messages[-1] if messages and isinstance(messages[-1], dict) else {}
-            return _finish("Python tool result: " + _as_text(last.get("content"))[:300])
         return Completion(tool_name=PYTHON_TOOL, tool_args={"code": PYTHON_SLOW_CODE}, finish_reason="tool_calls")
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
