@@ -167,7 +167,7 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
     # Log lengths and tag counts only. The document HTML is user content.
     log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
-    params_dict = dict(params) if isinstance(params, dict) else {}
+    params_dict = dict(params) if params is not None else {}
     image_name = str(params_dict.get("image_name") or "").strip() or None
 
     def _apply_insert() -> None:
@@ -196,7 +196,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
 
     insert_mode = resolve_vision_insert_mode(ctx, params)
     helper = str(result.get("helper") or "")
-    params_dict = params if isinstance(params, dict) else {}
+    params_dict = params if params is not None else {}
     image_name = str(params_dict.get("image_name") or "").strip() or None
 
     if is_calc(doc):

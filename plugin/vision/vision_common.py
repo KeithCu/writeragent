@@ -51,7 +51,7 @@ def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None 
                 merged[key] = val
     except Exception:
         log.exception("Failed to load vision.* configuration settings")
-    if isinstance(template_params, dict):
+    if template_params is not None:
         merged.update(template_params)
     return merged
 

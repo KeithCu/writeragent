@@ -124,14 +124,11 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
         reraise_if_disposed(exc)
 
     # 3. Fall back to LibreOffice UI locale
-    try:
-        from plugin.framework.i18n import get_lo_locale
+    from plugin.framework.i18n import get_lo_locale
 
-        lo_locale = get_lo_locale(ctx)
-        if lo_locale:
-            return lo_locale.split("_")[0].split("-")[0].lower()
-    except Exception as exc:
-        reraise_if_disposed(exc)
+    lo_locale = get_lo_locale(ctx)
+    if lo_locale:
+        return lo_locale.split("_")[0].split("-")[0].lower()
 
     return "en"
 
@@ -143,11 +140,11 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
     the UNO component context, which never carries the tool's stop flag.
     """
     name = _validate_helper(helper)
-    if isinstance(params, dict) and params.get("_merged"):
+    if params is not None and params.get("_merged"):
         params_dict = dict(params)
         params_dict.pop("_merged", None)
     else:
-        params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
+        params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Graphic lookup, locale, and PNG export are UNO. OCR itself is not.
@@ -203,7 +200,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     if stop_checker is None:
         stop_checker = getattr(ctx, "stop_checker", None)
-    params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
+    params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
     params_dict["_merged"] = True
     explicit_name = str(params_dict.get("image_name") or "").strip()
 

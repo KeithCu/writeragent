@@ -56,7 +56,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         doc = ctx.doc
         insert_into_document = bool(kwargs.get("insert_into_document", True))
         params_raw = kwargs.get("params")
-        params_dict: dict[str, Any] = dict(params_raw) if isinstance(params_raw, dict) else {}
+        params_dict: dict[str, Any] = dict(params_raw) if params_raw is not None else {}
         image_name = str(kwargs.get("image_name") or "").strip()
         if image_name:
             params_dict["image_name"] = image_name
@@ -102,13 +102,13 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             "status": "ok",
             "helper": "extract_structure",
             "full_text": str(result.get("full_text") or ""),
-            "metrics": result.get("metrics") if isinstance(result.get("metrics"), dict) else {},
-            "warnings": result.get("warnings") if isinstance(result.get("warnings"), list) else [],
+            "metrics": result.get("metrics") or {},
+            "warnings": result.get("warnings") or [],
             "inserted": bool(result.get("inserted")),
             "images_processed": int(result.get("images_processed", 0)),
             "message": str(result.get("message") or _("OCR complete.")),
         }
         names = result.get("image_names")
-        if isinstance(names, list) and names:
+        if names:
             out["image_names"] = names
         return out

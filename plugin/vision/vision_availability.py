@@ -126,8 +126,8 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
 
     out: list[dict[str, Any]] = []
     for schema in schemas:
-        fn = schema.get("function") if isinstance(schema, dict) else None
-        if not isinstance(fn, dict) or fn.get("name") not in _DELEGATE_GATEWAY_NAMES:
+        fn = schema["function"]
+        if fn.get("name") not in _DELEGATE_GATEWAY_NAMES:
             out.append(schema)
             continue
         patched = copy.deepcopy(schema)
