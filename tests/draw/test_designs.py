@@ -13,6 +13,7 @@ import pytest
 
 from plugin.draw.designs import (
     ApplyDesign,
+    ClonedMaster,
     ListDesigns,
     _blank_master_signal,
     _clone_one_shape,
@@ -185,7 +186,7 @@ def test_apply_design_to_current_doc_uses_clone_not_clipboard():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6)) as clone,
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)) as clone,
         patch("plugin.draw.designs._close_hidden_doc") as closer,
         patch("plugin.draw.designs.assign_master_to_all_slides", return_value=2),
         patch(
@@ -218,7 +219,7 @@ def test_clone_one_shape_sets_geometry_after_add():
         side_effect=lambda _dest, _src, name: calls.append(name) or True,
     ):
         out = _clone_one_shape(dest_doc, dest_master, src)
-    assert out == "com.sun.star.drawing.GraphicObjectShape"
+    assert out[0] == "com.sun.star.drawing.GraphicObjectShape"
     assert calls[0] == "add"
     assert calls[-2:] == ["Position", "Size"]
     dest_doc.createInstance.assert_called_once_with("com.sun.star.drawing.GraphicObjectShape")
@@ -346,7 +347,7 @@ def test_apply_design_partial_assign_is_error():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6)),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)),
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
         patch("plugin.draw.designs._master_entries", return_value=[]),
@@ -356,6 +357,8 @@ def test_apply_design_partial_assign_is_error():
     assert out["code"] == "DESIGN_PARTIAL_APPLY"
     assert out["slides_updated"] == 1
     assert out["slide_count"] == 2
+    assert "Rolled back" in out["message"]
+    assert out["rolled_back"] is True
 
 
 def test_clone_one_shape_rejects_non_uno_type():
@@ -380,20 +383,31 @@ def test_designs_module_has_no_hardcoded_install_prefix():
         assert "/usr/lib/libreoffice" not in src
         assert "/opt/libreoffice" not in src
 
-def test_extract_otp_picture_capped_read():
+
+def test_extract_member_capped_and_safe_paths(tmp_path):
     import zipfile
-    import os
-    import tempfile
-    from plugin.draw.designs import _extract_otp_picture
+    from plugin.draw.otp_zip import extract_member
 
-    with tempfile.TemporaryDirectory() as td:
-        otp_path = os.path.join(td, "test.otp")
-        with zipfile.ZipFile(otp_path, "w") as zf:
-            zf.writestr("Pictures/image.png", b"x" * (2 * 1024 * 1024 + 10))
+    otp = tmp_path / "test.otp"
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("overcap.bin", b"x" * (2 * 1024 * 1024 + 10))
+        zf.writestr("../..", b"sneaky")
+        zf.writestr("..", b"sneaky2")
+        zf.writestr("Pictures/c.png", b"normal_pic")
 
-        # Test extraction fails due to limit
-        out_path = _extract_otp_picture(otp_path, td, 0)
-        assert out_path is None
+    with zipfile.ZipFile(otp) as zf:
+        # Over-cap member returns None
+        assert extract_member(zf, "overcap.bin", str(dest_dir)) is None
+        # Traversal names do not extract or create files outside dest_dir
+        assert extract_member(zf, "../..", str(dest_dir)) is None
+        assert extract_member(zf, "..", str(dest_dir)) is None
+        # Normal member extracts
+        out = extract_member(zf, "Pictures/c.png", str(dest_dir), prefix="test_")
+        assert out is not None
+        assert Path(out).read_bytes() == b"normal_pic"
+        assert Path(out).parent == dest_dir
 
 def test_enumerate_impress_designs_limit():
     import tempfile
@@ -696,7 +710,7 @@ def test_apply_design_partial_assign_restores_and_removes_clone():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6, 1, 1)),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6, 1, 1)),
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
         patch("plugin.draw.designs._master_entries", return_value=[]),
@@ -708,6 +722,7 @@ def test_apply_design_partial_assign_restores_and_removes_clone():
     assert out["slides_updated"] == 1
     assert out["slide_count"] == 2
     assert out["rolled_back"] is True
+    assert "Rolled back" in out["message"]
     assert out["slides_restored"] == 2
     assert page0.MasterPage == old_m0
     assert page1.MasterPage == old_m1
@@ -730,7 +745,7 @@ def test_apply_design_assign_exception_rolls_back():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6, 1, 1)),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6, 1, 1)),
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", side_effect=RuntimeError("assign failed")),
         patch("plugin.draw.designs._master_entries", return_value=[]),
@@ -740,6 +755,7 @@ def test_apply_design_assign_exception_rolls_back():
     assert out["status"] == "error"
     assert out["code"] == "DESIGN_PARTIAL_APPLY"
     assert out["rolled_back"] is True
+    assert "Rolled back" in out["message"]
     assert page0.MasterPage == old_m0
     dest_masters.remove.assert_called_with(master)
 
@@ -760,7 +776,7 @@ def test_apply_design_assign_disposed_propagates():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6, 1, 1)),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6, 1, 1)),
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", side_effect=DisposedException("doc disposed")),
     ):
@@ -803,7 +819,7 @@ def test_apply_design_replaces_previous_same_named_master():
     src = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=(new_metropolis, "Metropolis_1", 6, 1, 1)),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(new_metropolis, "Metropolis_1", 6, 1, 1)),
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", side_effect=do_assign),
     ):
@@ -856,4 +872,195 @@ def test_enumerate_case_collision_in_single_dir_resolves_to_one(tmp_path):
 
     assert len(designs) == 1
     assert designs[0]["id"] == "a"
+
+
+def test_apply_design_snapshot_exception_rolls_back_and_removes_clone():
+    dest = MagicMock()
+    page0 = MagicMock()
+    old_m0 = MagicMock()
+    page0.MasterPage = old_m0
+    page1 = MagicMock()
+    old_m1 = MagicMock()
+    page1.MasterPage = old_m1
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+
+    calls = 0
+
+    def by_index(i):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("snapshot page access failed")
+        return page0 if i == 0 else page1
+
+    pages.getByIndex.side_effect = by_index
+    dest.getDrawPages.return_value = pages
+    dest_masters = MagicMock()
+    dest.getMasterPages.return_value = dest_masters
+
+    src = MagicMock()
+    master = MagicMock()
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6, 1, 1)),
+        patch("plugin.draw.designs._close_hidden_doc"),
+        patch("plugin.draw.designs._master_entries", return_value=[]),
+    ):
+        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
+
+    assert out["status"] == "error"
+    assert out["code"] == "DESIGN_PARTIAL_APPLY"
+    assert out["rolled_back"] is True
+    assert "Rolled back" in out["message"]
+    assert page0.MasterPage == old_m0
+    assert page1.MasterPage == old_m1
+    dest_masters.remove.assert_called_with(master)
+
+
+def test_is_master_referenced_error_handling():
+    from plugin.draw.designs import _cleanup_previous_same_named_masters, _is_master_referenced
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = RuntimeError("unknown error")
+    doc.getDrawPages.return_value = pages
+
+    master = MagicMock()
+    # On unknown error, returns True (safe: does not treat as unreferenced)
+    assert _is_master_referenced(doc, master) is True
+
+    old_m = MagicMock()
+    old_m.Name = "Metropolis"
+    dest_masters = MagicMock()
+    dest_masters.getCount.return_value = 1
+    dest_masters.getByIndex.return_value = old_m
+    doc.getMasterPages.return_value = dest_masters
+    _cleanup_previous_same_named_masters(doc, master, "Metropolis")
+    dest_masters.remove.assert_not_called()
+
+    # DisposedException propagates
+    pages.getByIndex.side_effect = DisposedException("disposed")
+    with pytest.raises(DisposedException):
+        _is_master_referenced(doc, master)
+
+
+def test_master_image_href_count_mismatch_and_multi_image(tmp_path):
+    from plugin.draw.designs import _master_image_hrefs_from_zip, clone_master_into_doc
+
+    otp = tmp_path / "TwoHref.otp"
+    styles_xml = (
+        b'<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        b'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        b'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+        b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+        b'<style:master-page style:name="Multi Master">'
+        b'<draw:image xlink:href="Pictures/p1.png"/>'
+        b'<draw:image xlink:href="Pictures/p2.png"/>'
+        b'</style:master-page>'
+        b'</office:document-styles>'
+    )
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("styles.xml", styles_xml)
+        zf.writestr("Pictures/p1.png", b"pic1_data")
+        zf.writestr("Pictures/p2.png", b"pic2_data")
+
+    # Entity bomb in styles.xml returns None
+    bomb_otp = tmp_path / "Bomb.otp"
+    bomb_styles = b'<!DOCTYPE styles [ <!ENTITY xxe "bomb"> ]><office:document-styles/>'
+    with zipfile.ZipFile(bomb_otp, "w") as zf:
+        zf.writestr("styles.xml", bomb_styles)
+    with zipfile.ZipFile(bomb_otp) as zf:
+        assert _master_image_hrefs_from_zip(zf, "Any") is None
+
+    # Normal master hrefs still return
+    with zipfile.ZipFile(otp) as zf:
+        assert _master_image_hrefs_from_zip(zf, "Multi Master") == ["Pictures/p1.png", "Pictures/p2.png"]
+
+    # 1 href and 2 shapes: mismatch -> image_path=None for both
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 2
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    src_doc = MagicMock()
+    src_master = MagicMock()
+    src_master.Name = "Single Master"
+    s1 = MagicMock()
+    s1.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    s2 = MagicMock()
+    s2.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    src_master.getCount.return_value = 2
+    src_master.getByIndex.side_effect = lambda i: s1 if i == 0 else s2
+    src_masters = MagicMock()
+    src_masters.getCount.return_value = 1
+    src_masters.getByIndex.return_value = src_master
+    src_doc.getMasterPages.return_value = src_masters
+
+    single_otp = tmp_path / "SingleHref.otp"
+    single_styles = (
+        b'<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        b'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        b'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+        b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+        b'<style:master-page style:name="Single Master">'
+        b'<draw:image xlink:href="Pictures/p1.png"/>'
+        b'</style:master-page>'
+        b'</office:document-styles>'
+    )
+    with zipfile.ZipFile(single_otp, "w") as zf:
+        zf.writestr("styles.xml", single_styles)
+        zf.writestr("Pictures/p1.png", b"pic1_data")
+
+    reimport_calls: list[str | None] = []
+
+    def record_reimport(ctx, src_s, clone, *, image_path=None, **kwargs):
+        reimport_calls.append(image_path)
+        return True
+
+    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_reimport):
+        clone_master_into_doc(dest_doc, src_doc, {"id": "single", "name": "Single Master", "path": str(single_otp)})
+    assert reimport_calls == [None, None]
+
+    # 2 hrefs and 2 shapes: each gets its own file
+    src_master.Name = "Multi Master"
+    reimport_files: list[bytes] = []
+
+    def record_files(ctx, src_s, clone, *, image_path=None, **kwargs):
+        if image_path and Path(image_path).is_file():
+            reimport_files.append(Path(image_path).read_bytes())
+            return True
+        return False
+
+    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_files):
+        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "multi", "name": "Multi Master", "path": str(otp)})
+    assert reimport_files == [b"pic1_data", b"pic2_data"]
+    assert cloned.graphic_shapes == 2
+    assert cloned.graphic_reimports == 2
+
+
+def test_apply_design_partial_chrome_message():
+    dest = MagicMock()
+    dest.getDrawPages().getCount.return_value = 1
+    page0 = MagicMock()
+    dest.getDrawPages().getByIndex.return_value = page0
+    src = MagicMock()
+    master = MagicMock()
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6, 2, 1)),
+        patch("plugin.draw.designs._close_hidden_doc"),
+        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
+        patch("plugin.draw.designs._master_entries", return_value=[]),
+    ):
+        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
+    assert out["status"] == "ok"
+    assert "1 of 2 chrome shapes imported" in out["message"]
+
 
