@@ -46,7 +46,18 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
-from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
+from plugin.notebook.notebook_controls import (
+    _CODE_FONT_NAME,
+    _cap_from_style,
+    _insert_code_input_in_flow,
+    _insert_run_button_in_flow,
+    _log_shape_add,
+    _page_style,
+    _resolve_para_style,
+    _style_control_paragraph,
+    _text_area_width_units,
+    _text_width_from_style,
+)
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
@@ -1007,7 +1018,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list
         return False
 
 
-def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_dir: str | None = None, ctx: Any | None = None, budget: _RemoteImageBudget | None = None) -> None:
+def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_dir: str | None = None, ctx: Any | None = None, budget: _RemoteImageBudget | None = None, field_w: int | None = None) -> None:
     """Markdown cell: ATX headings, lists, bold/italic, ``[text](url)``, images.
 
     HTML ``<img>`` / ``<a>`` become markdown first so mixed cells still render
@@ -1066,7 +1077,7 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
                     _append_body_paragraph(doc, p_text, _STYLE_BODY, lead_break=block_lead if p_idx == 0 else True)
         elif kind == "img":
             alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
-            if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx, budget=budget):
+            if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx, budget=budget, field_w=field_w):
                 fallback = alt or src
                 _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=block_lead)
         else:
@@ -1303,7 +1314,16 @@ def _apply_notebook_image_flow(graphic: Any) -> None:
             log.debug("notebook image wrap property %s not applied", name, exc_info=True)
 
 
-def _insert_image_in_flow(doc: Any, *, raw: bytes, mime: str, images_before: int, ctx: Any | None = None, text_cursor: Any | None = None) -> bool:
+def _insert_image_in_flow(
+    doc: Any,
+    *,
+    raw: bytes,
+    mime: str,
+    images_before: int,
+    ctx: Any | None = None,
+    text_cursor: Any | None = None,
+    field_w: int | None = None,
+) -> bool:
     """Embed notebook image output in document flow (TextGraphicObject).
 
     Import appends at body end. Live ▶ must pass *text_cursor* under the cell —
@@ -1316,7 +1336,10 @@ def _insert_image_in_flow(doc: Any, *, raw: bytes, mime: str, images_before: int
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(raw)
             tmp_path = tmp.name
-        max_w_mm = _text_area_width_units(doc) / 100.0
+        if field_w is not None:
+            max_w_mm = field_w / 100.0
+        else:
+            max_w_mm = _text_area_width_units(doc) / 100.0
         w_units, h_units = _display_size_units(raw, mime, max_width_mm=max_w_mm)
         w_mm = w_units / 100.0
         h_mm = h_units / 100.0
@@ -1471,7 +1494,7 @@ def _resolve_markdown_image_path(src: str, notebook_dir: str | None, *, budget: 
     return None
 
 
-def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: Any | None = None, budget: _RemoteImageBudget | None = None) -> bool:
+def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: Any | None = None, budget: _RemoteImageBudget | None = None, field_w: int | None = None) -> bool:
     resolved = _resolve_markdown_image_path(src, notebook_dir, budget=budget)
     if resolved is None:
         return False
@@ -1484,7 +1507,7 @@ def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: 
         mime = _image_mime_from_bytes(raw, path)
         if _doc_body_nonempty(doc):
             _append_paragraph_break_at_end(doc)
-        return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx)
+        return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx, field_w=field_w)
     except Exception:
         log.debug("notebook markdown image embed failed path=%s", path, exc_info=True)
         return False
@@ -1707,6 +1730,9 @@ def _import_cells(
     budget: _RemoteImageBudget | None = None,
 ) -> None:
     output_style = output_para_style(doc)
+    page_style = _page_style(doc)
+    field_w = _text_width_from_style(page_style)
+    cap = _cap_from_style(page_style)
     first_cell = True
     for idx, cell in enumerate(nb.cells):
         cell_t0 = time.monotonic()
@@ -1724,7 +1750,7 @@ def _import_cells(
         try:
             if cell_type == "markdown":
                 stats["markdown"] += 1
-                _append_markdown_cell(doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx, budget=budget)
+                _append_markdown_cell(doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx, budget=budget, field_w=field_w)
             elif cell_type == "code":
                 # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
                 # glue onto this cell's unsplittable field.
@@ -1745,7 +1771,7 @@ def _import_cells(
                 _append_paragraph_break_at_end(doc)
                 _style_control_paragraph(doc)
                 stats["code"] += 1
-                _insert_code_input_in_flow(doc, name=field_name, source=source, controls_before=stats["shapes"])
+                _insert_code_input_in_flow(doc, name=field_name, source=source, controls_before=stats["shapes"], field_w=field_w, cap=cap)
                 stats["shapes"] += 1
                 # Invisible output bookmark at the end of the field paragraph — not a
                 # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
@@ -1771,7 +1797,7 @@ def _import_cells(
                         _append_paragraph_break_at_end(doc)
                         mime, b64 = payload
                         raw = _decode_notebook_image(b64)
-                        if raw and _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=stats["images"], ctx=ctx):
+                        if raw and _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=stats["images"], ctx=ctx, field_w=field_w):
                             stats["images"] += 1
                         else:
                             # Decode or insert failed. The break above is an empty

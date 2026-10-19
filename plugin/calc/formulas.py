@@ -35,10 +35,12 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
-from plugin.framework.errors import ToolExecutionError
+from plugin.calc.error_detector import ERROR_TYPES
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from plugin.framework.tool import ToolContext
 
 from plugin.calc.base import ToolCalcErrorBase
@@ -52,6 +54,7 @@ except ImportError:
 
 from plugin.calc.calc_utils import (
     _formula_cell_result,
+    resolve_sheet,
 )
 
 log = logging.getLogger("writeragent.calc")
@@ -96,7 +99,75 @@ def formula_evaluation_error_message(error_code: int) -> str:
         return "Formula evaluation error: #REF! (Invalid reference, code 524)"
     if error_code == 525:
         return "Formula evaluation error: #NAME? (Invalid name, code 525)"
+    if error_code in ERROR_TYPES:
+        info = ERROR_TYPES[error_code]
+        symbol = info.get("code", "")
+        name = info.get("name", "")
+        if symbol.startswith("#") and symbol != "#NULL!":
+            if name and name != symbol:
+                return f"Formula evaluation error: {symbol} ({name}, code {error_code})"
+            return f"Formula evaluation error: {symbol} (code {error_code})"
+        if name:
+            return f"Formula evaluation error: {name} (code {error_code})"
     return f"Formula evaluation error: code {error_code}"
+
+
+def _quiet_cleanup(action: Callable[[], None], what: str) -> None:
+    """Best-effort cleanup that still surfaces a disposed document."""
+    try:
+        action()
+    except Exception as e:
+        if is_disposed_exception(e):
+            raise
+        log.debug("%s failed during evaluation cleanup", what, exc_info=True)
+
+
+class _EvaluationUndoGuard:
+    """Isolate evaluation sheet copy from document undo history and modified state."""
+
+    def __init__(self, doc: Any) -> None:
+        self.doc: Any = doc
+        self.was_modified: bool = False
+        self.undo_mgr: Any = None
+        self.was_possible: bool = False
+        self.hidden_context_entered: bool = False
+        self.sheet_removed: bool = False
+
+    def __enter__(self) -> _EvaluationUndoGuard:
+        doc = self.doc
+        if hasattr(doc, "isModified"):
+            try:
+                self.was_modified = bool(doc.isModified())
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+        if hasattr(doc, "getUndoManager"):
+            self.undo_mgr = doc.getUndoManager()
+        if self.undo_mgr:
+            try:
+                self.was_possible = bool(self.undo_mgr.isUndoPossible())
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+            if self.was_possible:
+                try:
+                    self.undo_mgr.enterHiddenUndoContext()
+                    self.hidden_context_entered = True
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
+                    if "EmptyUndoStackException" not in type(e).__name__:
+                        raise
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self.hidden_context_entered and self.undo_mgr:
+            _quiet_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
+        elif self.undo_mgr and not self.was_possible and self.sheet_removed:
+            _quiet_cleanup(self.undo_mgr.clear, "clear")
+
+        if self.sheet_removed and not self.was_modified:
+            _quiet_cleanup(lambda: self.doc.setModified(False), "setModified")
 
 
 class ListCalcFunctions(ToolBase):
@@ -110,7 +181,7 @@ class ListCalcFunctions(ToolBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        filter_str = kwargs.get("filter", "").strip().upper()
+        filter_str = (kwargs.get("filter") or "").strip().upper()
         uno_ctx = ctx.ctx
         if not uno_ctx:
             from plugin.framework.uno_context import get_ctx
@@ -159,9 +230,12 @@ class EvaluateFormula(ToolCalcErrorBase):
     tier: str = "specialized"
     is_mutation: bool | None = False
 
+    def requires_document_lock(self, arguments: Any = None) -> bool:
+        return True
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        formula_string = kwargs.get("formula", "").strip()
-        cell_address = kwargs.get("cell", "A1").strip()
+        formula_string = (kwargs.get("formula") or "").strip()
+        cell_address = (kwargs.get("cell") or "A1").strip()
         if not formula_string:
             return self._tool_error("formula is required")
         if not formula_string.startswith("="):
@@ -181,7 +255,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         sheets = doc.getSheets()
 
         # Resolve the active sheet to copy from
-        active_sheet = doc.getCurrentController().getActiveSheet()
+        active_sheet = resolve_sheet(doc)
         active_name = active_sheet.getName()
 
         temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_0__"
@@ -192,49 +266,78 @@ class EvaluateFormula(ToolCalcErrorBase):
             counter += 1
             temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_{counter}__"
 
-        try:
-            # Copy active sheet with all its data
-            sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
-            sheet = sheets.getByName(temp_sheet_name)
+        eval_result: dict[str, Any] | None = None
+        sheet_copied = False
+        cleanup_failed = False
 
-            # getCellByPosition stays on this sheet. getCellRangeByName would
-            # follow Sheet1.C5 or a defined name back to the live workbook.
+        with _EvaluationUndoGuard(doc) as undo_guard:
             try:
-                cell = sheet.getCellByPosition(col, row)
-            except Exception as e:
-                return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
+                # Copy active sheet with all its data
+                sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
+                sheet_copied = True
+                sheet = sheets.getByName(temp_sheet_name)
 
-            cell.setFormula(formula_string)
+                # getCellByPosition stays on this sheet. getCellRangeByName would
+                # follow Sheet1.C5 or a defined name back to the live workbook.
+                try:
+                    cell = sheet.getCellByPosition(col, row)
+                except Exception as e:
+                    eval_result = self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
+                    return eval_result
 
-            error_code = cell.Error
-            if error_code != 0:
-                return {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
+                try:
+                    cell.setFormula(formula_string)
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
+                    eval_result = self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
+                    return eval_result
 
-            result_type = cell.getType()
-            if result_type == VALUE:
-                result = cell.getValue()
-            elif result_type == TEXT:
-                result = cell.getString()
-            elif result_type == FORMULA:
-                result = _formula_cell_result(cell)
-            else:
-                result = cell.getString()
+                error_code = cell.Error
+                if error_code != 0:
+                    eval_result = {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
+                    return eval_result
 
-            if result_type == EMPTY:
-                result_type_str = "empty"
-            elif result_type == VALUE:
-                result_type_str = "value"
-            elif result_type == TEXT:
-                result_type_str = "text"
-            elif result_type == FORMULA:
-                result_type_str = "formula"
-            else:
-                result_type_str = "unknown"
+                result_type = cell.getType()
+                if result_type == VALUE:
+                    result = cell.getValue()
+                elif result_type == TEXT:
+                    result = cell.getString()
+                elif result_type == FORMULA:
+                    result = _formula_cell_result(cell)
+                else:
+                    result = cell.getString()
 
-            return {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
-        finally:
-            try:
-                if sheets.hasByName(temp_sheet_name):
-                    sheets.removeByName(temp_sheet_name)
-            except Exception:
-                log.exception("Failed to cleanup evaluation sheet")
+                if result_type == EMPTY:
+                    result_type_str = "empty"
+                elif result_type == VALUE:
+                    result_type_str = "value"
+                elif result_type == TEXT:
+                    result_type_str = "text"
+                elif result_type == FORMULA:
+                    result_type_str = "formula"
+                else:
+                    result_type_str = "unknown"
+
+                eval_result = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
+                return eval_result
+            finally:
+                if sheet_copied:
+                    try:
+                        if sheets.hasByName(temp_sheet_name):
+                            sheets.removeByName(temp_sheet_name)
+                        undo_guard.sheet_removed = True
+                    except Exception:
+                        cleanup_failed = True
+                        log.exception("Failed to cleanup evaluation sheet")
+                        if eval_result is not None:
+                            eval_result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
+                        else:
+                            return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
+
+        if cleanup_failed and eval_result is None:
+            return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
+
+        if eval_result is not None:
+            return eval_result
+        return self._tool_error("Failed to evaluate formula")

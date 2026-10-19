@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
 import sys
 from contextlib import contextmanager
 
@@ -592,7 +593,8 @@ def test_import_styles(mock_pv, mock_uno, mock_isfile, mock_ctx):
     mock_pv.return_value = pv_instance
 
     tool = StyleImport()
-    res = tool.execute(mock_ctx, path="/path/to/doc.ott", overwrite=True)
+    # abspath adds a drive letter on Windows, where "/path/..." alone is not absolute.
+    res = tool.execute(mock_ctx, path=os.path.abspath("/path/to/doc.ott"), overwrite=True)
 
     assert res["status"] == "ok"
     assert len(mock_ctx.doc._load_styles_calls) == 1
@@ -1208,7 +1210,8 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
 
     # Absolute but non-existent
     with patch("os.path.isfile", return_value=False):
-        res2 = tool.execute(mock_ctx, path="/nonexistent/template.ott")
+        # abspath adds a drive letter on Windows, where "/nonexistent/..." alone is not absolute.
+        res2 = tool.execute(mock_ctx, path=os.path.abspath("/nonexistent/template.ott"))
         assert res2["status"] == "error"
         assert "path does not exist" in res2["message"]
         assert len(mock_ctx.doc._load_styles_calls) == 0
@@ -1342,4 +1345,23 @@ def test_installed_font_names_cached_after_success_not_after_none():
         toolkit.createScreenCompatibleDevice.assert_called_once()
     finally:
         styles_mod._installed_font_names_cache = None
+
+
+def test_apply_style_merge_reports_ors_capture_incomplete():
+    from plugin.writer.styles import ApplyStyle
+
+    rep1 = {"direct_formatting": "preserved", "preserved_char_overrides": {"CharWeight": 150}}
+    rep2 = {"direct_formatting": "preserved", "capture_incomplete": True, "warning": "walk warning"}
+    merged = ApplyStyle._merge_reports([rep1, rep2])
+    assert merged.get("capture_incomplete") is True
+    assert merged.get("warning") == "walk warning"
+    assert merged.get("preserved_char_overrides") == {"CharWeight": 150}
+
+    # Only first range sets it
+    merged_first = ApplyStyle._merge_reports([rep2, rep1])
+    assert merged_first.get("capture_incomplete") is True
+
+    # Neither sets it
+    merged_clean = ApplyStyle._merge_reports([rep1, {}])
+    assert "capture_incomplete" not in merged_clean
 

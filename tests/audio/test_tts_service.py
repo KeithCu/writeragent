@@ -235,7 +235,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
         ensure = MagicMock(return_value=True)
         with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
              patch("plugin.audio.tts_service._venv_python", return_value=str(py)), \
-             patch("plugin.audio.tts_models._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
+             patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
              patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
              patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
              patch("plugin.audio.tts_service.get_kokoro_pool", return_value=None), \
@@ -268,7 +268,7 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
 
     with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
          patch("plugin.audio.tts_service._venv_python", return_value=str(tmp_path / "python")), \
-         patch("plugin.audio.tts_models._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
+         patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
          patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
          patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
          patch("plugin.audio.tts_service._speak_system") as system:
@@ -799,7 +799,7 @@ def test_piper_timeout_scaling_and_reap(tmp_path):
     mock_proc.returncode = None
 
     with patch("plugin.audio.tts_service._venv_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_models._resolve_piper_model_file", return_value="/models/v.onnx"), \
+         patch("plugin.audio.tts_service._resolve_piper_model_file", return_value="/models/v.onnx"), \
          patch("os.path.isfile", return_value=True), \
          patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc):
         # Long text
@@ -1298,7 +1298,7 @@ def test_kokoro_audio_file_skips_model_download_without_venv() -> None:
     from plugin.audio.tts_service import _kokoro_audio_file
 
     with patch("plugin.audio.tts_service._venv_python", return_value=None), \
-         patch("plugin.audio.tts_models._resolve_kokoro_model_files") as resolve:
+         patch("plugin.audio.tts_service._resolve_kokoro_model_files") as resolve:
         res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, None)
         assert res is None
         resolve.assert_not_called()
@@ -1320,7 +1320,7 @@ def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pyte
     generation = tts._begin_utterance()
     try:
         with patch.object(tts, "_venv_python", return_value=None), \
-             patch("plugin.audio.tts_models._resolve_kokoro_model_files") as resolve, \
+             patch("plugin.audio.tts_service._resolve_kokoro_model_files") as resolve, \
              patch.object(tts, "_speak_system") as system:
             with caplog.at_level("WARNING"):
                 tts._run_sentence_pipeline(["One.", "Two."], "kokoro", "af_sky", 1.0, None, generation)

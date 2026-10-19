@@ -1138,18 +1138,13 @@ class ApplyDocumentContent(ToolBase):
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
-            # The import path unescapes HTML entities (html_import
-            # `_ensure_html_linebreaks`, and LO's own filter). This
-            # format-preserving path must do the same, or raw_content lands
-            # verbatim. content_has_markup() sees no tag in "R&#36;5.000,00",
-            # so a model that escaped the dollar sign takes the plain path and
-            # the six characters "&#36;" land in the petition. Run the same
-            # html.unescape the import path uses, so both paths agree on what
-            # the model's text means. Decode ONLY complete references
-            # (_ENTITY_RE, ";" required): html.unescape on the whole string
-            # also expands semicolon-less names, so "&sect 2o" becomes "§ 2o"
-            # and "&not incluidos" becomes "¬ incluidos". A bare "&" in
-            # "Banco & Cia" is never touched.
+            # HTML entry points decode complete references once, and the StarWriter
+            # filter decodes what remains in markup. This format-preserving path must
+            # do the same, or raw_content lands verbatim. content_has_markup() sees no tag
+            # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
+            # ONLY complete references (_ENTITY_RE, ";" required); unescaping the whole
+            # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
+            # in "Banco & Cia" is never touched.
             if _ENTITY_RE.search(content):
                 _before_ent = content
                 content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)

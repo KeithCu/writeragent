@@ -14,7 +14,7 @@ Canonical design and execution reference for **editable math** in WriterAgent: H
 | **Phase 3** (robustness) | **Not started** | See [Phase 3](#phase-3-robustness-and-quality). |
 | **MathML → LaTeX export** | **Done** (core) | StarMath → LO filter ``MathML XML (Math)`` → vendored **`mathml-to-latex`**; enumerator + splice into `document_to_content` / chat. Not a bit-identical TeX round-trip. Edit-in-place tool still backlog. |
 
-**Shipped modules (WriterAgent):** `html_math_segment.py` (MathML + TeX segmentation), `math_mml_convert.py` (MathML + LaTeX→MathML→StarMath), `math_mml_export.py` (StarMath→MathML→LaTeX); orchestration in `format.py` / `html_export.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns, `_inject_exported_math_tex`); trusted SymPy helpers (`symbolic_math` tool, Run Python Script **[Math]**) insert via `plugin/scripting/symbolic.py` (`insert_symbolic_result_into_writer`) → `convert_latex_to_starmath` → `insert_writer_math_formula`; vendored **`latex2mathml`** and **`mathml-to-latex`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `tests/` (including collocated `*_uno.py`); agent context in `AGENTS.md`; model hints in `plugin/framework/prompts.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/content.py` (`ApplyDocumentContent`).
+**Shipped modules (WriterAgent):** `plugin/writer/math/html_math_segment.py` (MathML + TeX segmentation), `plugin/writer/math/math_mml_convert.py` (MathML + LaTeX→MathML→StarMath, OLE insert), `plugin/writer/math/math_mml_export.py` (StarMath→MathML→LaTeX), `plugin/writer/math/latex_dialog.py` (LaTeX dialog); orchestration in `format.py` / `html_export.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns, `_inject_exported_math_tex`); trusted SymPy helpers (`symbolic_math` tool, Run Python Script **[Math]**) insert via `plugin/scripting/symbolic.py` (`insert_symbolic_result_into_writer`) → `convert_latex_to_starmath` → `insert_writer_math_formula`; vendored **`latex2mathml`** and **`mathml-to-latex`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `tests/` (including collocated `*_uno.py`); agent context in `AGENTS.md`; model hints in `plugin/framework/prompts.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/content.py` (`ApplyDocumentContent`).
 
 **Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, optional `warnings` in tool return); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback; TexMaths-inspired UX/interop ([TexMaths feature review](#texmaths-feature-review-porting-candidates)); dedicated `get_math_in_range` / replace-in-place edit loop.
 
@@ -180,7 +180,7 @@ Originally a standalone prototype; **delivered** as production helpers + tests:
 - [x] One MathML string → Writer formula object via UNO
 - [x] LibreOffice MathML import reused (hidden Math doc from temp `.mml`)
 - [x] `Formula` read back and post-processed for Writer embed (`newline` collapse)
-- [x] Inline vs block insertion path (`math_formula_insert` + `display="block"` / `mode="display"`)
+- [x] Inline vs block insertion path (`insert_writer_math_formula` in `math_mml_convert.py` + `display="block"` / `mode="display"`)
 - [x] Failure modes: visible `[Math import failed]…` fallback + debug logging
 
 ### Tasks
@@ -227,11 +227,10 @@ Support the most structured and realistic first wave of HTML math inputs.
 
 1. [x] Math detection (`html_fragment_contains_mathml`; Phase 2 adds `html_fragment_contains_tex_math` / `html_fragment_contains_mixed_math`)
 2. [x] Segmentation (`segment_html_with_mixed_math`; `segment_html_with_mathml` is an alias)
-3. [x] Formula insertion (`math_formula_insert.py`)
-4. [x] MathML → StarMath (`math_mml_convert.py`, LO Math doc + `collapse_starmath_newline_tokens_for_writer_embed`)
-5. [x] Orchestration (`format.py`, all `insertDocumentFromURL` entry paths + cursor-to-end after each segment)
-6. [x] Unsupported conversion: `[Math import failed]…` text + debug log (not structured tool JSON)
-7. [x] Tests: unit + UNO (not every row of the “minimum test matrix” below—see **Not done yet**)
+3. [x] Formula insertion & MathML → StarMath (`math_mml_convert.py`, LO Math doc + `collapse_starmath_newline_tokens_for_writer_embed`)
+4. [x] Orchestration (`format.py`, all `insertDocumentFromURL` entry paths + cursor-to-end after each segment)
+5. [x] Unsupported conversion: `[Math import failed]…` text + debug log (not structured tool JSON)
+6. [x] Tests: unit + UNO (not every row of the “minimum test matrix” below—see **Not done yet**)
 
 ### Acceptance criteria
 
@@ -247,13 +246,14 @@ Support the most structured and realistic first wave of HTML math inputs.
 
 | Area | Module |
 |------|--------|
-| Segmentation (MathML + TeX order) | [`plugin/writer/html_math_segment.py`](../../plugin/writer/html_math_segment.py) |
-| MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation | [`plugin/writer/math_mml_convert.py`](../../plugin/writer/math_mml_convert.py) |
-| OLE insert | [`plugin/writer/math_formula_insert.py`](../../plugin/writer/math_formula_insert.py) |
+| Segmentation (MathML + TeX order) | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) |
+| MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation; OLE insert | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) |
+| MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
+| LaTeX dialog | [`plugin/writer/math/latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) |
 | HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/format.py`](../../plugin/writer/format.py) |
 | Chat / tool text for `apply_document_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/content.py`](../../plugin/writer/content.py) (`ApplyDocumentContent`) |
-| Unit tests | `tests/writer/math/test_html_math_segment.py`, `tests/writer/math/test_math_mml_convert.py` |
-| UNO tests | `tests/writer/math/test_math_formula_insert_uno.py` (MathML + TeX cases) |
+| Unit tests | `tests/writer/math/test_html_math_segment.py`, `tests/writer/math/test_math_mml_convert.py`, `tests/writer/math/test_math_mml_export.py`, `tests/writer/math/test_latex_dialog.py` |
+| UNO tests | `tests/writer/math/test_math_formula_insert_uno.py`, `tests/writer/math/test_math_mml_export_uno.py`, `tests/writer/math/test_latex_dialog_uno.py` |
 | Agent orientation | [`AGENTS.md`](../../AGENTS.md) |
 
 ### Implementation notes (LibreOffice / Writer)
@@ -712,7 +712,7 @@ flowchart TB
 
 **Phase 0 — Inventory**
 
-- Document UNO APIs used to iterate `XText` content and detect `TextEmbeddedObject` with [`math_formula_insert.MATH_CLSID`](../../plugin/writer/math_formula_insert.py).
+- Document UNO APIs used to iterate `XText` content and detect `TextEmbeddedObject` with [`math_mml_convert.MATH_CLSID`](../../plugin/writer/math/math_mml_convert.py).
 - Confirm whether `getEmbeddedObject().Formula` is always sufficient for read-back on saved/reopened documents (expect yes for our insert path; verify edge cases: undo, ODF round-trip, clipboard).
 
 **Phase 1 — StarMath export (MVP)**
@@ -771,8 +771,7 @@ Everything here is **outside** WriterAgent’s tree unless noted. Use for **Math
 
 **In-repo building blocks (not reverse converters):**
 
-- [`math_mml_convert.py`](../../plugin/writer/math_mml_convert.py) — `convert_mathml_to_starmath`, `convert_latex_to_starmath`; reuse for **forward** tests and for understanding **StarMath** shape after LO import.
-- [`math_formula_insert.MATH_CLSID`](../../plugin/writer/math_formula_insert.py) — identify embedded objects during UNO walks.
+- [`math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) — `convert_mathml_to_starmath`, `convert_latex_to_starmath`, `MATH_CLSID`; reuse for **forward** tests and for identifying embedded formula objects during UNO walks.
 
 **Suggested evaluation order:** (1) UNO-only: read `Formula` (StarMath) and ship that in prompts if models tolerate it; (2) if TeX is required, try **mathml-to-latex** after any LO MathML export spike; (3) use **mml2tex** off-extension to judge quality ceiling; (4) mine **latex2mathml** tests + **mathml2latex** / **mathml2tex** source for edge-case ideas before writing a custom walker.
 
@@ -871,7 +870,7 @@ flowchart TB
 | TexMaths feature | Where in TexMaths | WriterAgent gap | Suggested port |
 |------------------|-------------------|-----------------|--------------|
 | **Persist LaTeX source on insert** | `SetAttributes` stores `sEqCode` in shape metadata | TeX lost after insert ([Optional: preserving original model TeX](#optional-preserving-original-model-tex)) | On `insert_writer_math_formula`, write optional `UserDefinedAttributes` / doc property: original TeX + `display_block`. Enables edit rounds without StarMath→TeX guesswork. |
-| **Edit selected equation** | Select image → Equations macro loads LaTeX | Menu **Edit LaTeX Math...**; one selected formula prefills TeX and **Update** sets `Formula` in place (no second OLE — that crashed LO). Multi-select is refused. | Done for single selection. |
+| **Edit selected equation** | Select image → Equations macro loads LaTeX | Menu **Insert LaTeX Math...**; one selected formula prefills TeX and **Update** sets `Formula` in place (no second OLE — that crashed LO). Multi-select is refused. | Done for single selection. |
 | **Selection → equation** (“Text to LaTeX”) | Help §11: select plain LaTeX in Writer → one-click convert | Same conversion path, no selection shortcut | Writer menu/MCP: `getSelection()` string → `convert_latex_to_starmath` → insert/replace. Small UX win for power users. |
 | **Read legacy TexMaths / OOoLatex** | `ReadAttributes` supports `TexMathsArgs`, `OOoLatexArgs`, `Title=TexMaths` | No interop with existing academic `.odt` | UNO helper + optional tool: detect graphic with TexMaths metadata, return LaTeX to model, offer “convert to native math” (one-shot or batch). Critical for documents that already use TexMaths. |
 
@@ -910,7 +909,7 @@ flowchart TB
 | Capability | WriterAgent |
 |------------|-------------|
 | LaTeX entry UI | [`latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) + `writer.insert_latex_dialog` |
-| TeX in HTML → editable math | [`html_math_segment.py`](../../plugin/writer/html_math_segment.py), [`format.py`](../../plugin/writer/format.py) |
+| TeX in HTML → editable math | [`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py), [`format.py`](../../plugin/writer/format.py) |
 | Display vs inline | `display_block` on insert + delimiter rules in prompts |
 | LLM-driven authoring | `apply_document_content` with structured math rules |
 
@@ -943,9 +942,9 @@ See also: [Math extraction and edit loops](#math-extraction-and-edit-loops-roadm
 | Area | Path |
 |------|------|
 | HTML + math orchestration | [`plugin/writer/format.py`](../../plugin/writer/format.py) |
-| MathML + TeX segmentation | [`plugin/writer/html_math_segment.py`](../../plugin/writer/html_math_segment.py) |
-| MathML / LaTeX conversion | [`plugin/writer/math_mml_convert.py`](../../plugin/writer/math_mml_convert.py) |
-| Formula OLE insert | [`plugin/writer/math_formula_insert.py`](../../plugin/writer/math_formula_insert.py) |
+| MathML + TeX segmentation | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) |
+| MathML / LaTeX conversion & formula OLE insert | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) |
+| MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
 | LaTeX dialog | [`plugin/writer/math/latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) |
 | Model / tool hints | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py), [`plugin/writer/content.py`](../../plugin/writer/content.py) |
 | Vendored `latex2mathml` | `requirements-vendor.txt` (dev mirror in `pyproject.toml` for typecheck) |

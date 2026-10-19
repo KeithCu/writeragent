@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -25,23 +24,12 @@ from plugin.framework.thread_guard import main_thread_only, on_main_thread
 
 log = logging.getLogger("writeragent.vcl_pumping")
 
-# One in-flight secondary-idle post. ``_SECONDARY_IDLE_RESERVING`` covers the
-# window inside ``post_to_main_thread`` before the callable is visible on the
-# queue. The stored callable is cleared on the next tick once it is no longer
-# scheduled, so a drop is not sticky.
-_SECONDARY_IDLE_RESERVING = object()
+# Coalesce to one in-flight secondary-idle post without scanning the process queue.
+# Unscoped posts are not cancelled by Stop. The flag clears only when _pump finishes
+# or post_to_main_thread raises. If a test double removes or drains the queued callable
+# without running it, the flag stays set on purpose; do not scan the queue to clear it.
 _secondary_idle_lock = threading.Lock()
-_secondary_idle_posted: object | None = None
-
-
-def _get_pe2i_fn() -> Callable[..., bool]:
-    """Return process_events_to_idle, prioritizing any monkeypatch on uno_context."""
-    uno_ctx_mod = sys.modules.get("plugin.framework.uno_context")
-    if uno_ctx_mod is not None:
-        pe2i = getattr(uno_ctx_mod, "process_events_to_idle", None)
-        if pe2i is not None:
-            return pe2i
-    return process_events_to_idle
+_secondary_idle_in_flight = False
 
 
 @contextmanager
@@ -100,6 +88,8 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     from plugin.framework.queue_executor import _pump_vcl_events
     from plugin.framework.uno_context import get_toolkit
 
+    # QueueExecutor.post can fall back onto the caller when AsyncCallback
+    # is missing. process_events_to_idle is @main_thread_only — skip.
     if not on_main_thread():
         return False
 
@@ -128,56 +118,30 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
 
 def _post_secondary_idle(ctx: Any) -> None:
     """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
-    global _secondary_idle_posted
-    from plugin.framework.queue_executor import default_executor, post_to_main_thread
+    global _secondary_idle_in_flight
+    from plugin.framework.queue_executor import post_to_main_thread
 
     def _pump() -> None:
-        # QueueExecutor.post can fall back onto the caller when AsyncCallback
-        # is missing. process_events_to_idle is @main_thread_only — skip.
-        if not on_main_thread():
-            return
-        _get_pe2i_fn()(ctx, force=False)
+        global _secondary_idle_in_flight
+        try:
+            # post() can run this on the waiter when AsyncCallback is missing.
+            # process_events_to_idle is main-thread-only; skip rather than pump here.
+            if on_main_thread():
+                process_events_to_idle(ctx, force=False)
+        finally:
+            with _secondary_idle_lock:
+                _secondary_idle_in_flight = False
 
-    uno_ctx_mod = sys.modules.get("plugin.framework.uno_context")
     with _secondary_idle_lock:
-        if uno_ctx_mod is not None and getattr(uno_ctx_mod, "_secondary_idle_posted", None) is None:
-            _secondary_idle_posted = None
-        posted = _secondary_idle_posted
-        if posted is _SECONDARY_IDLE_RESERVING:
+        if _secondary_idle_in_flight:
             return
-        if posted is not None and default_executor.callable_is_scheduled(posted):
-            return
-        # Coalesce only this pump. pending_work_count() is the whole
-        # process-wide marshal queue. Skipping the post whenever that count
-        # is non-zero treats a leftover item from another test (pytest-xdist)
-        # or unrelated UI work as "our pump is already queued", so a Dummy-*
-        # linguistic wait never posts and the lint runs out its own timeout
-        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). ``post``
-        # dropping the callable, or a test double that does not enqueue it,
-        # leaves nothing scheduled, so the next tick tries again.
-        _secondary_idle_posted = _SECONDARY_IDLE_RESERVING
-        if uno_ctx_mod is not None and hasattr(uno_ctx_mod, "_secondary_idle_posted"):
-            setattr(uno_ctx_mod, "_secondary_idle_posted", _SECONDARY_IDLE_RESERVING)
-
+        _secondary_idle_in_flight = True
     try:
-        post_to_main_thread(_pump)
+        post_to_main_thread(_pump, bound_scope=None)
     except Exception:
         with _secondary_idle_lock:
-            if _secondary_idle_posted is _SECONDARY_IDLE_RESERVING:
-                _secondary_idle_posted = None
-                if uno_ctx_mod is not None and hasattr(uno_ctx_mod, "_secondary_idle_posted"):
-                    setattr(uno_ctx_mod, "_secondary_idle_posted", None)
+            _secondary_idle_in_flight = False
         raise
-
-    with _secondary_idle_lock:
-        if _secondary_idle_posted is not _SECONDARY_IDLE_RESERVING:
-            return
-        if default_executor.callable_is_scheduled(_pump):
-            _secondary_idle_posted = _pump
-        else:
-            _secondary_idle_posted = None
-        if uno_ctx_mod is not None and hasattr(uno_ctx_mod, "_secondary_idle_posted"):
-            setattr(uno_ctx_mod, "_secondary_idle_posted", _secondary_idle_posted)
 
 
 def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
@@ -201,14 +165,13 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
     """
     pump_on_caller = on_main_thread()
     deadline = time.monotonic() + max(0.0, timeout)
-    pe2i = _get_pe2i_fn()
     while not done.is_set():
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
         try:
             if pump_on_caller:
-                pe2i(ctx, force=False)
+                process_events_to_idle(ctx, force=False)
             else:
                 _post_secondary_idle(ctx)
         except Exception:

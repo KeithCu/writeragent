@@ -218,7 +218,7 @@ def get_document_context_for_chat(
             if include_selection:
                 sel_positions = _text_helpers._get_writer_selection_positions(model)
                 if sel_positions is not None and _text_helpers._writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                    start_offset, end_offset = _text_helpers.get_selection_range(model)
+                    start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))
                     if start_offset > end_offset:
@@ -384,12 +384,11 @@ def _dispatch_writer_locator(model: Any, loc_type: str, loc_value: str) -> dict[
 def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
     """Resolve a locator string to a paragraph index.
 
-    ``paragraph:``, ``heading:`` (sibling-ordinal), and ``chapter_number:``
-    (Chapter Numbering paint label) are resolved here. Every ``bookmark:``
-    goes to ``TreeService.resolve_writer_locator``, including a name that
-    still exists. ``heading_text:``, ``section:``, ``page:``, and any other
-    writer locator go there too. A missing bookmark, or a bookmark whose
-    anchor does not land on a paragraph, raises ``ToolExecutionError``.
+    ``paragraph:`` is resolved here. Every other locator (``heading:``,
+    ``chapter_number:``, ``bookmark:``, ``heading_text:``, ``section:``,
+    ``page:``, ...) goes to ``TreeService.resolve_writer_locator``. A missing
+    bookmark, or a bookmark whose anchor does not land on a paragraph, raises
+    ``ToolExecutionError``.
     """
     loc_type, sep, loc_value = locator.partition(":")
     if not sep or not loc_type:
@@ -400,37 +399,6 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
             return {"para_index": int(loc_value)}
         except (TypeError, ValueError) as exc:
             raise ToolExecutionError("Cannot resolve paragraph:%s" % loc_value) from exc
-
-    if loc_type == "heading":
-        try:
-            parts = [int(p) for p in loc_value.split(".")]
-        except (TypeError, ValueError) as exc:
-            raise ToolExecutionError(
-                "Cannot resolve heading:%s — use a sibling-ordinal path such as heading:1.2."
-                % loc_value
-            ) from exc
-
-        tree = _text_helpers.build_heading_tree(model)
-        node: _text_helpers.HeadingTreeNode = tree
-        for part in parts:
-            children = node["children"]
-            if 1 <= part <= len(children):
-                node = children[part - 1]
-            else:
-                break
-        return {"para_index": node["para_index"]}
-
-    if loc_type == "chapter_number":
-        tree = _text_helpers.build_heading_tree(model)
-        found = _text_helpers.find_heading_by_chapter_number(tree, loc_value)
-        if found is None:
-            raise ToolExecutionError(
-                "No heading with chapter_number:%s. Chapter Numbering may be off "
-                "(writer_tree omits chapter_number when the outline label is empty), "
-                "or no heading has that label. heading: is the sibling-ordinal path, "
-                "not the chapter label." % loc_value
-            )
-        return {"para_index": found["para_index"]}
 
     # bookmark: is not resolved here. The old branch returned
     # find_paragraph_for_range's fallback 0 when the anchor could not be

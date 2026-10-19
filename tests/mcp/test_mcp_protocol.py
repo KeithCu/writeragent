@@ -7,6 +7,7 @@
 import json
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +22,7 @@ def test_precomputed_echo_shape_and_absence():
     doc = MagicMock()
     doc.URL = "file:///Users/x/Peti%C3%A7%C3%A3o%20Inicial.odt"
     doc.RuntimeUID = "42"
-    result = {"status": "ok"}
+    result: dict[str, Any] = {"status": "ok"}
     _attach_precomputed_echo(result, _document_echo_payload(doc))
     assert result["document"]["name"] == "Petição Inicial.odt"
     assert result["document"]["uid"]
@@ -467,36 +468,66 @@ def test_stale_batch_containing_initialize_is_404(monkeypatch):
     handler.send_response.assert_called_with(404)
 
 
-def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
+def test_debug_endpoint_auth_matrix(monkeypatch):
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
     from tests.mcp.test_mcp_server import MockHandler
 
     services = MagicMock()
-    handler = MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services, debug_token="secret-token-123")
 
-    # Test proxy header block
-    req1 = MockHandler({"X-Forwarded-For": "1.2.3.4"})
-    handler.handle_debug_post(req1)
-    assert 403 in req1.sent_responses
+    for method in ("GET", "POST"):
+        # 1. Loopback without token -> 403
+        req = MockHandler({})
+        req.client_address = ("127.0.0.1", 12345)
+        if method == "GET":
+            status, _ = handler.handle_debug_info(req)
+            assert status == 403
+        else:
+            with patch.object(handler, "_read_body", return_value={}):
+                handler.handle_debug_post(req)
+            assert 403 in req.sent_responses
 
-    req2 = MockHandler({"Cf-Ray": "12345"})
-    handler.handle_debug_post(req2)
-    assert 403 in req2.sent_responses
+        # 2. Loopback with token -> 200 even when _shared_tunnel.is_running and with X-Forwarded-For
+        mock_tunnel = MagicMock()
+        mock_tunnel.is_running = True
+        monkeypatch.setattr("plugin.mcp._shared_tunnel", mock_tunnel)
+        req = MockHandler({
+            "X-WriterAgent-Debug-Token": "secret-token-123",
+            "X-Forwarded-For": "1.2.3.4",
+        })
+        req.client_address = ("127.0.0.1", 12345)
+        if method == "GET":
+            status, _ = handler.handle_debug_info(req)
+            assert status == 200
+        else:
+            with patch.object(handler, "_read_body", return_value={}):
+                handler.handle_debug_post(req)
+            assert 200 in req.sent_responses
 
-    # Test active tunnel block
-    req3 = MockHandler({})
-    mock_tunnel = MagicMock()
-    mock_tunnel.is_running = True
-    monkeypatch.setattr("plugin.mcp._shared_tunnel", mock_tunnel)
-    handler.handle_debug_post(req3)
-    assert 403 in req3.sent_responses
+        # 3. Non-loopback peer with token -> 403
+        req = MockHandler({"X-WriterAgent-Debug-Token": "secret-token-123"})
+        req.client_address = ("192.168.1.50", 12345)
+        if method == "GET":
+            status, _ = handler.handle_debug_info(req)
+            assert status == 403
+        else:
+            with patch.object(handler, "_read_body", return_value={}):
+                handler.handle_debug_post(req)
+            assert 403 in req.sent_responses
 
-    # Valid localhost request (no active tunnel)
-    req4 = MockHandler({})
-    mock_tunnel.is_running = False
-    with patch.object(handler, "_read_body", return_value={}):
-        handler.handle_debug_post(req4)
-    assert 200 in req4.sent_responses
+        # 4. Request with Origin header -> 403 with valid token
+        req = MockHandler({
+            "X-WriterAgent-Debug-Token": "secret-token-123",
+            "Origin": "http://localhost:3000",
+        })
+        req.client_address = ("127.0.0.1", 12345)
+        if method == "GET":
+            status, _ = handler.handle_debug_info(req)
+            assert status == 403
+        else:
+            with patch.object(handler, "_read_body", return_value={}):
+                handler.handle_debug_post(req)
+            assert 403 in req.sent_responses
 
 
 @pytest.mark.parametrize("payload", [[1, 2], 1, "x", True])
@@ -504,10 +535,14 @@ def test_handle_debug_post_rejects_non_object_json(payload):
     from tests.mcp.test_mcp_server import MockHandler
 
     services = MagicMock()
-    handler = MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services, debug_token="test-token")
 
     raw = json.dumps(payload).encode("utf-8")
-    mock_req = MockHandler({"Content-Length": str(len(raw))}, body=raw)
+    mock_req = MockHandler({
+        "Content-Length": str(len(raw)),
+        "X-WriterAgent-Debug-Token": "test-token",
+    }, body=raw)
+    mock_req.client_address = ("127.0.0.1", 12345)
     handler.handle_debug_post(mock_req)
 
     assert 400 in mock_req.sent_responses
@@ -576,23 +611,36 @@ def test_http_server_stop_ends_sse_keepalive():
     if srv is None or srv._server is None:
         pytest.fail("HTTP server did not bind: %s" % last_error)
     try:
-        for _spin in range(40):
+        with patch("plugin.mcp.server.SSE_MAX_STREAMS", 1):
+            for _spin in range(40):
+                try:
+                    client = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
+                    break
+                except ConnectionRefusedError:
+                    time.sleep(0.05)
+            assert client is not None
+            client.sendall(b"GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n")
+            _read_until(client, b": keepalive")
+            assert _wait_alive(srv._server, True)
+
+            client2 = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
             try:
-                client = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
-                break
-            except ConnectionRefusedError:
-                time.sleep(0.05)
-        assert client is not None
-        client.sendall(b"GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n")
-        _read_until(client, b": keepalive")
-        assert _wait_alive(srv._server, True)
-        srv.stop()
-        assert _wait_alive(srv._server, False), "SSE keepalive thread still alive after HttpServer.stop"
-        client.settimeout(2)
-        try:
-            client.recv(4096)
-        except socket.timeout:
-            raise AssertionError("client socket still open after HttpServer.stop") from None
+                client2.sendall(b"GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n\r\n")
+                resp = _read_until(client2, b"405")
+                assert b"405" in resp
+                assert b"Allow: POST, DELETE, OPTIONS" in resp
+            finally:
+                client2.close()
+
+            assert len(_alive(srv._server)) == 1
+
+            srv.stop()
+            assert _wait_alive(srv._server, False), "SSE keepalive thread still alive after HttpServer.stop"
+            client.settimeout(2)
+            try:
+                client.recv(4096)
+            except socket.timeout:
+                raise AssertionError("client socket still open after HttpServer.stop") from None
     finally:
         if client is not None:
             client.close()

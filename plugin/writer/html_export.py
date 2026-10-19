@@ -60,6 +60,7 @@ class _RubySpan:
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
+_OBJECT_REPLACEMENT = "\ufffc"
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -329,6 +330,32 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
     return inject_ruby_into_html(content, spans)
 
 
+def _substitute_math_placeholders(
+    content: str,
+    math_records: list[tuple[str, str, bool]],
+    ctx: Any,
+) -> str:
+    """Replace private-use formula placeholders with delimited TeX."""
+    if not math_records or not content:
+        return content
+    from plugin.writer.math.math_mml_export import convert_starmath_to_latex, wrap_latex_delimiters
+
+    for placeholder, starmath, display_block in math_records:
+        res = convert_starmath_to_latex(ctx, starmath) if (ctx and starmath) else None
+        if res and res.ok and res.latex:
+            tex = res.latex
+        else:
+            snippet = starmath[:200]
+            tex = f"[Math export fallback] {snippet}".strip()
+        wrapped = wrap_latex_delimiters(tex, display_block=display_block)
+
+        code = ord(placeholder)
+        for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
+            if target in content:
+                content = content.replace(target, wrapped)
+    return content
+
+
 def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
     """Replace formula OLE holes with delimited TeX for the model/chat.
 
@@ -336,12 +363,14 @@ def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
     """
     if not content or model is None or ctx is None:
         return content
-    def inject() -> str:
+    try:
         from plugin.writer.math.math_mml_export import inject_math_tex_into_html
 
         return inject_math_tex_into_html(model, ctx, content)
-
-    return best_effort(inject, "_inject_exported_math_tex failed", content)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.exception("_inject_exported_math_tex failed")
+        return content
 
 
 
@@ -739,6 +768,7 @@ def _range_to_content_via_temp_doc(
         walker.gotoStart(False)
         running = 0
 
+        math_records: list[tuple[str, str, bool]] = []
         while enum.hasMoreElements():
             el = enum.nextElement()
             if not hasattr(el, "getString"):
@@ -755,6 +785,9 @@ def _range_to_content_via_temp_doc(
             # paint offsets match the helper string. Still walk here (not just the
             # helper) because we need the portion objects to copy Char* properties.
             portions = list(_visible_portions(el, truncated_out=walk_warnings))
+            from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
+
+            has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
             para_text = "".join(chunk for _unused, chunk in portions)
             if source_range is not None:
                 if not _element_overlaps(text, el, source_range):
@@ -783,7 +816,6 @@ def _range_to_content_via_temp_doc(
 
             if first_para:
                 temp_cursor.gotoStart(False)
-                temp_cursor.setString(para_text)
                 _apply_temp_para_style(temp_doc, temp_cursor, style)
                 first_para = False
             else:
@@ -795,9 +827,48 @@ def _range_to_content_via_temp_doc(
                 temp_cursor.gotoNextParagraph(False)
                 temp_cursor.gotoEndOfParagraph(True)
                 _apply_temp_para_style(temp_doc, temp_cursor, style)
+
+            if not has_formula:
                 temp_cursor.setString(para_text)
-            _paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
-                                      _source_style(model, style, style_cache))
+                _paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
+                                          _source_style(model, style, style_cache))
+            else:
+                # Standalone formula: paragraph has no other visible text
+                display_block = not any(
+                    chunk.strip() and chunk != _OBJECT_REPLACEMENT and not portion_math_embed(p)
+                    for p, chunk in portions
+                )
+                cur_offset = 0
+                for p, chunk in portions:
+                    run_len = len(chunk)
+                    run_start = cur_offset
+                    run_end = cur_offset + run_len
+                    cur_offset += run_len
+                    emb = portion_math_embed(p)
+                    if emb is not None:
+                        # A formula portion can be zero-length; keep it when it sits inside the window.
+                        if run_start < trim_start or run_start > trim_end:
+                            continue
+                    elif run_end <= trim_start or run_start >= trim_end:
+                        continue
+                    if emb is not None:
+                        ph = chr(0xE000 + len(math_records))
+                        starmath = read_starmath(emb)
+                        math_records.append((ph, starmath, display_block))
+                        slice_text = ph
+                    else:
+                        s_start = max(0, trim_start - run_start)
+                        s_end = run_len - max(0, run_end - trim_end)
+                        slice_text = chunk[s_start:s_end]
+                    if not slice_text:
+                        continue
+                    start_pos = temp_cursor.getStart()
+                    temp_text.insertString(temp_cursor, slice_text, False)
+                    run = temp_text.createTextCursorByRange(start_pos)
+                    run.gotoRange(temp_cursor.getEnd(), True)
+                    _copy_properties(p, run, _COPIED_CHAR_PROPERTIES)
+                    temp_cursor.gotoRange(run.getEnd(), False)
+
             copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
             # RubyText lives on the empty Ruby start mark, not the Text run, so
             # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
@@ -810,7 +881,10 @@ def _range_to_content_via_temp_doc(
 
         try:
             xhtml = _export_xhtml(temp_doc, config_svc)
-            parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
+            if xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
+                parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
+            else:
+                parents, overrides = {}, {}
             content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
         except Exception as e:
             # A closed document must not start a second export.
@@ -825,7 +899,8 @@ def _range_to_content_via_temp_doc(
             content = format_mod._strip_html_boilerplate(content)
         content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
-        content = _inject_exported_math_tex(model, ctx, content)
+        content = _substitute_math_placeholders(content, math_records, ctx)
+        content = _inject_exported_math_tex(temp_doc, ctx, content)
         content = inject_ruby_into_html(content, copied_ruby)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
@@ -929,6 +1004,7 @@ def document_to_content(
             len(xhtml) if isinstance(xhtml, str) else -1,
         )
         t_phase = time.perf_counter()
+        # Full export always runs _autostyle_maps: fodt_has_ruby skips iter_ruby_spans, and None triggers a portion walk.
         parents, overrides, fodt_has_ruby = _autostyle_maps(model, config_svc)
         log.debug(
             "document_to_content: phase=_autostyle_maps elapsed_ms=%.1f parents=%d overrides=%d ruby=%s",
@@ -1048,7 +1124,13 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     return best_effort(insert, "_copy_field_into failed", False)
 
 
-def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any) -> None:
+def _copy_cell_xtext(
+    src_doc: Any,
+    src_cell: Any,
+    dest_doc: Any,
+    dest_cell: Any,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> None:
     """Copy one table cell: text + fields. Images in cells are not copied here."""
     dest_text = dest_cell
     # Fresh cell; setString cannot fail here.
@@ -1068,7 +1150,7 @@ def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any)
             break
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
-            _copy_table(src_doc, para, dest_doc, dest_cell)
+            _copy_table(src_doc, para, dest_doc, dest_cell, math_records=math_records)
             dest_cursor = dest_text.createTextCursor()
             dest_cursor.gotoEnd(False)
             first_para = False
@@ -1101,6 +1183,19 @@ def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any)
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             else:
+                if math_records is not None:
+                    from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
+
+                    emb = portion_math_embed(portion)
+                    if emb is not None:
+                        ph = chr(0xE000 + len(math_records))
+                        starmath = read_starmath(emb)
+                        raw = para.getString() if hasattr(para, "getString") else ""
+                        stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
+                        display_block = stripped == ""
+                        math_records.append((ph, starmath, display_block))
+                        dest_text.insertString(dest_cursor, ph, False)
+                        continue
                 chunk = uno_read(lambda: portion.getString(), "")
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
@@ -1179,7 +1274,13 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     return max_row + 1, max_col + 1, names
 
 
-def _copy_table(src_doc: Any, src_table: Any, dest_doc: Any, dest_text: Any = None) -> None:
+def _copy_table(
+    src_doc: Any,
+    src_table: Any,
+    dest_doc: Any,
+    dest_text: Any = None,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> None:
     """Recreate *src_table* in *dest_text* (document body if omitted).
 
     *dest_text* is a cell when copying a nested TextTable; recursion through
@@ -1204,7 +1305,7 @@ def _copy_table(src_doc: Any, src_table: Any, dest_doc: Any, dest_text: Any = No
                 dest_cell = dest_table.getCellByName(cell_name)
             except Exception:
                 continue
-            _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell)
+            _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -1214,11 +1315,16 @@ def _copy_table(src_doc: Any, src_table: Any, dest_doc: Any, dest_text: Any = No
                     dest_cell = dest_table.getCellByPosition(col, row)
                 except Exception:
                     continue
-                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell)
+                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
     _goto_doc_end(dest_doc)
 
 
-def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
+def _copy_xtext_by_portions(
+    src_doc: Any,
+    src_text: Any,
+    dest_doc: Any,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> None:
     """Copy paragraphs/fields without the view transferable.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
@@ -1240,7 +1346,7 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
         except Exception:
             break
         if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(src_doc, el, dest_doc)
+            _copy_table(src_doc, el, dest_doc, math_records=math_records)
             _goto_doc_end(dest_doc)
             dest_cursor = dest_text.createTextCursor()
             dest_cursor.gotoEnd(False)
@@ -1284,6 +1390,19 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                 _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
                 dest_cursor.gotoRange(run.getEnd(), False)
             else:
+                if math_records is not None:
+                    from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
+
+                    emb = portion_math_embed(portion)
+                    if emb is not None:
+                        ph = chr(0xE000 + len(math_records))
+                        starmath = read_starmath(emb)
+                        raw = el.getString() if hasattr(el, "getString") else ""
+                        stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
+                        display_block = stripped == ""
+                        math_records.append((ph, starmath, display_block))
+                        dest_text.insertString(dest_cursor, ph, False)
+                        continue
                 chunk = uno_read(lambda: portion.getString(), "")
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
@@ -1478,7 +1597,12 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
         best_effort(copy_one, "_copy_anchored_graphics: skipped a graphic")
 
 
-def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
+def _copy_xtext_into_doc(
+    src_doc: Any,
+    src_text: Any,
+    dest_doc: Any,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
     Bugfix: this called controller.select on the user's document and
@@ -1489,7 +1613,7 @@ def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     tables, and direct formatting. Anchored graphics are cloned afterwards
     because setString in the portion walk would drop a graphic inserted first.
     """
-    _copy_xtext_by_portions(src_doc, src_text, dest_doc)
+    _copy_xtext_by_portions(src_doc, src_text, dest_doc, math_records=math_records)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)
 
 
@@ -1646,7 +1770,8 @@ def xtext_to_content(
             raise ToolExecutionError(
                 "Could not read the document: no scratch document."
             )
-        _copy_xtext_into_doc(model, text_obj, temp_doc)
+        math_records: list[tuple[str, str, bool]] = []
+        _copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
         content = document_to_content(
             temp_doc,
             ctx,
@@ -1655,6 +1780,8 @@ def xtext_to_content(
             scope="full",
             include_images=include_images,
         )
+        if math_records:
+            content = _substitute_math_placeholders(content, math_records, ctx)
 
         if extracted_fields:
             # Re-inject the collected properties into the resulting HTML string

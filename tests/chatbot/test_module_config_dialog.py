@@ -166,26 +166,23 @@ def test_apply_stays_open_when_save_fails():
     box.assert_called_once()
 
 
-def test_open_passes_ctx_to_get_extension_url():
+def test_open_loads_dialog_via_shared_loader():
     import pytest
 
     ctx = MagicMock()
-    smgr = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.side_effect = RuntimeError("stop after url")
     with (
         patch(
             "plugin.chatbot.module_config_dialog.get_module_config_dialog_id",
             return_value="VisionSettingsDialog",
         ),
         patch(
-            "plugin.chatbot.module_config_dialog.get_extension_url",
-            return_value="file:///tmp/LibrePy.oxt",
-        ) as geu,
+            "plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail",
+            return_value=(None, "detail"),
+        ) as mock_load,
     ):
-        with pytest.raises(RuntimeError, match="stop after url"):
+        with pytest.raises(RuntimeError, match="load_detail"):
             ModuleConfigDialog(ctx, "vision")._open()
-    geu.assert_called_once_with(ctx)
+    mock_load.assert_called_once_with("VisionSettingsDialog", ctx)
 
 
 def test_show_does_not_register_in_active_dialogs_when_open_raises():
@@ -198,3 +195,57 @@ def test_show_does_not_register_in_active_dialogs_when_open_raises():
         with pytest.raises(RuntimeError, match="open failed"):
             ModuleConfigDialog.show(ctx, "test_mod")
     assert "test_mod" not in _active_dialogs
+
+
+def test_window_closing_does_not_dispose_and_pops_active_dialogs():
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, _active_dialogs
+
+    ctx = MagicMock()
+    dlg = MagicMock()
+    _active_dialogs.clear()
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+    ):
+        ModuleConfigDialog.show(ctx, "vision")
+        assert "vision" in _active_dialogs
+        dialog = _active_dialogs["vision"]
+        listener = dialog._top_listener
+        assert listener is not None
+
+        listener.windowClosing(MagicMock())
+        dlg.dispose.assert_not_called()
+        assert "vision" not in _active_dialogs
+
+        # A later show() constructs a new dialog
+        dlg2 = MagicMock()
+        with patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg2, "")):
+            ModuleConfigDialog.show(ctx, "vision")
+            assert "vision" in _active_dialogs
+            assert _active_dialogs["vision"]._dlg is dlg2
+
+
+def test_disposing_without_window_closing_pops_active_dialogs():
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, _active_dialogs
+
+    ctx = MagicMock()
+    dlg = MagicMock()
+    _active_dialogs.clear()
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+    ):
+        ModuleConfigDialog.show(ctx, "vision")
+        assert "vision" in _active_dialogs
+        dialog = _active_dialogs["vision"]
+        listener = dialog._top_listener
+        assert listener is not None
+
+        listener.disposing(MagicMock())
+        dlg.dispose.assert_not_called()
+        assert "vision" not in _active_dialogs
+        assert dialog._closed is True

@@ -164,6 +164,11 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
         from plugin.framework.uno_context import product_display_name
 
         report = convert_uno_doc_to_excel(doc)
+        if not report.ok:
+            detail = "; ".join(report.issues) if report.issues else "snapshot report not ok"
+            log.warning("excel_py auto-save: report not ok for %s: %s", path, detail)
+            msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
+            return False
         if not any(c.converted for c in report.cells):
             # No DAG =PY in memory — leave the saved file alone (plain spreadsheet).
             return False

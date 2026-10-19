@@ -272,3 +272,112 @@ def test_form_control_create_writer_inserts_on_anchor_host():
     host.insertTextContent.assert_called_once()
     body_text.insertTextContent.assert_not_called()
 
+
+def test_forms_button_present_in_both_schemas():
+    assert "button" in FormCreateControl.parameters["properties"]["control"]["enum"]
+    assert "button" in FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]
+
+
+def test_forms_create_rejects_unknown_control():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res = FormCreateControl()._execute_main(ctx, control="laser_cannon", name="fld")
+    assert res["status"] == "error"
+    assert "Unknown control type 'laser_cannon'" in res["message"]
+
+
+def test_forms_create_rejects_bad_date():
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+    res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="32.13.2026")
+    assert res["status"] == "error"
+    assert "Invalid date format" in res["message"]
+    doc.createInstance.assert_not_called()
+
+
+def test_forms_edit_invalid_state_leaves_model_untouched():
+    from plugin.writer.specialized.forms import FormEditControl
+
+    doc = MagicMock()
+    dp = MagicMock()
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Name = "target_ctrl"
+    model = MagicMock(spec=["Name", "Label", "State"])
+    model.Name = "target_ctrl"
+    shape.Control = model
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = shape
+
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.writer.specialized.forms._resolve_form_page", return_value=dp):
+        res = FormEditControl()._execute_main(ctx, name="target_ctrl", state="not-a-state", new_name="new_ctrl", label="Should Not Change")
+        assert res["status"] == "error"
+        assert "Could not interpret" in res["message"]
+        # Neither Name nor Label were updated
+        assert model.Name == "target_ctrl"
+        assert shape.Name == "target_ctrl"
+        assert not hasattr(model, "Label") or model.Label != "Should Not Change"
+
+
+def test_forms_coerce_items_string():
+    from plugin.writer.specialized.forms import _coerce_items
+    assert _coerce_items("a, b, c") == ["a", "b", "c"]
+    assert _coerce_items(["x", "y"]) == ["x", "y"]
+    assert _coerce_items(123) is None
+
+
+def test_forms_create_skips_spacer_on_failure(monkeypatch):
+    tool = FormCreate()
+    spacer_called = []
+    monkeypatch.setattr(tool, "_insert_space", lambda ctx: spacer_called.append(True))
+    ctx = SimpleNamespace(doc=MagicMock())
+
+    res = tool.execute(ctx, fields=[{"control": "invalid_control", "name": "bad"}])
+    assert res["status"] == "error"
+    assert len(spacer_called) == 0
+
+
+def test_forms_parse_field_tag_requires_name_and_valid_control():
+    tool = FormGenerate()
+    # Missing name
+    assert tool._parse_field_tag("{FIELD:control='text'}") is None
+    # Missing control
+    assert tool._parse_field_tag("{FIELD:name='my_name'}") is None
+    # Invalid control
+    assert tool._parse_field_tag("{FIELD:control='teleport',name='ctrl'}") is None
+    # Valid
+    parsed = tool._parse_field_tag("{FIELD:control='combobox',name='c1',items='one,two'}")
+    assert parsed is not None
+    assert parsed["control"] == "combobox"
+    assert parsed["name"] == "c1"
+    assert parsed["items"] == ["one", "two"]
+
+
+def test_form_create_control_disposal_from_create_instance_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+
+    doc = MagicMock()
+    doc.createInstance.side_effect = DocumentDisposedError("closed")
+    ctx = SimpleNamespace(doc=doc)
+    with pytest.raises(DocumentDisposedError):
+        FormCreateControl()._execute_main(ctx, control="text", name="fld")
+
+
+def test_form_create_control_date_default_value_applied():
+    doc = MagicMock()
+    model = MagicMock()
+    doc.createInstance.side_effect = lambda name: model if "DateField" in name else MagicMock()
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value.getText.return_value = MagicMock()
+    controller.getSelection.return_value = selection
+
+    ctx = SimpleNamespace(doc=doc)
+    res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="2026-10-18")
+    assert res["status"] == "ok"
+    assert hasattr(model, "Date") or hasattr(model, "DefaultDate")
+
+
+

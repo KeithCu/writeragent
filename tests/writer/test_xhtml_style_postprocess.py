@@ -374,3 +374,15 @@ def test_paragraph_div_holding_a_frame_gets_its_style():
     assert '<div data-lo-style="Standard">' in out, out
     assert 'class="graphic-fr1" id="Assinatura"' in out, out
     assert '<div style="margin:0">' in out, out
+
+
+def test_xhtml_has_paragraph_autostyle():
+    from plugin.writer.xhtml_style_postprocess import xhtml_has_paragraph_autostyle
+
+    assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-P1'>text</p></body>") is True
+    assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-P12'>text</p></body>") is True
+    assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-Standard'>text</p></body>") is False
+    assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-Heading_20_1'>text</p></body>") is False
+    assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-P1extra'>text</p></body>") is False
+    assert xhtml_has_paragraph_autostyle("<head><style>.paragraph-P1 { color: red; }</style></head><body><p>text</p></body>") is False
+

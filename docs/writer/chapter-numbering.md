@@ -8,8 +8,9 @@ Discussion: [github.com/KeithCu/writeragent/discussions/876](https://github.com/
 
 ## What `writer_tree` emits
 
-`TreeService.build_heading_tree` and `plugin.doc.text_helpers.build_heading_tree`
-read paragraph `ListLabelString` for `OutlineLevel > 0` only:
+`TreeService.build_heading_tree` is a cache around `plugin.doc.text_helpers.build_heading_tree`
+(one builder). Heading `text` stores visible text (`get_string_without_tracked_deletions`).
+The builder reads paragraph `ListLabelString` for `OutlineLevel > 0` only:
 
 ```text
 raw = str(para.getPropertyValue("ListLabelString") or "").rstrip(".")
@@ -29,12 +30,13 @@ such as `"DOCUMENT 7"`. LibreOffice already has the authoritative label.
 
 | Locator | Meaning |
 |---------|---------|
-| `heading:1.2` | Sibling-ordinal path: 1st H1 → 2nd child. Unchanged. |
-| `chapter_number:3.1` | Exact match on the emitted `chapter_number` field. |
+| `heading:1.2` | Sibling-ordinal path: 1st H1 → 2nd child. Handled by `TreeService.resolve_writer_locator`. |
+| `chapter_number:3.1` | Exact match on the emitted `chapter_number` field. Handled by `TreeService.resolve_writer_locator`. |
 
 `chapter_number:` flatten-matches the field. If Chapter Numbering is off or no
 heading has that label, resolve raises a clear error. It does not fall back to
-`heading:` ordinals.
+`heading:` ordinals. Both `heading:` and `chapter_number:` route through
+`TreeService.resolve_writer_locator`.
 
 ## Cache freshness
 

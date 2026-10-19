@@ -205,6 +205,11 @@ def _config_path() -> str:
     return init_config()
 
 
+def get_config_file_path() -> str:
+    """Return the absolute path to writeragent.json."""
+    return _config_path()
+
+
 def _emit_config_changed_ctx() -> Any:
     """Return UNO ctx for config:changed listeners when on the main thread."""
     from plugin.framework.thread_guard import on_main_thread

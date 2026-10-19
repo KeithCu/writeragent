@@ -2,6 +2,7 @@
 import queue
 import pytest
 import sys
+from typing import Any
 from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.client.errors import format_error_for_display
@@ -347,14 +348,22 @@ class TestAsyncStreamErrorHandling:
         assert (len(error_received)) == (1)
         assert (error_received[0]['status']) == ('error')
         assert (error_received[0]['message']) == ('Simulation error')
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['com.sun.star.beans'] = MagicMock()
-sys.modules['com.sun.star.table'] = MagicMock()
+@pytest.fixture
+def _draw_shape_uno_mocks(monkeypatch):
+    mock_uno = MagicMock()
+    mock_unohelper = MagicMock()
+    mock_beans = MagicMock()
+    mock_table = MagicMock()
 
-class MockBase():
-    pass
-sys.modules['unohelper'].Base = MockBase
+    class MockBase:
+        pass
+
+    mock_unohelper.Base = MockBase
+    monkeypatch.setitem(sys.modules, "uno", mock_uno)
+    monkeypatch.setitem(sys.modules, "unohelper", mock_unohelper)
+    monkeypatch.setitem(sys.modules, "com.sun.star.beans", mock_beans)
+    monkeypatch.setitem(sys.modules, "com.sun.star.table", mock_table)
+
 
 def test_best_effort_logs_and_swallows_everything(caplog):
     import logging
@@ -375,7 +384,7 @@ def test_best_effort_logs_and_swallows_everything(caplog):
     assert len(records) == 6 and all(r.levelno == logging.DEBUG and r.exc_info for r in records)
 
 
-def test_draw_shapes_safe_create_shape_valid():
+def test_draw_shapes_safe_create_shape_valid(_draw_shape_uno_mocks):
     'Test safe_create_shape with valid inputs creates and adds the shape.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -397,7 +406,7 @@ def test_draw_shapes_safe_create_shape_valid():
     assert (result == shape)
     assert ((geom_ok is None) and (geom_err is None))
 
-def test_draw_shapes_safe_create_shape_invalid_page():
+def test_draw_shapes_safe_create_shape_invalid_page(_draw_shape_uno_mocks):
     'Test safe_create_shape raises DrawError when page is None.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -411,7 +420,7 @@ def test_draw_shapes_safe_create_shape_invalid_page():
         draw_shapes.safe_create_shape(doc, None, 'RectangleShape', position, size)
     assert (exc_info.value.code == 'DRAW_PAGE_NULL')
 
-def test_draw_shapes_safe_create_shape_invalid_position():
+def test_draw_shapes_safe_create_shape_invalid_position(_draw_shape_uno_mocks):
     'Test safe_create_shape raises DrawError when position is invalid.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -425,7 +434,7 @@ def test_draw_shapes_safe_create_shape_invalid_position():
         draw_shapes.safe_create_shape(doc, page, 'RectangleShape', position, size)
     assert (exc_info.value.code == 'DRAW_INVALID_POSITION')
 
-def test_draw_shapes_safe_create_shape_invalid_size():
+def test_draw_shapes_safe_create_shape_invalid_size(_draw_shape_uno_mocks):
     'Test safe_create_shape raises DrawError when size is invalid.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -440,7 +449,7 @@ def test_draw_shapes_safe_create_shape_invalid_size():
         draw_shapes.safe_create_shape(doc, page, 'RectangleShape', position, size)
     assert (exc_info.value.code == 'DRAW_INVALID_SIZE')
 
-def test_draw_shapes_safe_create_shape_creation_failed():
+def test_draw_shapes_safe_create_shape_creation_failed(_draw_shape_uno_mocks):
     'Test safe_create_shape raises DrawError when shape creation fails.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -456,7 +465,7 @@ def test_draw_shapes_safe_create_shape_creation_failed():
         draw_shapes.safe_create_shape(doc, page, 'UnknownShape', position, size)
     assert (exc_info.value.code == 'DRAW_SHAPE_CREATION_FAILED')
 
-def test_draw_shapes_safe_create_shape_exception_handling():
+def test_draw_shapes_safe_create_shape_exception_handling(_draw_shape_uno_mocks):
     'Test safe_create_shape wraps generic exceptions in DrawError.'
     draw_shapes = DrawShapes()
     doc = MagicMock()
@@ -778,11 +787,16 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
     assert uno_read(boom(ValueError("bad")), "") == ""
     # A bare RuntimeException is a live-document failure, not disposal (same as safe_uno_call).
     assert uno_read(boom(RuntimeException("bridge")), None) is None
-    # Real disposal leaves wrapped, as reraise_if_disposed does.
-    for exc in (DisposedException("dead"), DocumentDisposedError("closed")):
-        with pytest.raises(DocumentDisposedError) as exc_info:
-            uno_read(boom(exc), None)
-        assert exc_info.value.__cause__ is exc
+    # Real disposal leaves wrapped or unchanged, as reraise_if_disposed does.
+    disposed_exc = DisposedException("dead")
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_read(boom(disposed_exc), None)
+    assert exc_info.value.__cause__ is disposed_exc
+
+    doc_disposed_exc = DocumentDisposedError("closed")
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_read(boom(doc_disposed_exc), None)
+    assert exc_info.value is doc_disposed_exc
     with pytest.raises(DocumentDisposedError) as exc_info:
         uno_read(boom(DisposedException("dead")), None, object_type="TextRange")
     assert exc_info.value.object_type == "TextRange"
@@ -916,4 +930,156 @@ def test_safe_uno_call_disposal_details_omit_arguments():
     assert "args" not in exc_info.value.details
     assert "kwargs" not in exc_info.value.details
     assert "gone" in exc_info.value.details["original_error"]
+
+
+def test_resolve_exception_message_total():
+    from plugin.framework.errors import format_error_message, resolve_exception_message
+
+    class StrExplodes(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("str exploded")
+
+    class MsgExplodes(Exception):
+        @property
+        def Message(self) -> str:
+            raise RuntimeError("Message exploded")
+
+    class BlankStrWithMessage(Exception):
+        def __init__(self, msg: str):
+            super().__init__("")
+            self.Message = msg
+
+        def __str__(self) -> str:
+            return ""
+
+    assert resolve_exception_message(StrExplodes()) == "StrExplodes"
+    assert format_error_message(StrExplodes()) == "StrExplodes"
+
+    assert resolve_exception_message(MsgExplodes()) == "MsgExplodes"
+    assert format_error_message(MsgExplodes()) == "MsgExplodes"
+
+    assert resolve_exception_message(BlankStrWithMessage("uno message")) == "uno message"
+    assert format_error_message(BlankStrWithMessage("uno message")) == "uno message"
+
+    kb = KeyboardInterrupt()
+    assert resolve_exception_message(kb) == "KeyboardInterrupt"
+    assert format_error_message(kb) == "KeyboardInterrupt"
+
+
+def test_make_tool_error_accepts_non_str_and_non_ascii_code():
+    from plugin.framework.errors import make_tool_error
+
+    res = make_tool_error(ValueError("value issue"))
+    assert res["status"] == "error"
+    assert res["message"] == "value issue"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+
+    res_code = make_tool_error("hello", code="代码")
+    assert res_code["status"] == "error"
+    assert res_code["code"] == "代码"
+
+    res_empty_code = make_tool_error("hello", code="")
+    assert res_empty_code["code"] == "TOOL_EXECUTION_ERROR"
+
+
+def test_is_document_disposed_handles_exploding_attributes():
+    from plugin.framework.errors import DocumentDisposedError, is_document_disposed
+
+    class Dead(Exception):
+        pass
+
+    class DeadProxy:
+        def __getattribute__(self, name: str) -> Any:
+            raise Dead("proxy disposed")
+
+    class ExplodingProxy:
+        def __getattribute__(self, name: str) -> Any:
+            raise RuntimeError("unexpected error")
+
+    class DeadWithDisposedException(Exception):
+        pass
+
+    DeadWithDisposedException.__name__ = "com.sun.star.lang.DisposedException"
+
+    class DisposedProxy:
+        def __getattribute__(self, name: str) -> Any:
+            raise DeadWithDisposedException("disposed")
+
+    class DocumentDisposedProxy:
+        def __getattribute__(self, name: str) -> Any:
+            raise DocumentDisposedError("doc disposed")
+
+    assert is_document_disposed(None) is True
+    assert is_document_disposed(DeadProxy()) is False
+    assert is_document_disposed(ExplodingProxy()) is False
+    assert is_document_disposed(DisposedProxy()) is True
+    assert is_document_disposed(DocumentDisposedProxy()) is True
+
+
+def test_writer_agent_exception_unified_message():
+    from plugin.framework.errors import ToolExecutionError, WriterAgentException
+
+    class BlankWithUnoMessage(Exception):
+        def __init__(self, msg: str):
+            super().__init__("")
+            self.Message = msg
+
+        def __str__(self) -> str:
+            return ""
+
+    exc_uno = BlankWithUnoMessage("UNO detail")
+    tool_err = ToolExecutionError(exc_uno)
+    assert str(tool_err) == "UNO detail"
+    assert tool_err.args[0] == "UNO detail"
+    assert tool_err.message == "UNO detail"
+
+    plain = WriterAgentException("plain text")
+    assert str(plain) == "plain text"
+    assert plain.args[0] == "plain text"
+    assert plain.message == "plain text"
+
+
+def test_reraise_if_disposed_preserves_instance():
+    from plugin.framework.errors import DocumentDisposedError, reraise_if_disposed, uno_read
+
+    class LocalDisposedException(Exception):
+        pass
+
+    LocalDisposedException.__name__ = "com.sun.star.lang.DisposedException"
+
+    class RuntimeException(Exception):
+        pass
+
+    orig = DocumentDisposedError("keep this", object_type="TextRange", details={"line": 7})
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        reraise_if_disposed(orig)
+    assert exc_info.value is orig
+    assert exc_info.value.object_type == "TextRange"
+    assert exc_info.value.details == {"line": 7}
+
+    with pytest.raises(DocumentDisposedError) as exc_info2:
+        def _raise_orig():
+            raise orig
+
+        uno_read(_raise_orig, "default")
+    assert exc_info2.value is orig
+
+    local_exc = LocalDisposedException("object closed")
+    with pytest.raises(DocumentDisposedError) as exc_info3:
+        reraise_if_disposed(local_exc, "wrapper message")
+    assert exc_info3.value.__cause__ is local_exc
+    assert str(exc_info3.value) == "wrapper message"
+
+    reraise_if_disposed(RuntimeException("live error"))
+    assert uno_read(lambda: 1 / 0, "fallback") == "fallback"
+
+
+def test_format_error_for_display_connection_refused():
+    from plugin.framework.client.errors import format_error_for_display
+
+    exc = ConnectionRefusedError(111, "Connection refused")
+    display = format_error_for_display(exc)
+    assert "Connection Refused" in display
+    assert "local AI server" in display
+
 

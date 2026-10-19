@@ -181,3 +181,92 @@ def test_clone_heading_block_with_table():
     assert inserted_strings == ["Heading A", "Body text"]
     assert created_cursors == [table.getAnchor()]
     cursor_mock.collapseToEnd.assert_called_once()
+    assert "Plain paragraph text" in CloneHeadingBlock.description
+    assert "tables are skipped" in CloneHeadingBlock.description
+
+
+def test_get_page_objects_disposal_and_error_handling(caplog):
+    import logging
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.structural import GetPageObjects
+
+    class DisposedException(Exception):
+        pass
+
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    class GraphicStub:
+        def __init__(self, name, exc=None):
+            self.name = name
+            self.exc = exc
+
+        def getPropertyValue(self, name):
+            if self.exc:
+                raise self.exc
+            if name == "AnchorType":
+                return AT_PAGE
+            if name == "AnchorPageNo":
+                return 1
+            if name == "Size":
+                return MagicMock(Width=2000, Height=1000)
+            if name == "Title":
+                return "Title"
+            raise RuntimeError(f"Unknown prop {name}")
+
+        def getAnchor(self):
+            return MagicMock()
+
+    class Graphics:
+        def __init__(self, items):
+            self.items = items
+
+        def getElementNames(self):
+            return list(self.items.keys())
+
+        def getByName(self, name):
+            return self.items[name]
+
+    # Test 1: first graphic raises DisposedException -> scan raises DocumentDisposedError
+    vc = MagicMock()
+    vc.getPage.return_value = 1
+    doc_disp = MagicMock()
+    doc_disp.getCurrentController.return_value.getViewCursor.return_value = vc
+    doc_disp.getGraphicObjects.return_value = Graphics({"G1": GraphicStub("G1", DisposedException("disposed"))})
+    doc_disp.getTextTables.return_value.getElementNames.return_value = []
+    doc_disp.getTextFrames.return_value.getElementNames.return_value = []
+    doc_disp.getDrawPage.return_value.getCount.return_value = 0
+    ctx = MagicMock()
+    ctx.doc = doc_disp
+
+    with pytest.raises((DisposedException, DocumentDisposedError)):
+        GetPageObjects().execute(ctx, page=1)
+
+    # Test 2: G1 succeeds, G2 raises RuntimeError -> G2 skipped, G1 kept, warning logged
+    g1 = GraphicStub("G1")
+
+    class CorruptGraphic(GraphicStub):
+        def getPropertyValue(self, name):
+            if name == "AnchorType":
+                return AT_PAGE
+            if name == "AnchorPageNo":
+                return 1
+            if name == "Size":
+                raise RuntimeError("corrupt graphic")
+            return super().getPropertyValue(name)
+
+    g2 = CorruptGraphic("G2")
+    doc_live = MagicMock()
+    doc_live.getCurrentController.return_value.getViewCursor.return_value = vc
+    doc_live.getGraphicObjects.return_value = Graphics({"G1": g1, "G2": g2})
+    doc_live.getTextTables.return_value.getElementNames.return_value = []
+    doc_live.getTextFrames.return_value.getElementNames.return_value = []
+    doc_live.getDrawPage.return_value.getCount.return_value = 0
+    ctx.doc = doc_live
+
+    with caplog.at_level(logging.WARNING):
+        res = GetPageObjects().execute(ctx, page=1)
+    assert res["status"] == "ok"
+    assert len(res["images"]) == 1
+    assert res["images"][0]["name"] == "G1"
+    assert any("Failed to scan graphic object 'G2'" in rec.message for rec in caplog.records)
+

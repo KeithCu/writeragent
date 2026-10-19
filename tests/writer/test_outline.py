@@ -42,7 +42,13 @@ class TestGetDocumentTreeMergedStats:
 
         assert (result["stats"]) == (mock_collect.return_value)
         assert ("children") in (result)
-        mock_collect.assert_called_once_with(ctx.doc, ctx.services.document)
+        mock_collect.assert_called_once_with(
+            ctx.doc,
+            ctx.services.document,
+            heading_tree=tree_svc.build_heading_tree.return_value,
+            paragraph_count=5,
+            page_count=2,
+        )
         tree_svc.get_document_tree.assert_called_once()
 
 

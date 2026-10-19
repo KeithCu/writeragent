@@ -480,7 +480,15 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                         ctrl_el.set(_dlg("readonly"), "true")
                 elif widget in ("number", "slider"):
                     num_w = field_w if "width" in schema else "60"
-                    ctrl_el = _common_add_numericfield(board, ctrl_id, field_x, curr_y, num_w, 14, spin="true")
+                    # Pass schema bounds so spin stays within range; strict save rejects out-of-range values after execute() returns.
+                    ctrl_el = _common_add_numericfield(
+                        board, ctrl_id, field_x, curr_y, num_w, 14,
+                        spin="true",
+                        min_val=schema.get("min"),
+                        max_val=schema.get("max"),
+                        step_val=schema.get("step"),
+                        decimal_accuracy="1" if schema.get("type") == "float" else "0",
+                    )
                 elif widget in ("select", "combo"):
                     ctrl_el = _common_add_combobox(
                         board, ctrl_id, field_x, curr_y, field_w, 14,

@@ -27,13 +27,15 @@ if _SCRIPTS_DIR not in sys.path:
 from scripts.build_oxt import (  # noqa: E402
     collect_files,
     remap_path,
-    should_exclude,
+    resolve_archive_sources,
     strip_production_code,
-    _vendor_copy_ignore,
+    sync_vendor_into_lib,
+    verify_bundle_manifest,
+    write_oxt_zip,
 )
 from scripts.librepy_bundle_paths import (  # noqa: E402
+    LIBREPY_VENDOR_PACKAGES,
     collect_librepy_plugin_paths,
-    iter_librepy_vendor_packages,
     slim_librepy_smolagents_init,
 )
 from scripts.manifest_registry import generate_update_xml, patch_description_xml  # noqa: E402
@@ -181,6 +183,16 @@ def assemble_librepy_bundle(
         print("ERROR: %s not found after manifest generation" % manifest_src, file=sys.stderr)
         return 0
 
+    for dialog_rel in LIBREPY_GENERATED_DIALOG_FILES:
+        dialog_path = os.path.join(base_dir, dialog_rel)
+        if not os.path.isfile(dialog_path):
+            print(
+                "ERROR: %s not found. Run: make manifest-core"
+                % dialog_path,
+                file=sys.stderr,
+            )
+            return 0
+
     locales_dir = os.path.join(base_dir, "build", "generated", "locales")
     if not os.path.isdir(locales_dir):
         print(
@@ -193,10 +205,10 @@ def assemble_librepy_bundle(
     include = librepy_include_paths(base_dir, include_locales=True)
     files = collect_files(base_dir, include, with_tests=with_tests)
 
+    sources = resolve_archive_sources(base_dir, files, _librepy_remap_path)
     count = 0
-    for rel in files:
-        src = os.path.join(base_dir, rel)
-        arcname = _librepy_remap_path(rel)
+    for rel, arcname in sources:
+        src = rel if os.path.isabs(rel) else os.path.join(base_dir, rel)
         dst = os.path.join(bundle_path, arcname)
         if rel.endswith("/"):
             os.makedirs(dst, exist_ok=True)
@@ -212,19 +224,16 @@ def assemble_librepy_bundle(
     count += 1
 
     vendor_dir = os.path.join(base_dir, "vendor")
-    vendor_packages = iter_librepy_vendor_packages(vendor_dir)
-    if vendor_packages:
-        vendor_count = 0
-        for entry in vendor_packages:
-            src_path = os.path.join(vendor_dir, entry)
-            dst_path = os.path.join(bundle_path, "plugin", "lib", entry)
-            if os.path.exists(dst_path):
-                shutil.rmtree(dst_path)
-            shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
-            vendor_count += 1
+    vendor_count = sync_vendor_into_lib(
+        vendor_dir,
+        os.path.join(bundle_path, "plugin", "lib"),
+        prune_websockets=False,
+        only=LIBREPY_VENDOR_PACKAGES,
+    )
+    if vendor_count:
         print(
             "Vendored %d packages into plugin/lib/ (%s)"
-            % (vendor_count, ", ".join(vendor_packages))
+            % (vendor_count, ", ".join(sorted(LIBREPY_VENDOR_PACKAGES)))
         )
 
     if strip and not with_tests:
@@ -232,6 +241,12 @@ def assemble_librepy_bundle(
 
     slim_librepy_smolagents_init(os.path.join(bundle_path, "plugin"))
     print("  Slimmed plugin/contrib/smolagents/__init__.py for venv worker")
+
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=True)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 0
 
     plugin_count = sum(1 for rel in files if rel.replace(os.sep, "/").startswith("plugin/"))
     print(
@@ -247,27 +262,18 @@ def zip_librepy_bundle(base_dir: str, output: str) -> int:
         print("ERROR: %s not found. Run without --repack first." % LIBREPY_BUNDLE_DIR, file=sys.stderr)
         return 1
 
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=True)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
+
     output_path = os.path.join(base_dir, output)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    if os.path.exists(output_path):
-        os.remove(output_path)
-
-    count = 0
-    import zipfile
-
-    # strict_timestamps=False: freshly vendored wheels and reused Cloud Agent
-    # snapshot checkouts can carry pre-1980 (epoch-0) mtimes, which the default
-    # rejects with "ZIP does not support timestamps before 1980" and aborts the
-    # build. False clamps such entries to 1980-01-01 instead of failing.
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
-        for root, dirs, filenames in os.walk(bundle_path):
-            dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
-            for fn in filenames:
-                filepath = os.path.join(root, fn)
-                arcname = os.path.relpath(filepath, bundle_path)
-                if not should_exclude(arcname, with_tests=True):
-                    zf.write(filepath, arcname)
-                    count += 1
+    try:
+        count = write_oxt_zip(bundle_path, output_path)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
 
     print("Created %s with %d files (%s)" % (output, count, LIBREPY_EXTENSION_ID))
     return 0

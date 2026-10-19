@@ -18,6 +18,7 @@ from plugin.writer.inline_review import (
     goto_adjacent_agent_change,
     has_agent_changes,
     pending_agent_change_count,
+    ResolveStatus,
     resolve_agent_change,
     resolve_all_agent_changes,
     resolve_all_with_feedback,
@@ -220,7 +221,8 @@ def test_resolve_agent_change_by_token_resolves_only_that_pair_uno(ctx, doc):
     _body(doc, ctx, "First clause here.", "Second clause here.")
     _agent_edit(doc, ctx, ("First clause here.", "First EDITED."), ("Second clause here.", "Second EDITED."))
     changes = agent_changes(doc)
-    assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is True
+    res, _ = resolve_agent_change(doc, ctx, changes[0]["token"], True)
+    assert res.status == ResolveStatus.RESOLVED
     left = agent_changes(doc)
     assert len(left) == 1 and left[0]["token"] == changes[1]["token"], \
         "only the targeted change resolves: %r" % left
@@ -282,7 +284,7 @@ def test_snapshot_reliable_with_table_cell_redline_uno(ctx, doc):
     whose redlines live in a NON-BODY container -- here a table cell. getRedlines() is one flat table
     spanning body + cells, so getCount() must equal the enumeration length; this pins that, proving
     resolve never spuriously refuses on documents containing tables."""
-    from plugin.writer.inline_review import _agent_change_tokens, _foreign_redline_ids
+    from plugin.writer.inline_review import scan_redline_view
 
     _body(doc, ctx, "Body clause one here.")
     text = doc.getText()
@@ -307,10 +309,8 @@ def test_snapshot_reliable_with_table_cell_redline_uno(ctx, doc):
 
     assert _redline_count(doc) >= 2, "precondition: redlines in both the body and the table cell"
     assert _redline_count(doc) == len(doc.getRedlines()), "enumeration length must equal getCount()"
-    _, tokens_reliable = _agent_change_tokens(doc)
-    _, foreign_reliable = _foreign_redline_ids(doc)
-    assert tokens_reliable is True, "a table-cell redline must NOT make the token snapshot 'unreliable'"
-    assert foreign_reliable is True, "a table-cell redline must NOT make the foreign snapshot 'unreliable'"
+    view = scan_redline_view(doc)
+    assert view.reliable is True, "a table-cell redline must NOT make the snapshot 'unreliable'"
     _accept_all(doc, ctx)
 
 
@@ -362,8 +362,8 @@ def test_resolve_refuses_when_user_redline_overlaps_change_uno(ctx, doc):
     assert changes, "agent change should still be listed"
     token = changes[0]["token"]
     before = _redline_count(doc)
-    ok = resolve_agent_change(doc, ctx, token, True)
-    assert ok is False, "must refuse to resolve an agent change whose exact span overlaps a user redline"
+    res, _ = resolve_agent_change(doc, ctx, token, True)
+    assert res.status == ResolveStatus.REFUSED_FOREIGN, "must refuse to resolve an agent change whose exact span overlaps a user redline"
     assert _redline_count(doc) == before, "nothing may be resolved -- the user's redline must survive intact"
 
 

@@ -16,7 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 import unohelper
-from com.sun.star.awt import XActionListener, XTopWindowListener
+from com.sun.star.awt import XActionListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
@@ -28,6 +28,7 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
+from plugin.framework.uno_listeners import BaseTopWindowListener
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
 from plugin.scripting.text_analytics import (
@@ -144,17 +145,9 @@ class TextAnalyticsDialog:
 
             owner = self
 
-            class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: Any) -> None:
+            class _TopWindowListener(BaseTopWindowListener):
+                def on_window_closing(self, rEvent: Any) -> None:
                     owner.close(toolkit_teardown=True)
-
-                def windowClosed(self, e: Any) -> None: pass
-                def windowOpened(self, e: Any) -> None: pass
-                def windowMinimized(self, e: Any) -> None: pass
-                def windowNormalized(self, e: Any) -> None: pass
-                def windowActivated(self, e: Any) -> None: pass
-                def windowDeactivated(self, e: Any) -> None: pass
-                def disposing(self, Source: EventObject) -> None: pass
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
