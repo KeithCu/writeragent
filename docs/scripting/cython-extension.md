@@ -140,7 +140,7 @@ Wire into [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) or [`payl
 2. On release tag: `pip install cibuildwheel && cibuildwheel native/writeragent_vec` → `wheelhouse/`.
 3. `update_vec_contrib.py`: unzip wheels; copy `writeragent_vec/*.so` (+ `__init__.py` once) into `plugin/contrib/vec_pack/`.
 4. **Strip** with `llvm-strip` (shared helper in vec contrib scripts when added).
-5. Optional: prune musl tags if you only target glibc LO builds; optional `NO_VEC_PACK=1` in [`build_oxt.py`](../../scripts/build_oxt.py).
+5. Optional: prune musl tags if you only target glibc LO builds.
 
 ---
 

@@ -211,3 +211,38 @@ assert _under(mc.__file__), mc.__file__
         check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path: Path):
+    from scripts.build_librepy_oxt import assemble_librepy_bundle
+
+    monkeypatch.setattr("scripts.build_librepy_oxt._ensure_librepy_manifest", lambda base_dir: None)
+    monkeypatch.setattr("scripts.build_librepy_oxt.patch_description_xml", lambda dest: None)
+    monkeypatch.setattr("scripts.build_librepy_oxt.generate_update_xml", lambda base, name: None)
+
+    real_isfile = os.path.isfile
+
+    def fake_isfile(path: str) -> bool:
+        if "SettingsDialog.xdl" in path:
+            return False
+        return real_isfile(path)
+
+    monkeypatch.setattr("os.path.isfile", fake_isfile)
+    assert assemble_librepy_bundle(str(_REPO_ROOT), bundle_dir=str(tmp_path / "bundle")) == 0
+
+
+def test_librepy_bundle_includes_latex2mathml_metadata(tmp_path: Path):
+    from scripts.build_oxt import sync_vendor_into_lib
+    from scripts.librepy_bundle_paths import LIBREPY_VENDOR_PACKAGES
+
+    vendor_dir = str(_REPO_ROOT / "vendor")
+    lib_dir = tmp_path / "plugin" / "lib"
+    sync_vendor_into_lib(
+        vendor_dir,
+        str(lib_dir),
+        prune_websockets=False,
+        only=LIBREPY_VENDOR_PACKAGES,
+    )
+    meta_files = list(lib_dir.glob("latex2mathml-*.dist-info/METADATA"))
+    assert len(meta_files) == 1
+    assert meta_files[0].is_file()

@@ -102,6 +102,7 @@ Start here by task.
 | Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
 | LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
 | Eval-2 headed benchmarks (sibling of string-pack hard/partial/cost; separate JSON/charts) | [eval/eval-2/benchmarks.md](eval/eval-2/benchmarks.md), [eval/eval-2/README.md](eval/eval-2/README.md) |
+| OXT packaging & assembly | [framework/oxt-packaging.md](framework/oxt-packaging.md) |
 
 ## References
 
