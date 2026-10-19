@@ -184,8 +184,8 @@ Delete and Insert as two independent rows. WriterAgent adds:
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
-   follows the count-without-previews rule: `pending_agent_change_count` scans distinct agent tokens
-   from a `RedlineView` without reading text previews with `XTextCursor.getString()`. Its per-document
+   follows the count-without-previews rule: `pending_agent_change_count` returns this distinct-comment
+   count via `agent_change_presence` without reading text previews with `XTextCursor.getString()`. Its per-document
    modify listener queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification.
 

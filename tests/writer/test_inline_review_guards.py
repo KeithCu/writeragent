@@ -14,6 +14,7 @@ tracked change:
 
 UNO ranges are faked with integer positions; redline geometry is exercised for real.
 """
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -41,7 +42,7 @@ from plugin.writer.inline_review import (
     resolve_change_at_cursor,
     scan_redline_view,
 )
-from plugin.writer.review_scan import TOKEN_PREFIX, redline_is_agent_change
+from plugin.writer.review_scan import TOKEN_PREFIX, redline_identity_key, redline_is_agent_change
 
 
 def _sign(n):
@@ -508,6 +509,39 @@ def test_all_redlines_are_agent_false_on_empty_document():
     assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
+def test_scan_redline_view_property_read_counts():
+    class _Stamp:
+        Year, Month, Day, Hours, Minutes, Seconds, NanoSeconds = 2026, 9, 26, 11, 49, 0, 0
+
+    class CountingFakeRedline(FakeRedline):
+        def __init__(self, comment, s, e, author="Author", stamp=None):
+            super().__init__(comment, s, e)
+            self._props["RedlineAuthor"] = author
+            self._props["RedlineDateTime"] = stamp
+            self.reads: Counter[str] = Counter()
+
+        def getPropertyValue(self, name):
+            self.reads[name] += 1
+            return super().getPropertyValue(name)
+
+    agent_rl = CountingFakeRedline(TOKEN_PREFIX + "s:1", 0, 5)
+    model_agent = FakeModel(FakeRedlines([agent_rl]))
+    view_agent = scan_redline_view(model_agent)
+    assert view_agent.reliable is True
+    assert agent_rl.reads["RedlineAuthor"] == 0
+    assert agent_rl.reads["RedlineDateTime"] == 0
+    assert agent_rl.reads["RedlineComment"] == 1
+    assert agent_rl.reads["RedlineIdentifier"] == 1
+    assert agent_rl.reads["RedlineType"] == 1
+    assert view_agent.rows[0].identity is None
+
+    user_rl = CountingFakeRedline("user note", 10, 15, author="Alice", stamp=_Stamp)
+    model_user = FakeModel(FakeRedlines([user_rl]))
+    view_user = scan_redline_view(model_user)
+    assert view_user.reliable is True
+    assert view_user.rows[0].identity == redline_identity_key(user_rl)
+
+
 
 # -------------------------------------------- token/foreign snapshot completeness (getCount)
 
@@ -656,6 +690,28 @@ def test_block_reason_fails_closed_on_silent_truncation():
 def test_block_reason_fails_closed_on_count_error():
     model = FakeModel(FakeRedlines([_user_rl()], raise_count=True))
     assert agent_self_resolution_block_reason(model) is not None
+
+
+def test_block_reason_none_when_geometry_raises_on_user_comment():
+    # Non-agent comment with geometry failures does not block bulk resolve.
+    for prop in ("RedlineStart", "RedlineIdentifier", "RedlineType"):
+        model = FakeModel(FakeRedlines([FakeRedline("user note", 0, 0, raise_on={prop})]))
+        assert agent_self_resolution_block_reason(model) is None
+
+
+def test_block_reason_fails_closed_when_comment_raises():
+    model = FakeModel(FakeRedlines([FakeRedline("user note", 0, 0, raise_on={"RedlineComment"})]))
+    reason = agent_self_resolution_block_reason(model)
+    assert reason is not None and "reliably" in reason.lower()
+
+
+def test_block_reason_fails_closed_when_hasattr_raises():
+    class RaisingModel:
+        def __getattr__(self, name):
+            raise RuntimeError("hasattr boom")
+
+    reason = agent_self_resolution_block_reason(RaisingModel())
+    assert reason is not None and "reliably" in reason.lower()
 
 
 def test_inline_review_uno_skips_windows_leftover_view_cursor() -> None:
@@ -928,6 +984,14 @@ def test_getString_raises_still_counts_and_navigates_without_getString_calls():
     tok = goto_adjacent_agent_change(doc, True)
     assert tok == t1
     assert redlines.enums == 2
+
+
+def test_pending_agent_change_count_includes_token_after_geometry_error():
+    # A redline whose geometry raises does not abort the comment walk; later tokens are counted.
+    bad_geom = FakeRedline("user note", 0, 5, raise_on={"RedlineStart"})
+    good_agent = FakeRedline(TOKEN_PREFIX + "s:2", 10, 20)
+    model = FakeModel(FakeRedlines([bad_geom, good_agent]))
+    assert pending_agent_change_count(model) == 1
 
 
 def test_scan_count_exact_resolve_agent_change_success():

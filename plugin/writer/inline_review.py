@@ -156,7 +156,8 @@ def scan_redline_view(model: Any) -> RedlineView:
                 text = start.getText()
             except Exception:
                 text = None
-        identity = _review_scan.redline_identity_key(rl)
+        # Tip: only foreign rows need the identity key; skip the property reads for agent rows.
+        identity = _review_scan.redline_identity_key(rl) if token is None else None
         rows.append(
             RedlineRow(
                 token=token,
@@ -289,17 +290,13 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
     try:
         if not hasattr(model, "getRedlines"):
             return None
-        count = int(model.getRedlines().getCount())
     except Exception:
         return _BULK_UNRELIABLE_MSG
-    if count <= 0:
-        return None
-    view = scan_redline_view(model)
-    if not view.reliable:
+    count, reliable = _review_scan.agent_change_presence(model)
+    if not reliable:
         return _BULK_UNRELIABLE_MSG
-    tokens = agent_tokens(view)
-    if tokens:
-        return _BULK_AGENT_PRESENT_MSG % len(tokens)
+    if count > 0:
+        return _BULK_AGENT_PRESENT_MSG % count
     return None
 
 
@@ -363,6 +360,19 @@ def _group_rows_by_text(rows: list[RedlineRow]) -> list[tuple[Any, list[RedlineR
     return groups
 
 
+def _span_for_rows(text: Any, rows: list[RedlineRow] | tuple[RedlineRow, ...]) -> tuple[Any, Any] | None:
+    """Bounding (start, end) ranges spanning all rows in a text object."""
+    try:
+        cursor = text.createTextCursorByRange(rows[0].start)
+        for r in rows:
+            cursor.gotoRange(r.start, True)
+            cursor.gotoRange(r.end, True)
+        return cursor.getStart(), cursor.getEnd()
+    except Exception:
+        log.debug("inline_review: _span_for_rows union failed", exc_info=True)
+        return None
+
+
 def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> tuple[Any | None, Any | None]:
     """Bounding (start, end) text ranges spanning all redlines of token in view, or (None, None)."""
     if not view.reliable:
@@ -382,15 +392,10 @@ def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> t
         return None, None
 
     text, group_rows = groups[0]
-    try:
-        cursor = text.createTextCursorByRange(group_rows[0].start)
-        for r in group_rows:
-            cursor.gotoRange(r.start, True)
-            cursor.gotoRange(r.end, True)
-        return cursor.getStart(), cursor.getEnd()
-    except Exception:
-        log.debug("inline_review: _build_bounds_from_view union failed; reporting no bounds", exc_info=True)
+    bounds = _span_for_rows(text, group_rows)
+    if bounds is None:
         return None, None
+    return bounds
 
 
 def _change_bounds(model: Any, token: str | frozenset[str], view: RedlineView | None = None) -> tuple[Any | None, Any | None]:
@@ -417,8 +422,8 @@ def goto_agent_change(model: Any, token: str, view: RedlineView | None = None) -
 
 def pending_agent_change_count(model: Any) -> int:
     """How many agent changes are still pending review -- the toolbar's live counter."""
-    view = scan_redline_view(model)
-    return len({r.token for r in view.rows if r.token is not None})
+    count, _reliable = _review_scan.agent_change_presence(model)
+    return count
 
 
 def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
@@ -442,14 +447,10 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
         for g_text, g_rows in groups:
             if any(r.start is None or r.end is None for r in g_rows):
                 continue
-            try:
-                cursor = g_text.createTextCursorByRange(g_rows[0].start)
-                for r in g_rows:
-                    cursor.gotoRange(r.start, True)
-                    cursor.gotoRange(r.end, True)
-                items.append((tok, g_text, cursor.getStart(), cursor.getEnd()))
-            except Exception:
+            span = _span_for_rows(g_text, g_rows)
+            if span is None:
                 continue
+            items.append((tok, g_text, span[0], span[1]))
 
     if not items:
         return None
