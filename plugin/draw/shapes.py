@@ -615,6 +615,17 @@ _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "other shapes (cube, ring, cloud-callout, lightning, etc.). "
 )
 
+_OUTSIDE_PAGE_WARNING = "Shape is outside the page bounds."
+
+
+def _outside_page(page: Any, shape: Any) -> bool:
+    """True when the shape's box spills past the page edges."""
+    w, h = getattr(page, "Width", None), getattr(page, "Height", None)
+    if not isinstance(w, int) or not isinstance(h, int):
+        return False  # Tip: Calc sheet draw pages have no size; skip.
+    pos, size = shape.getPosition(), shape.getSize()
+    return pos.X < 0 or pos.Y < 0 or pos.X + size.Width > w or pos.Y + size.Height > h
+
 
 class UpsertShape(ToolDrawShapeBase):
     name: str | None = "shape_upsert"
@@ -786,6 +797,8 @@ class UpsertShape(ToolDrawShapeBase):
                     result["warning"] = f"Custom shape geometry failed: {geometry_error}"
             if failed_props:
                 result["warnings"] = result.get("warnings", []) + [f"Failed to apply properties: {', '.join(failed_props)}"]
+            if _outside_page(page, shape):
+                result["warnings"] = result.get("warnings", []) + [_OUTSIDE_PAGE_WARNING]
 
             return result
 
@@ -814,6 +827,9 @@ class UpsertShape(ToolDrawShapeBase):
             result = {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
             if failed_props:
                 result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
+            if _outside_page(page, shape):
+                result["warnings"] = result.get("warnings", []) + [_OUTSIDE_PAGE_WARNING]
+
             return result
 
         # validate() rejects other actions; keep execute total so the ToolBase
@@ -1057,7 +1073,10 @@ class AlignShapes(ToolDrawShapeBase):
         new_boxes = align_boxes(boxes, alignment)
         for shape, box in zip(shapes, new_boxes):
             _apply_box(shape, box)
-        return {"status": "ok", "message": "Shapes aligned", "page": actual_idx, "indices": list(indices)}
+        res: dict[str, Any] = {"status": "ok", "message": "Shapes aligned", "page": actual_idx, "indices": list(indices)}
+        if any(_outside_page(page, s) for s in shapes):
+            res["warnings"] = [_OUTSIDE_PAGE_WARNING]
+        return res
 
 
 class DistributeShapes(ToolDrawShapeBase):
@@ -1093,7 +1112,10 @@ class DistributeShapes(ToolDrawShapeBase):
         new_boxes = distribute_boxes(boxes, axis)
         for shape, box in zip(shapes, new_boxes):
             _apply_box(shape, box)
-        return {"status": "ok", "message": "Shapes distributed", "page": actual_idx, "indices": list(indices)}
+        res = {"status": "ok", "message": "Shapes distributed", "page": actual_idx, "indices": list(indices)}
+        if any(_outside_page(page, s) for s in shapes):
+            res["warnings"] = [_OUTSIDE_PAGE_WARNING]
+        return res
 
 
 class CreateDiagram(ToolDrawShapeBase):
@@ -1161,6 +1183,7 @@ class CreateDiagram(ToolDrawShapeBase):
         upsert = UpsertShape()
         id_to_index: dict[str, int] = {}
         created: list[dict[str, Any]] = []
+        warnings: list[str] = []
         # Objects in create order (nodes, then each connector that succeeded).
         # page.remove(shape) does not use the index from create time. Deleting
         # a node by that index shifts later connectors onto node slots, and
@@ -1189,6 +1212,7 @@ class CreateDiagram(ToolDrawShapeBase):
             if isinstance(result, dict) and result.get("status") != "ok":
                 cleanup_shapes()
                 return result
+            warnings.extend(result.get("warnings", []))
             idx = result.get("index")
             if not isinstance(idx, int):
                 cleanup_shapes()
@@ -1219,7 +1243,10 @@ class CreateDiagram(ToolDrawShapeBase):
             tracked.append(page.getByIndex(conn_index))
             connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": conn_index})
 
-        return {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout, "nodes": created, "id_to_index": id_to_index, "connections": connected}
+        out: dict[str, Any] = {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout, "nodes": created, "id_to_index": id_to_index, "connections": connected}
+        if warnings:
+            out["warnings"] = list(dict.fromkeys(warnings))
+        return out
 
 
 class DeleteShape(ToolDrawShapeBase):

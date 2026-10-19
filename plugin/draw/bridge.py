@@ -999,6 +999,13 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
 
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
 
+        # Tip: page size lets the model keep shapes on the slide.
+        page_w = getattr(active_page, "Width", None)
+        page_h = getattr(active_page, "Height", None)
+        if isinstance(page_w, int) and isinstance(page_h, int):
+            ctx_str += "%s Size: width=%d, height=%d (1/100 mm)\n" % (
+                "Slide" if is_impress else "Page", page_w, page_h)
+
         # Summarize shapes on the active page.
         # A blank slide still has speaker notes. An empty XDrawPage is
         # falsy when it has zero shapes, so `if active_page` skips the

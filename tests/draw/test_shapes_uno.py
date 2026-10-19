@@ -146,3 +146,41 @@ def test_shape_upsert_axis_aligned_line(ctx, doc):
         height=0,
     )
     assert rejected.get("status") == "error", rejected
+
+
+@native_test
+@with_native_doc("impress")
+def test_impress_shape_off_slide_warning(ctx, doc):
+    """Off-slide positions (x=30000 on a ~28000 slide) return ok with a warning."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    upsert = UpsertShape()
+
+    # Off-slide position x=30000 on standard ~28000-wide slide
+    res_off = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=30000,
+        y=1000,
+        width=2000,
+        height=1500,
+    )
+    assert res_off.get("status") == "ok", res_off
+    assert "warnings" in res_off, res_off
+    assert "Shape is outside the page bounds." in res_off["warnings"]
+
+    # Normal position within slide boundaries has no warning
+    res_in = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=2000,
+        height=1500,
+    )
+    assert res_in.get("status") == "ok", res_in
+    assert "warnings" not in res_in, res_in
+

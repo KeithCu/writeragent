@@ -1176,3 +1176,26 @@ def test_get_draw_context_for_chat_speaker_notes_disposed():
 
         with pytest.raises(DocumentDisposedError):
             get_draw_context_for_chat(model, 1000, ctx=MagicMock())
+
+
+def test_get_draw_context_for_chat_includes_slide_dimensions():
+    """Slide/page dimensions are exposed in document context for the LLM."""
+    model = MagicMock()
+    model.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+    model.getURL.return_value = "file:///tmp/deck.odp"
+
+    mock_page = MagicMock()
+    mock_page.Width = 28000
+    mock_page.Height = 15750
+
+    with patch("plugin.draw.bridge.DrawBridge") as MockBridge:
+        instance = MockBridge.return_value
+        instance.get_pages.return_value.getCount.return_value = 1
+        instance.get_pages.return_value.getByIndex.return_value = mock_page
+        instance.get_active_page.return_value = mock_page
+        instance.get_shapes.return_value = []
+
+        out = get_draw_context_for_chat(model, 1000, ctx=MagicMock())
+
+    assert "Slide Size: width=28000, height=15750 (1/100 mm)" in out
+

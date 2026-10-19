@@ -601,3 +601,86 @@ def test_shape_group_failure_propagates():
         bridge_cls.get_slide_for_tool.return_value = page
         with pytest.raises(RuntimeError):
             GroupShapes().execute(tool_ctx, indices=[0, 1])
+
+
+def test_shape_upsert_off_page_adds_warning():
+    """Shapes positioned outside page bounds return a warning without failing."""
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    page_shapes = []
+
+    page.add.side_effect = lambda s: page_shapes.append(s)
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+
+    shape = MagicMock()
+    shape.getPosition.return_value = _Pos(30000, 1000)
+    shape.getSize.return_value = _Size(2000, 2000)
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = shape
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page_index.return_value = 0
+
+        # Off-slide position x=30000 on a 28000 slide
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=30000, y=1000, width=2000, height=2000)
+
+    assert out["status"] == "ok"
+    assert "warnings" in out
+    assert "Shape is outside the page bounds." in out["warnings"]
+    # Invariant: dimensions belong in chat document context, not every tool result.
+    assert "page_width" not in out and "width_mm" not in out
+
+
+def test_shape_upsert_within_page_has_no_warning():
+    """Shapes within page bounds do not trigger the outside bounds warning."""
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    page_shapes = []
+
+    page.add.side_effect = lambda s: page_shapes.append(s)
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+
+    shape = MagicMock()
+    shape.getPosition.return_value = _Pos(1000, 1000)
+    shape.getSize.return_value = _Size(2000, 2000)
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = shape
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page_index.return_value = 0
+
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=1000, y=1000, width=2000, height=2000)
+
+    assert out["status"] == "ok"
+    assert "warnings" not in out
+
