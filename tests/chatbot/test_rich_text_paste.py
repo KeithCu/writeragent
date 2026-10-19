@@ -1527,6 +1527,87 @@ class TestFlattenTextTableCopy:
         assert "portion1" in inserted_strings
         assert "p2_text" not in inserted_strings
 
+    def test_control_len_resyncs_after_post_insert_formatting_failure(self):
+        """Simulate post-insert formatting raise after text landed; assert length resyncs and link span stays accurate."""
+        from plugin.calc.navigation import cell_link_registry
+        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
+
+        p1_portion = MagicMock()
+        p1_portion.getString.return_value = "first_portion"
+        p1_portion.CharColor = -1
+        p1_portion.CharFontName = "Liberation Sans"
+        p1_portion.CharHeight = 10.0
+        p1_portion.CharWeight = 100.0
+        p1_portion.HyperLinkURL = ""
+        p1_portion.CharUnderline = 0
+
+        p1 = MagicMock()
+        p1.supportsService.return_value = False
+        p1.getPropertyValue.return_value = None
+        p1.createEnumeration.return_value = _uno_enum([p1_portion])
+        p1.getString.return_value = "first_fallback"
+
+        p2_portion = MagicMock()
+        p2_portion.getString.return_value = "Sheet1.A1"
+        p2_portion.CharColor = -1
+        p2_portion.CharFontName = "Liberation Sans"
+        p2_portion.CharHeight = 10.0
+        p2_portion.CharWeight = 100.0
+        p2_portion.HyperLinkURL = "cell://Sheet1.A1"
+        p2_portion.CharUnderline = 0
+
+        p2 = MagicMock()
+        p2.supportsService.return_value = False
+        p2.getPropertyValue.return_value = None
+        p2.createEnumeration.return_value = _uno_enum([p2_portion])
+        p2.getString.return_value = "Sheet1.A1"
+
+        src_doc = MagicMock()
+        src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([p1, p2])
+
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+
+        landed_text: list[str] = []
+
+        def _mock_len(_ctrl):
+            return len("".join(landed_text))
+
+        failed_once = [False]
+
+        def _mock_insert(_model, _cursor, text, *args, **kwargs):
+            landed_text.append(text)
+            if not failed_once[0]:
+                failed_once[0] = True
+                raise RuntimeError("post-insert formatting failed after text landed")
+
+        theme = MagicMock(user_color=1, assistant_color=2)
+        try:
+            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=_mock_len), \
+                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_mock_insert):
+                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                    src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                )
+            assert ok is True
+            assert reason is None
+            full_text = "".join(landed_text)
+            spans = cell_link_registry._spans.get(id(control), [])
+            assert len(spans) == 1
+            start, end, addr = spans[0]
+            assert addr == "Sheet1.A1"
+            assert full_text[start:end] == "Sheet1.A1"
+            assert (start, end, addr) == (28, 37, "Sheet1.A1")
+        finally:
+            cell_link_registry.clear(control)
+
+
 
 def test_plain_fallback_text_drops_script_and_unescapes():
     assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"

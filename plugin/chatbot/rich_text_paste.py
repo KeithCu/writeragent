@@ -795,6 +795,8 @@ def _copy_formatted_from_hidden_doc_to_control(
                         inserted = True
                         element_inserted = True
                 except Exception as exc:
+                    # Resync length on error: failed insert or post-formatting may have written text.
+                    control_len = get_control_text_length(control)
                     if element_inserted:
                         # A partly copied element means the formatted copy is not
                         # complete; reporting success would make rerender drop the plain tail.
@@ -815,6 +817,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 fallback_text = "\n".join(_flatten_text_table_rows(para))
                             else:
                                 fallback_text = para.getString()
+                            control_len = get_control_text_length(control)
                             if fallback_text:
                                 _insert_string_at_rich_cursor(model, dest_cursor, fallback_text, default_color)
                                 if control_len is not None:
@@ -822,6 +825,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 dest_cursor.gotoEnd(False)
                                 inserted = True
                         except Exception:
+                            control_len = get_control_text_length(control)
                             element_skipped = True
                             log.exception(
                                 "_copy_formatted_from_hidden_doc_to_control: fallback element string failed role=%s",
