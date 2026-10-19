@@ -371,7 +371,7 @@ class CellInspector:
                 rows = addr.EndRow - addr.StartRow + 1
                 cols = addr.EndColumn - addr.StartColumn + 1
                 n = rows * cols
-                if n > python_max_data_cells_min():
+                if isinstance(n, int) and n > python_max_data_cells_min():
                     limit = configured_python_max_data_cells()
                     if n > limit:
                         raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
