@@ -32,7 +32,7 @@ import urllib.parse
 import urllib.request
 
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import reraise_if_disposed, resolve_exception_message
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, resolve_exception_message
 from plugin.framework.queue_executor import execute_on_main_thread, _SCOPE_UNSET
 from plugin.framework.thread_guard import on_main_thread
 from ..specialized_base import ToolWriterImageBase
@@ -293,15 +293,20 @@ class ImageGenerate(ToolWriterImageBase):
         if is_edit:
             gen_kwargs["source_image"] = source_b64
 
-        paths, error_msg = image_svc.generate_image(
-            prompt,
-            width=width,
-            height=height,
-            aspect_ratio=wire_ratio,
-            status_callback=status_callback,
-            stop_checker=stop_checker,
-            **gen_kwargs,
-        )
+        try:
+            paths, error_msg = image_svc.generate_image(
+                prompt,
+                width=width,
+                height=height,
+                aspect_ratio=wire_ratio,
+                status_callback=status_callback,
+                stop_checker=stop_checker,
+                **gen_kwargs,
+            )
+        except ToolExecutionError as exc:
+            if getattr(exc, "code", None) == "USER_STOPPED":
+                return self._tool_error(str(exc), code="USER_STOPPED")
+            raise
 
         if not paths:
             return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider="endpoint")
@@ -465,7 +470,8 @@ def _is_at_page(graphic: Any) -> bool:
 
         anchor_type = graphic.getPropertyValue("AnchorType")
         return bool(anchor_type == AT_PAGE or (isinstance(anchor_type, int) and anchor_type == 2))
-    except Exception:
+    except Exception as e:
+        reraise_if_disposed(e)
         return False
 
 
@@ -1039,15 +1045,22 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             return self._tool_error("Image '%s' has no picture data to mark." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
         units = kwargs.get("units") or "px"
-        width_px, height_px = image_mark.pixel_size(source)
+        width_px: int | None = None
+        height_px: int | None = None
         try:
+            width_px, height_px = image_mark.pixel_size(source)
             if crop_box is not None:
                 region = image_mark.to_pixel_box(crop_box, units, width_px, height_px)
             else:
                 region = image_mark.visible_region(visual_helpers.safe_get_property(obj, "GraphicCrop"), visual_helpers.safe_get_property(obj, "ActualSize"), source)
             marks = image_mark.parse_marks(highlights, units, width_px, height_px, region)
         except ValueError as e:
-            return self._tool_error(str(e), code="INVALID_PARAMETER", width_px=width_px, height_px=height_px)
+            extra = {}
+            if width_px is not None:
+                extra["width_px"] = width_px
+            if height_px is not None:
+                extra["height_px"] = height_px
+            return self._tool_error(str(e), code="INVALID_PARAMETER", **extra)
 
         from com.sun.star.awt import Size
         from com.sun.star.text import GraphicCrop
@@ -1068,13 +1081,21 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
 
         with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
+            saved_graphic = visual_helpers.safe_get_property(obj, "Graphic")
+            saved_crop = visual_helpers.safe_get_property(obj, "GraphicCrop") if visual_helpers.has_uno_property(obj, "GraphicCrop") else None
             obj.setPropertyValue("Graphic", baked)
             # The old crop referred to the old picture; the region is already cut out of the new one.
             if visual_helpers.has_uno_property(obj, "GraphicCrop"):
                 if not visual_helpers.safe_set_property(obj, "GraphicCrop", GraphicCrop()):
+                    if saved_graphic is not None:
+                        obj.setPropertyValue("Graphic", saved_graphic)
                     return self._tool_error("Failed to reset image crop.", code="SET_CROP_FAILED")
             new_size = Size(width_100mm, height_100mm)
             if not (visual_helpers.safe_set_property(obj, "Size", new_size) or visual_helpers.safe_try_method(obj, "setSize", new_size)):
+                if saved_graphic is not None:
+                    obj.setPropertyValue("Graphic", saved_graphic)
+                if saved_crop is not None:
+                    visual_helpers.safe_set_property(obj, "GraphicCrop", saved_crop)
                 return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
         return {
             "status": "ok",

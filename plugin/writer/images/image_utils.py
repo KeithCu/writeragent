@@ -31,6 +31,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
 from plugin.framework.config import get_config_int
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
+from plugin.framework.errors import NetworkError, ToolExecutionError
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,17 @@ class ImageProvider:
         raise NotImplementedError()
 
 
+def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
+    is_stopped = False
+    if isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED":
+        is_stopped = True
+    elif stop_checker is not None and stop_checker():
+        is_stopped = True
+    if is_stopped:
+        log.debug("Image generation cancelled by Stop: %s", exc)
+        raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
+
+
 class EndpointImageProvider(ImageProvider):
     """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
 
@@ -155,56 +167,139 @@ class EndpointImageProvider(ImageProvider):
             extra["stop_checker"] = stop_checker
         if status_callback is not None:
             extra["status_callback"] = status_callback
-        data = sync_request(
+        resp = sync_request(
             url,
             parse_json=False,
+            include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             **extra,
         )
-        if len(data) > IMAGE_DOWNLOAD_MAX_BYTES:
+        body = getattr(resp, "body", resp)
+        content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
+        if content_type in ("text/html", "text/plain", "application/xhtml+xml", "application/json"):
+            raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
+        if len(body) > IMAGE_DOWNLOAD_MAX_BYTES:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
-        return [write_temp_image(data)]
+        sniffed = suffix_for_image_bytes(body)
+        if sniffed == ".img":
+            raise RuntimeError("Downloaded data is not a recognized image format")
+        return [write_temp_image(body, suffix=sniffed)]
 
     def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
-        status_callback = kwargs.pop("status_callback", None)
-        stop_checker = kwargs.pop("stop_checker", None)
-        wire: dict[str, Any] = {}
-        if status_callback is not None:
-            wire["status_callback"] = status_callback
-        if stop_checker is not None:
-            wire["stop_checker"] = stop_checker
-        override = kwargs.pop("image_model", None)
-        if isinstance(override, str) and override.strip():
-            model = override.strip()
-        model = model or self.model
-        # For OpenRouter edit (img2img): send multimodal message with text + source image
-        source_image = kwargs.get("source_image")
-        if self.client.config.get("is_openrouter"):
-            content: Any
-            if source_image:
-                content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
+        try:
+            status_callback = kwargs.pop("status_callback", None)
+            stop_checker = kwargs.pop("stop_checker", None)
+            wire: dict[str, Any] = {}
+            if status_callback is not None:
+                wire["status_callback"] = status_callback
+            if stop_checker is not None:
+                wire["stop_checker"] = stop_checker
+            override = kwargs.pop("image_model", None)
+            if isinstance(override, str) and override.strip():
+                model = override.strip()
+            model = model or self.model
+            # For OpenRouter edit (img2img): send multimodal message with text + source image
+            source_image = kwargs.get("source_image")
+            if self.client.config.get("is_openrouter"):
+                content: Any
+                if source_image:
+                    content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
+                else:
+                    content = prompt
+                messages = [{"role": "user", "content": content}]
             else:
-                content = prompt
-            messages = [{"role": "user", "content": content}]
-        else:
-            messages = [{"role": "user", "content": prompt}]
-        log.info("Requesting image via endpoint: %s", model)
+                messages = [{"role": "user", "content": prompt}]
+            log.info("Requesting image via endpoint: %s", model)
 
-        fallback_content = ""
+            fallback_content = ""
 
-        if self.client.config.get("is_openrouter"):
-            use_dedicated = False
-            from plugin.framework.client.model_fetcher import is_image_only_model
-            if is_image_only_model(self.client._endpoint(), model):
-                use_dedicated = True
+            if self.client.config.get("is_openrouter"):
+                use_dedicated = False
+                from plugin.framework.client.model_fetcher import is_image_only_model
+                if is_image_only_model(self.client._endpoint(), model):
+                    use_dedicated = True
 
-            if use_dedicated:
-                valid_steps = steps if (steps is not None and steps > 0) else None
-                paths: list[str] = []
+                if use_dedicated:
+                    valid_steps = steps if (steps is not None and steps > 0) else None
+                    paths: list[str] = []
+                    try:
+                        b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire)
+                        for b64 in b64_list:
+                            paths.extend(self._save_b64(b64))
+                        if paths:
+                            return paths, ""
+                        return [], "No image data returned from provider"
+                    except Exception as e:
+                        _unlink_temp_paths(paths)
+                        _reraise_if_stopped(stop_checker, e)
+                        log.exception("OpenRouter dedicated image generation failed")
+                        return [], str(e)
+
+                _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
+                body_dict = json.loads(body)
+                body_dict["modalities"] = ["image"]
+                # Edit: source image already defines geometry. Sending sidebar
+                # Square / Base Size as image_config overrode the selection and
+                # mapped ~512 display px to image_size "512", which OpenRouter
+                # chat rejects (enum is 0.5K|1K|2K|4K).
+                if not source_image:
+                    # Create: Gemini multimodal models need image_config hints;
+                    # pixel size is not a chat-completions field
+                    # (https://openrouter.ai/google/gemini-3.1-flash-lite-image).
+                    hint = canonical_aspect_ratio(width, height, named=kwargs.get("aspect_ratio"))
+                    image_config = {}
+                    if hint:
+                        image_config["aspect_ratio"] = hint
+                    size_hint = canonical_resolution(width, height, family="openrouter_chat")
+                    if size_hint:
+                        image_config["image_size"] = size_hint
+                    if image_config:
+                        body_dict["image_config"] = image_config
+                if steps is not None and steps > 0:
+                    body_dict["steps"] = steps
+                if "max_tokens" in kwargs:
+                    body_dict["max_tokens"] = kwargs["max_tokens"]
+
+                paths = []
                 try:
-                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire)
+                    chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model, **wire)
+                    raw_content = chat_resp.get("content")
+                    fallback_content = raw_content if isinstance(raw_content, str) else ""
+
+                    # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
+                    for img in chat_resp.get("images") or []:
+                        url = None
+                        if isinstance(img, dict):
+                            if "image_url" in img and isinstance(img["image_url"], dict):
+                                url = img["image_url"].get("url")
+                            elif "image_url" in img and isinstance(img["image_url"], str):
+                                url = img["image_url"]
+
+                        if not url:
+                            continue
+
+                        if "data:image" in url:
+                            match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
+                            if match:
+                                paths.extend(self._save_b64(match.group(1)))
+                        elif url.startswith("http"):
+                            paths.extend(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
+                except Exception as e:
+                    _unlink_temp_paths(paths)
+                    _reraise_if_stopped(stop_checker, e)
+                    log.exception("OpenRouter image processing failed")
+                    return [], str(e)
+
+                if paths:
+                    return paths, ""
+            else:
+                # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
+                valid_steps = steps if (steps is not None and steps > 0) else None
+                paths = []
+                try:
+                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"), **wire)
                     for b64 in b64_list:
                         paths.extend(self._save_b64(b64))
                     if paths:
@@ -212,109 +307,32 @@ class EndpointImageProvider(ImageProvider):
                     return [], "No image data returned from provider"
                 except Exception as e:
                     _unlink_temp_paths(paths)
-                    # A user Stop closes the socket mid-request; that is not a failure.
-                    if stop_checker is not None and stop_checker():
-                        log.debug("OpenRouter dedicated image generation cancelled by Stop: %s", e)
-                    else:
-                        log.exception("OpenRouter dedicated image generation failed")
+                    _reraise_if_stopped(stop_checker, e)
+                    log.exception("Image generation failed")
                     return [], str(e)
 
-            _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
-            body_dict = json.loads(body)
-            body_dict["modalities"] = ["image"]
-            # Edit: source image already defines geometry. Sending sidebar
-            # Square / Base Size as image_config overrode the selection and
-            # mapped ~512 display px to image_size "512", which OpenRouter
-            # chat rejects (enum is 0.5K|1K|2K|4K).
-            if not source_image:
-                # Create: Gemini multimodal models need image_config hints;
-                # pixel size is not a chat-completions field
-                # (https://openrouter.ai/google/gemini-3.1-flash-lite-image).
-                hint = canonical_aspect_ratio(width, height, named=kwargs.get("aspect_ratio"))
-                image_config = {}
-                if hint:
-                    image_config["aspect_ratio"] = hint
-                size_hint = canonical_resolution(width, height, family="openrouter_chat")
-                if size_hint:
-                    image_config["image_size"] = size_hint
-                if image_config:
-                    body_dict["image_config"] = image_config
-            if steps is not None and steps > 0:
-                body_dict["steps"] = steps
-            if "max_tokens" in kwargs:
-                body_dict["max_tokens"] = kwargs["max_tokens"]
-
-            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model, **wire)
-            raw_content = chat_resp.get("content")
-            fallback_content = raw_content if isinstance(raw_content, str) else ""
-
-            # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
-            paths = []
-            try:
-                for img in chat_resp.get("images") or []:
-                    url = None
-                    if isinstance(img, dict):
-                        if "image_url" in img and isinstance(img["image_url"], dict):
-                            url = img["image_url"].get("url")
-                        elif "image_url" in img and isinstance(img["image_url"], str):
-                            url = img["image_url"]
-
-                    if not url:
-                        continue
-
-                    if "data:image" in url:
-                        match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
+            # Fallback: image in content string (some endpoints)
+            if isinstance(fallback_content, str) and fallback_content:
+                paths = []
+                try:
+                    if "data:image" in fallback_content:
+                        match = re.search(r"base64,([A-Za-z0-9+/=]+)", fallback_content)
                         if match:
                             paths.extend(self._save_b64(match.group(1)))
-                    elif url.startswith("http"):
-                        paths.extend(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
-            except Exception as e:
-                _unlink_temp_paths(paths)
-                if stop_checker is not None and stop_checker():
-                    log.debug("OpenRouter image download cancelled by Stop: %s", e)
-                else:
-                    log.exception("OpenRouter image processing failed")
-                return [], str(e)
+                    stripped = fallback_content.strip()
+                    if not paths and stripped.startswith("http"):
+                        paths.extend(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
+                    if paths:
+                        return paths, ""
+                except Exception as e:
+                    _unlink_temp_paths(paths)
+                    _reraise_if_stopped(stop_checker, e)
+                    log.exception("Image fallback content processing failed")
+                    return [], str(e)
 
-            if paths:
-                return paths, ""
-        else:
-            # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
-            valid_steps = steps if (steps is not None and steps > 0) else None
-            paths = []
-            try:
-                b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"), **wire)
-                for b64 in b64_list:
-                    paths.extend(self._save_b64(b64))
-                if paths:
-                    return paths, ""
-                return [], "No image data returned from provider"
-            except Exception as e:
-                _unlink_temp_paths(paths)
-                if stop_checker is not None and stop_checker():
-                    log.debug("Image generation cancelled by Stop: %s", e)
-                else:
-                    log.exception("Image generation failed")
-                return [], str(e)
-
-        # Fallback: image in content string (some endpoints)
-        if isinstance(fallback_content, str) and fallback_content:
-            paths = []
-            try:
-                if "data:image" in fallback_content:
-                    match = re.search(r"base64,([A-Za-z0-9+/=]+)", fallback_content)
-                    if match:
-                        paths.extend(self._save_b64(match.group(1)))
-                stripped = fallback_content.strip()
-                if not paths and stripped.startswith("http"):
-                    paths.extend(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
-                if paths:
-                    return paths, ""
-            except Exception as e:
-                _unlink_temp_paths(paths)
-                return [], str(e)
-
-        return [], ""
+            return [], ""
+        finally:
+            self.client._close_connection()
 
 
 class ImageService:

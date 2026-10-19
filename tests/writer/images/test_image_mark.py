@@ -36,6 +36,11 @@ def test_pixel_size_vector_picture_gets_96_dpi_frame():
     assert image_mark.pixel_size(_graphic(px=(0, 0), hmm=(2540, 5080))) == (96, 192)
 
 
+def test_pixel_size_unmeasurable_raises():
+    with pytest.raises(ValueError, match="Cannot determine this picture's pixel size"):
+        image_mark.pixel_size(_graphic(px=(0, 0), hmm=(0, 0)))
+
+
 def test_graphic_pixel_size():
     from plugin.doc import visual_helpers
 

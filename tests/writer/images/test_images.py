@@ -192,6 +192,30 @@ def test_image_generate_inserts_even_if_stopped_after_download():
     mock_insert.assert_called_once()
 
 
+def test_image_generate_stop_is_user_stopped():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.side_effect = ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED")
+
+    with (
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image") as mock_insert,
+        patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
+        patch("plugin.writer.images.images.get_config_int", return_value=1024),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a cat")
+
+    assert res["status"] != "ok"
+    assert res.get("code") == "USER_STOPPED"
+    mock_insert.assert_not_called()
+    mock_replace.assert_not_called()
+
+
 def test_image_generate_rejects_non_integer_base_size():
     ok, err = ImageGenerate().validate(prompt="a tabby cat", base_size="nope")
     assert ok is False
@@ -1284,17 +1308,31 @@ def test_image_crop_rejects_non_positive_width_mm():
 def test_image_crop_reports_frame_failures():
     ctx = TestingFactory.create_context(doc_type="writer")
     obj = MagicMock()
+    original_graphic = MagicMock()
+    original_crop = MagicMock()
+    baked_graphic = MagicMock()
     size_mock = MagicMock(Width=1000, Height=500)
+
+    def _get_prop(target, prop, default=None):
+        if prop == "Graphic":
+            return original_graphic
+        if prop == "GraphicCrop":
+            return original_crop
+        return default
+
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
         patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
-        patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
+        patch("plugin.writer.images.images.image_mark.bake", return_value=baked_graphic) as mock_bake,
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch("plugin.writer.images.images.visual_helpers.safe_get_property", side_effect=_get_prop),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
         # GraphicCrop present, but safe_set_property returns False -> SET_CROP_FAILED
+        obj.reset_mock()
+        mock_bake.reset_mock()
         with (
             patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
             patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
@@ -1302,10 +1340,21 @@ def test_image_crop_reports_frame_failures():
             res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
             assert res["status"] != "ok"
             assert res.get("code") == "SET_CROP_FAILED"
+            mock_bake.assert_called_once()
+            graphic_calls = [c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]
+            assert len(graphic_calls) >= 2
+            assert graphic_calls[0][0][1] == baked_graphic
+            assert graphic_calls[-1][0][1] == original_graphic
 
         # Size write fails (both safe_set_property and safe_try_method return False) -> SET_SIZE_FAILED
+        obj.reset_mock()
+        mock_bake.reset_mock()
+        saved_crop_restored = []
+
         def _mock_set_prop(target, prop, val):
             if prop == "GraphicCrop":
+                if val == original_crop:
+                    saved_crop_restored.append(val)
                 return True
             return False
 
@@ -1317,6 +1366,60 @@ def test_image_crop_reports_frame_failures():
             res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
             assert res["status"] != "ok"
             assert res.get("code") == "SET_SIZE_FAILED"
+            mock_bake.assert_called_once()
+            graphic_calls = [c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]
+            assert len(graphic_calls) >= 2
+            assert graphic_calls[0][0][1] == baked_graphic
+            assert graphic_calls[-1][0][1] == original_graphic
+            assert original_crop in saved_crop_restored
+
+
+def test_image_crop_and_info_unmeasurable_graphic():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    # Unmeasurable graphic has no SizePixel or Size100thMM
+    graphic = SimpleNamespace(getPropertyValue=lambda prop: None)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
+        patch("plugin.writer.images.images.image_mark.bake") as mock_bake,
+    ):
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        mock_bake.assert_not_called()
+
+        info = ImageGetInfo().execute(ctx, name="Pic")
+        assert info["status"] == "ok"
+        assert info.get("width_px") is None
+        assert info.get("height_px") is None
+
+
+def test_image_list_disposed_anchor_type_raises_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    graphic = MagicMock()
+
+    def _get_prop(name):
+        if name == "AnchorType":
+            raise DisposedException("disposed")
+        return MagicMock()
+
+    graphic.getPropertyValue.side_effect = _get_prop
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            ImageList().execute(ctx)
 
 
 def test_image_generate_invalid_source_image_parameter():

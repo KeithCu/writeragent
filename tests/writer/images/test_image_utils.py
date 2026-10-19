@@ -27,26 +27,27 @@ class TestEndpointImageProvider:
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
         
-        # Mock OpenRouter response with image URL
         mock_resp = {
             "content": "Here is your image",
             "images": [{"image_url": {"url": "http://example.com/image.png"}}]
         }
         self.mock_client.request_with_tools.return_value = mock_resp
-        mock_sync.return_value = b"fake-image-data"
+        mock_sync.return_value = b"\x89PNG\r\n\x1a\nfake-image-data"
 
         paths, err = self.provider.generate("test prompt")
         
         assert (len(paths)) == (1)
         assert (err) == ("")
-        assert (paths[0].endswith(".img"))
+        assert (paths[0].endswith(".png"))
         from plugin.framework.config import get_config_int
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
             parse_json=False,
+            include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         )
+        os.unlink(paths[0])
 
     def test_generate_openrouter_b64(self):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
@@ -87,22 +88,23 @@ class TestEndpointImageProvider:
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
         
-        # Mock response where image is in content (fallback)
         mock_resp = {
             "content": "http://fallback.com/image.png",
             "images": []
         }
         self.mock_client.request_with_tools.return_value = mock_resp
-        mock_sync.return_value = b"fallback-image-data"
+        mock_sync.return_value = b"\x89PNG\r\n\x1a\nfallback-image-data"
 
         paths, err = self.provider.generate("test prompt")
         
         assert (len(paths)) == (1)
         assert (err) == ("")
+        assert paths[0].endswith(".png")
         from plugin.framework.config import get_config_int
         mock_sync.assert_called_with(
             "http://fallback.com/image.png",
             parse_json=False,
+            include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         )
@@ -252,9 +254,9 @@ class TestEndpointImageProvider:
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_image_generation_downgrades_to_debug_on_stop(self, mock_client_cls, caplog):
-        """User cancel during image generation must log at debug instead of error."""
+        """User cancel during image generation must log at debug instead of error and raise ToolExecutionError."""
         import logging
-        from plugin.framework.errors import NetworkError
+        from plugin.framework.errors import NetworkError, ToolExecutionError
 
         mock_client = create_mock_client()
         mock_client.image_completion.side_effect = NetworkError("aborted", code="STOPPED")
@@ -263,17 +265,89 @@ class TestEndpointImageProvider:
         provider.client = mock_client
 
         with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
-            paths, err = provider.generate("test prompt", stop_checker=lambda: True)
+            with pytest.raises(ToolExecutionError) as exc_info:
+                provider.generate("test prompt", stop_checker=lambda: True)
+            assert exc_info.value.code == "USER_STOPPED"
 
-        assert paths == []
-        assert "aborted" in err
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
-        # Release strips log.debug; empty paths and no ERROR must still hold.
+        # Release strips log.debug; no ERROR must still hold.
         from plugin.writer.images import image_utils as image_utils_mod
         from tests.harness.strip_bundle import module_source_contains
 
         if module_source_contains(image_utils_mod, "Image generation cancelled by Stop"):
             assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
+
+        # Modalities path: NetworkError(code="STOPPED") from request_with_tools
+        caplog.clear()
+        mock_client_openrouter = create_mock_client()
+        mock_client_openrouter.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
+        mock_client_openrouter.make_chat_request.return_value = ("POST", "/chat", "{}", {})
+        mock_client_openrouter.request_with_tools.side_effect = NetworkError("aborted", code="STOPPED")
+        provider_or = EndpointImageProvider({"model": "test"}, MockContext())
+        provider_or.client = mock_client_openrouter
+
+        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
+            with pytest.raises(ToolExecutionError) as exc_info:
+                provider_or.generate("test prompt", stop_checker=lambda: True)
+            assert exc_info.value.code == "USER_STOPPED"
+        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+
+        # Fallback http content path: NetworkError(code="STOPPED") from _save_url
+        caplog.clear()
+        mock_client_fallback = create_mock_client()
+        mock_client_fallback.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
+        mock_client_fallback.make_chat_request.return_value = ("POST", "/chat", "{}", {})
+        mock_client_fallback.request_with_tools.return_value = {
+            "content": "http://fallback.com/image.png",
+            "images": [],
+        }
+        provider_fb = EndpointImageProvider({"model": "test"}, MockContext())
+        provider_fb.client = mock_client_fallback
+
+        with patch("plugin.writer.images.image_utils.sync_request", side_effect=NetworkError("aborted", code="STOPPED")):
+            with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
+                with pytest.raises(ToolExecutionError) as exc_info:
+                    provider_fb.generate("test prompt", stop_checker=lambda: True)
+                assert exc_info.value.code == "USER_STOPPED"
+        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+
+    def test_save_url_content_type_and_magic_validation(self):
+        """_save_url rejects HTML and non-image bytes, and validates image magic."""
+        import glob
+        import tempfile
+        from plugin.framework.client.http_transport import HttpResult
+
+        provider = EndpointImageProvider({"model": "test"}, MockContext())
+
+        # HTML body with content_type="text/html" raises and leaves no wa-img-* file
+        html_result = HttpResult(200, b"<html><body>Not an image</body></html>", "text/html")
+        before_files = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+        with patch("plugin.writer.images.image_utils.sync_request", return_value=html_result):
+            with pytest.raises(RuntimeError, match="Invalid Content-Type"):
+                provider._save_url("https://example.com/not-image.html")
+        after_files = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+        assert after_files == before_files
+
+        # image/png plus PNG magic returns a .png path
+        png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
+        png_result = HttpResult(200, png_data, "image/png")
+        with patch("plugin.writer.images.image_utils.sync_request", return_value=png_result):
+            paths = provider._save_url("https://example.com/real.png")
+            assert len(paths) == 1
+            assert paths[0].endswith(".png")
+            assert os.path.isfile(paths[0])
+            with open(paths[0], "rb") as f:
+                assert f.read() == png_data
+            os.unlink(paths[0])
+
+        # image/png plus b"not-an-image" raises
+        bad_result = HttpResult(200, b"not-an-image", "image/png")
+        before_files = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+        with patch("plugin.writer.images.image_utils.sync_request", return_value=bad_result):
+            with pytest.raises(RuntimeError, match="not a recognized image format"):
+                provider._save_url("https://example.com/bad.png")
+        after_files = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+        assert after_files == before_files
 
 
     @patch('plugin.framework.client.llm_client.init_logging')

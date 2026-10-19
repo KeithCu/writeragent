@@ -41,21 +41,15 @@ _STROKE_MM = 0.6
 # Scratch-page scale: 1 picture pixel = 10 (1/100 mm). Any scale works because the export sets
 # the pixel size; this one keeps a 3000 px scan at 30 cm, inside Draw's page limits.
 _UNITS_PER_PX = 10
-# Vector pictures (no pixels) get a 96 DPI pixel frame: 1 px = 2540 / 96 (1/100 mm).
-_HMM_PER_PX_96DPI = 2540 / 96
-
 Box = tuple[int, int, int, int]
 
 
 def pixel_size(graphic: Any) -> tuple[int, int]:
-    """The picture's pixel frame that every box refers to.
-
-    Vector pictures (SVG, WMF) report no pixels; they get a 96 DPI frame from their logical
-    size, so pixel and percent boxes still have one meaning for them."""
+    """The picture's pixel frame that every box refers to."""
     size = visual_helpers.graphic_pixel_size(graphic)
     if size[0] is not None and size[1] is not None:
         return size[0], size[1]
-    return 1, 1
+    raise ValueError("Cannot determine this picture's pixel size (no SizePixel or Size100thMM). Boxes need a measurable picture.")
 
 
 def to_pixel_box(box: Any, units: str, width_px: int, height_px: int) -> Box:
