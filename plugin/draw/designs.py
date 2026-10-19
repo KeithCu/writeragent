@@ -651,6 +651,7 @@ def _clone_one_shape(
     uno_ctx: Any = None,
     *,
     image_path: str | None = None,
+    image_paths: list[str | None] | None = None,
     shape_index: int = 0,
     warnings: list[str] | None = None,
     chrome: list[int] | None = None,
@@ -710,6 +711,8 @@ def _clone_one_shape(
 
     reimported: bool | None = None
     if "GraphicObject" in shape_type:
+        if isinstance(image_paths, list):
+            image_path = image_paths.pop(0) if image_paths else None
         reimported = _reimport_graphic(
             uno_ctx,
             src_shape,
@@ -731,11 +734,13 @@ def _clone_one_shape(
                 raise
         for child_idx in range(src_child_count):
             src_child = src_shape.getByIndex(child_idx)
+            # Same href list; a grouped picture is not a top-level shape.
             _clone_one_shape(
                 dest_doc,
                 clone,
                 src_child,
                 uno_ctx,
+                image_paths=image_paths,
                 shape_index=child_idx,
                 warnings=warnings,
                 chrome=chrome,
@@ -816,6 +821,25 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         warnings.append("fill bitmap not copied on master")
     else:
         warnings.append(f"fill {kind} not copied on master")
+
+
+# Zip hrefs are document order and include draw:g children. A top-level-only
+# count fails the equality check, extraction is skipped, and every picture uses storeGraphic.
+def _count_graphic_shapes(container: Any) -> int:
+    try:
+        total = 0
+        for i in range(int(container.getCount())):
+            shape = container.getByIndex(i)
+            st = str(getattr(shape, "ShapeType", "") or "")
+            if "GraphicObject" in st:
+                total += 1
+            elif "GroupShape" in st:
+                total += _count_graphic_shapes(shape)
+        return total
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        return 0
 
 
 def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> ClonedMaster:
@@ -962,11 +986,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 raise
             src_count = 0
 
-        graphic_shape_count = 0
-        for i in range(src_count):
-            st = str(getattr(src_master.getByIndex(i), "ShapeType", "") or "")
-            if "GraphicObject" in st:
-                graphic_shape_count += 1
+        graphic_shape_count = _count_graphic_shapes(src_master)
 
         otp_path = str(design.get("path") or "").strip() or None
         extracted_image_paths: list[str | None] = []
@@ -990,22 +1010,17 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
 
         cloned_types: list[str] = []
         chrome: list[int] = [0, 0]
-        graphic_index = 0
+        image_paths = extracted_image_paths if extracted_image_paths else None
         for i in range(src_count):
             src_shape = src_master.getByIndex(i)
             st = str(getattr(src_shape, "ShapeType", "") or "")
             log.debug("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
-            image_path = None
-            if "GraphicObject" in st:
-                if graphic_index < len(extracted_image_paths):
-                    image_path = extracted_image_paths[graphic_index]
-                graphic_index += 1
             shape_type, _reimported = _clone_one_shape(
                 dest_doc,
                 dest_master,
                 src_shape,
                 uno_ctx,
-                image_path=image_path,
+                image_paths=image_paths,
                 shape_index=i,
                 warnings=warnings,
                 chrome=chrome,

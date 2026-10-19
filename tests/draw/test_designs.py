@@ -1214,6 +1214,103 @@ def test_master_image_href_count_mismatch_and_multi_image(tmp_path):
     assert cloned.graphic_reimports == 2
 
 
+def test_grouped_images_extract_in_document_order(tmp_path):
+    from plugin.draw.designs import clone_master_into_doc
+
+    otp = tmp_path / "GroupedMaster.otp"
+    styles_xml = (
+        b'<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        b'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        b'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+        b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+        b'<style:master-page style:name="Grouped Master">'
+        b'<draw:image xlink:href="Pictures/a.png"/>'
+        b'<draw:rect/>'
+        b'<draw:g>'
+        b'<draw:frame>'
+        b'<draw:image xlink:href="Pictures/b.png"/>'
+        b'</draw:frame>'
+        b'</draw:g>'
+        b'</style:master-page>'
+        b'</office:document-styles>'
+    )
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("styles.xml", styles_xml)
+        zf.writestr("Pictures/a.png", b"a")
+        zf.writestr("Pictures/b.png", b"b")
+
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 3
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    group_clone = MagicMock()
+    group_clone.getCount.return_value = 1
+    child_clone = MagicMock()
+    dest_doc.createInstance.side_effect = lambda t: group_clone if "GroupShape" in t else child_clone
+
+    src_doc = MagicMock()
+    src_master = MagicMock()
+    src_master.Name = "Grouped Master"
+
+    s1 = MagicMock()
+    s1.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    s2 = MagicMock()
+    s2.ShapeType = "com.sun.star.drawing.RectangleShape"
+    s3_child = MagicMock()
+    s3_child.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    s3 = MagicMock()
+    s3.ShapeType = "com.sun.star.drawing.GroupShape"
+    s3.getCount.return_value = 1
+    s3.getByIndex.return_value = s3_child
+
+    src_master.getCount.return_value = 3
+    src_master.getByIndex.side_effect = lambda i: [s1, s2, s3][i]
+    src_masters = MagicMock()
+    src_masters.getCount.return_value = 1
+    src_masters.getByIndex.return_value = src_master
+    src_doc.getMasterPages.return_value = src_masters
+
+    reimport_files: list[bytes] = []
+
+    def record_files(ctx, src_s, clone, *, image_path=None, **kwargs):
+        if image_path and Path(image_path).is_file():
+            reimport_files.append(Path(image_path).read_bytes())
+            return True
+        return False
+
+    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_files):
+        cloned = clone_master_into_doc(
+            dest_doc, src_doc, {"id": "grouped", "name": "Grouped Master", "path": str(otp)}
+        )
+    assert reimport_files == [b"a", b"b"]
+    assert cloned.graphic_shapes == 2
+    assert cloned.graphic_reimports == 2
+
+    # Second case: two hrefs (one inside draw:g) but the group child is a rectangle,
+    # so the UNO graphic count is 1. The one reimport gets image_path is None.
+    s3_rect_child = MagicMock()
+    s3_rect_child.ShapeType = "com.sun.star.drawing.RectangleShape"
+    s3.getByIndex.return_value = s3_rect_child
+    dest_doc.createInstance.side_effect = lambda t: group_clone if "GroupShape" in t else child_clone
+
+    reimport_calls: list[str | None] = []
+
+    def record_calls(ctx, src_s, clone, *, image_path=None, **kwargs):
+        reimport_calls.append(image_path)
+        return True
+
+    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_calls):
+        cloned2 = clone_master_into_doc(
+            dest_doc, src_doc, {"id": "grouped", "name": "Grouped Master", "path": str(otp)}
+        )
+    assert reimport_calls == [None]
+    assert cloned2.graphic_shapes == 1
+    assert cloned2.graphic_reimports == 1
+
+
 def test_apply_design_partial_chrome_message():
     dest = MagicMock()
     dest.getDrawPages().getCount.return_value = 1
