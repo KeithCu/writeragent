@@ -257,8 +257,8 @@ class _WorksheetCellIndex:
     """Index of rows and cells in a worksheet for ascending-order lookup and insertion."""
 
     def __init__(self, ws_root: ET.Element) -> None:
-        self.ws_root = ws_root
-        self.sheet_data = _ensure_sheet_data(ws_root)
+        self.ws_root: ET.Element = ws_root
+        self.sheet_data: ET.Element = _ensure_sheet_data(ws_root)
         self.rows: dict[int, ET.Element] = {}
         self.cells_by_row: dict[ET.Element, dict[int, ET.Element]] = {}
         self._build_index()
