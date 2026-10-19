@@ -596,7 +596,7 @@ class _ChartProxy:
             action (required): The action to perform on the charts. One of: list, get_info, create, edit, delete.
             name (optional): The name of the chart (required for get_info, edit, delete).
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): Zero-based page/slide index (Draw/Impress only).
+            page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
             data_range (optional): Cell range for chart data (Calc only, required for create, e.g. 'A1:B10').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
