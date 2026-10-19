@@ -215,4 +215,12 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         except Exception:
             break
 
+        try:
+            import plugin.contrib.smolagents.local_python_executor as _lpe
+
+            if getattr(_lpe, "abandoned_timeout", False):
+                os._exit(1)
+        except ImportError:
+            pass
+
     return 0

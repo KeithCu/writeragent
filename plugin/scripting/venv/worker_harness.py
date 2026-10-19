@@ -346,6 +346,14 @@ def main() -> None:
                 log.exception("Failed to write capped error frame for request id=%s", req_id)
                 break
 
+        try:
+            import plugin.contrib.smolagents.local_python_executor as _lpe
+
+            if getattr(_lpe, "abandoned_timeout", False):
+                os._exit(1)
+        except ImportError:
+            pass
+
 
 if __name__ == "__main__":
     main()

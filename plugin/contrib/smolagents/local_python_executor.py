@@ -76,6 +76,9 @@ _PRINT_OUTPUTS_KEY = object()
 _ACTIVE_EXCEPTIONS_KEY = object()
 _CLASS_CELL_KEY = object()
 
+# Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
+abandoned_timeout: bool = False
+
 
 class _Ops:
     __slots__ = ("count", "deadline", "timeout_seconds")
@@ -98,7 +101,7 @@ def print_outputs_from_state(state: dict[Any, Any] | None) -> str:
     container = state.get(_PRINT_OUTPUTS_KEY)
     if container is not None:
         return str(container)
-    return str(state.get("_print_outputs") or "")
+    return ""
 
 
 class PrintContainer:
@@ -148,9 +151,6 @@ def _sandboxed_print(*args: Any, **kwargs: Any) -> None:
         end = "\n"
     container.value += sep.join(map(str, args)) + end
     return None
-
-
-custom_print = _sandboxed_print
 
 
 def is_forbidden_dunder_attribute(name: str) -> bool:
@@ -323,18 +323,6 @@ DANGEROUS_MODULES = [
     "sys",
 ]
 
-DANGEROUS_FUNCTIONS = [
-    "builtins.compile",
-    "builtins.eval",
-    "builtins.exec",
-    "builtins.globals",
-    "builtins.locals",
-    "builtins.__import__",
-    "os.popen",
-    "os.system",
-    "posix.system",
-]
-
 _DANGEROUS_CALLABLE_MODULES = frozenset(m for m in DANGEROUS_MODULES if m != "builtins") | {"posix", "nt"}
 _DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
 
@@ -460,22 +448,11 @@ class ExecutionTimeoutError(BaseException):
 
 
 def timeout(timeout_seconds: Any):
-    """
-    Decorator to limit the execution time of a function using threading.
+    """Decorator to limit execution time via SIGALRM on main thread or ThreadPoolExecutor fallback.
 
-    This implementation is cross-platform (works on Windows) and thread-safe (works when
-    called from any thread, not just the main thread), unlike signal-based approaches.
-
-    Args:
-        timeout_seconds (`int`): Maximum time in seconds allowed for function execution.
-
-    Raises:
-        ExecutionTimeoutError: If the function execution exceeds the timeout period.
-
-    Note:
-        If a timeout occurs, the thread running the function cannot be forcefully killed
-        in Python, so it will continue running in the background until completion. However,
-        the caller will receive an ExecutionTimeoutError and can continue execution.
+    On Linux main thread, SIGALRM unwinds the stack cleanly. On Windows or when
+    SIGALRM raises, fallback thread execution marks abandoned_timeout on timeout
+    so worker processes terminate cleanly after writing their error response.
     """
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds < 1:
         raise TypeError("executor timeout_seconds must be a whole number of seconds >= 1")
@@ -514,6 +491,8 @@ def timeout(timeout_seconds: Any):
                 try:
                     return future.result(timeout=timeout_seconds)
                 except FuturesTimeoutError:
+                    global abandoned_timeout
+                    abandoned_timeout = True
                     raise ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                     )
@@ -538,37 +517,6 @@ def timeout(timeout_seconds: Any):
         return wrapper
 
     return decorator
-
-
-
-
-
-def fix_final_answer_code(code: str) -> str:
-    """
-    Sometimes an LLM can try to assign a variable to final_answer, which would break the final_answer() tool.
-    This function fixes this behaviour by replacing variable assignments to final_answer with final_answer_variable,
-    while preserving function calls to final_answer().
-    """
-    # First, find if there's a direct assignment to final_answer
-    # Use word boundary and negative lookbehind to ensure it's not an object attribute
-    assignment_pattern = r"(?<!\.)(?<!\w)\bfinal_answer\s*="
-    if "final_answer(" not in code or not re.search(assignment_pattern, code):
-        # If final_answer tool is not called in this blob, then doing the replacement is hazardous because it could false the model's memory for next steps.
-        # Let's not modify the code and leave the subsequent assignment error happen.
-        return code
-
-    # Pattern for replacing variable assignments
-    # Looks for 'final_answer' followed by '=' with optional whitespace
-    # Negative lookbehind ensures we don't match object attributes
-    assignment_regex = r"(?<!\.)(?<!\w)(\bfinal_answer)(\s*=)"
-    code = re.sub(assignment_regex, r"final_answer_variable\2", code)
-
-    # Pattern for replacing variable usage but not function calls
-    # Negative lookahead (?!\s*\() ensures we don't match function calls
-    # Negative lookbehind (?<!\.|\w) ensures we don't match object methods or other variables
-    variable_regex = r"(?<!\.)(?<!\w)(\bfinal_answer\b)(?!\s*\()"
-    code = re.sub(variable_regex, "final_answer_variable", code)
-    return code
 
 
 def check_import_authorized(import_to_check: str, authorized_imports: list[str]) -> bool:
@@ -1083,10 +1031,9 @@ def set_value(
 def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
     """Block pickle and ctypes escapes on the live NumPy module.
 
-    ``get_safe_module`` returns NumPy raw (wrapping it has crashed with SIGILL).
-    ``evaluate_call`` invokes the callee before ``DANGEROUS_FUNCTIONS`` runs, so
-    ``np.load(..., allow_pickle=True)`` and ``numpy.ctypeslib.load_library``
-    executed inside the worker. Numeric ``np.load`` / ``np.save`` without an
+    NumPy is an allowed module, so ``_check_dangerous_value`` does not see
+    ``np.load`` or ``numpy.ctypeslib.load_library``. Those denies run before
+    ``func(*args, **kwargs)``. Numeric ``np.load`` / ``np.save`` without an
     explicit ``allow_pickle=True`` stay allowed.
     """
     module = getattr(func, "__module__", "") or ""
@@ -1495,6 +1442,8 @@ def evaluate_try(
                         evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
                 finally:
                     stack.pop()
+                    if handler.name:
+                        state.pop(handler.name, None)
                 break
         if not matched:
             raise e
@@ -1637,91 +1586,48 @@ def _dangerous_module_name(name: str) -> bool:
     return name in DANGEROUS_MODULES or root in DANGEROUS_MODULES
 
 
-def get_safe_module(raw_module, authorized_imports, visited=None):
-    """Creates a safe copy of a module or returns the original if it's a function"""
-    # If it's a function or non-module object, return it directly
+class _DelegatingSafeModule(ModuleType):
+    """ModuleType wrapper exposing safe overrides while delegating attributes without scanning dir()."""
+
+    def __init__(self, real_module: ModuleType):
+        super().__init__(real_module.__name__, getattr(real_module, "__doc__", None))
+        self._real_module = real_module
+        self._authorized_imports: list[str] | None = None
+        if real_module.__name__ == "operator":
+            self.attrgetter = self._operator_attrgetter
+            self.methodcaller = _safe_methodcaller
+        elif real_module.__name__ == "string":
+            self.Formatter = _SafeFormatter
+
+    def _operator_attrgetter(self, *attrs: Any) -> Any:
+        return _safe_attrgetter(*attrs, authorized_imports=self._authorized_imports)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real_module, name)
+
+
+_SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
+
+
+def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None) -> Any:
+    """Return raw module, safe delegating wrapper for operator/string, or empty module for dangerous modules."""
     if not isinstance(raw_module, ModuleType):
         return raw_module
 
     name = getattr(raw_module, "__name__", "") or ""
-    # Never return raw os/sys (or wrap them — a copy of os still has os.system).
     if _dangerous_module_name(name):
         return ModuleType(name)
 
-    # BUGFIX: Deep-copying/scanning heavy third-party packages or standard library packages that are not user-defined
-    # can trigger complex lazy/dynamic imports or C-extension initialization inside background thread-pools
-    # (specifically under pytest / LocalPythonExecutor). For instance, numpy 2.x's __dir__ lists 'f2py', and getattr()
-    # triggers its import, which can crash with SIGILL (Illegal Instruction) or cause massive performance delays.
-    # We bypass wrapping/scanning for well-known heavy libraries or standard modules.
-    # os/sys must not be in this set — they are stripped as nested attrs below.
-    if name and (
-        name.startswith(
-            (
-                "numpy",
-                "matplotlib",
-                "pandas",
-                "PIL",
-                "scipy",
-                "kiwisolver",
-                "mpl_toolkits",
-                "matplotlib.",
-                "sentence_transformers",
-                "sqlite_vec",
-                "langgraph",
-                "langchain",
-                "duckdb",
-                "duckdb.",
-                "plugin.embeddings.venv",
-                "plugin.scripting.venv",
-                "plugin.vision.venv",
-            )
-        )
-        or name in ("math", "random", "datetime", "re", "collections", "itertools", "functools", "json", "time")
-    ):
-        return raw_module
+    if name in ("operator", "string"):
+        mod_id = id(raw_module)
+        wrapper = _SAFE_MODULE_CACHE.get(mod_id)
+        if wrapper is None:
+            wrapper = _DelegatingSafeModule(raw_module)
+            _SAFE_MODULE_CACHE[mod_id] = wrapper
+        wrapper._authorized_imports = authorized_imports
+        return wrapper
 
-    # Handle circular references: Initialize visited set for the first call
-    if visited is None:
-        visited = set()
-
-    module_id = id(raw_module)
-    if module_id in visited:
-        return raw_module  # Return original for circular refs
-
-    visited.add(module_id)
-
-    # Create new module for actual modules
-    safe_module = ModuleType(raw_module.__name__)
-
-    # Copy all attributes by reference, recursively checking modules
-    for attr_name in dir(raw_module):
-        try:
-            attr_value = getattr(raw_module, attr_name)
-        except (ImportError, AttributeError) as e:
-            # lazy / dynamic loading module -> INFO log and skip
-            logger.info(
-                f"Skipping import error while copying {raw_module.__name__}.{attr_name}: {type(e).__name__} - {e}"
-            )
-            continue
-        # Recursively process nested modules, passing visited set
-        if isinstance(attr_value, ModuleType):
-            nested = getattr(attr_value, "__name__", "") or ""
-            if _dangerous_module_name(nested):
-                continue
-            attr_value = get_safe_module(attr_value, authorized_imports, visited=visited)
-
-        setattr(safe_module, attr_name, attr_value)
-
-    if name == "operator":
-        # The walker never saw the string, the C helper performed the getattr /
-        # call, and the factory checks the name before building the callable
-        # that higher-order tools (map, starmap, partial) will invoke.
-        safe_module.attrgetter = functools.partial(_safe_attrgetter, authorized_imports=authorized_imports)
-        safe_module.methodcaller = _safe_methodcaller
-    elif name == "string":
-        safe_module.Formatter = _SafeFormatter
-
-    return safe_module
+    return raw_module
 
 
 def evaluate_import(
@@ -1847,6 +1753,173 @@ def evaluate_delete(
             raise InterpreterError(f"Deletion of {type(target).__name__} targets is not supported")
 
 
+def _eval_constant(expression, state, static_tools, custom_tools, authorized_imports):
+    return expression.value
+
+
+def _eval_tuple(expression, state, static_tools, custom_tools, authorized_imports):
+    result_tuple = []
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    for elt in expression.elts:
+        if isinstance(elt, ast.Starred):
+            result_tuple.extend(evaluate_ast(elt.value, *common_params))
+        else:
+            result_tuple.append(evaluate_ast(elt, *common_params))
+    return tuple(result_tuple)
+
+
+def _eval_starred(expression, state, static_tools, custom_tools, authorized_imports):
+    return evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
+
+
+def _eval_break(expression, state, static_tools, custom_tools, authorized_imports):
+    raise BreakException()
+
+
+def _eval_continue(expression, state, static_tools, custom_tools, authorized_imports):
+    raise ContinueException()
+
+
+def _eval_dict(expression, state, static_tools, custom_tools, authorized_imports):
+    result_dict = {}
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    for k, v in zip(expression.keys, expression.values):
+        if k is None:
+            val = evaluate_ast(v, *common_params)
+            if not isinstance(val, dict):
+                raise InterpreterError(f"Cannot unpack non-dict value in dict literal: {type(val).__name__}")
+            result_dict.update(val)
+        else:
+            key = evaluate_ast(k, *common_params)
+            val = evaluate_ast(v, *common_params)
+            result_dict[key] = val
+    return result_dict
+
+
+def _eval_expr(expression, state, static_tools, custom_tools, authorized_imports):
+    return evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
+
+
+def _eval_formatted_value(expression, state, static_tools, custom_tools, authorized_imports):
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    value = evaluate_ast(expression.value, *common_params)
+    if expression.conversion == 115:
+        value = str(value)
+    elif expression.conversion == 114:
+        value = repr(value)
+    elif expression.conversion == 97:
+        value = ascii(value)
+    if not expression.format_spec:
+        return value
+    format_spec = evaluate_ast(expression.format_spec, *common_params)
+    return format(value, format_spec)
+
+
+def _eval_joined_str(expression, state, static_tools, custom_tools, authorized_imports):
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    return "".join([str(evaluate_ast(v, *common_params)) for v in expression.values])
+
+
+def _eval_list(expression, state, static_tools, custom_tools, authorized_imports):
+    result_list = []
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    for elt in expression.elts:
+        if isinstance(elt, ast.Starred):
+            result_list.extend(evaluate_ast(elt.value, *common_params))
+        else:
+            result_list.append(evaluate_ast(elt, *common_params))
+    return result_list
+
+
+def _eval_if_exp(expression, state, static_tools, custom_tools, authorized_imports):
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    test_val = evaluate_ast(expression.test, *common_params)
+    if test_val:
+        return evaluate_ast(expression.body, *common_params)
+    else:
+        return evaluate_ast(expression.orelse, *common_params)
+
+
+def _eval_slice(expression, state, static_tools, custom_tools, authorized_imports):
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    return slice(
+        evaluate_ast(expression.lower, *common_params) if expression.lower is not None else None,
+        evaluate_ast(expression.upper, *common_params) if expression.upper is not None else None,
+        evaluate_ast(expression.step, *common_params) if expression.step is not None else None,
+    )
+
+
+def _eval_import(expression, state, static_tools, custom_tools, authorized_imports):
+    return evaluate_import(expression, state, authorized_imports, static_tools=static_tools)
+
+
+def _eval_set(expression, state, static_tools, custom_tools, authorized_imports):
+    result_set = set()
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    for elt in expression.elts:
+        if isinstance(elt, ast.Starred):
+            result_set.update(evaluate_ast(elt.value, *common_params))
+        else:
+            result_set.add(evaluate_ast(elt, *common_params))
+    return result_set
+
+
+def _eval_return(expression, state, static_tools, custom_tools, authorized_imports):
+    common_params = (state, static_tools, custom_tools, authorized_imports)
+    raise ReturnException(evaluate_ast(expression.value, *common_params) if expression.value else None)
+
+
+def _eval_pass(expression, state, static_tools, custom_tools, authorized_imports):
+    return None
+
+
+_HANDLERS: dict[type[ast.AST], Callable[..., Any]] = {
+    ast.Assign: evaluate_assign,
+    ast.AnnAssign: evaluate_annassign,
+    ast.AugAssign: evaluate_augassign,
+    ast.Call: evaluate_call,
+    ast.Constant: _eval_constant,
+    ast.Tuple: _eval_tuple,
+    ast.GeneratorExp: evaluate_generatorexp,
+    ast.ListComp: evaluate_listcomp,
+    ast.DictComp: evaluate_dictcomp,
+    ast.SetComp: evaluate_setcomp,
+    ast.UnaryOp: evaluate_unaryop,
+    ast.Starred: _eval_starred,
+    ast.BoolOp: evaluate_boolop,
+    ast.Break: _eval_break,
+    ast.Continue: _eval_continue,
+    ast.BinOp: evaluate_binop,
+    ast.Compare: evaluate_condition,
+    ast.Lambda: evaluate_lambda,
+    ast.FunctionDef: evaluate_function_def,
+    ast.Dict: _eval_dict,
+    ast.Expr: _eval_expr,
+    ast.For: evaluate_for,
+    ast.FormattedValue: _eval_formatted_value,
+    ast.If: evaluate_if,
+    ast.JoinedStr: _eval_joined_str,
+    ast.List: _eval_list,
+    ast.Name: evaluate_name,
+    ast.Subscript: evaluate_subscript,
+    ast.IfExp: _eval_if_exp,
+    ast.Attribute: evaluate_attribute,
+    ast.Slice: _eval_slice,
+    ast.While: evaluate_while,
+    ast.Import: _eval_import,
+    ast.ImportFrom: _eval_import,
+    ast.ClassDef: evaluate_class_def,
+    ast.Try: evaluate_try,
+    ast.Raise: evaluate_raise,
+    ast.Assert: evaluate_assert,
+    ast.With: evaluate_with,
+    ast.Set: _eval_set,
+    ast.Return: _eval_return,
+    ast.Pass: _eval_pass,
+    ast.Delete: evaluate_delete,
+}
+
+
 @safer_eval
 def evaluate_ast(
     expression: ast.AST,
@@ -1892,160 +1965,10 @@ def evaluate_ast(
         )
         raise ExecutionTimeoutError(msg)
     ops.count += 1
-    common_params = (state, static_tools, custom_tools, authorized_imports)
-    if isinstance(expression, ast.Assign):
-        # Assignment -> we evaluate the assignment which should update the state
-        # We return the variable assigned as it may be used to determine the final result.
-        return evaluate_assign(expression, *common_params)
-    elif isinstance(expression, ast.AnnAssign):
-        return evaluate_annassign(expression, *common_params)
-    elif isinstance(expression, ast.AugAssign):
-        return evaluate_augassign(expression, *common_params)
-    elif isinstance(expression, ast.Call):
-        # Function call -> we return the value of the function call
-        return evaluate_call(expression, *common_params)
-    elif isinstance(expression, ast.Constant):
-        # Constant -> just return the value
-        return expression.value
-    elif isinstance(expression, ast.Tuple):
-        result_tuple = []
-        for elt in expression.elts:
-            if isinstance(elt, ast.Starred):
-                result_tuple.extend(evaluate_ast(elt.value, *common_params))
-            else:
-                result_tuple.append(evaluate_ast(elt, *common_params))
-        return tuple(result_tuple)
-    elif isinstance(expression, ast.GeneratorExp):
-        return evaluate_generatorexp(expression, *common_params)
-    elif isinstance(expression, ast.ListComp):
-        return evaluate_listcomp(expression, *common_params)
-    elif isinstance(expression, ast.DictComp):
-        return evaluate_dictcomp(expression, *common_params)
-    elif isinstance(expression, ast.SetComp):
-        return evaluate_setcomp(expression, *common_params)
-    elif isinstance(expression, ast.UnaryOp):
-        return evaluate_unaryop(expression, *common_params)
-    elif isinstance(expression, ast.Starred):
-        return evaluate_ast(expression.value, *common_params)
-    elif isinstance(expression, ast.BoolOp):
-        # Boolean operation -> evaluate the operation
-        return evaluate_boolop(expression, *common_params)
-    elif isinstance(expression, ast.Break):
-        raise BreakException()
-    elif isinstance(expression, ast.Continue):
-        raise ContinueException()
-    elif isinstance(expression, ast.BinOp):
-        # Binary operation -> execute operation
-        return evaluate_binop(expression, *common_params)
-    elif isinstance(expression, ast.Compare):
-        # Comparison -> evaluate the comparison
-        return evaluate_condition(expression, *common_params)
-    elif isinstance(expression, ast.Lambda):
-        return evaluate_lambda(expression, *common_params)
-    elif isinstance(expression, ast.FunctionDef):
-        return evaluate_function_def(expression, *common_params)
-    elif isinstance(expression, ast.Dict):
-        # Dict -> evaluate all keys and values, supporting {**d} unpack when key is None
-        result_dict = {}
-        for k, v in zip(expression.keys, expression.values):
-            if k is None:
-                val = evaluate_ast(v, *common_params)
-                if not isinstance(val, dict):
-                    raise InterpreterError(f"Cannot unpack non-dict value in dict literal: {type(val).__name__}")
-                result_dict.update(val)
-            else:
-                key = evaluate_ast(k, *common_params)
-                val = evaluate_ast(v, *common_params)
-                result_dict[key] = val
-        return result_dict
-    elif isinstance(expression, ast.Expr):
-        # Expression -> evaluate the content
-        return evaluate_ast(expression.value, *common_params)
-    elif isinstance(expression, ast.For):
-        # For loop -> execute the loop
-        return evaluate_for(expression, *common_params)
-    elif isinstance(expression, ast.FormattedValue):
-        # Formatted value (part of f-string) -> evaluate the content and format it
-        value = evaluate_ast(expression.value, *common_params)
-        if expression.conversion == 115:
-            value = str(value)
-        elif expression.conversion == 114:
-            value = repr(value)
-        elif expression.conversion == 97:
-            value = ascii(value)
-        # Early return if no format spec
-        if not expression.format_spec:
-            return value
-        # Apply format specification
-        format_spec = evaluate_ast(expression.format_spec, *common_params)
-        return format(value, format_spec)
-    elif isinstance(expression, ast.If):
-        # If -> execute the right branch
-        return evaluate_if(expression, *common_params)
-    elif hasattr(ast, "Index") and isinstance(expression, ast.Index):
-        return evaluate_ast(expression.value, *common_params)
-    elif isinstance(expression, ast.JoinedStr):
-        return "".join([str(evaluate_ast(v, *common_params)) for v in expression.values])
-    elif isinstance(expression, ast.List):
-        # List -> evaluate all elements, expanding starred elements
-        result_list = []
-        for elt in expression.elts:
-            if isinstance(elt, ast.Starred):
-                result_list.extend(evaluate_ast(elt.value, *common_params))
-            else:
-                result_list.append(evaluate_ast(elt, *common_params))
-        return result_list
-    elif isinstance(expression, ast.Name):
-        # Name -> pick up the value in the state
-        return evaluate_name(expression, *common_params)
-    elif isinstance(expression, ast.Subscript):
-        # Subscript -> return the value of the indexing
-        return evaluate_subscript(expression, *common_params)
-    elif isinstance(expression, ast.IfExp):
-        test_val = evaluate_ast(expression.test, *common_params)
-        if test_val:
-            return evaluate_ast(expression.body, *common_params)
-        else:
-            return evaluate_ast(expression.orelse, *common_params)
-    elif isinstance(expression, ast.Attribute):
-        return evaluate_attribute(expression, *common_params)
-    elif isinstance(expression, ast.Slice):
-        return slice(
-            evaluate_ast(expression.lower, *common_params) if expression.lower is not None else None,
-            evaluate_ast(expression.upper, *common_params) if expression.upper is not None else None,
-            evaluate_ast(expression.step, *common_params) if expression.step is not None else None,
-        )
-    elif isinstance(expression, ast.While):
-        return evaluate_while(expression, *common_params)
-    elif isinstance(expression, (ast.Import, ast.ImportFrom)):
-        return evaluate_import(expression, state, authorized_imports, static_tools=static_tools)
-    elif isinstance(expression, ast.ClassDef):
-        return evaluate_class_def(expression, *common_params)
-    elif isinstance(expression, ast.Try):
-        return evaluate_try(expression, *common_params)
-    elif isinstance(expression, ast.Raise):
-        return evaluate_raise(expression, *common_params)
-    elif isinstance(expression, ast.Assert):
-        return evaluate_assert(expression, *common_params)
-    elif isinstance(expression, ast.With):
-        return evaluate_with(expression, *common_params)
-    elif isinstance(expression, ast.Set):
-        result_set = set()
-        for elt in expression.elts:
-            if isinstance(elt, ast.Starred):
-                result_set.update(evaluate_ast(elt.value, *common_params))
-            else:
-                result_set.add(evaluate_ast(elt, *common_params))
-        return result_set
-    elif isinstance(expression, ast.Return):
-        raise ReturnException(evaluate_ast(expression.value, *common_params) if expression.value else None)
-    elif isinstance(expression, ast.Pass):
-        return None
-    elif isinstance(expression, ast.Delete):
-        return evaluate_delete(expression, *common_params)
-    else:
-        # For now we refuse anything else. Let's add things as we need them.
+    handler = _HANDLERS.get(type(expression))
+    if handler is None:
         raise InterpreterError(f"{expression.__class__.__name__} is not supported.")
+    return handler(expression, state, static_tools, custom_tools, authorized_imports)
 
 
 class FinalAnswerException(BaseException):
@@ -2243,8 +2166,8 @@ class LocalPythonExecutor(PythonExecutor):
         # evaluate_import → check_import_authorized → import_module at the line that imports.
         # If a whitelisted package is missing, the user gets a normal ModuleNotFoundError
         # wrapped as InterpreterError when their code actually imports it—not at init.
-        self.static_tools = None
         self.additional_functions = additional_functions or {}
+        self.static_tools = {**BASE_PYTHON_TOOLS.copy(), **self.additional_functions}
         self.timeout_seconds = timeout_seconds
 
     def __call__(self, code_action: str) -> CodeOutput:

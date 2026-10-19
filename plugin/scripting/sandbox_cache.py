@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 from plugin.contrib.smolagents.local_python_executor import (
+    _HANDLERS,
     is_forbidden_dunder_attribute,
 )
 from plugin.framework.deal_shim import (
@@ -72,21 +73,8 @@ _deal_sandbox_code_ok = (
     _deal_sandbox_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sandbox_code_ok_pytest
 )
 
-# Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
-# LO 24.8 ships Python 3.9 as the extension floor; dataclass slots=True raises TypeError
-# and ast.Match is not defined on 3.9 (where match is not a keyword and ast.parse rejects it).
-_FORBIDDEN_TYPES_LIST: list[type[ast.AST]] = [
-    ast.AsyncFunctionDef,
-    ast.AsyncFor,
-    ast.AsyncWith,
-    ast.Global,
-    ast.Nonlocal,
-    ast.NamedExpr,
-]
-_match_type = getattr(ast, "Match", None)
-if _match_type is not None:
-    _FORBIDDEN_TYPES_LIST.append(_match_type)
-_FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = tuple(_FORBIDDEN_TYPES_LIST)
+# ExceptHandler is handled inside evaluate_try rather than in evaluate_ast.
+_STRUCTURAL_NODES: frozenset[type[ast.AST]] = frozenset({ast.ExceptHandler})
 
 _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
@@ -98,8 +86,12 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) 
     # AST walk on a symbolic module hangs deep check.
     # crosshair: off
     for node in ast.walk(module):
-        if isinstance(node, _FORBIDDEN_NODE_TYPES):
-            return f"{node.__class__.__name__} is not supported."
+        if isinstance(node, (ast.stmt, ast.expr)):
+            node_type = type(node)
+            if node_type not in _HANDLERS and node_type not in _STRUCTURAL_NODES:
+                return f"{node.__class__.__name__} is not supported."
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.decorator_list:
+            return "Decorators are not supported in the sandbox"
         if isinstance(node, ast.Import):
             for alias in node.names:
                 # writeragent.X is checked as plugin.X. A blanket writeragent.*
@@ -135,7 +127,7 @@ class HotEntry:
 
 _lock = threading.Lock()
 _cache: OrderedDict[str, HotEntry] = OrderedDict()
-_max_entries = _DEFAULT_MAX_ENTRIES
+_max_entries: int = _DEFAULT_MAX_ENTRIES
 
 
 @functools.cache

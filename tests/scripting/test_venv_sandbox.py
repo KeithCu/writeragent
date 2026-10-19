@@ -10,7 +10,7 @@ import io
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -162,6 +162,7 @@ def test_scalar_dates_and_numbers_round_trip_host_unpickle():
         write_pickle_frame(buf, {"status": "ok", "result": wire})
         buf.seek(0)
         unpacked = read_pickle_frame(buf, require_dict=True)
+        assert unpacked is not None
         assert host_unpack_data(unpacked["result"]) == expected
 
 
@@ -172,6 +173,7 @@ def test_pandas_timestamp_round_trips_as_iso():
     write_pickle_frame(buf, {"status": "ok", "result": wire})
     buf.seek(0)
     unpacked = read_pickle_frame(buf, require_dict=True)
+    assert unpacked is not None
     assert host_unpack_data(unpacked["result"]) == "2026-08-13T14:30:00"
 
 
@@ -576,7 +578,7 @@ def test_init_result_lambda_is_not_seeded() -> None:
 
         exe = _new_executor(5)
         _seed_executor_from_init(exe, init_sid, copy_values=True)
-        assert exe.state["helper"]() == 4
+        assert cast("Any", exe.state["helper"])() == 4
         assert "result" not in exe.state
         assert "result" not in exe.custom_tools
         assert "helper" in exe.custom_tools
@@ -713,5 +715,83 @@ def test_isolated_init_lru_pops_non_isolated_id() -> None:
         assert len(vs._ISOLATED_INIT_LRU) == 32
     finally:
         clear_all_sandbox_sessions()
+
+
+def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    exit_calls: list[int] = []
+    monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    req_data = pack_pickle_frame({"id": "req-timeout", "action": "execute", "code": "result = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: stdin)
+    monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
+
+    def _simulate_timeout(*args, **kwargs):
+        lpe.abandoned_timeout = True
+        return {"status": "error", "message": "Code execution exceeded the maximum execution time"}
+
+    monkeypatch.setattr(harness, "_handle_request", _simulate_timeout)
+
+    try:
+        harness.main()
+    finally:
+        lpe.abandoned_timeout = False
+
+    assert exit_calls == [1]
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-timeout"}
+    err_frame = read_pickle_frame(stdout, require_dict=True)
+    assert err_frame is not None
+    assert err_frame["status"] == "error"
+    assert "exceeded" in err_frame["message"]
+
+
+def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    import compute_service.worker_stdio as ws
+
+    exit_calls: list[int] = []
+    monkeypatch.setattr(ws.os, "_exit", lambda code: exit_calls.append(code))
+    monkeypatch.setattr(ws, "set_pdeathsig", lambda: True)
+
+    req_data = pack_pickle_frame({"id": "req-stdio-timeout", "code": "x = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    class _FakeStdin:
+        buffer = stdin
+
+    monkeypatch.setattr(ws.sys, "stdin", _FakeStdin())
+    monkeypatch.setattr(ws, "claim_ipc_channel", lambda: stdout)
+
+    def _handler(req):
+        lpe.abandoned_timeout = True
+        return {"id": req.get("id"), "status": "error", "error": "timeout"}
+
+    try:
+        ws.run_worker_stdio_loop(_handler)
+    finally:
+        lpe.abandoned_timeout = False
+
+    assert exit_calls == [1]
+    stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready == {"status": "ready", "pid": ws.os.getpid()}
+    err_frame = read_pickle_frame(stdout, require_dict=True)
+    assert err_frame is not None
+    assert err_frame["status"] == "error"
+
 
 

@@ -11,6 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
 from plugin.scripting.sandbox_cache import clear_python_code_hot_cache, get_hot_entry, validate_sandbox_ast
@@ -18,7 +23,7 @@ from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 
 @pytest.fixture(autouse=True)
-def _clear_hot_cache() -> None:
+def _clear_hot_cache() -> Generator[None, None, None]:
     clear_python_code_hot_cache()
     yield
     clear_python_code_hot_cache()
@@ -159,10 +164,11 @@ def test_long_source_is_not_cached() -> None:
 
 
 def test_match_forbidden_when_present() -> None:
-    from plugin.scripting.sandbox_cache import _FORBIDDEN_NODE_TYPES, HotEntry
+    from plugin.contrib.smolagents.local_python_executor import _HANDLERS
+    from plugin.scripting.sandbox_cache import HotEntry
 
     if hasattr(ast, "Match"):
-        assert ast.Match in _FORBIDDEN_NODE_TYPES
+        assert ast.Match not in _HANDLERS
     assert getattr(HotEntry, "__dataclass_params__").slots is False
 
 
@@ -237,5 +243,55 @@ def test_get_hot_entry_top_level_signals_cache_syntax_error() -> None:
         assert entry.error is not None
         assert "SyntaxError" in entry.error
     assert get_hot_entry("from __future__ import annotations\nx = 1", imports).error is None
+
+
+def test_sandbox_ast_validation_denylist_table() -> None:
+    imports = list(BASE_BUILTIN_MODULES)
+    denied = [
+        "def f(): yield 1",
+        "def f():\n    yield from [1]",
+        "@dec\ndef f(): pass",
+        "@dec\nclass C: pass",
+    ]
+    if hasattr(ast, "TryStar"):
+        denied.append("try:\n    pass\nexcept* Exception:\n    pass")
+
+    for code in denied:
+        entry = get_hot_entry(code, imports)
+        assert entry.error is not None
+
+    allowed = [
+        "def f(): return 1",
+        "class C:\n    pass",
+        "try:\n    pass\nexcept Exception:\n    pass",
+    ]
+    for code in allowed:
+        entry = get_hot_entry(code, imports)
+        assert entry.error is None
+        assert entry.module is not None
+
+
+def test_all_ast_stmt_and_expr_subclasses_covered() -> None:
+    from plugin.contrib.smolagents.local_python_executor import _HANDLERS
+    from plugin.scripting.sandbox_cache import _STRUCTURAL_NODES, validate_sandbox_ast
+
+    def get_subclasses(cls: type[ast.AST]) -> set[type[ast.AST]]:
+        subclasses: set[type[ast.AST]] = set()
+        for sub in cls.__subclasses__():
+            subclasses.add(sub)
+            subclasses.update(get_subclasses(sub))
+        return subclasses
+
+    all_nodes = get_subclasses(ast.stmt) | get_subclasses(ast.expr)
+    imports = list(BASE_BUILTIN_MODULES)
+
+    for node_cls in sorted(all_nodes, key=lambda c: c.__name__):
+        if node_cls in _HANDLERS or node_cls in _STRUCTURAL_NODES or issubclass(node_cls, ast.Constant):
+            continue
+        instance = node_cls.__new__(node_cls)
+        mod = ast.Module(body=[cast("ast.stmt", instance)], type_ignores=[])
+        err = validate_sandbox_ast(mod, imports)
+        assert err is not None and f"{node_cls.__name__} is not supported" in err
+
 
 

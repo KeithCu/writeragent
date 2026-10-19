@@ -1722,6 +1722,198 @@ def test_hasattr_and_ast_assignment_dunder_guard():
     assert "Forbidden access to dunder attribute" in str(exc_info.value)
 
 
+def test_except_handler_name_cleanup():
+    # Tip: CPython deletes the except ... as target variable on block exit.
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    code = """
+try:
+    raise ValueError("test")
+except ValueError as e:
+    pass
+"""
+    executor(code)
+    assert "e" not in executor.state
+
+    code_rebind = """
+try:
+    raise ValueError("test2")
+except ValueError as e:
+    e = 1
+"""
+    executor(code_rebind)
+    assert "e" not in executor.state
+
+
+def test_executor_default_static_tools_has_sum():
+    # Tip: LocalPythonExecutor initializes with BASE_PYTHON_TOOLS without requiring send_tools.
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    res = executor("result = sum([1, 2, 3])")
+    assert res.output == 6
+    assert executor.state["result"] == 6
+
+
+def test_except_handler_as_result_egress():
+    # Tip: except Exception as result does not leave the exception object as the cell result.
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+    r = run_sandboxed_code(
+        """
+try:
+    1 / 0
+except Exception as result:
+    pass
+""",
+        None,
+    )
+    assert r["status"] == "ok"
+    assert r["result"] is None
+
+
+def test_timeout_fallback_sets_abandoned_timeout(monkeypatch: pytest.MonkeyPatch):
+    # Tip: thread-pool fallback timeout sets abandoned_timeout so the worker process will exit.
+    import signal
+    import time
+    from typing import Any
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+
+    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["time"], timeout_seconds=1)
+    executor.send_tools({})
+    executor("x = 0")
+
+    def slow_call() -> int:
+        time.sleep(1.2)
+        return 1
+
+    executor.send_variables({"slow_call": slow_call})
+    with pytest.raises(ExecutionTimeoutError):
+        executor("x = slow_call()")
+
+    assert lpe.abandoned_timeout is True
+    time.sleep(0.4)
+    assert executor.state["x"] == 1
+
+    lpe.abandoned_timeout = False
+
+
+def test_sigalrm_timeout_leaves_abandoned_flag_clear():
+    # Tip: normal SIGALRM path unwinds on the same thread without setting abandoned_timeout.
+    import time
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    executor.send_tools({})
+    executor.send_variables({"sleep": time.sleep})
+
+    with pytest.raises(ExecutionTimeoutError):
+        executor("sleep(2.5)")
+
+    assert lpe.abandoned_timeout is False
+
+
+def test_snippets_match_exec():
+    # Tip: compare LocalPythonExecutor evaluation with standard exec across language constructs.
+    from typing import Any
+
+    snippets = [
+        # Arithmetic & operators
+        "a = (2 + 3) * 4 - 5 // 2",
+        "b = 2 ** 10 % 7",
+        "c = -(-5)",
+        "d = True and False or True",
+        "e = 1 < 2 <= 3 > 0 != 5",
+        # Unpacking & literals
+        "x, y, *z = [1, 2, 3, 4, 5]",
+        "t = (1, *[2, 3], 4)",
+        "d_lit = {'a': 1, **{'b': 2, 'c': 3}}",
+        "s_lit = {1, 2, *{3, 4}}",
+        # Comprehensions
+        "lc = [i * 2 for i in range(5) if i % 2 == 0]",
+        "dc = {k: v for k, v in [('x', 1), ('y', 2)]}",
+        "sc = {x % 3 for x in range(10)}",
+        "gc = list(x + 1 for x in [1, 2, 3])",
+        # Function defaults & args
+        """
+def f(a, b=10, *args, **kwargs):
+    return a + b + sum(args) + kwargs.get('extra', 0)
+f_res = f(1, 2, 3, 4, extra=5)
+""",
+        # Classes & super
+        """
+class Base:
+    def val(self):
+        return 10
+class Sub(Base):
+    def val(self):
+        return super().val() + 5
+cls_res = Sub().val()
+""",
+        # Context manager (with)
+        """
+class CM:
+    def __enter__(self):
+        return 42
+    def __exit__(self, *args):
+        pass
+with CM() as ctx_val:
+    with_res = ctx_val + 1
+""",
+        # Formatted string
+        "name = 'world'; num = 42; f_res = f'hello {name} {num:04d}'",
+        # Ternary conditional
+        "cond_res = 'yes' if 10 > 5 else 'no'",
+        # Try / except ... as
+        """
+try:
+    int('not_a_number')
+except ValueError as err:
+    caught = str(err)
+""",
+        # Loop with break and continue
+        """
+accum = []
+for i in range(10):
+    if i == 2:
+        continue
+    if i == 6:
+        break
+    accum.append(i)
+""",
+    ]
+
+    for snippet in snippets:
+        exec_scope: dict[str, Any] = {}
+        exec(snippet, {}, exec_scope)
+
+        executor = LocalPythonExecutor(additional_authorized_imports=[])
+        executor.send_tools({})
+        executor(snippet)
+
+        for var, expected_val in exec_scope.items():
+            if var.startswith("__"):
+                continue
+            assert var in executor.state, f"Missing var {var} in snippet: {snippet}"
+            if callable(expected_val):
+                assert callable(executor.state[var])
+            else:
+                assert executor.state[var] == expected_val, (
+                    f"Mismatch for {var}: executor got {executor.state[var]!r}, exec got {expected_val!r} in snippet: {snippet}"
+                )
+
+
+
 
 
 
