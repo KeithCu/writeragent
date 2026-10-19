@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar, NamedTuple, cast
 
@@ -915,7 +916,6 @@ class ToolRegistry:
                 raise
 
         worker_thread = run_in_background(worker, name=f"tool-timeout-{tool_name}", dedicated=True)
-        worker_thread.join(timeout=timeout)
 
         def _queued() -> tuple[str, Any] | None:
             try:
@@ -923,15 +923,27 @@ class ToolRegistry:
             except queue.Empty:
                 return None
 
-        # A queued result wins. The worker can ``put`` a success and still be
-        # alive while ``run_in_background`` logs and clears the thread-guard
-        # tag. Treating timeout as only ``is_alive()`` after ``join`` reports
-        # that finished mutation as TOOL_TIMEOUT, and a retry can apply it
-        # again. A live thread with an empty queue is still a timeout — the
-        # wait is not extended.
-        if worker_thread.is_alive():
-            queued = _queued()
-            if queued is None:
+        # Tip: wait on the queue, not the thread. A worker that queued its result
+        # can still be alive (logging a BaseException, clearing the thread-guard
+        # tag), and a queued result wins. A live thread with an empty queue at the
+        # deadline is a timeout; the wait is not extended.
+        deadline = time.monotonic() + timeout
+        queued: tuple[str, Any] | None = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                queued = _queued()
+                break
+            try:
+                queued = result_queue.get(timeout=min(0.1, remaining))
+                break
+            except queue.Empty:
+                if not worker_thread.is_alive():
+                    queued = _queued()
+                    break
+
+        if queued is None:
+            if worker_thread.is_alive():
                 # The worker is already abandoned. Return the timeout dict and let
                 # the caller decide whether the send should stop. Calling
                 # ``send_cancellation.cancel()`` as well sets the drain stop
@@ -939,16 +951,13 @@ class ToolRegistry:
                 # error dict before ``TOOL_DONE`` is applied. The tool loop
                 # then waits forever for that event.
                 return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
-        else:
-            queued = _queued()
-            if queued is None:
-                # Dead with nothing queued (the put itself failed, or the
-                # thread exited before the handler ran). Do not block on get().
-                return make_tool_error(
-                    f"Tool '{tool_name}' worker exited without a result",
-                    code="TOOL_WORKER_EXIT",
-                    tool_name=tool_name,
-                )
+            # Dead with nothing queued (the put itself failed, or the
+            # thread exited before the handler ran). Do not block on get().
+            return make_tool_error(
+                f"Tool '{tool_name}' worker exited without a result",
+                code="TOOL_WORKER_EXIT",
+                tool_name=tool_name,
+            )
 
         result_type, result = queued
         if result_type == "error":
