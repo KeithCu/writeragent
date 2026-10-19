@@ -1020,36 +1020,37 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
 
 def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
     """Execute one code cell on the main thread (venv work blocks without a VCL pump)."""
-    state = load_registry(doc)
-    if state is None:
-        return RunResult("error", None, "No notebook registry on document.")
-    cell = next((c for c in state.code_cells if c.cell_id == cell_id), None)
-    if cell is None:
-        return RunResult("error", None, "Unknown notebook cell.")
+    with form_lookup.control_lookup_scope(doc):
+        state = load_registry(doc)
+        if state is None:
+            return RunResult("error", None, "No notebook registry on document.")
+        cell = next((c for c in state.code_cells if c.cell_id == cell_id), None)
+        if cell is None:
+            return RunResult("error", None, "Unknown notebook cell.")
 
-    code = form_lookup.read_code_from_field(doc, cell.code_field_name)
-    if code is None:
-        log.warning("notebook run: code field %r missing for cell %d", cell.code_field_name, cell.index)
-        return RunResult("error", None, "Code field is missing.")
-    if not code.strip():
-        return RunResult("error", None, "Code cell is empty.")
+        code = form_lookup.read_code_from_field(doc, cell.code_field_name)
+        if code is None:
+            log.warning("notebook run: code field %r missing for cell %d", cell.code_field_name, cell.index)
+            return RunResult("error", None, "Code field is missing.")
+        if not code.strip():
+            return RunResult("error", None, "Code cell is empty.")
 
-    # Shared kernel: one run per document. Without this, a second ▶ (or the
-    # leftover double-wire we already hit on two PyUNO wrappers) interleaved
-    # next_execution_count / clear_cell_output / apply_run_result.
-    busy_key = _doc_key(doc)
-    if busy_key in _running_docs:
-        log.info("notebook run skipped: a cell is already running on this document")
-        return RunResult("busy", None, "A cell is already running.")
-    _running_docs.add(busy_key)
-    try:
-        _clear_stop(busy_key)
-        one = _execute_and_apply(ctx, doc, state, cell, code)
-        if one.status == "fatal":
-            return RunResult("error", one.execution_count, one.message, cells_run=one.cells_run)
-        return one
-    finally:
-        _running_docs.discard(busy_key)
+        # Shared kernel: one run per document. Without this, a second ▶ (or the
+        # leftover double-wire we already hit on two PyUNO wrappers) interleaved
+        # next_execution_count / clear_cell_output / apply_run_result.
+        busy_key = _doc_key(doc)
+        if busy_key in _running_docs:
+            log.info("notebook run skipped: a cell is already running on this document")
+            return RunResult("busy", None, "A cell is already running.")
+        _running_docs.add(busy_key)
+        try:
+            _clear_stop(busy_key)
+            one = _execute_and_apply(ctx, doc, state, cell, code)
+            if one.status == "fatal":
+                return RunResult("error", one.execution_count, one.message, cells_run=one.cells_run)
+            return one
+        finally:
+            _running_docs.discard(busy_key)
 
 
 def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
@@ -1146,70 +1147,71 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
     the cell and the batch continues unless Stop was requested. Drain between
     cells only.
     """
-    state = load_registry(doc)
-    if state is None:
-        return RunResult("error", None, "No notebook registry on document.")
+    with form_lookup.control_lookup_scope(doc):
+        state = load_registry(doc)
+        if state is None:
+            return RunResult("error", None, "No notebook registry on document.")
 
-    busy_key = _doc_key(doc)
-    if busy_key in _running_docs:
-        log.info("notebook run skipped: a cell is already running on this document")
-        return RunResult("busy", None, "A cell is already running.")
-    _running_docs.add(busy_key)
-    _clear_stop(busy_key)
-    executed = 0
-    last_count: int | None = None
-    stopped = False
-    try:
-        cells = list(state.code_cells[max(0, start_index) :])
-        need_drain = False
-        for cell in cells:
-            if _is_stop_requested(busy_key):
-                stopped = True
-                break
-            code = form_lookup.read_code_from_field(doc, cell.code_field_name)
-            if code is None:
-                log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
-                continue
-            if not code.strip():
-                continue
-            if need_drain:
-                # LayoutIdle livelock is during execute, not this between-cell pump.
-                # Stop clicks are delivered here; check the flag before the next cell.
-                _pump_between_notebook_cells(ctx)
-            if is_document_disposed(doc):
-                stopped = True
-                break
-            if _is_stop_requested(busy_key):
-                stopped = True
-                break
-            try:
-                one = _execute_and_apply(ctx, doc, state, cell, code)
-            except Exception as exc:
-                # Document closed mid-batch: stop quietly instead of raising
-                # out of Run All.
-                if is_disposed_exception(exc) or is_document_disposed(doc):
+        busy_key = _doc_key(doc)
+        if busy_key in _running_docs:
+            log.info("notebook run skipped: a cell is already running on this document")
+            return RunResult("busy", None, "A cell is already running.")
+        _running_docs.add(busy_key)
+        _clear_stop(busy_key)
+        executed = 0
+        last_count: int | None = None
+        stopped = False
+        try:
+            cells = list(state.code_cells[max(0, start_index) :])
+            need_drain = False
+            for cell in cells:
+                if _is_stop_requested(busy_key):
                     stopped = True
                     break
-                raise
-            if one.status == "stopped":
-                stopped = True
-                break
-            if one.status == "fatal":
+                code = form_lookup.read_code_from_field(doc, cell.code_field_name)
+                if code is None:
+                    log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
+                    continue
+                if not code.strip():
+                    continue
+                if need_drain:
+                    # LayoutIdle livelock is during execute, not this between-cell pump.
+                    # Stop clicks are delivered here; check the flag before the next cell.
+                    _pump_between_notebook_cells(ctx)
+                if is_document_disposed(doc):
+                    stopped = True
+                    break
+                if _is_stop_requested(busy_key):
+                    stopped = True
+                    break
+                try:
+                    one = _execute_and_apply(ctx, doc, state, cell, code)
+                except Exception as exc:
+                    # Document closed mid-batch: stop quietly instead of raising
+                    # out of Run All.
+                    if is_disposed_exception(exc) or is_document_disposed(doc):
+                        stopped = True
+                        break
+                    raise
+                if one.status == "stopped":
+                    stopped = True
+                    break
+                if one.status == "fatal":
+                    executed += 1
+                    return RunResult("error", one.execution_count, one.message, cells_run=executed)
                 executed += 1
-                return RunResult("error", one.execution_count, one.message, cells_run=executed)
-            executed += 1
-            last_count = one.execution_count
-            need_drain = True
-            if _is_stop_requested(busy_key):
-                stopped = True
-                break
-        if stopped:
-            return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
-        return RunResult("ok", last_count, cells_run=executed)
-    finally:
-        with _stop_lock:
-            _stop_flags.pop(busy_key, None)
-        _running_docs.discard(busy_key)
+                last_count = one.execution_count
+                need_drain = True
+                if _is_stop_requested(busy_key):
+                    stopped = True
+                    break
+            if stopped:
+                return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
+            return RunResult("ok", last_count, cells_run=executed)
+        finally:
+            with _stop_lock:
+                _stop_flags.pop(busy_key, None)
+            _running_docs.discard(busy_key)
 
 
 def _notebook_doc_or_msgbox(ctx: Any, doc: Any) -> NotebookDocState | None:
@@ -1236,10 +1238,11 @@ def run_all_for_doc(ctx: Any, doc: Any) -> RunResult | None:
 
 def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
     """Menu/toolbar: execute from the code cell at or after the selection."""
-    state = _notebook_doc_or_msgbox(ctx, doc)
-    if state is None:
-        return None
-    return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
+    with form_lookup.control_lookup_scope(doc):
+        state = _notebook_doc_or_msgbox(ctx, doc)
+        if state is None:
+            return None
+        return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
 
 
 def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:

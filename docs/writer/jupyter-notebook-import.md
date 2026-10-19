@@ -99,7 +99,7 @@ Each imported cell is styled to mimic Jupyter notebook structure without raw lay
 |-----------|---------------------|
 | **Markdown** | Rendered CommonMark: ATX `#` → Heading 1, `##+` → Heading 2; lists as Writer bullet styles; blockquotes; inline bold/italics/code; hyperlinks; embedded images. |
 | **Code (Gutter)** | **`WriterAgent Notebook In`** style — `In [n]:` prompt with the small ▶ button (`nb_run_{hex}`) on that same paragraph. |
-| **Code (Body)** | In-flow `TextField` (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border) followed by invisible bookmark `nb_out_{hex}`. |
+| **Code (Body)** | In-flow `TextField` (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border) followed by invisible bookmark `nb_out_{hex}`. A code field taller than the page body keeps that cap and turns on `VScroll`. |
 | **Outputs** | Stream outputs and tracebacks rendered in Preformatted Text directly below the field. If that style is missing, import and re-run create **WriterAgent Notebook Output** (monospace, parented on Text Body) so the paragraph is not Text Body — Text Body is a cell boundary, and a re-run would otherwise leave the old stdout in place. Re-running replaces existing stdout without duplicating paragraphs. A plot that fails to decode or insert is a Text Body paragraph `[image output omitted]`, not a blank line. One cell that throws does not abort the import: a Text Body paragraph `[Notebook cell N could not be imported]` is written and later cells still import. A closed document still aborts the import. |
 
 ---
@@ -295,7 +295,7 @@ g_ImplementationHelper.addImplementation(
 | `import_filter.py` | [`plugin/notebook/import_filter.py`](../../plugin/notebook/import_filter.py) | Native File Open XFilter+XImporter (no FilePicker / no completion msgbox) |
 | `notebook_controls.py` | [`plugin/notebook/notebook_controls.py`](../../plugin/notebook/notebook_controls.py) | Form control creation, layout sizing/styling, ▶ button wiring, and PyUNO listener management |
 | `notebook_runner.py` | [`plugin/notebook/notebook_runner.py`](../../plugin/notebook/notebook_runner.py) | Single-cell ▶, Run All / Run From Here / Stop, output replacement, kernel venv execution |
-| `form_lookup.py` | [`plugin/notebook/form_lookup.py`](../../plugin/notebook/form_lookup.py) | Draw page indexer: control models/shapes by name (`getAnchor`), field code reading (`read_code_from_field`) |
+| `form_lookup.py` | [`plugin/notebook/form_lookup.py`](../../plugin/notebook/form_lookup.py) | Draw page indexer: control models/shapes by name (`getAnchor`), field code reading (`read_code_from_field`); Run All, Run From Here, and a single ▶ build one draw-page index for that call |
 
 Entry Points:
 - [`plugin/main.py`](../../plugin/main.py) / [`plugin/main_core.py`](../../plugin/main_core.py): `notebook.run_all` / `run_from_here` / `stop` action handlers, and bootstrap listener wiring. ▶ runs through `XActionListener` (`run_cell_for_doc_hex`), not a per-cell protocol URL.

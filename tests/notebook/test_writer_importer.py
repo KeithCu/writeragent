@@ -25,10 +25,12 @@ from plugin.notebook.notebook_controls import (
     _MIN_FIELD_HEIGHT,
     _WRAP_SLACK,
     _height_for_text,
+    _insert_code_input_in_flow,
     _max_field_height_units,
     _page_style,
     _resolve_para_style,
     _text_area_width_units,
+    _text_width_from_style,
 )
 from plugin.notebook.writer_importer import (
     _PARAGRAPH_BREAK,
@@ -512,6 +514,107 @@ def test_page_style_reads_page_desc_name_from_first_paragraph():
     cursor.gotoStart.assert_called_once_with(False)
     assert _text_area_width_units(doc) == 27700
     assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
+
+
+def test_height_for_text_narrow_and_wide_field_w():
+    line100 = "a" * 100
+    h_default = _height_for_text(line100)
+    # Narrow field_w: char_width is ~211, narrow width e.g. 5000 units -> cols ~23
+    h_narrow = _height_for_text(line100, field_w=5000)
+    assert h_narrow > h_default
+
+    # Wide field_w: e.g. 30000 units -> cols ~142 -> 1 wrapped line
+    h_wide = _height_for_text(line100, field_w=30000)
+    assert h_wide <= h_default
+    assert h_wide == 2 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+
+
+def test_height_for_text_crlf_and_tabs():
+    text_crlf = "line1\r\nline2\r\n"
+    text_lf = "line1\nline2\n"
+    assert _height_for_text(text_crlf) == _height_for_text(text_lf)
+
+    tab_line = "\t" * 20
+    assert _height_for_text(tab_line) == 2 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+    tab_line_plus = "\t" * 21
+    assert _height_for_text(tab_line_plus) == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+
+
+def test_insert_code_input_vscroll_and_single_property_set_info():
+    doc, _body_text, _cursor = _writer_doc_mock()
+
+    def make_fake_model():
+        props = {}
+        info = MagicMock()
+        info.hasPropertyByName.return_value = True
+        model = MagicMock()
+        model.getPropertySetInfo.return_value = info
+        model.setPropertyValue.side_effect = lambda k, v: props.update({k: v})
+        model.props = props
+        return model, info
+
+    short_model, short_info = make_fake_model()
+    doc.createInstance.side_effect = [short_model, MagicMock()]
+    _insert_code_input_in_flow(doc, name="short_cell", source="x = 1", controls_before=0, cap=15000)
+    assert short_model.props.get("VScroll") is False
+    assert short_info.hasPropertyByName.call_count > 0
+    short_model.getPropertySetInfo.assert_called_once()
+
+    tall_model, tall_info = make_fake_model()
+    tall_source = "\n".join(f"line_{i} = {i}" for i in range(100))
+    doc.createInstance.side_effect = [tall_model, MagicMock()]
+    _insert_code_input_in_flow(doc, name="tall_cell", source=tall_source, controls_before=1, cap=5000)
+    assert tall_model.props.get("VScroll") is True
+    tall_model.getPropertySetInfo.assert_called_once()
+
+
+def test_page_style_width_throws_falls_back_to_default_width():
+    style = MagicMock()
+    style.getPropertyValue.side_effect = RuntimeError("Width throws")
+    assert _text_width_from_style(style) == _DEFAULT_WIDTH
+
+    doc, _body_text, _cursor = _writer_doc_mock()
+    model = MagicMock()
+    shape = MagicMock()
+    doc.createInstance.side_effect = [model, shape]
+    families = MagicMock()
+    families.hasByName.return_value = True
+    families.getByName.return_value = style
+    doc.getStyleFamilies.return_value.getByName.return_value = families
+    cursor = MagicMock()
+    cursor.getPropertyValue.return_value = ""
+    doc.getText.return_value.createTextCursor.return_value = cursor
+
+    _insert_code_input_in_flow(doc, name="nb_cell_0_code", source="x = 1", controls_before=0)
+    size_arg = shape.setSize.call_args.args[0]
+    assert size_arg.Width == _DEFAULT_WIDTH
+
+
+def test_import_resolves_page_style_once(tmp_path, monkeypatch):
+    ipynb = tmp_path / "multi.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"x=1","outputs":[]},'
+        '{"cell_type":"code","metadata":{},"source":"y=2","outputs":[]},'
+        '{"cell_type":"markdown","metadata":{},"source":"![img](x.png)"}'
+        ']}',
+        encoding="utf-8",
+    )
+    doc, _body_text, _cursor = _writer_doc_mock()
+    page_style_calls = []
+    real_page_style = _page_style
+
+    def counting_page_style(d):
+        page_style_calls.append(1)
+        return real_page_style(d)
+
+    monkeypatch.setattr("plugin.notebook.writer_importer._page_style", counting_page_style)
+    monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", lambda *_a, **_k: True)
+    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", lambda w, h: None)
+    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+
+    import_ipynb_to_writer(doc, str(ipynb))
+    assert len(page_style_calls) == 1
 
 
 def test_unglue_last_paragraph_clears_keep_with_next():
@@ -1719,7 +1822,7 @@ def test_file_url_to_local_path_unquotes(monkeypatch):
 
     fake_uno = MagicMock()
     try:
-        import pyuno
+        import pyuno  # type: ignore
         fake_uno.fileUrlToSystemPath.side_effect = pyuno.fileUrlToSystemPath
     except Exception:
         fake_uno.fileUrlToSystemPath.side_effect = lambda u: url2pathname(unquote(urlparse(u).path))
