@@ -175,6 +175,23 @@ def test_inspector_default_range_read_does_not_query_formats():
     bridge.get_active_document.assert_not_called()
 
 
+def test_inspector_read_range_refuses_over_cap_before_get_data_array():
+    from plugin.calc.inspector import CellInspector
+    from plugin.framework.errors import CalcError
+
+    addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=1048575)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    with pytest.raises(CalcError, match=r"Data range has 1048576 cells; maximum is"):
+        CellInspector(bridge).read_range("A1:A1048576")
+
+    cell_range.getDataArray.assert_not_called()
+    cell_range.getFormulaArray.assert_not_called()
+
+
 def _make_range_bridge(*, data_array, formula_array, date_addresses=(), format_groups=None, null_date=None, format_type=2, format_key=10):
     """Build a mocked bridge/range for include_format_info reads."""
     rows = len(data_array)

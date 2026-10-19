@@ -26,13 +26,12 @@ from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     IpcPartialFrameTimeout,
+    IpcTruncatedFrame,
     pack_pickle_frame,
     parse_worker_stdout_frame,
     read_frame_payload,
-    read_frame_payload_with_timeout,
     read_json_line,
     read_pickle_frame,
-    read_pickle_frame_with_timeout,
     unpack_pickle_frame,
     write_child_ipc_frame,
     write_json_line,
@@ -121,7 +120,8 @@ def test_truncated_pickle_frame_returns_none():
     payload = pack_pickle_frame({"status": "ok"})
     truncated = payload[:-2]
 
-    assert read_pickle_frame(io.BytesIO(truncated)) is None
+    with pytest.raises(IpcTruncatedFrame):
+        read_pickle_frame(io.BytesIO(truncated))
 
 
 def test_pickle_frame_size_limit_raises():
@@ -152,6 +152,7 @@ def test_ipc_error_subclasses():
 
     assert issubclass(IpcPayloadSizeError, IpcFrameError)
     assert issubclass(IpcFrameReadError, IpcFrameError)
+    assert issubclass(IpcTruncatedFrame, IpcFrameReadError)
 
     with pytest.raises(IpcPayloadSizeError):
         pack_pickle_frame({"x": "a" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)})
@@ -377,7 +378,13 @@ def test_read_frame_payload_short_header_then_eof_is_none():
                 return b"\x00\x00"
             return b""
 
-    assert read_frame_payload(ShortEOF()) is None
+    with pytest.raises(IpcTruncatedFrame):
+        read_frame_payload(ShortEOF())
+    assert read_frame_payload(io.BytesIO()) is None
+    frame = pack_pickle_frame({"a": 1})
+    stream = io.BytesIO(frame)
+    assert read_frame_payload(stream) is not None
+    assert read_frame_payload(stream) is None
 
 
 def test_json_line_roundtrip():
@@ -404,7 +411,7 @@ def test_pickle_frame_timeout_on_pipe():
     try:
         with os.fdopen(read_fd, "rb", buffering=0) as reader:
             with pytest.raises(subprocess.TimeoutExpired):
-                read_pickle_frame_with_timeout(reader, 0.05)
+                read_pickle_frame(reader, 0.05)
     finally:
         os.close(write_fd)
 
@@ -416,9 +423,25 @@ def test_pickle_frame_timeout_mid_frame_is_partial():
         os.write(write_fd, b"\x00\x00")
         with os.fdopen(read_fd, "rb", buffering=0) as reader:
             with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-                read_pickle_frame_with_timeout(reader, 0.05)
+                read_pickle_frame(reader, 0.05)
     finally:
         os.close(write_fd)
+
+
+def test_read_frame_payload_pipe_eof_mid_header_raises_truncated_fast():
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"\x00\x00")
+        os.close(write_fd)
+        write_fd = -1
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            t0 = time.monotonic()
+            with pytest.raises(IpcTruncatedFrame):
+                read_frame_payload(reader, 5.0)
+            assert time.monotonic() - t0 < 1.5
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
 
 
 @pytest.mark.skipif(
@@ -1009,8 +1032,8 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
 
         worker = threading.Thread(target=_second, daemon=True)
         worker.start()
-        first_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
-        second_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        first_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
+        second_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
         assert isinstance(first_req, dict) and isinstance(second_req, dict)
         assert first_req.get("id") != second_req.get("id")
         os.write(
@@ -1293,7 +1316,7 @@ def test_numpy_arbitrary_submodule_import_fails():
     with pytest.raises(ValueError, match="is not allowed"):
         unpack_pickle_frame(payload)
 
-def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
+def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
     import sys
     from plugin.scripting import ipc
     from unittest.mock import MagicMock
@@ -1308,19 +1331,19 @@ def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
     monkeypatch.setattr(ipc, "_decode_pickle_payload", lambda p, *args, **kwargs: None if p is None else {"ok": 1})
 
     # is_alive returning True should NOT cause TimeoutExpired
-    res = ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: True)
+    res = ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: True)
     assert res == {"ok": 1}
 
     # is_alive returning False drains queued bytes when peek > 0
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
-    assert ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False) == {"ok": 1}
+    assert ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: False) == {"ok": 1}
 
     # When peek is 0 and is_alive is False, it returns None without sleeping out the deadline
     slept: list[float] = []
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     stream.read.reset_mock()
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
-    assert ipc.read_pickle_frame_with_timeout(stream, 10.0, is_alive=lambda: False) is None
+    assert ipc.read_pickle_frame(stream, 10.0, is_alive=lambda: False) is None
     stream.read.assert_not_called()
     assert slept == []
 
@@ -1501,8 +1524,8 @@ def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
 
         worker = threading.Thread(target=_second, daemon=True)
         worker.start()
-        first_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
-        second_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        first_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
+        second_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
         assert isinstance(first_req, dict) and isinstance(second_req, dict)
         assert first_req.get("id") != second_req.get("id")
         os.write(
@@ -1576,13 +1599,13 @@ def test_write_child_ipc_frame_holds_tool_call_lock():
     assert parse_worker_stdout_frame(payload) == msg
 
 
-def test_read_frame_payload_with_timeout_dead_child_returns_none():
+def test_read_frame_payload_dead_child_returns_none():
     r_fd, w_fd = os.pipe()
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
             t0 = time.monotonic()
-            res = read_frame_payload_with_timeout(reader, 5.0, is_alive=lambda: False)
+            res = read_frame_payload(reader, 5.0, is_alive=lambda: False)
             assert res is None
             assert time.monotonic() - t0 < 1.5
         finally:
@@ -1591,14 +1614,14 @@ def test_read_frame_payload_with_timeout_dead_child_returns_none():
         os.close(w_fd)
 
 
-def test_read_frame_payload_with_timeout_stop_checker_raises_timeout_expired():
+def test_read_frame_payload_stop_checker_raises_timeout_expired():
     r_fd, w_fd = os.pipe()
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
             t0 = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-                read_frame_payload_with_timeout(reader, 30.0, timeout_label=30.0, stop_checker=lambda: True)
+                read_frame_payload(reader, 30.0, timeout_label=30.0, stop_checker=lambda: True)
             assert exc_info.value.timeout == 30.0
             assert time.monotonic() - t0 < 1.0
         finally:
@@ -1607,14 +1630,14 @@ def test_read_frame_payload_with_timeout_stop_checker_raises_timeout_expired():
         os.close(w_fd)
 
 
-def test_read_frame_payload_with_timeout_explicit_deadline():
+def test_read_frame_payload_explicit_deadline():
     r_fd, w_fd = os.pipe()
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
             t0 = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-                read_frame_payload_with_timeout(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
+                read_frame_payload(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
             elapsed = time.monotonic() - t0
             assert exc_info.value.timeout == 12.0
             assert 0.2 <= elapsed < 2.0
@@ -1624,14 +1647,14 @@ def test_read_frame_payload_with_timeout_explicit_deadline():
         os.close(w_fd)
 
 
-def test_read_frame_payload_with_timeout_partial_frame_raises_partial():
+def test_read_frame_payload_partial_frame_raises_partial():
     r_fd, w_fd = os.pipe()
     try:
         os.write(w_fd, b"\x00\x00")
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
             with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-                read_frame_payload_with_timeout(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
+                read_frame_payload(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
         finally:
             reader.close()
     finally:
@@ -1639,7 +1662,7 @@ def test_read_frame_payload_with_timeout_partial_frame_raises_partial():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="select slices are POSIX only")
-def test_read_frame_payload_with_timeout_posix_select_slices(monkeypatch):
+def test_read_frame_payload_posix_select_slices(monkeypatch):
     recorded_timeouts: list[float] = []
 
     def mock_select(r, w, x, timeout=None):
@@ -1655,7 +1678,7 @@ def test_read_frame_payload_with_timeout_posix_select_slices(monkeypatch):
         try:
             # stop_checker=False -> slices <= 0.2, at least one >= 0.1
             with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload_with_timeout(
+                read_frame_payload(
                     reader, 30.0, deadline=time.monotonic() + 0.5, stop_checker=lambda: False
                 )
             assert recorded_timeouts
@@ -1665,7 +1688,7 @@ def test_read_frame_payload_with_timeout_posix_select_slices(monkeypatch):
             # stop_checker=None -> single wait > 0.2
             recorded_timeouts.clear()
             with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload_with_timeout(
+                read_frame_payload(
                     reader, 30.0, deadline=time.monotonic() + 0.5, stop_checker=None
                 )
             assert recorded_timeouts
@@ -1676,10 +1699,10 @@ def test_read_frame_payload_with_timeout_posix_select_slices(monkeypatch):
         os.close(w_fd)
 
 
-def test_read_frame_payload_with_timeout_default_max_payload_bytes_applied():
+def test_read_frame_payload_default_max_payload_bytes_applied():
     too_big = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1)
     with pytest.raises(IpcFrameError):
-        read_frame_payload_with_timeout(io.BytesIO(too_big), 2.0)
+        read_frame_payload(io.BytesIO(too_big), 2.0)
 
 
 class TestReadFramePayloadWithTimeoutNoFd:
@@ -1689,29 +1712,27 @@ class TestReadFramePayloadWithTimeoutNoFd:
         response = {"status": "ok", "result": 42, "id": "test"}
         raw = pack_pickle_frame(response)
         stdout = io.BytesIO(raw)
-        got = read_frame_payload_with_timeout(stdout, timeout_sec=5.0)
+        got = read_frame_payload(stdout, timeout_sec=5.0)
         assert got is not None
         decoded = pickle.loads(got)
         assert decoded["status"] == "ok"
         assert decoded["result"] == 42
 
-    @pytest.mark.parametrize(
-        "value",
-        [
-            pytest.param(b"", id="test_returns_none_on_eof"),
-            pytest.param(b"\x00\x00", id="test_returns_none_on_short_header"),
-        ],
-    )
-    def test_returns_none_on_eof(self, value):
-        stdout = io.BytesIO(value)
-        got = read_frame_payload_with_timeout(stdout, timeout_sec=2.0)
+    def test_returns_none_on_eof(self):
+        stdout = io.BytesIO(b"")
+        got = read_frame_payload(stdout, timeout_sec=2.0)
         assert got is None
 
-    def test_returns_none_on_truncated_payload(self):
+    def test_raises_on_short_header(self):
+        stdout = io.BytesIO(b"\x00\x00")
+        with pytest.raises(IpcTruncatedFrame):
+            read_frame_payload(stdout, timeout_sec=2.0)
+
+    def test_raises_on_truncated_payload(self):
         header = struct.pack("!I", 100)
         stdout = io.BytesIO(header + b"short")
-        got = read_frame_payload_with_timeout(stdout, timeout_sec=2.0)
-        assert got is None
+        with pytest.raises(IpcTruncatedFrame):
+            read_frame_payload(stdout, timeout_sec=2.0)
 
     def test_timeout_raises(self):
         """A blocking read that never yields data should raise TimeoutExpired."""
@@ -1726,7 +1747,7 @@ class TestReadFramePayloadWithTimeoutNoFd:
 
         slow = io.BufferedReader(SlowIO())
         with pytest.raises(subprocess.TimeoutExpired):
-            read_frame_payload_with_timeout(slow, timeout_sec=1.0)
+            read_frame_payload(slow, timeout_sec=1.0)
 
     def test_propagates_read_error(self):
         class ErrorIO(io.RawIOBase):
@@ -1738,6 +1759,6 @@ class TestReadFramePayloadWithTimeoutNoFd:
 
         broken = io.BufferedReader(ErrorIO())
         with pytest.raises(IOError, match="pipe broken"):
-            read_frame_payload_with_timeout(broken, timeout_sec=2.0)
+            read_frame_payload(broken, timeout_sec=2.0)
 
 

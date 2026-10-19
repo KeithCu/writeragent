@@ -37,15 +37,29 @@ class MathConversionResult:
     error_message: str | None
 
 
+_MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
+
+
+def math_root(fragment: str) -> str | None:
+    """Extract a <math>...</math> root element from MathML markup."""
+    if not fragment or not isinstance(fragment, str):
+        return None
+    text = fragment.strip()
+    m = _MATH_ROOT_RE.search(text)
+    return m.group(0) if m else None
+
+
 def _exception_message(exc: Exception) -> str:
     """Non-empty diagnostic for UNO / latex2mathml failures (some bridges return ``str(exc)==''``)."""
     name = type(exc).__name__
-    text = str(exc).strip()
+    raw = getattr(exc, "Message", None) or str(exc)
+    text = raw.strip() if isinstance(raw, str) else ""
     return f"{name}: {text}" if text else name
 
 
-def _file_url(path: str) -> str:
+def file_url(path: str) -> str:
     return uno.systemPathToFileUrl(os.path.abspath(path))
+
 
 
 def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
@@ -108,20 +122,18 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     *mathml_fragment* should be a well-formed ``<math>...</math>`` subtree (may
     include an XML declaration — not required).
     """
-    if not mathml_fragment:
+    if not mathml_fragment or not isinstance(mathml_fragment, str):
         return MathConversionResult(False, None, "empty_mathml")
-    text = mathml_fragment.strip()
-    if not text.lower().startswith("<math"):
+    root = math_root(mathml_fragment)
+    if not root:
         return MathConversionResult(False, None, "not_math_root")
 
-    _debug_newline_stats("convert_mathml_to_starmath: input MathML fragment", text)
+    _debug_newline_stats("convert_mathml_to_starmath: input MathML fragment", root)
 
     fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-", text=False)
     os.close(fd)
     try:
-        payload = text
-        if not text.lstrip().lower().startswith("<?xml"):
-            payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + text
+        payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
         _debug_newline_stats("convert_mathml_to_starmath: .mml payload written to temp file", payload)
         with open(path, "w", encoding="utf-8") as f:
             f.write(payload)
@@ -129,7 +141,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
         from plugin.writer.format import create_property_value
         desktop = get_desktop(ctx)
         hidden = (create_property_value("Hidden", True),)
-        url = _file_url(path)
+        url = file_url(path)
         doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
         if doc is None:
             return MathConversionResult(False, None, "load_returned_none")

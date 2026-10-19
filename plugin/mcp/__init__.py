@@ -14,11 +14,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""HTTP server module — owns the HTTP server lifecycle."""
+"""HTTP server and MCP module — owns the HTTP server lifecycle and MCP routes."""
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -55,14 +56,53 @@ def is_mcp_server_running() -> bool:
     return bool(server and getattr(server, "is_running", lambda: False)())
 
 
+_DEBUG_TOKEN_FILENAME = "writeragent_mcp_debug_token"
+
+
+def _debug_token_path() -> str | None:
+    try:
+        from plugin.framework.config import get_config_file_path
+
+        cfg_path = get_config_file_path()
+        if cfg_path:
+            return os.path.join(os.path.dirname(str(cfg_path)), _DEBUG_TOKEN_FILENAME)
+    except Exception:
+        pass
+    return None
+
+
+def _write_debug_token_file(token: str) -> None:
+    if os.environ.get("WRITERAGENT_TESTING"):
+        return
+    token_path = _debug_token_path()
+    if not token_path:
+        return
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd = os.open(token_path, flags, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(token)
+    except OSError:
+        log.exception("Failed to write debug token file")
+
+
+def _remove_debug_token_file() -> None:
+    token_path = _debug_token_path()
+    if not token_path:
+        return
+    try:
+        if os.path.exists(token_path):
+            os.remove(token_path)
+    except OSError:
+        pass
+
+
 class McpModule(ModuleBase):
     """Manages the shared HTTP server and route registry.
 
-    Other modules (chatbot, doc) register routes via the
-    ``http_routes`` service during their initialize() phase.
-    This module also handles the MCP (Model Context Protocol)
-    JSON-RPC routes if enabled.
-    This module starts the server in start_background().
+    Route registrations are managed by McpModule (the MCP JSON-RPC routes,
+    SSE streams, and debug endpoints). This module starts the server in
+    start_background().
     """
 
     # Declared here so mypy can type the second-bootstrap reuse path
@@ -372,6 +412,7 @@ class McpModule(ModuleBase):
         self._stop_server()
         if self._mcp_routes_registered:
             self._unregister_mcp_routes(self._services)
+        _remove_debug_token_file()
 
     def _register_mcp_routes(self, services: Any) -> None:
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
@@ -379,6 +420,8 @@ class McpModule(ModuleBase):
 
         self._mcp_protocol = MCPProtocolHandler(services)
         p = self._mcp_protocol
+        if getattr(p, "debug_token", None):
+            _write_debug_token_file(p.debug_token)
 
         # One lock across the whole set. GET / snapshots routes under the same
         # lock, so a toggle cannot expose a half-registered table or raise
@@ -408,6 +451,7 @@ class McpModule(ModuleBase):
                 self._registry.remove(method, path)
             self._mcp_routes_registered = False
             self._mcp_protocol = None
+        _remove_debug_token_file()
         log.info("MCP routes unregistered from HTTP server")
 
     # ── Action dispatch ──────────────────────────────────────────────

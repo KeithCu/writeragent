@@ -37,6 +37,7 @@ import json
 import logging
 import socket
 import threading
+import time
 import weakref
 from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -56,6 +57,9 @@ if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
+
+# Maximum concurrent SSE streams to prevent thread exhaustion.
+SSE_MAX_STREAMS = 8
 
 # MCP JSON-RPC bodies are tool arguments, not file uploads. A few MiB is
 # enough for a document slice and small enough that one request cannot
@@ -221,6 +225,27 @@ def _sse_state(tcp_server: Any) -> tuple[threading.Event, Any, Any, threading.Lo
     return tcp_server._sse_stop, tcp_server._sse_sockets, tcp_server._sse_threads, lock
 
 
+def try_reserve_sse(tcp_server: Any, sock: Any = None) -> threading.Event | None:
+    """Reserve an SSE stream slot on *tcp_server*.
+
+    Returns the stop event the loop must watch, or None when this listener
+    is already stopped or the stream cap is reached.
+    """
+    if tcp_server is None:
+        return None
+    stop, sockets, threads, lock = _sse_state(tcp_server)
+    with lock:
+        count = getattr(tcp_server, "_sse_count", 0)
+        active = max(count, len(threads))
+        if stop.is_set() or active >= SSE_MAX_STREAMS:
+            return None
+        tcp_server._sse_count = count + 1
+        if sock is not None:
+            sockets.add(sock)
+        threads.add(threading.current_thread())
+        return stop
+
+
 def note_sse_keepalive(tcp_server: Any, sock: Any) -> threading.Event | None:
     """Register *sock* on *tcp_server*.
 
@@ -229,17 +254,11 @@ def note_sse_keepalive(tcp_server: Any, sock: Any) -> threading.Event | None:
     """
     if tcp_server is None or sock is None:
         return None
-    stop, sockets, threads, lock = _sse_state(tcp_server)
-    with lock:
-        if stop.is_set():
-            return None
-        sockets.add(sock)
-        threads.add(threading.current_thread())
-        return stop
+    return try_reserve_sse(tcp_server, sock)
 
 
-def forget_sse_keepalive(tcp_server: Any, sock: Any) -> None:
-    """Drop a keepalive that has left its loop."""
+def forget_sse_keepalive(tcp_server: Any, sock: Any = None) -> None:
+    """Drop a keepalive that has left its loop and release its reservation."""
     if tcp_server is None:
         return
     _stop, sockets, threads, lock = _sse_state(tcp_server)
@@ -247,6 +266,9 @@ def forget_sse_keepalive(tcp_server: Any, sock: Any) -> None:
         if sock is not None:
             sockets.discard(sock)
         threads.discard(threading.current_thread())
+        count = getattr(tcp_server, "_sse_count", 0)
+        if count > 0:
+            tcp_server._sse_count = count - 1
 
 
 def _shutdown_sse_socket(sock: Any) -> None:
@@ -366,6 +388,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return
         path = get_url_path(self.path)
         log_http_request(self, method, path)
+        setattr(self.headers, "_client_address", self.client_address)
         server = cast("_ThreadedHTTPServer", self.server)
         route_registry = server.route_registry
         route = route_registry.match(method, path) if route_registry else None
@@ -380,25 +403,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
         try:
             if route.raw:
-                if route.main_thread:
-                    from plugin.framework.queue_executor import default_executor
-
-                    default_executor.execute(route.handler, self)
-                else:
-                    route.handler(self)
+                route.handler(self)
             else:
                 body = self._read_body()
                 if body is None:
                     return  # _read_body already sent error response
                 query = get_url_query_dict(self.path)
-                if route.main_thread:
-                    from plugin.framework.queue_executor import default_executor
-
-                    result: Any = default_executor.execute(route.handler, body, self.headers, query)
-                    status, data = cast("tuple[int, Any]", result)
-                else:
-                    result = route.handler(body, self.headers, query)
-                    status, data = cast("tuple[int, Any]", result)
+                result = route.handler(body, self.headers, query)
+                status, data = cast("tuple[int, Any]", result)
                 self._send_json(status, data)
         except Exception as e:
             log.exception("%s %s failed", method, path)
@@ -517,19 +529,22 @@ class HttpServer:
             # still blocked in select until their sockets are closed.
             stop_sse_keepalives(self._server)
 
+            # Join in-flight SSE keepalive threads within a single 2s deadline.
+            deadline = time.monotonic() + 2.0
+            still_alive: list[str] = []
             # Join in-flight SSE keepalive threads. We give them a bit of time, shutdown() only shuts down new accept calls.
             for t in threads_to_join:
-                if self._server is not None:
-                    _sse_info = _sse_state(self._server)
-                    live_threads = _sse_info[2]
-                    lock = _sse_info[3]
-                    with lock:
-                        if t not in live_threads:
-                            continue
-                if t.is_alive() and t is not threading.current_thread():
-                    t.join(timeout=2.0)
-                    if t.is_alive():
-                        log.warning("HTTP server request thread %s still alive after stop", getattr(t, "name", "unknown"))
+                if not t.is_alive() or t is threading.current_thread():
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    still_alive.append(getattr(t, "name", "unknown"))
+                    continue
+                t.join(timeout=remaining)
+                if t.is_alive():
+                    still_alive.append(getattr(t, "name", "unknown"))
+            if still_alive:
+                log.warning("HTTP server request thread(s) still alive after stop: %s", ", ".join(still_alive))
 
     @background
     def _run(self) -> None:

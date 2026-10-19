@@ -948,6 +948,8 @@ class ApplyStyle(FrameworkToolBase):
             if rep.get("warning"):
                 # First range's walk-cap note is enough — same cap applies to every range.
                 out.setdefault("warning", rep["warning"])
+            if rep.get("capture_incomplete"):
+                out["capture_incomplete"] = True
         # No retry hint: default is already style_props (house font shows). preserved_char_overrides
         # is only set on the explicit none path, which the caller asked for.
         return out

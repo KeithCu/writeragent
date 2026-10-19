@@ -250,6 +250,51 @@ def find_system_uno(*, venv_py: tuple[int, int] | None = None):
     return uno_path, lo_program
 
 
+# Pure-Python LibreOffice modules the checkers need. On Windows they sit next to
+# pyuno.pyd, so they are copied out instead of putting that folder on the path.
+_WINDOWS_UNO_PY_FILES = ("uno.py", "unohelper.py", "officehelper.py")
+
+
+def _windows_uno_py_dir(venv_base: str) -> str:
+    return os.path.join(venv_base, "libreoffice-uno-py")
+
+
+def _windows_uno_py_current(stage: str, lo_program: str) -> bool:
+    for name in _WINDOWS_UNO_PY_FILES:
+        src = os.path.join(lo_program, name)
+        dst = os.path.join(stage, name)
+        if not os.path.isfile(src):
+            continue
+        try:
+            with open(src, "rb") as a, open(dst, "rb") as b:
+                if a.read() != b.read():
+                    return False
+        except OSError:
+            return False
+    return True
+
+
+def _copy_windows_uno_py(stage: str, lo_program: str) -> None:
+    os.makedirs(stage, exist_ok=True)
+    for name in _WINDOWS_UNO_PY_FILES:
+        src = os.path.join(lo_program, name)
+        if os.path.isfile(src):
+            shutil.copyfile(src, os.path.join(stage, name))
+
+
+def _venv_uno_paths(venv_base: str, uno_path: str, lo_program: str | None) -> tuple[str, str | None]:
+    """Folders to put in uno.pth.
+
+    Tip: on Windows, never put LibreOffice's program folder on the venv path. Its
+    pyuno.pyd is built for LibreOffice's own Python; when the venv Python tries to
+    load it, the import fails and also shuts down Windows networking (Winsock) for
+    the whole process, so every later socket call fails with WinError 10093.
+    """
+    if sys.platform == "win32":
+        return _windows_uno_py_dir(venv_base), None
+    return uno_path, lo_program
+
+
 def _expected_pth_lines(uno_path: str, lo_program: str | None) -> list[str]:
     lines = ["# Added by scripts/fix_uno_import.py", uno_path]
     if lo_program and os.path.normcase(os.path.abspath(lo_program)) != os.path.normcase(os.path.abspath(uno_path)):
@@ -283,7 +328,9 @@ def needs_uno_fix(venv_base: str) -> bool:
     uno_path, lo_program = find_system_uno(venv_py=venv_py)
     if not uno_path:
         return False
-    return not _pth_is_current(pth_file, uno_path, lo_program)
+    if sys.platform == "win32" and not _windows_uno_py_current(_windows_uno_py_dir(venv_base), uno_path):
+        return True
+    return not _pth_is_current(pth_file, *_venv_uno_paths(venv_base, uno_path, lo_program))
 
 
 def ensure_uno_import(venv_base: str, *, quiet: bool = False) -> bool:
@@ -334,6 +381,10 @@ def _apply_uno_fix(venv_base: str, *, quiet: bool = False) -> bool:
         if not quiet:
             print(f"Error: {exc}")
         return False
+
+    if sys.platform == "win32":
+        _copy_windows_uno_py(_windows_uno_py_dir(venv_base), uno_path)
+    uno_path, lo_program = _venv_uno_paths(venv_base, uno_path, lo_program)
 
     if not quiet:
         print(f"Creating {pth_file}...")

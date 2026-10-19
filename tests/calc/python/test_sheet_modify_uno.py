@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from plugin.calc.python.function import SHEET_MODIFY_LISTENERS, perform_deferred_spill
+from plugin.calc.python.function import SHEET_MODIFY_LISTENERS, _spill_registry_doc_key, perform_deferred_spill
 from plugin.calc.python.sheet_modify import (
     dispatch_sheet_modified,
     ensure_sheet_modify_listener,
@@ -33,7 +33,9 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     # 2. Enter formula in A1 (col 0, row 0) and spill 2x2
     code = "result = [[1, 2], [3, 4]]"
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
-    perform_deferred_spill(ctx, doc.getURL(), original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
+    # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
+    # be a saved file, and its URL would not match, so the spill would be skipped.
+    perform_deferred_spill(ctx, _spill_registry_doc_key(doc), original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
 
     assert sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert sheet.getCellByPosition(0, 1).getValue() == 3.0

@@ -77,6 +77,42 @@ def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path)
     assert m.menu_icon_filename("python", px=16) == "python_32.png"
 
 
+def test_menu_icon_filename_caches_and_reset_clears(monkeypatch, tmp_path):
+    import os
+
+    reset_menu_icon_dpi_cache()
+    (tmp_path / "running_16.png").write_bytes(b"x")
+    monkeypatch.setattr(
+        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        lambda name: [str(tmp_path / name)],
+    )
+
+    calls = {"count": 0}
+    real_isfile = os.path.isfile
+
+    def count_isfile(path):
+        calls["count"] += 1
+        return real_isfile(path)
+
+    monkeypatch.setattr("os.path.isfile", count_isfile)
+
+    res1 = m.menu_icon_filename("running", px=16)
+    assert res1 == "running_16.png"
+    count_first = calls["count"]
+    assert count_first > 0
+
+    # Second call uses cache; os.path.isfile not called
+    res2 = m.menu_icon_filename("running", px=16)
+    assert res2 == "running_16.png"
+    assert calls["count"] == count_first
+
+    # After reset, cache is cleared so os.path.isfile is called again
+    reset_menu_icon_dpi_cache()
+    res3 = m.menu_icon_filename("running", px=16)
+    assert res3 == "running_16.png"
+    assert calls["count"] > count_first
+
+
 def test_strong_cache_logs_info_once(monkeypatch, caplog):
     skip_if_release_build("log.info stripped in release bundle")
 

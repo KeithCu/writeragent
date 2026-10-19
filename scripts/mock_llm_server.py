@@ -210,6 +210,8 @@ SCENARIO_IDS = frozenset(
         "three_edits",
         "style_parallel",
         "python_slow",
+        "content_filter",
+        "table",
     }
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
@@ -362,7 +364,8 @@ def summarize_chat_payload(
     config: MockLLMConfig | None = None,
 ) -> dict[str, Any]:
     """Compact request snapshot for Packet E tests (thread-safe append via record_capture)."""
-    messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    raw_messages = payload.get("messages")
+    messages: list[Any] = raw_messages if isinstance(raw_messages, list) else []
     tools = _tool_names(payload.get("tools"))
     user_text = _last_user_text(messages)
     query = current_query_text(user_text)
@@ -420,6 +423,15 @@ def clear_captures(config: MockLLMConfig) -> None:
         config.captures.clear()
 
 
+def _consume_one_shot(config: MockLLMConfig, attr: str) -> bool:
+    with config._capture_lock:
+        val = int(getattr(config, attr, 0))
+        if val <= 0:
+            return False
+        setattr(config, attr, val - 1)
+        return True
+
+
 def is_compaction_summarizer(payload: dict[str, Any]) -> bool:
     """True for compact_session's non-tool ``request_with_tools`` POST.
 
@@ -429,7 +441,8 @@ def is_compaction_summarizer(payload: dict[str, Any]) -> bool:
     tools = payload.get("tools")
     if tools:
         return False
-    messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    raw_messages = payload.get("messages")
+    messages: list[Any] = raw_messages if isinstance(raw_messages, list) else []
     return "conversation compaction assistant" in _system_text(messages).lower()
 
 
@@ -594,7 +607,8 @@ def completion_from_rule(rule: CompletionRule) -> Completion:
 
 def match_completion_rule(rule: CompletionRule, payload: dict[str, Any]) -> Completion | None:
     """Return a Completion when *rule* matches *payload*, else None."""
-    messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    raw_messages = payload.get("messages")
+    messages: list[Any] = raw_messages if isinstance(raw_messages, list) else []
     tools = payload.get("tools")
     tool_names = _tool_names(tools)
     user_text = _last_user_raw(messages)
@@ -1556,7 +1570,8 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         return scripted
     if is_compaction_summarizer(payload):
         return Completion(content=COMPACTION_SUMMARY, finish_reason="stop")
-    messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    raw_messages = payload.get("messages")
+    messages: list[Any] = raw_messages if isinstance(raw_messages, list) else []
     tool_names = _tool_names(payload.get("tools"))
     user_text = _last_user_text(messages)
     user_raw = _last_user_raw(messages)
@@ -1891,8 +1906,8 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
     state = turns if turns is not None else _TurnState()
 
     class MockLLMHandler(BaseHTTPRequestHandler):
-        def log_message(self, fmt: str, *args: Any) -> None:
-            sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        def log_message(self, format: str, *args: Any) -> None:
+            sys.stderr.write("%s - %s\n" % (self.address_string(), format % args))
 
         def handle(self) -> None:
             # Stop / Clear close the stream mid-write. That is the client
@@ -1992,8 +2007,7 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 if config.fail_stt:
                     self._send_json(500, openai_error_body("mock STT failure", "server_error"))
                     return
-                if config.fail_stt_404_count > 0:
-                    config.fail_stt_404_count -= 1
+                if _consume_one_shot(config, "fail_stt_404_count"):
                     self._send_json(404, openai_error_body("Mock STT Endpoint Failure: model not found", "not_found_error"))
                     return
                 ctype = str(self.headers.get("Content-Type") or "")
@@ -2023,7 +2037,8 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     self.send_error(400, "invalid json")
                     return
                 if config.fail_image == "hang":
-                    dummy = Completion()
+                    # Pass hang=True to reuse the non-stream hang path (200 + SHUT_WR).
+                    dummy = Completion(hang=True)
                     self._fail_or_hang_headers(dummy, stream=False)
                     return
                 if config.image_delay_s > 0:
@@ -2051,22 +2066,20 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 self.send_error(400, "expected object")
                 return
             model = str(payload.get("model") or MOCK_MODEL_ID)
-            fail_400 = config.fail_native_audio_400_count > 0
-            if fail_400:
-                config.fail_native_audio_400_count -= 1
-            if config.fail_native_audio or fail_400:
-                audio_messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
-                last_user = _last_user_message(audio_messages)
-                if last_user is not None and _content_has_audio(last_user.get("content")):
-                    record_capture(config, summarize_chat_payload(payload, None, config))
-                    self._send_json(
-                        400,
-                        openai_error_body(
-                            "HTTP 400 input validation: unsupported modality for input audio",
-                            "invalid_request_error",
-                        ),
-                    )
-                    return
+            audio_messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+            last_user = _last_user_message(audio_messages)
+            has_audio = last_user is not None and _content_has_audio(last_user.get("content"))
+            # Only consume the one-shot counter when the request actually contains audio.
+            if has_audio and (config.fail_native_audio or _consume_one_shot(config, "fail_native_audio_400_count")):
+                record_capture(config, summarize_chat_payload(payload, None, config))
+                self._send_json(
+                    400,
+                    openai_error_body(
+                        "HTTP 400 input validation: unsupported modality for input audio",
+                        "invalid_request_error",
+                    ),
+                )
+                return
             completion = decide_completion(payload, config, state)
             record_capture(config, summarize_chat_payload(payload, completion, config))
             stream = bool(payload.get("stream"))
@@ -2100,7 +2113,6 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     config.open_streams -= 1
 
         def _write_sse(self, completion: Completion, model: str, hang: bool) -> None:
-            delay = response_delay_s(config, stream=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -2132,6 +2144,9 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 if max_chunks is not None and written >= max_chunks:
                     self._drop_client_socket()
                     return
+                # Read the delay per chunk so a test that lowers delay_ms mid-stream
+                # speeds up the stream already running (T2 on slower macOS runners).
+                delay = response_delay_s(config, stream=True)
                 if delay:
                     time.sleep(delay)
             self.wfile.write(b"data: [DONE]\n\n")
@@ -2150,13 +2165,14 @@ def serve(host: str, port: int, config: MockLLMConfig) -> None:
         f"Mock LLM on http://{host}:{port}/v1 (model {MOCK_MODEL_ID}; "
         f"offline={config.offline} always_research={config.always_research} "
         f"scenario={config.scenario} fail={config.fail} delay_ms={config.delay_ms} "
-        f"sync_delay_ms={config.sync_delay_ms})",
+        f"sync_delay_ms={config.sync_delay_ms} fail_image={config.fail_image} "
+        f"image_delay_s={config.image_delay_s} image_status={config.image_status})",
         flush=True,
     )
     httpd.serve_forever()
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="WriterAgent mock OpenAI chat endpoint")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -2190,9 +2206,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="SSE tool-arg fragment size")
     parser.add_argument("--fail", default="none", choices=FAIL_MODES, help="Fail every request this way")
-    parser.add_argument("--fail-image", default="none")
-    parser.add_argument("--image-delay-s", type=float, default=0.0)
-    parser.add_argument("--image-status", type=int, default=500)
+    parser.add_argument(
+        "--fail-image",
+        default="none",
+        choices=["none", "status", "malformed", "hang"],
+        help="Fail image generation requests this way",
+    )
+    parser.add_argument(
+        "--image-delay-s",
+        type=float,
+        default=0.0,
+        help="Pause before responding to image generation requests",
+    )
+    parser.add_argument(
+        "--image-status",
+        type=int,
+        default=500,
+        help="HTTP status code for --fail-image status",
+    )
     parser.add_argument(
         "--fail-after-chunks",
         type=int,
@@ -2209,8 +2240,11 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_TRANSCRIPT,
         help="Canned STT / native-audio transcript (no real ASR)",
     )
-    args = parser.parse_args(argv)
-    config = MockLLMConfig(
+    return parser
+
+
+def config_from_args(args: argparse.Namespace) -> MockLLMConfig:
+    return MockLLMConfig(
         delay_ms=args.delay_ms,
         sync_delay_ms=args.sync_delay_ms,
         offline=args.offline,
@@ -2221,7 +2255,16 @@ def main(argv: list[str] | None = None) -> int:
         fail_after_chunks=args.fail_after_chunks,
         sse_comments=args.sse_comments,
         transcript=args.transcript,
+        fail_image=args.fail_image,
+        image_delay_s=args.image_delay_s,
+        image_status=args.image_status,
     )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = config_from_args(args)
     serve(args.host, args.port, config)
     return 0
 

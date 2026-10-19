@@ -122,6 +122,7 @@ def test_writeragent_writer_only_top_level_items():
         ctx = _prop_text(items[url], "Context")
         assert ctx == _WRITER_SVC, url
         assert _CALC_SVC not in (ctx or "")
+    assert _prop_text(items[_PROTOCOL + "writer.insert_latex_dialog"], "Title") == "Insert LaTeX Math..."
 
 
 def test_writeragent_jupyter_is_not_a_menu_item():

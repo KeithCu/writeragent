@@ -8,19 +8,17 @@
 #   .\scripts\install-plugin.ps1 -BuildOnly               # Only create the .oxt
 #   .\scripts\install-plugin.ps1 -Uninstall               # Remove the extension
 #   .\scripts\install-plugin.ps1 -Cache                   # Hot-deploy to LO cache (dev iteration)
-#   .\scripts\install-plugin.ps1 -Modules "core mcp"      # Build specific modules (default: auto-discover all)
 
 param(
     [switch]$Force,
     [switch]$BuildOnly,
     [switch]$Uninstall,
     [switch]$Cache,
-    [string]$Modules = "",
     [switch]$Help
 )
 
 if ($Help) {
-    Write-Host "Usage: .\scripts\install-plugin.ps1 [-Force] [-BuildOnly] [-Uninstall] [-Cache] [-Modules `"core mcp`"]"
+    Write-Host "Usage: .\scripts\install-plugin.ps1 [-Force] [-BuildOnly] [-Uninstall] [-Cache]"
     exit 0
 }
 
@@ -91,16 +89,12 @@ function Confirm-LOStopped {
 # ── Build .oxt ───────────────────────────────────────────────────────────────
 
 function Build-Oxt {
-    $moduleLabel = if ($Modules) { $Modules } else { "auto-discover all" }
     Write-Host ""
-    Write-Host "=== Building WriterAgent.oxt (modules: $moduleLabel) ==="
+    Write-Host "=== Building WriterAgent.oxt ==="
     Write-Host ""
 
     if (-not (Test-Path $BuildDir)) {
         New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
-    }
-    if (Test-Path $OxtFile) {
-        Remove-Item -Path $OxtFile -Force
     }
 
     # Generate manifests from module.yaml files
@@ -109,12 +103,7 @@ function Build-Oxt {
 
     # Build the .oxt
     $buildScript = Join-Path $ScriptDir "build_oxt.py"
-    if ($Modules) {
-        $moduleArgs = $Modules -split "\s+"
-        & python $buildScript --modules @moduleArgs --output $OxtFile
-    } else {
-        & python $buildScript --output $OxtFile
-    }
+    & python $buildScript --output $OxtFile
 
     if (Test-Path $OxtFile) {
         $size = (Get-Item $OxtFile).Length

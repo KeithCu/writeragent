@@ -155,6 +155,8 @@ def _add_standalone_field(board, field_name, schema, y, page, dialog_width, *, w
             attrs[_dlg("value-min")] = str(schema["min"])
         if "max" in schema:
             attrs[_dlg("value-max")] = str(schema["max"])
+        if schema.get("step") is not None:
+            attrs[_dlg("value-step")] = str(schema["step"])
         attrs[_dlg("decimal-accuracy")] = "1" if schema.get("type") == "float" else "0"
         ET.SubElement(board, _dlg("numericfield"), attrs)
     elif widget in ("select", "combo"):

@@ -17,10 +17,30 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
     """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
     if not text:
         return ""
-    compact = " ".join(text.split())
-    if len(compact) <= max_len:
-        return compact
-    return f"{compact[:max_len]}\u2026"
+    chars: list[str] = []
+    in_whitespace = False
+    started = False
+    limit = max_len + 1
+    for ch in text:
+        if ch.isspace():
+            if started and not in_whitespace:
+                chars.append(" ")
+                in_whitespace = True
+                if len(chars) == limit:
+                    break
+        else:
+            started = True
+            in_whitespace = False
+            chars.append(ch)
+            if len(chars) == limit:
+                break
+    if not chars:
+        return ""
+    if len(chars) > max_len:
+        return f"{''.join(chars[:max_len])}\u2026"
+    if chars[-1] == " ":
+        chars.pop()
+    return "".join(chars)
 
 
 from .grammar_obs import grammar_obs

@@ -422,3 +422,23 @@ def test_omit_sidebar_test_hooks_deletes_file(tmp_path: Path) -> None:
     omit_sidebar_test_hooks(str(tmp_path), dry_run=False)
 
     assert not target.exists()
+
+
+def test_strip_code_excludes_plugin_lib(tmp_path: Path) -> None:
+    lib_file = tmp_path / "plugin" / "lib" / "somepkg" / "module.py"
+    lib_file.parent.mkdir(parents=True)
+    lib_file.write_text("def f():\n    log.debug('vendored')\n    return 1\n", encoding="utf-8")
+    strip_production_code(str(tmp_path), dry_run=False)
+    content = lib_file.read_text(encoding="utf-8")
+    assert "log.debug('vendored')" in content
+
+
+def test_strip_code_fails_on_syntax_error(tmp_path: Path) -> None:
+    bad_file = tmp_path / "plugin" / "bad.py"
+    bad_file.parent.mkdir(parents=True)
+    bad_file.write_text("def broken(:\n", encoding="utf-8")
+    import pytest
+    with pytest.raises(RuntimeError) as exc_info:
+        strip_production_code(str(tmp_path), dry_run=False)
+    assert "Failed stripping" in str(exc_info.value)
+    assert "plugin/bad.py" in str(exc_info.value)

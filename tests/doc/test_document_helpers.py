@@ -82,6 +82,10 @@ def test_paragraph_and_heading_ordinals_still_resolve():
     assert resolve_locator(doc, "paragraph:3")["para_index"] == 3
     assert resolve_locator(doc, "heading:1")["para_index"] == 1
     assert resolve_locator(doc, "heading:2")["para_index"] == 3
+    with pytest.raises(ToolExecutionError, match=r"Heading index 9 out of range \(1\.\.2\) in 'heading:9'"):
+        resolve_locator(doc, "heading:9")
+    with pytest.raises(ToolExecutionError, match=r"Heading index 9 out of range \(1\.\.0\) in 'heading:1.9'"):
+        resolve_locator(doc, "heading:1.9")
 
 
 def test_heading_text_resolves_past_paragraph_zero():

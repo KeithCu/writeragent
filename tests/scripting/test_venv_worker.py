@@ -816,6 +816,28 @@ def test_stdout_close_before_start_retries_once():
     assert mgr._terminate_worker.call_args_list == [call(wait=False), call(wait=False)]
 
 
+def test_truncated_header_before_exec_started_fails_without_replay():
+    """A truncated frame is stream desynchronization; do not replay."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO(b"\x00\x00")
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()
+    mgr._write_frame_with_timeout = MagicMock()
+    mgr._drain_stderr = MagicMock(return_value="")
+    mgr._terminate_worker = MagicMock()
+
+    result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1))
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 1
+    assert mgr._terminate_worker.call_args_list == [call(wait=False)]
+
+
 def test_runtime_error_before_exec_started_retries_once():
     """A RuntimeError before the child has started the script is still a failed start."""
     mgr = PythonWorkerManager(sys.executable, {})
@@ -2918,6 +2940,25 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
     harness.main()
 
     assert stdout.getvalue() == b""
+
+
+def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplog):
+    import io
+    import plugin.scripting.venv.worker_harness as harness
+
+    stdin = io.BytesIO(b"\x00\x00")
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    with caplog.at_level(logging.WARNING, logger="worker_harness"):
+        harness.main()
+
+    assert stdout.getvalue() == b""
+    assert "IPC frame error" in caplog.text
 
 
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):

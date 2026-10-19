@@ -12,7 +12,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener
 
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import get_active_document
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -59,6 +59,12 @@ def show_latex_input_dialog(
 
         cbc = dlg.getControl("DisplayBlockCheck")
         cbc.getModel().State = 1 if initial_display else 0
+        if update:
+            cbc.getModel().Enabled = False
+            try:
+                cbc.setEnable(False)
+            except Exception:
+                pass
 
         _outcome: list[tuple[str, bool] | None] | None = None
 
@@ -143,10 +149,15 @@ def _selection_latex_prefill(
         if starmath:
             exported = convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
-                last_latex = exported.latex
+                return name, exported.latex, last_display, False
     except Exception:
         log.debug("latex dialog: selection Math → LaTeX prefill failed", exc_info=True)
-    return name, last_latex, last_display, False
+    msgbox(
+        ctx,
+        _("Edit LaTeX Math"),
+        _("Could not convert formula to LaTeX. Enter formula manually."),
+    )
+    return name, "", last_display, False
 
 
 def _apply_latex_to_writer(
@@ -158,8 +169,6 @@ def _apply_latex_to_writer(
         error_msg = conv_res.error_message or _("Unknown conversion error")
         return False, _("Failed to convert LaTeX to StarMath:\n\n{0}").format(error_msg)
 
-    set_config("last_latex_input", latex)
-    set_config("last_latex_display_block", display_block)
     starmath = conv_res.starmath or ""
 
     if target_name:
@@ -173,19 +182,21 @@ def _apply_latex_to_writer(
         except Exception as exc:
             log.exception("replace_writer_math_formula failed")
             return False, str(exc)
+        set_config("last_latex_input", latex)
         return True, _("Formula updated.")
 
     controller = doc.getCurrentController()
     view_cursor = controller.getViewCursor()
     insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
+    set_config("last_latex_input", latex)
+    set_config("last_latex_display_block", display_block)
     return True, _("Formula inserted.")
 
 
 def insert_latex_math_dialog(ctx: Any) -> None:
     """Entry point for inserting LaTeX Math into Writer via a dialog."""
     try:
-        desktop = get_desktop(ctx)
-        doc = desktop.getCurrentComponent()
+        doc = get_active_document(ctx)
         if doc is None or not is_writer(doc):
             msgbox(ctx, _("Error"), _("This command is only available in Writer documents."))
             return
@@ -227,7 +238,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
                 "save_as_plain": last_display,
                 "save_label": _("Update") if target_name else _("Insert"),
                 "close_label": _("Close"),
-                "show_plain_text": True,
+                "show_plain_text": not bool(target_name),
                 "show_data_binding": False,
                 "resource": target_name or "insert",
             }

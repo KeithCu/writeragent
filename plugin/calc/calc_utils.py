@@ -176,7 +176,12 @@ def formula_cell_result(cell: Any) -> Any:
     # replace the float with the display string.
     if as_float is not None and as_float != 0.0:
         return as_float
-    if _formula_result_is_value(getattr(cell, "FormulaResultType", None)) and as_float is not None:
+    # FormulaResultType2 holds FormulaResult (VALUE=1). FormulaResultType does not
+    # identify a numeric zero on real LibreOffice (=1-1 came back as "0").
+    kind = getattr(cell, "FormulaResultType2", None)
+    if not isinstance(kind, int):
+        kind = getattr(cell, "FormulaResultType", None)
+    if _formula_result_is_value(kind) and as_float is not None:
         return as_float
     text = cell.getString()
     return text

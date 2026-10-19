@@ -9,7 +9,6 @@
 #   ./scripts/install-plugin.sh --build-only   # Only create the .oxt
 #   ./scripts/install-plugin.sh --uninstall    # Remove the extension
 #   ./scripts/install-plugin.sh --cache        # Hot-deploy to LO cache (dev iteration)
-#   ./scripts/install-plugin.sh --modules "core mcp"  # Build specific modules
 
 set -e
 
@@ -30,16 +29,14 @@ FORCE=false
 BUILD_ONLY=false
 UNINSTALL=false
 CACHE=false
-MODULES=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --force)      FORCE=true ;;
         --build-only) BUILD_ONLY=true ;;
         --uninstall)  UNINSTALL=true ;;
         --cache)      CACHE=true ;;
-        --modules)    shift; MODULES="$1" ;;
         -h|--help)
-            echo "Usage: $0 [--force] [--build-only] [--uninstall] [--cache] [--modules \"core mcp\"]"
+            echo "Usage: $0 [--force] [--build-only] [--uninstall] [--cache]"
             exit 0
             ;;
     esac
@@ -91,29 +88,17 @@ ensure_lo_stopped() {
 # ── Build .oxt ───────────────────────────────────────────────────────────────
 
 build_oxt() {
-    local module_label="auto-discover all"
-    if [ -n "$MODULES" ]; then
-        module_label="$MODULES"
-    fi
     echo ""
-    echo "=== Building WriterAgent.oxt (modules: $module_label) ==="
+    echo "=== Building WriterAgent.oxt ==="
     echo ""
 
     mkdir -p "$BUILD_DIR"
-    rm -f "$OXT_FILE"
 
     # Generate manifests from module.yaml files
     python3 "$SCRIPT_DIR/generate_manifest.py"
 
     # Build the .oxt
-    if [ -n "$MODULES" ]; then
-        python3 "$SCRIPT_DIR/build_oxt.py" \
-            --modules $MODULES \
-            --output "$OXT_FILE"
-    else
-        python3 "$SCRIPT_DIR/build_oxt.py" \
-            --output "$OXT_FILE"
-    fi
+    python3 "$SCRIPT_DIR/build_oxt.py" --output "$OXT_FILE"
 
     if [ -f "$OXT_FILE" ]; then
         local size
@@ -280,7 +265,7 @@ install_to_cache() {
             [ -e "$entry" ] || continue
             base=$(basename "$entry")
             case "$base" in
-                *.dist-info|.*|_* ) continue ;;
+                *.dist-info|.*|_*|bin ) continue ;;
             esac
             if [ -d "$entry" ]; then
                 rsync -a --delete \

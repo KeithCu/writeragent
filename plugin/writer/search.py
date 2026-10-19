@@ -294,14 +294,20 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) -> Any:
+def find_lo_regex_ranges(
+    doc: Any,
+    candidate: str,
+    all_matches: bool = False,
+    *,
+    case_sensitive_order: tuple[bool, ...] = (True, False),
+) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
     sd.SearchString = escape_for_lo_regex(candidate)
 
     if not all_matches:
-        for case_sens in (True, False):
+        for case_sens in case_sensitive_order:
             sd.SearchCaseSensitive = case_sens
             found = doc.findFirst(sd)
             if found is not None:
@@ -309,7 +315,7 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) ->
         return None
 
     ranges: list[Any] = []
-    for case_sens in (True, False):
+    for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
         found = doc.findFirst(sd)
         while found is not None:
@@ -322,47 +328,21 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) ->
     return ranges
 
 
-def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) -> Any:
-    """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
-
-    doc.findFirst covers body, table cells, and text frames. Chaining handles real paragraph
-    breaks that LO regex cannot cross.
-
-    Not for whole-document replace: use apply_document_content(target='full_document') instead
-    of passing the entire body as old_content.
-    """
-    if not search_string:
-        return [] if all_matches else None
-
-    for candidate in _search_try_strings(search_string):
-        result = find_lo_regex_ranges(doc, candidate, all_matches=all_matches)
-        if all_matches:
-            if result:
-                return result
-        elif result is not None:
-            return result
-
-    parts = search_string.split('\n')
-    if len(parts) <= 1:
-        return [] if all_matches else None
-
-    anchor_idx = -1
-    for idx, part in enumerate(parts):
-        if part.strip():
-            anchor_idx = idx
-            break
-    if anchor_idx == -1:
-        return [] if all_matches else None
-
+def _iter_chain_matches(
+    doc: Any,
+    parts: list[str],
+    anchor_idx: int,
+    case_sensitive_order: tuple[bool, ...],
+) -> Iterator[Any]:
+    """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
     sd.SearchString = escape_for_lo_regex(parts[anchor_idx])
 
-    matched_ranges = []
-
-    for case_sens in (True, False):
+    for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
         found = doc.findFirst(sd)
+        matched_in_pass = False
         while found is not None:
             text = found.getText()
             chain_ok = True
@@ -463,17 +443,63 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                 if uno_same(start_range.getText(), end_range.getText()):
                     result_range = text.createTextCursorByRange(start_range)
                     result_range.gotoRange(end_range, True)
-                    if not all_matches:
-                        return result_range
-                    matched_ranges.append(result_range)
-                    if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
-                        return matched_ranges
+                    matched_in_pass = True
+                    yield result_range
                 else:
                     log.debug("find_chained_range: chain crosses XText; no single range")
 
             found = find_next_after_match(doc, found, sd)
 
-        if matched_ranges:
+        if matched_in_pass:
+            break
+
+
+def find_chained_range(
+    doc: Any,
+    search_string: str,
+    all_matches: bool = False,
+    *,
+    case_sensitive_order: tuple[bool, ...] = (True, False),
+) -> Any:
+    """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
+
+    doc.findFirst covers body, table cells, and text frames. Chaining handles real paragraph
+    breaks that LO regex cannot cross.
+
+    Not for whole-document replace: use apply_document_content(target='full_document') instead
+    of passing the entire body as old_content.
+    """
+    if not search_string:
+        return [] if all_matches else None
+
+    for candidate in _search_try_strings(search_string):
+        result = find_lo_regex_ranges(
+            doc, candidate, all_matches=all_matches, case_sensitive_order=case_sensitive_order
+        )
+        if all_matches:
+            if result:
+                return result
+        elif result is not None:
+            return result
+
+    parts = search_string.split('\n')
+    if len(parts) <= 1:
+        return [] if all_matches else None
+
+    anchor_idx = -1
+    for idx, part in enumerate(parts):
+        if part.strip():
+            anchor_idx = idx
+            break
+    if anchor_idx == -1:
+        return [] if all_matches else None
+
+    matched_ranges = []
+    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive_order):
+        if not all_matches:
+            return match
+        matched_ranges.append(match)
+        if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
             return matched_ranges
 
     return matched_ranges if all_matches else None
@@ -487,6 +513,62 @@ def find_first_range(doc: Any, search_string: str) -> Any:
 def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
     """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
     return find_chained_range(doc, search_string, all_matches=True)
+
+
+def find_occurrence_range(
+    doc: Any,
+    text: str,
+    *,
+    occurrence: int = 0,
+    case_sensitive: bool = True,
+) -> Any | None:
+    """Find the occurrence-th match using native LO search with chaining fallback.
+
+    Walks matches until occurrence and stops. Raises IndexError if occurrence is out of range.
+    Returns None if no matches are found.
+    """
+    search_string = normalize_search_string_for_find(text)
+    if not search_string:
+        return None
+
+    case_order = (case_sensitive,)
+
+    for candidate in _search_try_strings(search_string):
+        sd = doc.createSearchDescriptor()
+        sd.SearchRegularExpression = True
+        sd.SearchString = escape_for_lo_regex(candidate)
+        sd.SearchCaseSensitive = case_sensitive
+        count = 0
+        found = doc.findFirst(sd)
+        while found is not None:
+            if count == occurrence:
+                return found
+            count += 1
+            found = find_next_after_match(doc, found, sd)
+        if count > 0:
+            raise IndexError(
+                f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+            )
+
+    parts = search_string.split('\n')
+    if len(parts) > 1:
+        anchor_idx = -1
+        for idx, part in enumerate(parts):
+            if part.strip():
+                anchor_idx = idx
+                break
+        if anchor_idx != -1:
+            count = 0
+            for match in _iter_chain_matches(doc, parts, anchor_idx, case_order):
+                if count == occurrence:
+                    return match
+                count += 1
+            if count > 0:
+                raise IndexError(
+                    f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+                )
+
+    return None
 
 
 def _safe_name(obj: Any) -> str:

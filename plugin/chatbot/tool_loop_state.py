@@ -238,32 +238,6 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     return cache_block + f"[delegate ({domain}): done]\n"
 
 
-@deal.post(lambda result: isinstance(result, dict))
-def object_dict_or_empty(value: object) -> dict[str, Any]:
-    """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
-    # crosshair: off
-    # Plain dict only — CrossHair AttrDict is isinstance(dict) but .get/items can crash.
-    return cast("dict[str, Any]", value) if type(value) is dict else {}
-
-
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 3 and all(isinstance(x, str) for x in result))
-def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
-    """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
-    # crosshair: off
-    tc_dict = object_dict_or_empty(tc)
-    func_data = object_dict_or_empty(tc_dict.get("function"))
-    func_name = func_data.get("name", "unknown")
-    func_args_str = func_data.get("arguments", "{}")
-    call_id = tc_dict.get("id", "")
-    if type(func_name) is not str:
-        func_name = "unknown"
-    if type(func_args_str) is not str:
-        func_args_str = "{}"
-    if type(call_id) is not str:
-        call_id = ""
-    return func_name, func_args_str, call_id
-
-
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], str) and result[0] and result[1].endswith("\n"))
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
@@ -302,6 +276,54 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
         cache_block = format_research_cache_result_chat(result_data)
         return cache_block + f"[{func_name}: {note}]\n"
     return f"[{func_name}: {note}]\n"
+
+
+@deal.post(lambda result: isinstance(result, str) and result.startswith("[Debug: params") and result.endswith("\n"))
+def format_replaced_zero_debug_line(func_args_str: str) -> str:
+    """Preview parameters when apply_document_content finds 0 occurrences."""
+    # crosshair: off
+    params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
+    return f"[Debug: params {params_display}]\n"
+
+
+@deal.post(lambda result: isinstance(result, dict))
+def object_dict_or_empty(value: object) -> dict[str, Any]:
+    """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
+    # crosshair: off
+    # Plain dict only — CrossHair AttrDict is isinstance(dict) but .get/items can crash.
+    return cast("dict[str, Any]", value) if type(value) is dict else {}
+
+
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 3 and all(isinstance(x, str) for x in result))
+def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
+    """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
+    # crosshair: off
+    tc_dict = object_dict_or_empty(tc)
+    func_data = object_dict_or_empty(tc_dict.get("function"))
+    func_name = func_data.get("name", "unknown")
+    if not isinstance(func_name, str) or not func_name.strip():
+        func_name = "unknown"
+    func_args_str = func_data.get("arguments", "{}")
+    if not isinstance(func_args_str, str):
+        func_args_str = "{}"
+    call_id = tc_dict.get("id", "")
+    if type(call_id) is not str:
+        call_id = ""
+    return func_name, func_args_str, call_id
+
+
+@deal.post(lambda result: isinstance(result, list))
+def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
+    """Copy *tool_calls*, giving each dict with a missing or blank id ``call_<round>_<index>``."""
+    # crosshair: off
+    out: List[Any] = []
+    for index, tc in enumerate(tool_calls):
+        if type(tc) is dict:
+            call_id = tc.get("id")
+            if not (isinstance(call_id, str) and call_id.strip()):
+                tc = {**tc, "id": f"call_{round_num}_{index}"}
+        out.append(tc)
+    return out
 
 
 @deal.post(lambda result: isinstance(result, bool))
@@ -399,6 +421,7 @@ class SpawnToolWorkerEffect:
 class ToolLoopUIEffect:
     kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
     text: str = ""
+    is_empty_model_debug: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -555,7 +578,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     banner = "[No text from model; any tool changes were still applied.]"
                     debug = "[Debug: %s]" % format_empty_model_response_debug(state.round_num, response)
                     effects.append(ToolLoopUIEffect(kind="append", text="\n" + banner + "\n"))
-                    effects.append(ToolLoopUIEffect(kind="append", text="\n" + debug + "\n"))
+                    effects.append(ToolLoopUIEffect(kind="append", text="\n" + debug + "\n", is_empty_model_debug=True))
                     effects.append(AddMessageEffect(role="assistant", content=banner + "\n" + debug))
 
                 effects.append(ToolLoopUIEffect(kind="status", text="Ready"))
@@ -563,6 +586,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
             else:
+                # Some providers send tool calls with no id. The tool reply must
+                # carry the same id as its call, so fill one in here, before the
+                # assistant message and the pending list are built from it.
+                tool_calls = with_tool_call_ids(tool_calls, state.round_num)
                 effects.append(
                     AddMessageEffect(
                         role="assistant",
@@ -626,11 +653,16 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.TOOL_RESULT:
             from plugin.framework.errors import safe_json_loads
 
-            result = event_data.get("result", "")
-            func_name = event_data.get("func_name", "")
-            func_args_str = event_data.get("func_args_str", "")
-            call_id = event_data.get("call_id", "")
-            mutates_document = event_data.get("mutates_document", False)
+            # Unpack tool result fields explicitly without assuming non-None values.
+            raw_result = event_data.get("result")
+            result = raw_result if isinstance(raw_result, str) else ""
+            raw_func_name = event_data.get("func_name")
+            func_name = raw_func_name if isinstance(raw_func_name, str) and raw_func_name.strip() else "unknown"
+            raw_func_args_str = event_data.get("func_args_str")
+            func_args_str = raw_func_args_str if isinstance(raw_func_args_str, str) else ""
+            raw_call_id = event_data.get("call_id")
+            call_id = raw_call_id if isinstance(raw_call_id, str) else ""
+            mutates_document = bool(event_data.get("mutates_document", False))
 
             result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool result: {result}"))
@@ -640,8 +672,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             effects.append(ToolLoopUIEffect(kind="append", text=format_tool_result_chat_text(func_name, func_args, result_data)))
 
             if func_name == "apply_document_content" and is_replaced_zero_result(result_data):
-                params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
-                effects.append(ToolLoopUIEffect(kind="append", text=f"[Debug: params {params_display}]\n"))
+                effects.append(ToolLoopUIEffect(kind="append", text=format_replaced_zero_debug_line(func_args_str)))
 
             effects.append(AddMessageEffect(role="tool", call_id=call_id, content=result))
 

@@ -483,6 +483,7 @@ def _commit_toc_mutation(
     around the match deletion, ``insertTextContent``, and ``update()``.
     """
     from ..edit_review import next_agent_edit_undo_title
+    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
     was_protected = False
     if manage_protection:
@@ -490,80 +491,33 @@ def _commit_toc_mutation(
         # A disposed index must not be edited.
         read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
         was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
-    try:
-        mgr = doc.getUndoManager()
-        if mgr is None or mgr.isLocked():
-            raise RuntimeError("undo manager is locked")
-        undo_title = next_agent_edit_undo_title()
-        mgr.enterUndoContext(undo_title)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return tool._tool_error(undo_unavailable_message, code="UNDO_UNAVAILABLE")
-    applied = False
-    error: dict[str, Any] | None = None
-    try:
+
+    def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
             _set_protected(idx, False)
-        rejected = mutate()
-        if isinstance(rejected, dict):
-            error = rejected
-        else:
-            applied = True
-    except Exception as exc:
-        # What was wrong: DisposedException became HYPERLINK_UPDATE_FAILED or
-        # TOOL_EXECUTION_ERROR ("rolled back").
-        # How it happened: this except wrapped every failure, including disposal.
-        # Why this change: disposal leaves after finally rolls the edit back,
-        # and execute_safe reports DOCUMENT_DISPOSED.
-        reraise_if_disposed(exc)
-        error = tool._tool_error(failure_message % exc, code=failure_code)
-    finally:
-        if was_protected:
-            try:
-                _set_protected(idx, True)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                applied = False
-                if error is None:
-                    error = tool._tool_error(
-                        "Could not restore table-of-contents protection; the edit was rolled back.")
-        left = False
         try:
-            mgr.leaveUndoContext()
-            left = True
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            applied = False
-            if error is None:
-                error = tool._tool_error("Could not close the TOC edit undo context.")
-        if not applied and left:
-            try:
-                titles = mgr.getAllUndoActionTitles()
-                if titles and titles[0] == undo_title:
-                    mgr.undo()
-            except Exception as rollback_exc:
-                log.exception("TOC edit rollback failed")
-                reraise_if_disposed(rollback_exc)
-                # What was wrong: a failed undo replaced the real error with
-                # fallback_message, and failure_message had already said the
-                # edit was rolled back.
-                # How it happened: mgr.undo() raised after leaveUndoContext,
-                # and this handler discarded error.
-                # Why this change: keep the cause, say the rollback failed,
-                # and use a different code from the successful-rollback path.
-                if isinstance(error, dict) and error.get("message"):
-                    cause = str(error["message"])
-                else:
-                    cause = fallback_message
-                error = tool._tool_error(
-                    "Rollback failed; the document may be only partly edited (%s). Cause: %s"
-                    % (rollback_exc, cause),
-                    code="ROLLBACK_FAILED",
-                )
-    if error is not None or not applied:
+            return mutate()
+        finally:
+            if was_protected:
+                try:
+                    _set_protected(idx, True)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    return tool._tool_error(
+                        "Could not restore table-of-contents protection; the edit was rolled back."
+                    )
+
+    undo_title = next_agent_edit_undo_title()
+    try:
+        error = commit_or_rollback(doc, undo_title, _wrapped_mutate)
         if error is not None:
             return error
-        return tool._tool_error(fallback_message)
+    except UndoUnavailable:
+        return tool._tool_error(undo_unavailable_message, code="UNDO_UNAVAILABLE")
+    except Exception as exc:
+        # Disposal propagates so execute_safe reports DOCUMENT_DISPOSED, not a rollback error.
+        reraise_if_disposed(exc)
+        return tool._tool_error(failure_message % exc, code=failure_code)
     return None
 
 

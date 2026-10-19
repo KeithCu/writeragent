@@ -53,20 +53,12 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        # Recounting pending changes inside the modify notification reads
-        # each change's text with XTextCursor.getString(), and Writer
-        # serves that through SwWriter::Write -> EndAllAction ->
-        # PaintImmediately -- a synchronous repaint. Typing a comment
-        # while a review is open fires modified() from INSIDE the comment
-        # editor's EditEngine::InsertText (AutoCorrect replacing a word,
-        # or macOS committing a dead-key character like "ç" / "ã"). The
-        # forced repaint re-enters that half-updated comment box and
-        # ImpEditEngine::CreateLines crashes. modified() only schedules;
-        # the recount runs on a later main-loop turn, after the edit that
-        # triggered it has finished. The visibility check stays
-        # synchronous because the layout manager is a frame query, not a
-        # document read -- it keeps normal typing (no review open) from
-        # queueing anything.
+        # Never recount inside modified(): it can fire from inside the comment
+        # editor's EditEngine::InsertText (AutoCorrect, macOS dead keys), and a
+        # synchronous repaint from reading change text re-entered the half-updated
+        # comment box and crashed ImpEditEngine::CreateLines. Only schedule here.
+        # The visibility check stays synchronous (frame query, not a document read)
+        # so normal typing with no review open queues nothing.
         try:
             model = aEvent.Source
             lm = _layout_manager(model)

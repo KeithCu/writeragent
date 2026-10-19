@@ -258,7 +258,7 @@ def test_respawn_adopt_refusal_signals_the_unadopted_child(
     read_calls: list[Any] = []
     monkeypatch.setattr(
         process_worker,
-        "read_pickle_frame_with_timeout",
+        "read_pickle_frame",
         lambda *args, **kwargs: (read_calls.append(args), {"status": "ready"})[1],
     )
     monkeypatch.setattr(

@@ -1441,6 +1441,26 @@ def _mark_urp_dead(exc: BaseException, where: str) -> None:
     global _urp_bridge_dead
     _urp_bridge_dead = True
     _progress("ABORT: URP bridge disposed at %s: %s; remaining suites skipped" % (where, exc))
+    _print_office_log_tail()
+
+
+def _print_office_log_tail(max_lines: int = 40) -> None:
+    """Echo the end of the throwaway profile's writeragent_debug.log.
+
+    Tip: Windows soffice has no usable stderr, so this log is the only trace
+    of what the extension was doing when the bridge died.
+    """
+    if _throwaway_profile_dir is None:
+        return
+    path = _throwaway_profile_dir / "user" / "config" / "writeragent_debug.log"
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        _progress("OFFICE LOG none at %s" % path)
+        return
+    _progress("OFFICE LOG tail %s (%d of %d lines)" % (path, min(max_lines, len(lines)), len(lines)))
+    for line in lines[-max_lines:]:
+        _progress("OFFICE LOG | %s" % line)
 
 
 def _takes_positional(fn: Any) -> bool:

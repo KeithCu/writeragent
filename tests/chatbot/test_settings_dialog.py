@@ -110,8 +110,8 @@ def test_core_field_specs_omit_stt_model():
 @pytest.mark.parametrize(
     "value, value_2, value_3, value_4",
     [
-        pytest.param("audio__stt_model", "whisper-1", "whisper-1", "audio_model_lru", id="test_update_lru_for_audio_stt_model"),
-        pytest.param("audio__tts_model", "hexgrad/Kokoro-82M", "hexgrad/Kokoro-82M", "tts_model_lru", id="test_update_lru_for_tts_model"),
+        pytest.param("audio.stt_model", "whisper-1", "whisper-1", "audio_model_lru", id="test_update_lru_for_audio_stt_model"),
+        pytest.param("audio.tts_model", "hexgrad/Kokoro-82M", "hexgrad/Kokoro-82M", "tts_model_lru", id="test_update_lru_for_tts_model"),
     ],
 )
 def test_update_lru_for_audio_stt_model(value, value_2, value_3, value_4):

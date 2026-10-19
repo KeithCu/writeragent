@@ -63,7 +63,7 @@ class TestGrammarIgnoreRules:
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
         ctx = MagicMock()
         dp = MagicMock()
-        dp._ignored_rules = {"avoid passive voice"}
+        dp.ignored_rules_snapshot.return_value = {"avoid passive voice"}
         global_rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
         with (
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
@@ -76,7 +76,7 @@ class TestGrammarIgnoreRules:
     def test_collect_ignored_reasons_stable_global_uses_bare_code(self) -> None:
         ctx = MagicMock()
         dp = MagicMock()
-        dp._ignored_rules = set()
+        dp.ignored_rules_snapshot.return_value = set()
         global_rule = make_rule_identifier(HARPER_RULE_PREFIX, "SpellCheck")
         with (
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
@@ -89,7 +89,7 @@ class TestGrammarIgnoreRules:
     def test_collect_ignored_reasons_bare_global_uses_normalized_key(self) -> None:
         ctx = MagicMock()
         dp = MagicMock()
-        dp._ignored_rules = set()
+        dp.ignored_rules_snapshot.return_value = set()
         raw = "Legacy Bare Rule!"
         with (
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
@@ -128,7 +128,7 @@ class TestGrammarIgnoreRules:
         ctx = MagicMock()
         doc_id = "doc-x"
         dp = MagicMock()
-        dp._ignored_rules = {"avoid passive voice"}
+        dp.ignored_rules_snapshot.return_value = {"avoid passive voice"}
 
         cached = (
             {
@@ -178,26 +178,27 @@ class TestGrammarIgnoreRules:
         pr = WriterAgentAiGrammarProofreader(ctx)
         pr._doc_id_for_ignore = {"test-uid": "2"}
 
-        dp = MagicMock()
-        dp._ignored_rules = set()
+        dp = DocumentPersistence(ctx, "2")
+        with patch.object(dp, "_persist_to_udprops") as mock_save:
+            with (
+                patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+                patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
+                patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
+            ):
+                pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
+                mock_get.assert_called_with(ctx, "2")
+                assert "avoid passive voice" in dp.ignored_rules_snapshot()
+                assert mock_save.call_count == 1
 
-        with (
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
-            patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
-        ):
-            pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
-            mock_get.assert_called_with(ctx, "2")
-            assert ("avoid passive voice") in (dp._ignored_rules)
-            assert (dp._persist_to_udprops.called)
+                pr.resetIgnoreRules()
+                assert len(dp.ignored_rules_snapshot()) == 0
+                assert mock_save.call_count == 2
 
-            pr.resetIgnoreRules()
-            assert (len(dp._ignored_rules)) == (0)
-
-            pr.ignoreRule("Legacy Bare Rule!", None)
-            stored = canonical_rule_keys("Legacy Bare Rule!")[0]
-            assert (stored) in (dp._ignored_rules)
-            assert (is_rule_ignored("Legacy Bare Rule!", dp._ignored_rules, set()))
+                pr.ignoreRule("Legacy Bare Rule!", None)
+                stored = canonical_rule_keys("Legacy Bare Rule!")[0]
+                assert stored in dp.ignored_rules_snapshot()
+                assert is_rule_ignored("Legacy Bare Rule!", dp.ignored_rules_snapshot(), set())
+                assert mock_save.call_count == 3
 
 
 @pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
@@ -223,7 +224,7 @@ def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ig
     ctx = MagicMock()
     doc_id = "doc-x"
     dp = MagicMock()
-    dp._ignored_rules = {ignored_code}
+    dp.ignored_rules_snapshot.return_value = {ignored_code}
 
     cached = (
         {
@@ -256,7 +257,7 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
     ctx = MagicMock()
     doc_id = "doc-x"
     dp = MagicMock()
-    dp._ignored_rules = {ignored_code}
+    dp.ignored_rules_snapshot.return_value = {ignored_code}
 
     cached = (
         {
@@ -284,19 +285,33 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
     pr = WriterAgentAiGrammarProofreader(ctx)
     pr._doc_id_for_ignore = {"test-uid": "2"}
 
-    dp = MagicMock()
-    dp._ignored_rules = set()
+    dp = DocumentPersistence(ctx, "2")
+    with patch.object(dp, "_persist_to_udprops") as mock_save:
+        with (
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+            patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        ):
+            pr.ignoreRule(make_rule_identifier(prefix, ignored_code), None)
 
-    with (
-        patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
-        patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
-        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-    ):
-        pr.ignoreRule(make_rule_identifier(prefix, ignored_code), None)
+        assert ignored_code in dp.ignored_rules_snapshot()
+        assert make_rule_identifier(prefix, ignored_code) not in dp.ignored_rules_snapshot()
+        assert mock_save.called
 
-    assert ignored_code in dp._ignored_rules
-    assert make_rule_identifier(prefix, ignored_code) not in dp._ignored_rules
-    assert dp._persist_to_udprops.called
+
+def test_document_persistence_snapshot_and_add_clear_ignored_rules() -> None:
+    """The snapshot sees additions, and add/clear mutators save once."""
+    ctx = MagicMock()
+    dp = DocumentPersistence(ctx, "doc-test")
+    with patch.object(dp, "_persist_to_udprops") as mock_save:
+        assert dp.ignored_rules_snapshot() == set()
+        dp.add_ignored_rule("rule1")
+        assert dp.ignored_rules_snapshot() == {"rule1"}
+        assert mock_save.call_count == 1
+
+        dp.clear_ignored_rules()
+        assert dp.ignored_rules_snapshot() == set()
+        assert mock_save.call_count == 2
 
 
 def test_rule_prefixes_come_from_framework_leaf() -> None:

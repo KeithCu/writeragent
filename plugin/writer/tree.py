@@ -29,7 +29,7 @@ from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import (
-    apply_chapter_number,
+    build_heading_tree,
     find_heading_by_chapter_number,
     get_string_without_tracked_deletions,
     with_view_cursor_left_body_locked,
@@ -61,6 +61,16 @@ def _heading_tree_fingerprint(doc: Any) -> int | None:
     if count is not None:
         return int(count)
     return None
+
+
+def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
+    """Collect all heading paragraph indices in document order."""
+    indices: list[int] = []
+    if node.get("para_index", -1) >= 0:
+        indices.append(node["para_index"])
+    for child in node.get("children", []):
+        indices.extend(_collect_heading_indices(child))
+    return sorted(indices)
 
 
 class TreeService(ServiceBase):
@@ -98,9 +108,10 @@ class TreeService(ServiceBase):
         else:
             self._drop_tree_cache(self._doc_svc.doc_key(doc))
 
+
     # ── Tree building ──────────────────────────────────────────────
 
-    def build_heading_tree(self, doc: Any) -> dict[str, Any]:
+    def build_heading_tree(self, doc: Any, elements: list[Any] | None = None) -> dict[str, Any]:
         """Build heading tree from paragraph enumeration. Single pass.
 
         Returns root node dict:
@@ -119,57 +130,54 @@ class TreeService(ServiceBase):
             if fingerprint is None or fingerprint == cached_fp:
                 return self._tree_cache[key]
 
-        text = doc.getText()
-        enum = text.createEnumeration()
-        root: dict[str, Any] = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
-        stack: list[dict[str, Any]] = [root]
-        para_index = 0
-
-        while enum.hasMoreElements():
-            element = enum.nextElement()
-            is_para = element.supportsService("com.sun.star.text.Paragraph")
-            is_table = element.supportsService("com.sun.star.text.TextTable")
-
-            if is_para:
-                outline_level = element.getPropertyValue("OutlineLevel")
-                if outline_level > 0:
-                    while len(stack) > 1 and stack[-1]["level"] >= outline_level:
-                        stack.pop()
-                    node = {"level": outline_level, "text": get_string_without_tracked_deletions(element), "para_index": para_index, "children": [], "body_paragraphs": 0}
-                    # Chapter Numbering paint label only — omit key when ListLabelString is empty.
-                    apply_chapter_number(node, element)
-                    stack[-1]["children"].append(node)
-                    stack.append(node)
-                else:
-                    stack[-1]["body_paragraphs"] += 1
-            elif is_table:
-                stack[-1]["body_paragraphs"] += 1
-
-            para_index += 1
-            self._doc_svc.yield_to_gui()
-
+        root = build_heading_tree(doc, elements=elements)
         if is_cacheable_doc_key(key):
             self._tree_cache[key] = root
             self._tree_fp[key] = fingerprint
         return root
 
-    def _count_all_children(self, node: dict[str, Any]) -> int:
+    def heading_block_body_count(self, node: dict[str, Any]) -> int:
         count = len(node.get("children", []))
         for child in node.get("children", []):
             if "children" in child:
-                count += self._count_all_children(child)
+                count += self.heading_block_body_count(child)
         return count + node.get("body_paragraphs", 0)
 
-    def _find_node_by_para_index(self, node: dict[str, Any], para_index: int) -> dict[str, Any] | None:
+    def find_heading_by_para_index(self, node: dict[str, Any], para_index: int) -> dict[str, Any] | None:
         if node.get("para_index") == para_index:
             return node
         for child in node.get("children", []):
-            found = self._find_node_by_para_index(child, para_index)
+            found = self.find_heading_by_para_index(child, para_index)
             if found is not None:
                 return found
         return None
 
     # ── Content strategies ─────────────────────────────────────────
+
+    def _get_body_preview_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int, max_chars: int = 100) -> str:
+        preview_parts = []
+        current_len = 0
+        for element in para_ranges[start_idx:end_idx]:
+            if not element.supportsService("com.sun.star.text.Paragraph"):
+                continue
+            para_text = get_string_without_tracked_deletions(element).strip()
+            if para_text:
+                preview_parts.append(para_text)
+                current_len += len(para_text)
+                if current_len >= max_chars:
+                    break
+        full_preview = " ".join(preview_parts)
+        if len(full_preview) > max_chars:
+            full_preview = full_preview[:max_chars] + "..."
+        return full_preview
+
+    def _get_full_body_text_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
+        parts = []
+        for element in para_ranges[start_idx:end_idx]:
+            if not element.supportsService("com.sun.star.text.Paragraph"):
+                continue
+            parts.append(get_string_without_tracked_deletions(element))
+        return "\n".join(parts)
 
     def _get_body_preview(self, doc: Any, heading_para_index: int, max_chars: int = 100) -> str:
         text = doc.getText()
@@ -226,45 +234,105 @@ class TreeService(ServiceBase):
 
         return "\n".join(parts)
 
-    def _apply_content_strategy(self, node: dict[str, Any], doc: Any, strategy: str, max_chars: int = 100) -> None:
+    def _apply_content_strategy(
+        self,
+        node: dict[str, Any],
+        doc: Any,
+        strategy: str,
+        max_chars: int = 100,
+        para_ranges: list[Any] | None = None,
+        next_heading_map: dict[int, int] | None = None,
+    ) -> None:
         para_idx = node.get("para_index", -1)
         if strategy in ("none", "heading_only"):
             pass
         elif strategy == "first_lines":
-            node["body_preview"] = self._get_body_preview(doc, para_idx, max_chars)
+            if para_ranges is not None and next_heading_map is not None:
+                next_idx = next_heading_map.get(para_idx, len(para_ranges))
+                node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx, max_chars)
+            else:
+                node["body_preview"] = self._get_body_preview(doc, para_idx, max_chars)
         elif strategy == "full":
-            node["body_text"] = self._get_full_body_text(doc, para_idx)
+            if para_ranges is not None and next_heading_map is not None:
+                next_idx = next_heading_map.get(para_idx, len(para_ranges))
+                node["body_text"] = self._get_full_body_text_from_ranges(para_ranges, para_idx + 1, next_idx)
+            else:
+                node["body_text"] = self._get_full_body_text(doc, para_idx)
 
-    def _serialize_tree_node(self, child: dict[str, Any], doc: Any, content_strategy: str, depth: int, current_depth: int = 1, bookmark_map: dict[Any, Any] | None = None) -> dict[str, Any]:
+    def _serialize_tree_node(
+        self,
+        child: dict[str, Any],
+        doc: Any,
+        content_strategy: str,
+        depth: int,
+        current_depth: int = 1,
+        bookmark_map: dict[Any, Any] | None = None,
+        para_ranges: list[Any] | None = None,
+        next_heading_map: dict[int, int] | None = None,
+    ) -> dict[str, Any]:
         node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": len(child.get("children") or []), "body_paragraphs": child["body_paragraphs"]}
         if child.get("chapter_number"):
             node["chapter_number"] = child["chapter_number"]
-        self._apply_content_strategy(node, doc, content_strategy)
+        self._apply_content_strategy(node, doc, content_strategy, para_ranges=para_ranges, next_heading_map=next_heading_map)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
-                node["children"] = [self._serialize_tree_node(sub, doc, content_strategy, depth, current_depth + 1, bookmark_map) for sub in child["children"]]
+                node["children"] = [
+                    self._serialize_tree_node(
+                        sub,
+                        doc,
+                        content_strategy,
+                        depth,
+                        current_depth + 1,
+                        bookmark_map,
+                        para_ranges=para_ranges,
+                        next_heading_map=next_heading_map,
+                    )
+                    for sub in child["children"]
+                ]
         return node
 
     # ── Public tree API ────────────────────────────────────────────
 
     def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get serialized document tree with content strategies."""
-        tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+        tree = self.build_heading_tree(doc, elements=para_ranges)
+        heading_indices = _collect_heading_indices(tree)
+        total = len(para_ranges)
 
-        children = [self._serialize_tree_node(child, doc, content_strategy, depth, bookmark_map=bookmark_map) for child in tree["children"]]
+        next_heading_map = {}
+        for i, h_idx in enumerate(heading_indices):
+            next_idx = heading_indices[i + 1] if i + 1 < len(heading_indices) else total
+            next_heading_map[h_idx] = next_idx
 
-        # Count total paragraphs
-        text = doc.getText()
-        enum = text.createEnumeration()
-        total = 0
-        while enum.hasMoreElements():
-            enum.nextElement()
-            total += 1
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
+            doc, heading_para_indices=heading_indices, para_ranges=para_ranges
+        )
+
+        children = [
+            self._serialize_tree_node(
+                child,
+                doc,
+                content_strategy,
+                depth,
+                bookmark_map=bookmark_map,
+                para_ranges=para_ranges,
+                next_heading_map=next_heading_map,
+            )
+            for child in tree["children"]
+        ]
 
         page_count = self._doc_svc.get_page_count(doc)
 
-        return {"status": "ok", "content_strategy": content_strategy, "depth": depth, "children": children, "body_before_first_heading": tree["body_paragraphs"], "total_paragraphs": total, "page_count": page_count}
+        return {
+            "status": "ok",
+            "content_strategy": content_strategy,
+            "depth": depth,
+            "children": children,
+            "body_before_first_heading": tree["body_paragraphs"],
+            "total_paragraphs": total,
+            "page_count": page_count,
+        }
 
     def get_heading_children(self, doc: Any, heading_para_index: int | None = None, heading_bookmark: str | None = None, locator: str | None = None, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get children of a heading (body paragraphs + sub-headings)."""
@@ -281,45 +349,50 @@ class TreeService(ServiceBase):
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
 
-        tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
-        target = self._find_node_by_para_index(tree, heading_para_index)
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+        tree = self.build_heading_tree(doc, elements=para_ranges)
+        heading_indices = _collect_heading_indices(tree)
+        total = len(para_ranges)
+
+        next_heading_map = {}
+        for i, h_idx in enumerate(heading_indices):
+            next_idx = heading_indices[i + 1] if i + 1 < len(heading_indices) else total
+            next_heading_map[h_idx] = next_idx
+
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
+            doc, heading_para_indices=heading_indices, para_ranges=para_ranges
+        )
+        target = self.find_heading_by_para_index(tree, heading_para_index)
         if target is None:
             raise ToolExecutionError("Heading at paragraph %d not found" % heading_para_index)
 
         children = []
-        text = doc.getText()
-        enum = text.createEnumeration()
-        idx = 0
-        found_heading = False
-        parent_level = target["level"]
+        next_heading_para_index = next_heading_map.get(heading_para_index, total)
 
-        while enum.hasMoreElements():
-            element = enum.nextElement()
-            is_para = element.supportsService("com.sun.star.text.Paragraph")
-            if idx == heading_para_index:
-                found_heading = True
-                idx += 1
+        for idx in range(heading_para_index + 1, next_heading_para_index):
+            element = para_ranges[idx]
+            if not element.supportsService("com.sun.star.text.Paragraph"):
                 continue
-            if found_heading and is_para:
-                outline_level = element.getPropertyValue("OutlineLevel")
-                if outline_level > 0 and outline_level <= parent_level:
-                    break
-                if outline_level > 0:
-                    break
+            if content_strategy in ("none", "heading_only"):
+                children.append({"type": "body", "para_index": idx})
+            elif content_strategy == "full":
+                para_text = get_string_without_tracked_deletions(element)
+                children.append({"type": "body", "para_index": idx, "text": para_text})
+            else:
                 para_text = get_string_without_tracked_deletions(element)
                 preview = para_text[:100] + "..." if len(para_text) > 100 else para_text
-                if content_strategy == "full":
-                    children.append({"type": "body", "para_index": idx, "text": para_text})
-                elif content_strategy not in ("none", "heading_only"):
-                    children.append({"type": "body", "para_index": idx, "preview": preview})
-                else:
-                    children.append({"type": "body", "para_index": idx})
-            idx += 1
-            self._doc_svc.yield_to_gui()
+                children.append({"type": "body", "para_index": idx, "preview": preview})
 
         for child in target["children"]:
-            node = self._serialize_tree_node(child, doc, content_strategy, depth, bookmark_map=bookmark_map)
+            node = self._serialize_tree_node(
+                child,
+                doc,
+                content_strategy,
+                depth,
+                bookmark_map=bookmark_map,
+                para_ranges=para_ranges,
+                next_heading_map=next_heading_map,
+            )
             children.append(node)
 
         parent = {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])}

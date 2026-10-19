@@ -76,7 +76,14 @@ class GetDocumentTree(ToolBase):
         tree_svc = ctx.services.writer_tree
         strategy = kwargs.get("strategy", "first_lines")
         result = tree_svc.get_document_tree(ctx.doc, content_strategy=strategy, depth=kwargs.get("depth", 1))
-        stats = collect_document_stats(ctx.doc, ctx.services.document)
+        heading_tree = tree_svc.build_heading_tree(ctx.doc)
+        stats = collect_document_stats(
+            ctx.doc,
+            ctx.services.document,
+            heading_tree=heading_tree,
+            paragraph_count=result.get("total_paragraphs"),
+            page_count=result.get("page_count"),
+        )
         return {**result, "stats": stats}
 
 
@@ -94,7 +101,14 @@ def _count_headings(nodes: Any) -> int:
     return count
 
 
-def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
+def collect_document_stats(
+    doc: Any,
+    doc_svc: Any,
+    *,
+    heading_tree: Any = None,
+    paragraph_count: int | None = None,
+    page_count: int | None = None,
+) -> dict[str, Any]:
     """Character/word/paragraph/page/heading counts for a Writer document.
 
     Each count degrades on its own. Headings use uno_read so a closed
@@ -117,24 +131,33 @@ def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
     else:
         char_count, word_count = counted
 
-    para_count = best_effort(
-        lambda: len(doc_svc.get_paragraph_ranges(doc)),
-        "paragraph count",
-        0,
-    )
+    if paragraph_count is not None:
+        para_count = paragraph_count
+    else:
+        para_count = best_effort(
+            lambda: len(doc_svc.get_paragraph_ranges(doc)),
+            "paragraph count",
+            0,
+        )
 
-    heading_count = uno_read(
-        lambda: _count_headings(build_heading_tree(doc).get("children", [])),
-        0,
-        object_type="Document",
-    )
+    if heading_tree is not None:
+        heading_count = _count_headings(heading_tree.get("children", []))
+    else:
+        heading_count = uno_read(
+            lambda: _count_headings(build_heading_tree(doc).get("children", [])),
+            0,
+            object_type="Document",
+        )
 
-    page_count = best_effort(lambda: doc_svc.get_page_count(doc), "page count", 0)
+    if page_count is not None:
+        final_page_count = page_count
+    else:
+        final_page_count = best_effort(lambda: doc_svc.get_page_count(doc), "page count", 0)
 
     return {
         "character_count": char_count,
         "word_count": word_count,
         "paragraph_count": para_count,
-        "page_count": page_count,
+        "page_count": final_page_count,
         "heading_count": heading_count,
     }
