@@ -634,7 +634,7 @@ def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
     mock_ranges = MagicMock()
     mock_ranges.getCount.return_value = 1
     mock_range = MagicMock()
-    mock_range.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0)
+    mock_range.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0, EndRow=100_000, EndColumn=1)
     mock_range.getFormulas.return_value = tuple(tuple("=1+1" for _ in range(100)) for _ in range(1005))
     mock_ranges.getByIndex.return_value = mock_range
 
@@ -642,6 +642,19 @@ def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
         report = convert_uno_doc_to_excel(doc)
         assert not report.ok
         assert any("scan limit reached" in i for i in report.issues)
+        mock_range.getFormulas.assert_not_called()
+
+    # Fits within max_scan: getFormulas is called
+    mock_range_fits = MagicMock()
+    mock_range_fits.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0, EndRow=1, EndColumn=1)
+    mock_range_fits.getFormulas.return_value = (('="hello"', '="world"'), ("=1", "=2"))
+    mock_ranges_fits = MagicMock()
+    mock_ranges_fits.getCount.return_value = 1
+    mock_ranges_fits.getByIndex.return_value = mock_range_fits
+
+    with patch.object(sheet, "queryContentCells", return_value=mock_ranges_fits):
+        convert_uno_doc_to_excel(doc)
+        mock_range_fits.getFormulas.assert_called_once()
 
     ctx = MagicMock()
     path = tmp_path / "capped.xlsx"

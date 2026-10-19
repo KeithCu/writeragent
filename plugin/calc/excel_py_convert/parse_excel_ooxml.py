@@ -58,7 +58,9 @@ def split_top_level_args(tail: str) -> list[str]:
         return []
     args: list[str] = []
     buf: list[str] = []
-    depth = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
     in_sq = False
     in_dq = False
     i = 0
@@ -87,12 +89,24 @@ def split_top_level_args(tail: str) -> list[str]:
             in_dq = True
             buf.append(ch)
         elif ch == "(":
-            depth += 1
+            paren_depth += 1
             buf.append(ch)
         elif ch == ")":
-            depth = max(0, depth - 1)
+            paren_depth = max(0, paren_depth - 1)
             buf.append(ch)
-        elif ch == "," and depth == 0:
+        elif ch == "[":
+            bracket_depth += 1
+            buf.append(ch)
+        elif ch == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            buf.append(ch)
+        elif ch == "{":
+            brace_depth += 1
+            buf.append(ch)
+        elif ch == "}":
+            brace_depth = max(0, brace_depth - 1)
+            buf.append(ch)
+        elif ch == "," and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
             args.append("".join(buf).strip())
             buf = []
         else:

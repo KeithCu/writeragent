@@ -308,6 +308,21 @@ def bank_defined_name_for(code_sheet: str) -> str:
     return f"_py_code_bank_{code_sheet}"
 
 
+def defined_name_targets_sheet(name: str, val: str, sheet_title: str) -> bool:
+    """True if defined name *name* or its formula targets *sheet_title* exactly."""
+    target_l = sheet_title.lower()
+    if name.strip().lower() == bank_defined_name_for(sheet_title).lower():
+        return True
+    if "!" in val:
+        token = val.split("!", 1)[0].strip()
+        if len(token) >= 2 and token[0] in ("'", '"') and token[-1] == token[0]:
+            token = token[1:-1]
+        token = token.replace("''", "'")
+        if token.lower() == target_l:
+            return True
+    return False
+
+
 def _openpyxl_sheet_is_bank(wb: Any, code_sheet: str, ws: Any) -> bool:
     expected_def = bank_defined_name_for(code_sheet)
     if hasattr(wb, "defined_names") and wb.defined_names is not None:
@@ -318,8 +333,9 @@ def _openpyxl_sheet_is_bank(wb: Any, code_sheet: str, ws: Any) -> bool:
             pass
         try:
             for dn in getattr(wb.defined_names, "definedName", []):
+                name = str(getattr(dn, "name", "") or "")
                 val = str(getattr(dn, "attr_text", "") or getattr(dn, "value", "") or "")
-                if code_sheet in val:
+                if defined_name_targets_sheet(name, val, code_sheet):
                     return True
         except Exception:
             pass

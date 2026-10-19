@@ -24,6 +24,7 @@ import re
 from typing import Any, ClassVar, Sequence, cast
 
 from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
+from plugin.calc.excel_py_convert.to_dag import analyze_xl_calls
 from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
 from plugin.doc.text_helpers import ast_source_offset
 
@@ -99,10 +100,10 @@ def _unquote_xl_binding_tokens(code: str) -> str:
     return _QUOTED_P_TOKEN_RE.sub(repl, code or "")
 
 
-def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: list[HeaderMode] | None = None, strip_object_suppress: bool = True) -> tuple[str, list[str], list[str]]:
+def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: list[HeaderMode] | None = None, strip_object_suppress: bool = True) -> tuple[str, list[str], list[str], bool]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
-    Returns ``(excel_code, deps, issues)``. Only *data* args are returned as deps
+    Returns ``(excel_code, deps, issues, fatal)``. Only *data* args are returned as deps
     (ordering-only args must already be filtered by the caller).
     """
     issues: list[str] = []
@@ -116,9 +117,16 @@ def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: 
 
     # New forward path keeps xl("%Pn%"); only unquote for the Excel package.
     if _dag_xl_already_bound(text):
-        return _unquote_xl_binding_tokens(text), deps, issues
+        analysis = analyze_xl_calls(text, num_deps=len(deps))
+        issues.extend(analysis.issues)
+        if analysis.fatal:
+            return code, deps, issues, True
+        return _unquote_xl_binding_tokens(text), deps, issues, False
+
+    fatal = False
 
     def df_repl(m: re.Match[str]) -> str:
+        nonlocal fatal
         left_idx = m.group(2)
         if left_idx is not None:
             idx = int(left_idx)
@@ -126,23 +134,28 @@ def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: 
             idx = 0
         if idx >= len(deps):
             issues.append(f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
-            idx = 0
+            fatal = True
+            return m.group(0)
         return _xl_expr(idx, "true")
 
     def to_pandas_false_repl(m: re.Match[str]) -> str:
+        nonlocal fatal
         idx_s = m.group(2)
         idx = int(idx_s) if idx_s is not None else 0
         if idx >= len(deps):
             issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
-            idx = 0
+            fatal = True
+            return m.group(0)
         return _xl_expr(idx, "false")
 
     def to_pandas_true_repl(m: re.Match[str]) -> str:
+        nonlocal fatal
         idx_s = m.group(2)
         idx = int(idx_s) if idx_s is not None else 0
         if idx >= len(deps):
             issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
-            idx = 0
+            fatal = True
+            return m.group(0)
         return _xl_expr(idx, "true")
 
     # Newer CalcRange API first, then legacy DataFrame slicing, then bare data names.
@@ -151,16 +164,22 @@ def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: 
     text = _DF_DATA_RE.sub(df_repl, text)
 
     # Token-position rewrite for data / data[i] / ranges[i] via AST when possible.
-    rewritten, ast_issues = _rewrite_data_names_ast(text, deps, modes)
+    rewritten, ast_issues, ast_fatal = _rewrite_data_names_ast(text, deps, modes)
     issues.extend(ast_issues)
-    if rewritten is not None:
-        return rewritten, deps, issues
+    if ast_fatal:
+        fatal = True
+    if rewritten is not None and not fatal:
+        return rewritten, deps, issues, False
+    if fatal:
+        return code, deps, issues, True
 
     # Regex fallback (data[i] / ranges[i]).
     def index_repl(m: re.Match[str]) -> str:
+        nonlocal fatal
         idx = int(m.group(1))
         if idx >= len(deps):
             issues.append(f"index [{idx}] with only {len(deps)} deps")
+            fatal = True
             return m.group(0)
         hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
         return _xl_expr(idx, hm)
@@ -176,16 +195,18 @@ def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: 
 
         text = re.sub(r"(?<![\w.])data(?!\w)", bare_repl, text)
 
-    return text, deps, issues
+    if fatal:
+        return code, deps, issues, True
+    return text, deps, issues, False
 
 
-def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode]) -> tuple[str | None, list[str]]:
+def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode]) -> tuple[str | None, list[str], bool]:
     """Rewrite ``data`` / ``data[i]`` / ``ranges[i]`` Name/Subscript nodes."""
     issues: list[str] = []
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        return None, issues
+        return None, issues, False
 
     class _Hit:
         __slots__: ClassVar[tuple[str, ...]] = ("start", "end", "repl")
@@ -199,6 +220,7 @@ def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode])
             self.repl = repl
 
     hits: list[_Hit] = []
+    fatal = False
     # Names that are already the target of ``data[...]`` / ``ranges[...]`` — skip bare rewrite.
     subscripted_data_names: set[int] = set()
     for node in ast.walk(tree):
@@ -215,6 +237,7 @@ def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode])
                 continue
             if idx >= len(deps):
                 issues.append(f"{node.value.id}[{idx}] with only {len(deps)} deps")
+                fatal = True
                 continue
             start = ast_source_offset(code, node.lineno, node.col_offset)
             end = ast_source_offset(code, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
@@ -237,7 +260,7 @@ def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode])
 
     if not hits:
         # If AST parsed but found no data names, return code unchanged.
-        return code, issues
+        return code, issues, fatal
 
     # Drop overlapping hits (prefer longer / outer) — simple: sort by start, skip overlaps
     hits.sort(key=lambda h: (h.start, -(h.end - h.start)))
@@ -252,7 +275,7 @@ def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode])
     out = code
     for h in sorted(kept, key=lambda x: x.start, reverse=True):
         out = out[: h.start] + h.repl + out[h.end :]
-    return out, issues
+    return out, issues, fatal
 
 
 def excel_formulatext(code: str, return_type: int = 0) -> str:
@@ -374,7 +397,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
     while len(modes) < len(data_args):
         modes.append("omit")
 
-    excel_code, deps, issues = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
+    excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
     if ordering_args:
         issues.append("ignored ordering-only deps on reverse export")
     array_ref = str(meta.get("array_ref") or "")
@@ -400,7 +423,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
         issues=issues,
         shared_kernel=not deps and "data" not in parts.code,
         return_type=rt,
-        converted=True,
+        converted=not fatal,
         array_ref=array_ref,
     )
     assign_script_bank([out])
@@ -445,7 +468,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 modes.append(_as_header_mode(b.header_mode))
         while len(modes) < len(cell.data_args):
             modes.append("omit")
-        excel_code, deps, issues = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
+        excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
         if cell.ordering_args:
             issues.append("ignored ordering-only deps on reverse export")
         excel_deps = list(cell.excel_deps)
@@ -467,7 +490,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 shared_kernel=cell.shared_kernel,
                 snapshot_deps=list(cell.snapshot_deps),
                 return_type=int(cell.return_type or 0),
-                converted=True,
+                converted=not fatal,
                 array_ref=cell.array_ref,
             )
         )

@@ -34,16 +34,16 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     _col_row,
     _shared_formula_map,
     _sheet_rels_path,
-    shift_xlws_py_dep,
     shift_xlws_py_formula,
 )
+from plugin.calc.formula_fill import adjust_a1_formula
 from plugin.calc.excel_py_convert.script_bank import (
     CODE_SHEET_NOTE,
     CODE_SHEET_NOTE_CELL,
     CODE_SHEET_PREFIX,
     a1_span_bounds,
-    bank_defined_name_for,
     collect_script_bank,
+    defined_name_targets_sheet,
     formula_for_converted_cell,
     iter_a1_span,
     report_safety_warnings,
@@ -83,15 +83,14 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
     if bounds is None:
         return
     (col1, row1), (col2, row2) = bounds
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_index_to_str
-
     parsed = _a1_row_col(anchor)
     anchor_r, anchor_c = parsed if parsed is not None else (0, 0)
-    for r in range(row1, row2 + 1):
-        for c in range(col1, col2 + 1):
-            if (r, c) != (anchor_r, anchor_c):
-                coord = f"{_col_index_to_str(c)}{r}"
-                ws[coord].value = None
+    cells = getattr(ws, "_cells", None)
+    if not isinstance(cells, dict):
+        return
+    for (r, c), cell in list(cells.items()):
+        if row1 <= r <= row2 and col1 <= c <= col2 and (r, c) != (anchor_r, anchor_c):
+            cell.value = None
 
 
 def _strip_content_types_python(data: bytes) -> bytes:
@@ -113,7 +112,6 @@ def _strip_content_types_python(data: bytes) -> bytes:
                 changed = True
     if not changed:
         return data
-    ET.register_namespace("", CONTENT_TYPES_NS)
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
@@ -138,13 +136,12 @@ def _strip_rels_python(data: bytes) -> bytes:
                 changed = True
     if not changed:
         return data
-    ET.register_namespace("", PACKAGE_REL_NS)
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
 def _strip_python_in_excel_parts(out_path: Path) -> None:
     """Remove obsolete Python-in-Excel package parts after formula rewrite."""
-    drop_prefixes = ("xl/python",)
+    drop_prefixes = ("xl/pythonScripts/",)
     drop_exact = {"xl/pythonScripts.xml", "xl/calcChain.xml"}
 
     def _transform(zin: zipfile.ZipFile, zout: zipfile.ZipFile) -> None:
@@ -182,6 +179,8 @@ def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, o
 
     source_xlsx = Path(source_xlsx)
     out_path = Path(out_path)
+    if report.direction != "dag":
+        raise ValueError("write_dag_formulas_xlsx requires report.direction == 'dag'")
     wb = load_workbook(source_xlsx)
     tmp_path = out_path.with_name(f"{out_path.name}.tmp_{os.getpid()}")
     try:
@@ -200,8 +199,7 @@ def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                 continue
             ws = sheet_by_key.get(cell.sheet)
             if ws is None:
-                # Accept sheet1 → first sheet only when the report used fixture aliases
-                # AND there is exactly one worksheet — still prefer exact titles.
+                # Case-insensitive title match if exact title was not found.
                 lower = {t.lower(): w for t, w in sheet_by_key.items()}
                 ws = lower.get(cell.sheet.lower())
             if ws is None:
@@ -456,7 +454,6 @@ def _patch_content_types(data: bytes, drop_parts: set[str] | None = None) -> byt
             tag,
             attrib={"PartName": "/xl/pythonScripts.xml", "ContentType": "application/xml"},
         )
-    ET.register_namespace("", CONTENT_TYPES_NS)
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
@@ -464,12 +461,11 @@ def _is_py_code_bank_sheet(
     zin: zipfile.ZipFile,
     sh_title: str,
     sh_part_name: str,
-    bank_defined_names: set[str],
+    defined_names: list[tuple[str, str]],
     shared_strings: list[str],
 ) -> bool:
     """True if sh_title is a script bank sheet (has defined name or ZZ1 == CODE_SHEET_NOTE)."""
-    expected_def = bank_defined_name_for(sh_title).lower()
-    if expected_def in bank_defined_names or any(sh_title.lower() in dn for dn in bank_defined_names):
+    if any(defined_name_targets_sheet(name, val, sh_title) for name, val in defined_names):
         return True
     try:
         ws_bytes = zin.read(sh_part_name)
@@ -530,8 +526,15 @@ def _drop_py_code_sheets_from_workbook(
                 continue
             name_attr = dn.attrib.get("name", "")
             val = "".join(dn.itertext()).strip()
-            if any(t in name_attr.lower() or t in val.lower() for t in drop_titles_set):
+            if any(defined_name_targets_sheet(name_attr, val, t) for t in drop_titles_set):
                 dn_container.remove(dn)
+
+    calc_pr = find_child(wb, "calcPr")
+    if calc_pr is not None:
+        calc_pr.attrib["fullCalcOnLoad"] = "1"
+    else:
+        tag = f"{{{SSML_NS}}}calcPr" if wb.tag.startswith("{") else "calcPr"
+        ET.SubElement(wb, tag, attrib={"fullCalcOnLoad": "1"})
 
     rels, rels_ns = parse_and_extract_namespaces(rels_xml)
 
@@ -571,12 +574,7 @@ def _drop_py_code_sheets_from_workbook(
             },
         )
 
-    from plugin.calc.excel_py_convert.ooxml_util import OFFICE_DOC_REL_NS
-
-    ET.register_namespace("", SSML_NS)
-    ET.register_namespace("r", OFFICE_DOC_REL_NS)
     wb_bytes = serialize_xml_preserving_namespaces(wb, wb_ns)
-    ET.register_namespace("", PACKAGE_REL_NS)
     rels_bytes = serialize_xml_preserving_namespaces(rels, rels_ns)
     return wb_bytes, rels_bytes
 
@@ -649,12 +647,11 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
 
         # 2. Bank sheet discovery via defined names / ZZ1 note
         wb_root = ET.fromstring(zin.read("xl/workbook.xml"))
-        bank_defined_names: set[str] = set()
+        defined_names: list[tuple[str, str]] = []
         for dn in find_all(wb_root, "definedName"):
-            name = (dn.attrib.get("name") or "").lower()
-            val = "".join(dn.itertext()).strip().lower()
-            bank_defined_names.add(name)
-            bank_defined_names.add(val)
+            name = dn.attrib.get("name") or ""
+            val = "".join(dn.itertext()).strip()
+            defined_names.append((name, val))
         shared_strings = _shared_strings(zin)
 
         code_sheets = [s for s in sheets if s.title.startswith(CODE_SHEET_PREFIX)]
@@ -664,7 +661,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         for s in code_sheets:
             if not s.part_name:
                 continue
-            if _is_py_code_bank_sheet(zin, s.title, s.part_name, bank_defined_names, shared_strings):
+            if _is_py_code_bank_sheet(zin, s.title, s.part_name, defined_names, shared_strings):
                 drop_parts.add(s.part_name)
                 drop_rids.add(s.rel_id)
                 drop_titles.add(s.title)
@@ -707,6 +704,9 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                     shared_groups.setdefault(si, []).append((a1, c, f))
 
             for si, members in shared_groups.items():
+                any_in_write = any(m_a1.replace("$", "").upper() in sheet_write_set for m_a1, _, _ in members)
+                if not any_in_write:
+                    continue
                 all_in_write = all(m_a1.replace("$", "").upper() in sheet_write_set for m_a1, _, _ in members)
                 if all_in_write:
                     for _m_a1, _m_c, m_f in members:
@@ -740,10 +740,11 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                                     raise ValueError(f"Cannot unshare formula for {sheet_title}!{m_a1} in si={si}: shifter refused {master_body!r}")
                                 m_f.text = shifted[0].lstrip("=")
                             else:
-                                s_dep = shift_xlws_py_dep(master_body.lstrip("="), delta_r, delta_c)
-                                if s_dep is None:
-                                    raise ValueError(f"Cannot unshare formula for {sheet_title}!{m_a1} in si={si}: shifter refused {master_body!r}")
-                                m_f.text = s_dep
+                                master_clean = master_body.lstrip("=")
+                                shifted_text = adjust_a1_formula(master_clean, delta_c, delta_r)
+                                if "#REF!" in shifted_text and "#REF!" not in master_clean:
+                                    raise ValueError(f"Cannot unshare formula for {sheet_title}!{m_a1} in si={si}: out-of-bounds shift produced #REF!")
+                                m_f.text = shifted_text
                             if "si" in m_f.attrib:
                                 del m_f.attrib["si"]
                             if "t" in m_f.attrib:
@@ -792,7 +793,6 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                 zout.writestr(info, rels_xml)
                 continue
             if name in patched:
-                ET.register_namespace("", SSML_NS)
                 data = serialize_xml_preserving_namespaces(patched[name], original_namespaces.get(name))
                 zout.writestr(info, data)
                 continue

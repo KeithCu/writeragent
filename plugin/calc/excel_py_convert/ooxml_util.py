@@ -80,14 +80,12 @@ def find_child(parent: ET.Element, name: str) -> ET.Element | None:
 
 
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
-    """Parse XML bytes into an ElementTree root, registering and returning all in-scope namespaces."""
-    with _XML_NS_LOCK:
-        ns_map: dict[str, str] = {}
-        for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
-            ns_map[prefix] = uri
-            ET.register_namespace(prefix, uri)
-        root = ET.fromstring(data)
-        return root, ns_map
+    """Parse XML bytes into an ElementTree root, returning all in-scope namespaces."""
+    ns_map: dict[str, str] = {}
+    for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
+        ns_map[prefix] = uri
+    root = ET.fromstring(data)
+    return root, ns_map
 
 
 def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: dict[str, str] | None = None) -> bytes:
@@ -100,6 +98,11 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
     root tag.
     """
     with _XML_NS_LOCK:
+        for prefix, uri in STANDARD_OOXML_NAMESPACES.items():
+            ET.register_namespace(prefix, uri)
+        if original_namespaces:
+            for prefix, uri in original_namespaces.items():
+                ET.register_namespace(prefix, uri)
         out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     ns_map = dict(STANDARD_OOXML_NAMESPACES)
     if original_namespaces:

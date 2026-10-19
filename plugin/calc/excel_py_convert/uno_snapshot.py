@@ -124,6 +124,11 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 break
             cell_range = formula_cells.getByIndex(i)
             addr = cell_range.getRangeAddress()
+            area = (int(addr.EndRow) - int(addr.StartRow) + 1) * (int(addr.EndColumn) - int(addr.StartColumn) + 1)
+            if area > max_scan - total_scanned:
+                scan_limit_reached = True
+                stop_scanning = True
+                break
             formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
             if formula_matrix is None:
                 continue
