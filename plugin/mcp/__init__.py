@@ -499,16 +499,14 @@ class McpModule(ModuleBase):
         return _("Public tunnel via {0} not running (is the provider binary installed?)").format(pname)
 
     def _action_toggle_server(self) -> None:
-        from plugin.chatbot.dialogs import msgbox
+        # No msgbox on success: modal boxes block the sidebar; the panel status line shows it.
         from plugin.framework.uno_context import get_ctx
-        from plugin.framework.i18n import _
 
         ctx = get_ctx()
         b = self._bound_http_server()
         if b and b.is_running():
             log.info("Stopping MCP server via toggle")
             self._stop_server()
-            msgbox(ctx, "WriterAgent", _("MCP server stopped"))
         else:
             log.info("Starting MCP server via toggle")
             cfg = self._services.config.proxy_for(self.name)
@@ -520,27 +518,7 @@ class McpModule(ModuleBase):
             else:
                 self._start_server(self._services)
             b2 = self._bound_http_server()
-            if b2 and b2.is_running():
-                status = b2.get_status()
-                mcp_url = status.get("mcp_url", status.get("url", ""))
-                msg = _("MCP server started") + "\n{0}".format(mcp_url)
-                cfg = self._services.config.proxy_for(self.name)
-                tunnel = self._bound_tunnel()
-                if cfg.get("tunnel_enabled"):
-                    pname = provider_label(cfg.get("tunnel_provider") or DEFAULT_PROVIDER)
-                    public = tunnel.mcp_public_url() if tunnel else None
-                    if public:
-                        msg = msg + "\n" + _("Public tunnel via {0}").format(pname) + ":\n{0}".format(public)
-                    elif tunnel and tunnel.last_error:
-                        msg = msg + "\n" + _("Public tunnel via {0} failed: {1}").format(pname, tunnel.last_error)
-                    elif tunnel and tunnel.is_running:
-                        msg = msg + "\n" + _("Public tunnel via {0} starting… use MCP Server Status when ready.").format(pname)
-                    else:
-                        line = self._tunnel_status_line(pname, tunnel, public, True)
-                        if line:
-                            msg = msg + "\n" + line
-                msgbox(ctx, "WriterAgent", msg)
-            else:
+            if not (b2 and b2.is_running()):
                 self._show_start_failure_dialog(ctx)
 
     def _not_running_status_message(self) -> str:

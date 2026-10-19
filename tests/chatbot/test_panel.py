@@ -102,6 +102,38 @@ class TestGrammarStatusDocType:
         listener.status_control.setText.assert_called_once_with("Grammar: failed 'sample' len 6: API error")
 
 
+@pytest.fixture(autouse=False)
+def _run_posts_inline():
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a)):
+        yield
+
+
+@pytest.mark.usefixtures("_run_posts_inline")
+class TestHttpServerStatusEvents:
+    def test_server_started_updates_status_line(self) -> None:
+        listener = _make_send_listener()
+        listener._on_http_server_started(url="http://127.0.0.1:8765/mcp")
+        listener.status_control.setText.assert_called_once_with("MCP server started http://127.0.0.1:8765/mcp")
+
+    def test_server_stopped_updates_status_line(self) -> None:
+        listener = _make_send_listener()
+        listener._on_http_server_stopped(reason="shutdown")
+        listener.status_control.setText.assert_called_once_with("MCP server stopped")
+
+    def test_server_started_ignored_when_busy(self) -> None:
+        listener = _make_send_listener()
+        listener._send_busy = True
+        listener._on_http_server_started(url="http://127.0.0.1:8765/mcp")
+        listener.status_control.setText.assert_not_called()
+
+    def test_server_events_ignored_after_teardown(self) -> None:
+        listener = _make_send_listener()
+        listener._panel_teardown = True
+        listener._on_http_server_started(url="http://127.0.0.1:8765/mcp")
+        listener._on_http_server_stopped(reason="shutdown")
+        listener.status_control.setText.assert_not_called()
+
+
 class TestSidebarModeFinishApplies:
     def _listener(self) -> MagicMock:
         from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
@@ -275,11 +307,15 @@ class TestSendDispose:
             listener = _make_send_listener()
             assert _live_bus_callbacks(local_bus, "mcp:request")
             assert _live_bus_callbacks(local_bus, "mcp:result")
+            assert _live_bus_callbacks(local_bus, "http:server_started")
+            assert _live_bus_callbacks(local_bus, "http:server_stopped")
             assert not _live_bus_callbacks(other_bus, "mcp:result")
             assert _live_bus_callbacks(other_bus, "grammar:status")
             listener.disposing(None)
             assert not _live_bus_callbacks(local_bus, "mcp:request")
             assert not _live_bus_callbacks(local_bus, "mcp:result")
+            assert not _live_bus_callbacks(local_bus, "http:server_started")
+            assert not _live_bus_callbacks(local_bus, "http:server_stopped")
             assert not _live_bus_callbacks(other_bus, "grammar:status")
         assert listener._mcp_event_bus is None
 
@@ -299,6 +335,8 @@ class TestSendDispose:
             listener.disposing(None)
             assert not _live_bus_callbacks(shared, "mcp:request")
             assert not _live_bus_callbacks(shared, "mcp:result")
+            assert not _live_bus_callbacks(shared, "http:server_started")
+            assert not _live_bus_callbacks(shared, "http:server_stopped")
             assert not _live_bus_callbacks(shared, "grammar:status")
 
     def test_off_main_thread_before_bootstrap_defers_mcp_subscribe(self) -> None:

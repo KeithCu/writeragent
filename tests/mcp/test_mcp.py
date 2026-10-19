@@ -231,3 +231,87 @@ def test_mcp_action_server_status_dialog_controls():
     assert mock_controls["TunnelUrlField"].getModel().Visible is True
 
 
+def test_mcp_action_toggle_server_start_does_not_popup_modal_msgbox():
+    """Toggling server start must not show modal msgbox (blocks sidebar and drops typed prompts)."""
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp import McpModule
+
+    mod = McpModule()
+    mod._mcp_routes_registered = True
+    mock_server = MagicMock()
+    mock_server.is_running.return_value = True
+
+    mock_cfg = MagicMock()
+    mock_cfg.get.side_effect = lambda k, default=None: {
+        "mcp_enabled": True,
+    }.get(k, default)
+
+    mock_services = MagicMock()
+    mock_services.config.proxy_for.return_value = mock_cfg
+    mod._services = mock_services
+
+    with (
+        patch.object(mod, "_bound_http_server", side_effect=[None, mock_server]),
+        patch.object(mod, "_start_server") as mock_start,
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+    ):
+        mod._action_toggle_server()
+
+    mock_start.assert_called_once_with(mock_services)
+    mock_msgbox.assert_not_called()
+
+
+def test_mcp_action_toggle_server_stop_does_not_popup_modal_msgbox():
+    """Toggling server stop must not show modal msgbox."""
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp import McpModule
+
+    mod = McpModule()
+    mod._mcp_routes_registered = True
+    mock_server = MagicMock()
+    mock_server.is_running.return_value = True
+
+    mock_services = MagicMock()
+    mod._services = mock_services
+
+    with (
+        patch.object(mod, "_bound_http_server", return_value=mock_server),
+        patch.object(mod, "_stop_server") as mock_stop,
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+    ):
+        mod._action_toggle_server()
+
+    mock_stop.assert_called_once()
+    mock_msgbox.assert_not_called()
+
+
+def test_mcp_action_toggle_server_failure_shows_failure_dialog():
+    """Failure to start on toggle must still surface an error dialog."""
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp import McpModule
+
+    mod = McpModule()
+    mod._mcp_routes_registered = True
+    mock_cfg = MagicMock()
+    mock_cfg.get.side_effect = lambda k, default=None: {
+        "mcp_enabled": True,
+    }.get(k, default)
+
+    mock_services = MagicMock()
+    mock_services.config.proxy_for.return_value = mock_cfg
+    mod._services = mock_services
+
+    with (
+        patch.object(mod, "_bound_http_server", return_value=None),
+        patch.object(mod, "_start_server"),
+        patch.object(mod, "_show_start_failure_dialog") as mock_fail_dlg,
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+    ):
+        mod._action_toggle_server()
+
+    mock_fail_dlg.assert_called_once()
+
+
+

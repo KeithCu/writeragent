@@ -736,6 +736,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._mcp_event_bus = event_bus
             event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
             event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
+            event_bus.subscribe("http:server_started", self._on_http_server_started, weak=True)
+            event_bus.subscribe("http:server_stopped", self._on_http_server_stopped, weak=True)
             log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
 
     def set_rich_text_widget(self, widget: Any) -> None:
@@ -1041,6 +1043,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
             return
+
+    def _on_http_server_started(self, url: str = "", **kwargs: Any) -> None:
+        from plugin.framework.i18n import _
+
+        self._post_server_status((_("MCP server started") + " " + url).strip())
+
+    def _on_http_server_stopped(self, **kwargs: Any) -> None:
+        from plugin.framework.i18n import _
+
+        self._post_server_status(_("MCP server stopped"))
+
+    def _post_server_status(self, text: str) -> None:
+        """MCP start/stop goes to the status line; a modal box would eat typed prompts."""
+        if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
+            return
+        # Tip: don't overwrite the status of a running send or approval.
+        if getattr(self, "_send_busy", False) or getattr(self, "_approval_event", None) is not None:
+            return
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(self._set_status, text)
 
     def _scroll_response_to_bottom(self) -> None:
         """Scroll the response area to show the bottom (newest content).
@@ -2530,6 +2553,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if mcp_bus is not None:
                 mcp_bus.unsubscribe("mcp:request", self._on_mcp_request)
                 mcp_bus.unsubscribe("mcp:result", self._on_mcp_result)
+                mcp_bus.unsubscribe("http:server_started", self._on_http_server_started)
+                mcp_bus.unsubscribe("http:server_stopped", self._on_http_server_stopped)
             global_event_bus.unsubscribe("grammar:status", self._on_grammar_status)
         except Exception as e:
             log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
