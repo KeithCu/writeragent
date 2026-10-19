@@ -405,7 +405,6 @@ flowchart TB
 | `parse_python_formula` / `rebuild_python_formula_with_data` | Round-trip existing PY | String-level only |
 | `python_editor` / Monaco | Edit generated code | Manual fix for TODO cells |
 | `run_venv_python_script` | Chat dry-run | Does not write sheet alone |
-| `execute_python_script` + `lp()` | Stdlib-only preview | Not for NumPy path |
 | `WorkerResultSession` | Matrix spill cache | Manual range today |
 
 ### Table C — WriterAgent tools (orchestration)

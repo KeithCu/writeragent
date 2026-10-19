@@ -143,7 +143,6 @@ For Monaco (recommended editor UI), also install `pywebview` (on Linux: `PyQt6 P
 
 Scripts compute and return values. **Run Python Script…** (and chat `run_venv_python_script`) can also call WriterAgent tools from the venv via `import writeragent as wa` (same Pickle5 pipe; host runs UNO). `=PY()` recalc does **not** — formula evaluation stays side-effect free.
 
-*(Developer note: an older in-process* `execute_python_script` *path uses LibreOffice’s embedded Python and is **not** used by* `=PY()`*.)*
 
 ### Run Python Script & Monaco {#run-python-script--monaco}
 
@@ -280,7 +279,7 @@ Missing packages fail when code imports them (no import pre-check at executor in
 
 Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scripting/import_policy.py)` (whitelist in `[sandbox.py](../plugin/scripting/sandbox.py)`). It always leads with a **sandbox context prefix** before module lists so models know they are in an AST **Python sandbox** inside a **same-user** venv subprocess (not LibreOffice/UNO). Host pickle frames reconstruct builtin types only.
 
-`writeragent.X` is the script alias for `plugin.X` (`AliasImporter`). It is allowed only when `plugin.X` is on `VENV_AUTHORIZED_IMPORTS`, or that exact alias is listed (`writeragent.vision`, `writeragent.scripting.duckdb_sql`). A blanket `writeragent.*` is not used: it loaded `plugin.framework.config` and `LlmClient`. `duckdb` / `duckdb.*` stay on the list. `plugin.scripting.duckdb_sql` stays off it. The =PY blurb also omits `writeragent.scripting.payload_codec`, `writeragent.scripting.writeragent_api`, and `writeragent.scripting.writeragent_namespace`; those three stay on `VENV_AUTHORIZED_IMPORTS`. `__future__` and `collections.abc` are exact `BASE_BUILTIN_MODULES` entries, so the venv sandbox and in-process `execute_python_script` accept `from __future__ import annotations` and `from collections.abc import Mapping`. `collections` alone does not authorize `collections.abc`. A bare `*` allowlist entry is ignored.
+`writeragent.X` is the script alias for `plugin.X` (`AliasImporter`). It is allowed only when `plugin.X` is on `VENV_AUTHORIZED_IMPORTS`, or that exact alias is listed (`writeragent.vision`, `writeragent.scripting.duckdb_sql`). A blanket `writeragent.*` is not used: it loaded `plugin.framework.config` and `LlmClient`. `duckdb` / `duckdb.*` stay on the list. `plugin.scripting.duckdb_sql` stays off it. The =PY blurb also omits `writeragent.scripting.payload_codec`, `writeragent.scripting.writeragent_api`, and `writeragent.scripting.writeragent_namespace`; those three stay on `VENV_AUTHORIZED_IMPORTS`. `__future__` and `collections.abc` are exact `BASE_BUILTIN_MODULES` entries, so the venv sandbox accepts `from __future__ import annotations` and `from collections.abc import Mapping`. `collections` alone does not authorize `collections.abc`. A bare `*` allowlist entry is ignored.
 
 
 | Category                                              | Modules                                                                                                                                                                                                                                                                   |
@@ -292,7 +291,6 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 | **Common not-whitelisted**                            | `requests`, `urllib`, `http`, `httpx`, `ssl`, `pickle`, `sqlite3`, `logging`, `importlib`, `ctypes`, `threading`, …                                                                                                                                                       |
 
 
-**In-process** `[execute_python_script](../plugin/calc/python/executor.py)` uses a smaller stdlib-only sandbox in LibreOffice’s embedded Python (no NumPy/pandas). `numpy.*`, `pandas.*`, and `transformers.*` stay on the venv list because the child process is the boundary. `'{0.__class__}'.format(1)` returns `"<class 'int'>"` through format-field syntax and is accepted (repr only). In-process `execute_python_script` returns `print` text as `stdout` and is still the disabled stdlib tool, not `=PY()`.
 
 ### Trusted extension code in the venv {#trusted-extension-code-in-the-venv}
 
@@ -703,7 +701,7 @@ Until then: keep scripts in cells for large Python; WriterAgent normalizes curly
 
 ### How it runs
 
-Uses the same warm worker as Run Python Script ([§2](#2-strategy-decision)). `execute_python_script` is separate and not used for formulas. **Isolated** mode (default): variables do **not** persist across cells. **Shared kernel**: one workbook namespace until reset — [§6 Session modes](#session-modes-and-recalc-semantics).
+Uses the same warm worker as Run Python Script ([§2](#2-strategy-decision)). **Isolated** mode (default): variables do **not** persist across cells. **Shared kernel**: one workbook namespace until reset — [§6 Session modes](#session-modes-and-recalc-semantics).
 
 ### Code Oracle (`=PROMPT()` + `=PY()`)
 

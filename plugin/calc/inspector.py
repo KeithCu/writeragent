@@ -28,7 +28,8 @@ from typing import Any
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
 from plugin.calc.calc_utils import _formula_cell_result
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import CalcError, is_disposed_exception
+from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
@@ -366,6 +367,14 @@ class CellInspector:
 
             if hasattr(cell_range, "getRangeAddress"):
                 addr = cell_range.getRangeAddress()
+                # Refuse an over-cap range before fetching data/formula arrays.
+                rows = addr.EndRow - addr.StartRow + 1
+                cols = addr.EndColumn - addr.StartColumn + 1
+                n = rows * cols
+                if n > python_max_data_cells_min():
+                    limit = configured_python_max_data_cells()
+                    if n > limit:
+                        raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
                 if addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow:
                     cell_info = self.read_cell(range_name, include_format_info=include_format_info)
                     return [[cell_info]]

@@ -160,7 +160,7 @@ The Calc add-in executes Python expressions with **extension-owned array spill**
 
 #### Two-Phase Orchestration
 
-Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. The in-process `execute_python_script` remains a separate stdlib-only sandbox for light logic without a venv.
+Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. Chat Python and `=PY()` run in the user venv.
 
 #### Domain Helpers
 

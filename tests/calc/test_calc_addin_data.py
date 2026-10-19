@@ -298,3 +298,14 @@ def test_resolve_python_data_disposal_propagates():
     with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):
             _resolve_python_data(ctx, data_range="A1:B1")
+
+
+def test_resolve_python_data_returns_calc_error_message():
+    from plugin.framework.errors import CalcError
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.calc.inspector.CellInspector.read_range", side_effect=CalcError("Data range has 500000 cells; maximum is 250000.")):
+        data, err = _resolve_python_data(ctx, data_range="A1:B500000")
+    assert data is None
+    assert err == "Data range has 500000 cells; maximum is 250000."

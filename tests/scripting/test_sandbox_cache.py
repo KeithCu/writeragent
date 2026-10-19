@@ -211,9 +211,9 @@ def test_null_byte_source_is_parse_error() -> None:
 def test_allowlist_entries_fit_cache_key() -> None:
     from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as SMOL_BASE_BUILTIN_MODULES
     from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-    from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS, VENV_AUTHORIZED_IMPORTS
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 
-    for seq in (SMOL_BASE_BUILTIN_MODULES, VENV_AUTHORIZED_IMPORTS, CALC_AUTHORIZED_IMPORTS):
+    for seq in (SMOL_BASE_BUILTIN_MODULES, VENV_AUTHORIZED_IMPORTS):
         for name in seq:
             assert "\0" not in name
             assert "\n" not in name
