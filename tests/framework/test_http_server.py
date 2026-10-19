@@ -380,6 +380,64 @@ def test_drain_executor_abandons_after_timeout_and_warns(caplog) -> None:
         server.server_close()
 
 
+def test_server_close_after_drain_sentinels_skips_queued_handler() -> None:
+    ran: list[object] = []
+
+    class _Counting:
+        def __init__(self, request: object, client_address: object, server: object) -> None:
+            ran.append(request)
+
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Counting, max_threads=1)
+    hold = threading.Event()
+    started = threading.Event()
+    finished: list[str] = []
+
+    def _occupy() -> None:
+        started.set()
+        hold.wait(timeout=5)
+        finished.append("done")
+
+    sock = MagicMock()
+    drain_thread: threading.Thread | None = None
+    try:
+        server.executor.submit(_occupy)
+        assert started.wait(timeout=2)
+        server.process_request(sock, ("127.0.0.1", 1001))
+
+        drain_thread = threading.Thread(
+            target=lambda: server.executor.shutdown(wait=True, cancel_futures=False),
+            name="test-http-drain",
+            daemon=True,
+        )
+        drain_thread.start()
+
+        deadline = time.monotonic() + 2.0
+        while not server.executor._sentinels and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert server.executor._sentinels
+
+        server.server_close()
+        server.server_close()
+
+        assert ran == []
+        sock.close.assert_called()
+
+        hold.set()
+        drain_thread.join(timeout=2)
+        assert not drain_thread.is_alive()
+        for worker in server.executor._threads:
+            worker.join(timeout=2)
+            assert not worker.is_alive()
+
+        assert ran == []
+        assert finished == ["done"]
+    finally:
+        hold.set()
+        if drain_thread and drain_thread.is_alive():
+            drain_thread.join(timeout=2)
+        server.server_close()
+
+
 def test_accept_queue_cap_closes_excess_socket() -> None:
     ran: list[object] = []
 

@@ -97,7 +97,8 @@ class _RequestThreads:
     held LibreOffice open. ``HttpServer.stop`` does not join POST workers,
     because a worker waiting for the UI thread deadlocks if the UI joins it.
     Why this change: these threads are daemon and are not registered with
-    that atexit hook. The worker count is still bounded. The queue is not.
+    that atexit hook. The worker count is still bounded. Unfinished calls are
+    capped at ``max_workers + max_queued``.
     The shared ``wa-bg`` pool is not used: one SSE connection would hold a
     UI worker until the client left.
 
@@ -205,17 +206,27 @@ class _RequestThreads:
         cancelled: list[Future[Any]] = []
         with self._lock:
             self._shutdown = True
-            # A second shutdown must not pull the stop sentinels back out.
-            # Workers blocked in get() would then wait forever.
-            if cancel_futures and not self._sentinels:
+            # Tip: cancel unstarted items even if sentinels were already planted by a prior drain.
+            # Put back uncancelled work first, then any unconsumed sentinels so waiting workers exit.
+            if cancel_futures:
+                deferred: list[_RequestWork] = []
+                sentinel_count = 0
                 while True:
                     try:
                         item = self._work_queue.get_nowait()
                     except queue.Empty:
                         break
-                    if item is not None and item.future.cancel():
+                    if item is None:
+                        sentinel_count += 1
+                    elif item.future.cancel():
                         cancelled.append(item.future)
                         self._pending -= 1
+                    else:
+                        deferred.append(item)
+                for item in deferred:
+                    self._work_queue.put(item)
+                for _idx in range(sentinel_count):
+                    self._work_queue.put(None)
             if not self._sentinels:
                 for _unused in self._threads:
                     self._work_queue.put(None)
