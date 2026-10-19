@@ -861,23 +861,31 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             if is_real_disposal(exc):
                 raise
             continue
-        cand_name = str(getattr(cand, "Name", "") or "")
+        try:
+            cand_name = str(getattr(cand, "Name", "") or "")
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            cand_name = ""
         norm_cand_name = _normalize_master_name(cand_name)
 
-        sw = getattr(cand, "Width", 0) or 0
-        sh = getattr(cand, "Height", 0) or 0
+        # Shipped .otp masters often report 16:9 geometry even when named 4:3; prefer named ratio.
         cand_ratio = 0.0
-        try:
-            if sw and sh and float(sh) > 0:
-                cand_ratio = float(sw) / float(sh)
-        except Exception:
-            cand_ratio = 0.0
-        if not cand_ratio:
-            if re.search(r"4[:_x -]?3", cand_name) or re.search(r"_20_4_3a_3", cand_name):
-                cand_ratio = 4.0 / 3.0
-            elif re.search(r"16[:_x -]?9", cand_name) or re.search(r"_20_16_3a_9", cand_name):
-                cand_ratio = 16.0 / 9.0
-            else:
+        if re.search(r"4[:_x -]?3", cand_name) or re.search(r"_20_4_3a_3", cand_name):
+            cand_ratio = 4.0 / 3.0
+        elif re.search(r"16[:_x -]?9", cand_name) or re.search(r"_20_16_3a_9", cand_name):
+            cand_ratio = 16.0 / 9.0
+        else:
+            try:
+                sw = getattr(cand, "Width", 0) or 0
+                sh = getattr(cand, "Height", 0) or 0
+                if sw and sh and float(sh) > 0:
+                    cand_ratio = float(sw) / float(sh)
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
+                cand_ratio = 0.0
+            if not cand_ratio:
                 cand_ratio = dest_ratio
         diff = abs(cand_ratio - dest_ratio)
 

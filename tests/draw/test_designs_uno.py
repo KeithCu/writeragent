@@ -283,18 +283,10 @@ def test_apply_design_aspect_ratio_selection(ctx, doc):
     if "beehive" not in available_ids:
         return
 
-    # Set page 0 and master to 4:3 (28000 x 21000)
+    # Set page 0 to 4:3 (28000 x 21000)
     p0 = doc.getDrawPages().getByIndex(0)
     p0.Width = 28000
     p0.Height = 21000
-    if hasattr(p0, "MasterPage") and p0.MasterPage:
-        p0.MasterPage.Width = 28000
-        p0.MasterPage.Height = 21000
-    if hasattr(doc, "getMasterPages"):
-        for i in range(doc.getMasterPages().getCount()):
-            m = doc.getMasterPages().getByIndex(i)
-            m.Width = 28000
-            m.Height = 21000
 
     out = _exec(doc, ctx, "apply_design", {"design": "beehive"})
     assert out.get("status") == "ok", out

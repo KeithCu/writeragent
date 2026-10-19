@@ -1456,6 +1456,7 @@ def test_clone_master_aspect_ratio_selection():
     dest_masters.insertNewByIndex.return_value = dest_master
     dest_doc.getMasterPages.return_value = dest_masters
 
+    # Two mock masters same design name, both Width/Height 16:9, one Name ending in 4:3
     m16_9 = MagicMock()
     m16_9.Name = "Beehive_20_16_3a_9"
     m16_9.Width = 28000
@@ -1466,7 +1467,7 @@ def test_clone_master_aspect_ratio_selection():
     m4_3 = MagicMock()
     m4_3.Name = "Beehive_20_4_3a_3"
     m4_3.Width = 28000
-    m4_3.Height = 21000
+    m4_3.Height = 15750
     m4_3.getCount.return_value = 1
     m4_3.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
 
@@ -1486,6 +1487,8 @@ def test_clone_master_aspect_ratio_selection():
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned.warnings
     assert cloned.master == dest_master
+    assert m4_3.getByIndex.called
+    assert not m16_9.getByIndex.called
 
     # Deck ratio read from p0.MasterPage when p0 lacks dimensions
     p0_no_dims = MagicMock(spec=["MasterPage"])
@@ -1513,11 +1516,34 @@ def test_clone_master_aspect_ratio_selection():
         cloned_inferred = clone_master_into_doc(dest_doc, src_no_geom, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned_inferred.warnings
 
+    # Width/Height fallback when the name has no ratio token
+    m_plain16 = MagicMock(Name="PlainDesign", Width=28000, Height=15750)
+    m_plain16.getCount.return_value = 1
+    m_plain16.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    m_plain4 = MagicMock(Name="PlainDesign", Width=28000, Height=21000)
+    m_plain4.getCount.return_value = 1
+    m_plain4.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    src_plain = MagicMock()
+    src_plain.getMasterPages().getCount.return_value = 2
+    src_plain.getMasterPages().getByIndex.side_effect = lambda i: [m_plain16, m_plain4][i]
+
+    dest_doc.getDrawPages().getByIndex.return_value = p0
+    p0.Height = 21000
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned_plain = clone_master_into_doc(dest_doc, src_plain, {"id": "plaindesign", "name": "PlainDesign"})
+    assert "aspect mismatch" not in cloned_plain.warnings
+    assert m_plain4.getByIndex.called
+    assert not m_plain16.getByIndex.called
+
     dest_doc.getDrawPages().getByIndex.return_value = p0
     p0.Height = 15750
+    m16_9.getByIndex.reset_mock()
+    m4_3.getByIndex.reset_mock()
     with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
         cloned16 = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned16.warnings
+    assert m16_9.getByIndex.called
+    assert not m4_3.getByIndex.called
 
 
 def test_clone_master_name_normalization_matches():
