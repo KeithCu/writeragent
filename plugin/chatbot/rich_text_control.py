@@ -324,7 +324,7 @@ class RichTextChatWidget:
             OPEN_TRANSCRIPT,
             _plain_append_messages,
             _rollback_rich_insert,
-            append_rich_text_via_clipboard,
+            append_formatted_row,
             session_history_items,
         )
 
@@ -341,7 +341,7 @@ class RichTextChatWidget:
         # User rows that open the turn join the formatted prefix. A failed
         # formatted copy rolls itself back; the row then goes in the plain tail.
         while not old_tail and new_tail and new_tail[0][0] == "user":
-            if not append_rich_text_via_clipboard(
+            if not append_formatted_row(
                 self.ctx, self.control, new_tail[0][1], role="user", style_window=self.style_window,
                 auto_scroll=True, restore=self.query, restore_focus=self.restore_focus,
             ):
@@ -459,7 +459,7 @@ class RichTextChatWidget:
             _ensure_message_separator,
             _force_rich_full_reformat,
             _rollback_rich_insert,
-            append_rich_messages_via_clipboard,
+            append_formatted_rows,
             session_history_items,
         )
 
@@ -491,7 +491,7 @@ class RichTextChatWidget:
         _rollback_rich_insert(self.control, self._formatted_len)
         if tail:
             _ensure_message_separator(self.control)
-            append_rich_messages_via_clipboard(
+            append_formatted_rows(
                 self.ctx, self.control, tail, style_window=self.style_window,
                 restore=self.query, restore_focus=self.restore_focus,
             )
@@ -1402,7 +1402,7 @@ def get_control_text_length(control: Any) -> int | None:
     try:
         model = control.getModel()
         if model is None:
-            return 0
+            return None
         return len((model.Text or "").encode("utf-16-le")) // 2
     except Exception:
         # None means the length is unknown. Rollback and cell-link spans

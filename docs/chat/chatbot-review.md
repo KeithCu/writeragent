@@ -131,11 +131,11 @@ A paragraph exception in `_copy_formatted_from_hidden_doc_to_control` sets `elem
 
 If the HTML filter throws, the handler logs at debug and `insertString`s the raw tags (`plugin/chatbot/rich_text.py` around line 290). `used_html_import` stays false, the hidden doc still has text, and the copy returns success. Rerender then does not put the stripped stream back, so the sidebar shows tags. Release logs are WARN, so the debug line does not show up. Do not insert the raw string. Signal failure and plain-append `_plain_fallback_text`. Sanitizing full documents belongs in that same call: `_wrap_html_fragment` in `plugin/writer/html_import.py` passes a fragment through unchanged when it already contains `<html>` and `<body>`.
 
-`get_control_text_length` returns `0` on any exception (`plugin/chatbot/rich_text_control.py` around line 1248). Both paste paths use that as the rollback point, and `truncate_control_from` treats zero as "delete from the start." The same zero is the cell-link span start. Return `None` and skip rollback when the length is unknown. `CellLinkSpanRegistry.add` already ignores `start >= end`.
+`get_control_text_length` returns `None` on exception or missing model (`plugin/chatbot/rich_text_control.py`). Both paste paths skip rollback when the length is unknown (`None`).
 
-`_plain_append_messages` paints `assistant_color` and inserts no `You:` / `Assistant:` prefix and no blank line, so user and assistant turns run together. The formatted path adds both inside `append_rich_text`. One prefix-and-gap helper for the plain fallback. Do not add a second theme table.
+`_plain_append_messages` writes bold `You:` / `Assistant:` prefixes, theme-appropriate role colors, and blank-line gaps between turns.
 
-`build_message_html` (`plugin/chatbot/rich_text_paste.py`) is unused in production. The module docstring still says the pipeline falls through to transferable / `SystemClipboard` / Ctrl+V. Those calls are gone. `append_*_via_clipboard` only direct-copies. Update the comment so it does not invite pasting into the real document again.
+`build_message_html` is removed. `append_formatted_row` and `append_formatted_rows` use direct hidden-doc copy without clipboard transfer.
 
 `SlashPopupController._attach_item_listener` is never called. The comment above the mouse listener says item listeners deadlock. Delete the method. Do not wire it.
 

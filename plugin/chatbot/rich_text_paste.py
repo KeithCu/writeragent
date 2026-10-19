@@ -37,6 +37,7 @@ _list_prefix_for_paragraph.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -48,7 +49,6 @@ from plugin.chatbot.rich_text import (
     CHAT_FONT_WEIGHT,
     ChatTheme,
     configure_hidden_writer_for_chat,
-    _HTML_TAG_RE,
     _role_prefix,
     append_rich_text,
     contains_html_tag,
@@ -60,7 +60,6 @@ from plugin.chatbot.rich_text_control import (
     _apply_sidebar_para_margins,
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
-    append_text_chunk,
     clear_control,
     get_control_text_length,
     truncate_control_from,
@@ -152,7 +151,14 @@ def _cell_width_em(text: str, *, bold: bool = False) -> float:
         if 32 <= o <= 126:
             adv += _LIBERATION_SANS_EM[o - 32]
         else:
-            adv += _FALLBACK_EM
+            cat = unicodedata.category(ch)
+            if cat in ("Mn", "Cf"):
+                continue
+            eaw = unicodedata.east_asian_width(ch)
+            if eaw in ("W", "F"):
+                adv += 1.0
+            else:
+                adv += _FALLBACK_EM
     if bold:
         adv *= _BOLD_EM
     return adv
@@ -268,11 +274,7 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     (e.g. ``• `` or ``1. ``) before each list paragraph's portions.
     """
     is_number = bool(para.getPropertyValue("NumberingIsNumber"))
-
     if not is_number:
-        left = int(para.getPropertyValue("ParaLeftMargin") or 0)
-        if left > 300:
-            return "\u2022 "
         return ""
 
     level = int(para.getPropertyValue("NumberingLevel") or 0)
@@ -288,7 +290,7 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     if isinstance(label, str) and label.strip():
         return "%s%s " % (indent, label.strip())
 
-    bullet_char = "\u2022"
+    bullet_char = None
     num_type = None
     rules = para.getPropertyValue("NumberingRules")
     if rules is not None:
@@ -306,7 +308,7 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
         n_type = None
 
     # com.sun.star.style.NumberingType: BULLET=6, BITMAP=8.
-    if n_type in (6, 8) or n_type is None:
+    if n_type in (6, 8) or (n_type is None and bullet_char):
         ch = (bullet_char or "\u2022").strip()
         if ch and not ch.endswith(" "):
             ch = ch + " "
@@ -496,7 +498,7 @@ def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
     """
     if items and items[-1][0] == "assistant" and items[-1][1].strip():
         prev = items[-1][1]
-        looks_html = bool(_HTML_TAG_RE.search(prev)) or contains_html_tag(prev)
+        looks_html = contains_html_tag(prev)
         joined = prev + ("<p>%s</p>" % _STOP_BANNER if looks_html else "\n\n" + _STOP_BANNER)
         items[-1] = ("assistant", joined)
         return
@@ -525,6 +527,11 @@ def _replace_control_with_plain(
     )
 
 
+def rows_need_hidden_writer(rows: Any) -> bool:
+    """True when any message content has real HTML tags needing hidden Writer import."""
+    return any(contains_html_tag(content or "") for _role, content in (rows or []))
+
+
 def _force_rich_full_reformat(control: Any) -> None:
     """Make the RichTextControl EditEngine lay out the whole control again.
 
@@ -540,8 +547,10 @@ def _force_rich_full_reformat(control: Any) -> None:
     ps = control.getPosSize()
     if ps.Width <= 2:
         return
-    control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
-    control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
+    try:
+        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
+    finally:
+        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
 
 
 def paint_message_items(
@@ -565,6 +574,15 @@ def paint_message_items(
     rows = [(role, content) for role, content in (items or [])]
     if not rows:
         clear_control(control)
+        return True
+    if not rows_need_hidden_writer(rows):
+        clear_control(control)
+        _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
+        if rows[-1][0] == "user":
+            with focus_preserved(ctx, restore, restore_focus=restore_focus):
+                _ensure_trailing_line_break(control)
+        _force_rich_full_reformat(control)
+        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
         return True
     doc = None
     try:
@@ -594,7 +612,7 @@ def paint_message_items(
             control,
             ctx,
             style_window=style_window,
-            auto_scroll=True,
+            auto_scroll=False,
             cell_link_targets=links,
             restore=restore,
             restore_focus=restore_focus,
@@ -852,51 +870,41 @@ def _plain_role_prefix(role: str) -> str:
     return _role_prefix(role)
 
 
-def _append_separator(control: Any) -> None:
-    def _do_separate() -> None:
-        model = control.getModel() if control else None
-        if model is None or not hasattr(model, "createTextCursor"):
-            return
-        cursor = model.createTextCursor()
-        cursor.gotoEnd(False)
-        _insert_string_at_rich_cursor(model, cursor, "\n\n")
-        log_rich_scroll("separator", control=control)
-
-    best_effort(_do_separate, "_append_separator")
-
-
 def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
-    """Plain transcript rows with the formatted path's role label, color, and gap.
+    """Plain transcript rows with the formatted path's role label, color, and gap."""
+    model = control.getModel() if control else None
+    if model is None or not hasattr(model, "createTextCursor"):
+        return False
 
-    Each row needs the role prefix, color, and a blank line. Sharing the
-    assistant color with no gap runs a user turn into the next assistant
-    turn.
-    """
     wrote = False
     theme = ChatTheme.resolve(style_window=style_window)
-    model = control.getModel() if control else None
-    existing_text = (model.Text or "") if model is not None else ""
+    existing_text = model.Text or ""
     needs_sep = bool(existing_text.strip() and not existing_text.endswith("\n\n"))
+
+    cursor = model.createTextCursor()
+    cursor.gotoEnd(False)
 
     for role, content in batch:
         plain = _plain_fallback_text(content or "")
         if not plain.strip():
             continue
         if needs_sep:
-            _append_separator(control)
+            _insert_string_at_rich_cursor(model, cursor, "\n\n")
+            cursor.gotoEnd(False)
+        _apply_sidebar_para_margins(cursor)
+
         color = theme.user_color if role == "user" else theme.assistant_color
-        chunk = _plain_role_prefix(role) + plain
-        append_text_chunk(
-            control,
-            chunk,
-            auto_scroll=False,
-            style_window=style_window,
-            ctx=ctx,
-            char_color=color,
-            restore_focus=restore_focus,
-        )
+        prefix = _plain_role_prefix(role)
+        _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
+        cursor.gotoEnd(False)
+        _apply_sidebar_para_margins(cursor)
+
+        _insert_string_at_rich_cursor(model, cursor, plain, char_color=color, bold=False)
+        cursor.gotoEnd(False)
+        _apply_sidebar_para_margins(cursor)
+
         wrote = True
-        needs_sep = not chunk.endswith("\n\n")
+        needs_sep = not plain.endswith("\n\n")
 
     if wrote and auto_scroll:
         _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
@@ -929,7 +937,7 @@ def _append_hidden_doc_to_control(
     )
 
 
-def append_rich_messages_via_clipboard(
+def append_formatted_rows(
     ctx: Any,
     control: Any,
     items: Any,
@@ -945,18 +953,20 @@ def append_rich_messages_via_clipboard(
     any_inserted = False
     batches = list(iter_history_message_batches(items, batch_chars))
     for batch in batches:
-        # Length before this batch. A failed copy must not keep a partial
-        # insert or the cell-link spans recorded for it.
+        # Tip: a failed copy must not keep a partial insert or its cell-link spans.
         before = get_control_text_length(control)
+        _ensure_message_separator(control)
+        if not rows_need_hidden_writer(batch):
+            if _plain_append_messages(control, batch, ctx, style_window, auto_scroll=False, restore_focus=restore_focus):
+                any_inserted = True
+            continue
         doc = None
         inserted = False
         try:
             doc = create_hidden_html_writer(ctx)
             if doc is None:
-                # This used to continue and drop the batch. One hidden-Writer
-                # failure then skipped that history entirely. Later batches
-                # still render; this one is written as plain text.
-                log.warning("append_rich_messages_via_clipboard: hidden Writer unavailable")
+                # Tip: write this batch as plain text; dropping it would lose that history.
+                log.warning("append_formatted_rows: hidden Writer unavailable")
                 if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
                 continue
@@ -970,7 +980,7 @@ def append_rich_messages_via_clipboard(
 
             render_messages_to_hidden_doc(doc, batch, style_window=style_window)
             log.debug(
-                "append_rich_messages_via_clipboard: hidden doc ready messages=%d total_chars=%d",
+                "append_formatted_rows: hidden doc ready messages=%d total_chars=%d",
                 len(batch),
                 sum(len(c or "") for _unused, c in batch),
             )
@@ -984,13 +994,10 @@ def append_rich_messages_via_clipboard(
             if html_ok and ok:
                 inserted = True
                 any_inserted = True
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             else:
-                # One bad element must not fail the batch. The rollback
-                # removes it, and history has no second copy, so up to
-                # HISTORY_RENDER_BATCH_CHARS of messages would disappear.
+                # Tip: history has no second copy, so the rollback must not lose the batch.
                 log.warning(
-                    "append_rich_messages_via_clipboard: batch insert into control failed messages=%d reason=%s",
+                    "append_formatted_rows: batch insert into control failed messages=%d reason=%s",
                     len(batch),
                     copy_reason if not ok else "contains_html_tag",
                 )
@@ -998,15 +1005,17 @@ def append_rich_messages_via_clipboard(
                 if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
         except Exception:
-            log.exception("append_rich_messages_via_clipboard batch failed")
+            log.exception("append_formatted_rows batch failed")
             if not inserted:
                 _rollback_rich_insert(control, before)
                 if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
         finally:
-            _close_hidden_doc(doc, "append_rich_messages_via_clipboard")
+            _close_hidden_doc(doc, "append_formatted_rows")
     if any_inserted and items[-1][0] == "user":
         _ensure_trailing_line_break(control)
+    if any_inserted:
+        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
 
 
 def _ensure_message_separator(control: Any) -> None:
@@ -1055,7 +1064,7 @@ def _ensure_trailing_line_break(control: Any) -> None:
     best_effort(_do_break, "_ensure_trailing_line_break")
 
 
-def append_rich_text_via_clipboard(
+def append_formatted_row(
     ctx: Any,
     control: Any,
     text: str,
@@ -1070,8 +1079,8 @@ def append_rich_text_via_clipboard(
     """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control.
 
     Returns True for a full formatted insert, or for the plain-text fallback
-    when the hidden Writer is missing. False when a later body element was
-    skipped, so a caller that already cut plain text can put it back.
+    when the hidden Writer is missing or content is plain text. False when a later
+    body element was skipped, so a caller that already cut plain text can put it back.
     """
     if not control or not text or not text.strip():
         return False
@@ -1081,6 +1090,27 @@ def append_rich_text_via_clipboard(
 
     text = render_calc_cell_refs(text)
     cell_link_targets = extract_cell_links_from_html(text)
+
+    if not rows_need_hidden_writer([(role, text)]):
+        _ensure_message_separator(control)
+        _plain_append_messages(
+            control, [(role, text)], ctx, style_window, auto_scroll=False, restore_focus=restore_focus,
+        )
+        if role == "user":
+            with focus_preserved(ctx, restore, restore_focus=restore_focus):
+                _ensure_trailing_line_break(control)
+            if auto_scroll:
+                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            if callable(on_after_insert):
+                try:
+                    on_after_insert(get_control_text_length(control))
+                except Exception:
+                    log.exception("append_formatted_row: on_after_insert failed")
+            log_rich_scroll("user_append_done", control=control, role=role)
+        elif auto_scroll:
+            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+        return True
+
     # Remember the length before the separator. A failed copy used to leave
     # that blank gap, and a missing Writer returned False so the message
     # never appeared. Roll back, then plain-append only when there is no
@@ -1092,7 +1122,7 @@ def append_rich_text_via_clipboard(
     try:
         doc = create_hidden_html_writer(ctx)
         if doc is None:
-            log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
+            log.warning("append_formatted_row: hidden Writer unavailable")
             _rollback_rich_insert(control, before)
             _plain_append_messages(
                 control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
@@ -1103,20 +1133,20 @@ def append_rich_text_via_clipboard(
             # Filter failed. The hidden doc has the role prefix and not the body.
             # Copying it would show the prefix alone, or the raw tags if they
             # had been inserted. Roll back and write the stripped message.
-            log.warning("append_rich_text_via_clipboard: HTML import failed role=%s", role)
+            log.warning("append_formatted_row: HTML import failed role=%s", role)
             _rollback_rich_insert(control, before)
             _plain_append_messages(
                 control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
             )
             return True
-        log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
+        log.debug("append_formatted_row: hidden doc ready len=%d role=%s", len(text), role)
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
             control,
             ctx,
             role=role,
             style_window=style_window,
-            auto_scroll=auto_scroll,
+            auto_scroll=False,
             cell_link_targets=cell_link_targets,
             restore=restore,
             restore_focus=restore_focus,
@@ -1124,12 +1154,12 @@ def append_rich_text_via_clipboard(
         if ok:
             inserted = True
             log.info(
-                "append_rich_text_via_clipboard: insert ok via=direct_copy role=%s",
+                "append_formatted_row: insert ok via=direct_copy role=%s",
                 role,
             )
         else:
             log.warning(
-                "append_rich_text_via_clipboard: formatted copy failed direct_copy_reason=%s role=%s",
+                "append_formatted_row: formatted copy failed direct_copy_reason=%s role=%s",
                 direct_reason,
                 role,
             )
@@ -1147,14 +1177,16 @@ def append_rich_text_via_clipboard(
                 try:
                     on_after_insert(get_control_text_length(control))
                 except Exception:
-                    log.exception("append_rich_text_via_clipboard: on_after_insert failed")
+                    log.exception("append_formatted_row: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
+        elif inserted and auto_scroll:
+            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
         if inserted:
             return True
     except Exception:
-        log.exception("append_rich_text_via_clipboard failed")
+        log.exception("append_formatted_row failed")
         if not inserted:
             _rollback_rich_insert(control, before)
     finally:
-        _close_hidden_doc(doc, "append_rich_text_via_clipboard")
+        _close_hidden_doc(doc, "append_formatted_row")
     return False

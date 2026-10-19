@@ -44,23 +44,6 @@ def _go_right(cursor: Any, n: int, expand: bool) -> bool:  # pyright: ignore[rep
         n -= step
     return True
 
-_HTML_TAG_RE = re.compile(
-    r"<(?:"
-    r"p[>\s/]"
-    r"|br[\s/>]"
-    r"|/h[1-6]"
-    r"|ul[\s/>]"
-    r"|ol[\s/>]"
-    r"|li[\s/>]"
-    r"|strong[\s/>]"
-    r"|em[\s/>]"
-    r"|code[\s/>]"
-    r"|pre[\s/>]"
-    r"|div[\s/>]"
-    r"|table[\s/>]"
-    r")",
-    re.IGNORECASE,
-)
 
 # Legacy plain-sidebar prefix; append_rich_text adds "Assistant:" instead.
 _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
@@ -209,10 +192,8 @@ class HiddenDocHTMLImporter:
 def _tighten_list_indent(body_range: Any) -> None:
     """Tighten indentation on list paragraphs within *body_range*.
 
-    The HTML filter imports <ul>/<ol> as indented paragraphs using ParaLeftMargin
-    (not Writer's NumberingRules mechanism). This function detects paragraphs with
-    non-zero ParaLeftMargin and reduces them to tight values suitable for the
-    narrow sidebar.
+    Modifies NumberingRules for paragraphs with NumberingIsNumber to tight
+    values suitable for the narrow sidebar.
     """
     import uno
 
@@ -442,10 +423,7 @@ def _append_rich_text_with_span(
         body_anchor.goLeft(1, False)
 
         if text and text.strip():
-            # A tag _HTML_TAG_RE does not list (<script>, a full document the
-            # regex missed) used to take the insertString branch and land in
-            # the hidden doc as characters.
-            looks_html = bool(_HTML_TAG_RE.search(text)) or contains_html_tag(text)
+            looks_html = contains_html_tag(text)
             log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
             used_html_import = False

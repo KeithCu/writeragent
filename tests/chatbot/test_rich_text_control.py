@@ -155,7 +155,7 @@ class TestRichControlHelpers:
 
         model = _Model()
         _set_model_property(model, "PositionX", 42)
-        assert model.PositionX == 42
+        assert getattr(model, "PositionX") == 42
 
     def test_set_model_property_falls_back_to_setPropertyValue(self):
         class _Model:
@@ -595,7 +595,7 @@ class TestRichTextChatWidget:
             {"role": "user", "content": "c"},
         ]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard", return_value=True) as rich, \
+             patch("plugin.chatbot.rich_text_paste.append_formatted_row", return_value=True) as rich, \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=30):
             widget.stream_session(session)
         paint.assert_not_called()
@@ -659,7 +659,7 @@ class TestRichTextChatWidget:
         assert paint.call_args[0][2] == [("assistant", "Hi there")]
         session.messages = [{"role": "user", "content": "q"}]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard", return_value=True) as rich, \
+             patch("plugin.chatbot.rich_text_paste.append_formatted_row", return_value=True) as rich, \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=140):
             widget.stream_session(session)
         paint.assert_not_called()
@@ -698,7 +698,7 @@ class TestRichTextChatWidget:
         calls = []
         with patch("plugin.chatbot.rich_text_paste._rollback_rich_insert"), \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
-             patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard"), \
+             patch("plugin.chatbot.rich_text_paste.append_formatted_rows"), \
              patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=20):
@@ -713,7 +713,7 @@ class TestRichTextChatWidget:
         with patch.object(widget, "paint_session") as full, \
              patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as rollback, \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
-             patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard") as rich, \
+             patch("plugin.chatbot.rich_text_paste.append_formatted_rows") as rich, \
              patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
@@ -876,3 +876,17 @@ class TestControlTextLength:
         control.getModel.assert_called()
         # Unknown length must not ask the model for a cursor (that is "delete from the start").
         assert control.getModel.call_count == 1
+
+    def test_missing_model_returns_none(self):
+        from plugin.chatbot.rich_text_control import get_control_text_length
+
+        control = MagicMock()
+        control.getModel.return_value = None
+        assert get_control_text_length(control) is None
+
+    def test_empty_model_returns_zero(self):
+        from plugin.chatbot.rich_text_control import get_control_text_length
+
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        assert get_control_text_length(control) == 0
