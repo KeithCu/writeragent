@@ -12,6 +12,7 @@ from plugin.draw.transform_schema import (
     is_deferred_command_key,
     parse_transform_argument,
     resolve_layout_id,
+    TRANSFORM_PARAM_DESCRIPTION,
 )
 
 
@@ -100,7 +101,7 @@ def test_parse_transform_invalid_json():
 def test_parse_transform_empty():
     obj, err = parse_transform_argument("")
     assert obj is None
-    assert "No transform" in err
+    assert err is not None and "No transform" in err
 
 
 def test_deferred_keys():
@@ -127,4 +128,12 @@ def test_collabora_fixtures_load_from_tests_package():
 
     obj, err = parse_transform_argument(COLLABORA_FIVE_SLIDE_TRANSFORM)
     assert err is None
+    assert obj is not None
     assert len(get_slide_commands(obj)) == 31
+
+
+def test_all_autolayout_by_name_appear_in_transform_description():
+    for name, layout_id in AUTOLAYOUT_BY_NAME.items():
+        expected = f"{name} (id={layout_id})"
+        assert expected in TRANSFORM_PARAM_DESCRIPTION
+
