@@ -54,7 +54,7 @@ class TestEndpointImageProvider:
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
         
         # Mock OpenRouter response with b64 image
-        b64_data = base64.b64encode(b"fake-image-data-b64").decode()
+        b64_data = base64.b64encode(b"\x89PNG\r\n\x1a\nfake-image-data-b64").decode()
         mock_resp = {
             "images": [{"image_url": f"data:image/png;base64,{b64_data}"}]
         }
@@ -66,12 +66,12 @@ class TestEndpointImageProvider:
         assert (err) == ("")
         assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"fake-image-data-b64")
+            assert (f.read()) == (b"\x89PNG\r\n\x1a\nfake-image-data-b64")
         os.unlink(paths[0])
 
     def test_generate_standard_b64(self):
         self.mock_client.config.get.return_value = False # Not OpenRouter
-        b64_data = base64.b64encode(b"standard-b64-data").decode()
+        b64_data = base64.b64encode(b"\x89PNG\r\n\x1a\nstandard-b64-data").decode()
         self.mock_client.image_completion.return_value = [b64_data]
 
         paths, err = self.provider.generate("test prompt")
@@ -80,7 +80,7 @@ class TestEndpointImageProvider:
         assert (err) == ("")
         assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"standard-b64-data")
+            assert (f.read()) == (b"\x89PNG\r\n\x1a\nstandard-b64-data")
         os.unlink(paths[0])
 
     @patch('plugin.writer.images.image_utils.sync_request')
@@ -115,7 +115,7 @@ class TestEndpointImageProvider:
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
         
         # Mock response where image is in content (fallback b64)
-        b64_data = base64.b64encode(b"fallback-b64-data").decode()
+        b64_data = base64.b64encode(b"\x89PNG\r\n\x1a\nfallback-b64-data").decode()
         mock_resp = {
             "content": f"Check this out: data:image/png;base64,{b64_data}",
             "images": []
@@ -127,7 +127,7 @@ class TestEndpointImageProvider:
         assert (len(paths)) == (1)
         assert (err) == ("")
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"fallback-b64-data")
+            assert (f.read()) == (b"\x89PNG\r\n\x1a\nfallback-b64-data")
         os.unlink(paths[0])
 
     def test_scoping_bug_fix_verification(self):
@@ -176,8 +176,8 @@ class TestEndpointImageProvider:
         """If provider returns multiple images, ensure paths preserves ordering and all paths are created/cleaned."""
         self.mock_client.config.get.return_value = False # Not OpenRouter
 
-        b64_data1 = base64.b64encode(b"multi-image-b64-data-1").decode()
-        b64_data2 = base64.b64encode(b"multi-image-b64-data-2").decode()
+        b64_data1 = base64.b64encode(b"\x89PNG\r\n\x1a\nmulti-image-b64-data-1").decode()
+        b64_data2 = base64.b64encode(b"\x89PNG\r\n\x1a\nmulti-image-b64-data-2").decode()
         self.mock_client.image_completion.return_value = [b64_data1, b64_data2]
 
         paths, err = self.provider.generate("test prompt")
@@ -187,11 +187,11 @@ class TestEndpointImageProvider:
 
         assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"multi-image-b64-data-1")
+            assert (f.read()) == (b"\x89PNG\r\n\x1a\nmulti-image-b64-data-1")
 
         assert (paths[1].endswith(".png"))
         with open(paths[1], 'rb') as f:
-            assert (f.read()) == (b"multi-image-b64-data-2")
+            assert (f.read()) == (b"\x89PNG\r\n\x1a\nmulti-image-b64-data-2")
 
         os.unlink(paths[0])
         os.unlink(paths[1])
@@ -771,6 +771,54 @@ def test_temp_cleanup_on_failure():
         with pytest.raises(RuntimeError) as exc_info:
             provider._save_url("https://example.com/huge.png")
         assert "exceeded" in str(exc_info.value)
+
+
+def test_save_b64_rejects_oversized(monkeypatch):
+    import glob
+    import tempfile
+    from plugin.writer.images.image_utils import EndpointImageProvider
+
+    provider = EndpointImageProvider({"model": "test"}, None)
+    monkeypatch.setattr("plugin.writer.images.image_utils.IMAGE_DOWNLOAD_MAX_BYTES", 100)
+
+    # 101 bytes raw base64 encoded
+    raw = b"\x89PNG\r\n\x1a\n" + b"x" * 95
+    b64_str = base64.b64encode(raw).decode()
+
+    before = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+    with pytest.raises(RuntimeError, match="exceeded"):
+        provider._save_b64(b64_str)
+    after = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
+    assert after == before
+
+
+def test_save_b64_rejects_non_image_bytes():
+    from plugin.writer.images.image_utils import EndpointImageProvider
+
+    provider = EndpointImageProvider({"model": "test"}, None)
+
+    # random bytes
+    b64_random = base64.b64encode(b"random-bytes-not-an-image").decode()
+    with pytest.raises(RuntimeError, match="not a recognized image format"):
+        provider._save_b64(b64_random)
+
+    # short HTML document
+    b64_html = base64.b64encode(b"<!doctype html><html><body>not an image</body></html>").decode()
+    with pytest.raises(RuntimeError, match="not a recognized image format"):
+        provider._save_b64(b64_html)
+
+    # valid PNG prefix still succeeds and ends in .png
+    b64_png = base64.b64encode(b"\x89PNG\r\n\x1a\nvalid-png-content").decode()
+    paths = provider._save_b64(b64_png)
+    try:
+        assert len(paths) == 1
+        assert paths[0].endswith(".png")
+        assert os.path.isfile(paths[0])
+    finally:
+        for p in paths:
+            if os.path.exists(p):
+                os.unlink(p)
+
 
 
 

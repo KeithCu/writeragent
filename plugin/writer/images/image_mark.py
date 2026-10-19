@@ -41,6 +41,7 @@ _STROKE_MM = 0.6
 # Scratch-page scale: 1 picture pixel = 10 (1/100 mm). Any scale works because the export sets
 # the pixel size; this one keeps a 3000 px scan at 30 cm, inside Draw's page limits.
 _UNITS_PER_PX = 10
+MAX_BAKE_PIXELS: int = 40_000_000
 Box = tuple[int, int, int, int]
 
 
@@ -165,6 +166,10 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
     smgr = ctx.ServiceManager
     width_px, height_px = pixel_size(graphic)
     rx, ry, rw, rh = region
+    if rw * rh > MAX_BAKE_PIXELS:
+        raise ValueError(
+            f"Region ({rw}x{rh} = {rw * rh} pixels) exceeds maximum bake limit of {MAX_BAKE_PIXELS} pixels."
+        )
     u = _UNITS_PER_PX
 
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
@@ -262,6 +267,9 @@ def _paint_highlights(provider: Any, graphic: Any, highlights: list[tuple[Box, s
     # GraphicProvider matches MIME types case-sensitively and knows BMP only as "image/x-MS-bmp";
     # "image/bmp" silently writes nothing.
     _store(provider, graphic, bmp_path, "image/x-MS-bmp")
+    bmp_size = os.path.getsize(bmp_path)
+    if bmp_size > MAX_BAKE_PIXELS * 4 + 1024:
+        raise RuntimeError(f"BMP size {bmp_size} bytes exceeds maximum allowed bake pixels ({MAX_BAKE_PIXELS} pixels).")
     with open(bmp_path, "rb") as f:
         data = bytearray(f.read())
     multiply_bmp(data, highlights)

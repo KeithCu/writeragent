@@ -172,8 +172,11 @@ def test_image_generate_inserts_even_if_stopped_after_download():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
+    calls = []
+
+    def _run(fn, *args, **kwargs):
+        calls.append(kwargs)
+        return fn(*args)
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
@@ -190,6 +193,9 @@ def test_image_generate_inserts_even_if_stopped_after_download():
     assert res["status"] == "ok"
     assert "inserted" in res["message"]
     mock_insert.assert_called_once()
+    assert len(calls) == 2
+    assert calls[1].get("bound_scope") is None
+    assert "bound_scope" in calls[1]
 
 
 def test_image_generate_stop_is_user_stopped():
@@ -1029,9 +1035,9 @@ def test_image_replace_downloads_between_uno_calls():
         order.append("download")
         return "/tmp/logo.png"
 
-    def _mock_run_on_main(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+    def _mock_run_on_main(fn, *args, **kwargs):
         order.append("main")
-        return fn(*args, **kwargs)
+        return fn(*args)
 
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
@@ -1044,6 +1050,83 @@ def test_image_replace_downloads_between_uno_calls():
 
     assert res["status"] == "ok"
     assert order == ["main", "download", "main"]
+
+
+def test_image_insert_url_unscoped_after_download():
+    from plugin.framework.queue_executor import SendCancelled
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    graphic.getName.return_value = "Pic"
+    calls = []
+
+    def _run(fn, *args, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("bound_scope") is not None:
+            raise SendCancelled("cancelled")
+        return fn(*args)
+
+    with (
+        patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/test.png"),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.insert_image_at_locator", return_value=graphic),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+    ):
+        res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
+
+    assert res["status"] == "ok"
+    assert len(calls) == 1
+    assert calls[0].get("bound_scope") is None
+    assert "bound_scope" in calls[0]
+
+
+def test_image_replace_url_existence_scoped_apply_unscoped():
+    from plugin.framework.queue_executor import SendCancelled
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    graphic.getName.return_value = "Pic"
+
+    # 1. Cancelled existence scope aborts before download
+    def _run_cancel_existence(fn, *args, **kwargs):
+        if "bound_scope" not in kwargs or kwargs.get("bound_scope") is not None:
+            raise SendCancelled("cancelled")
+        return fn(*args)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run_cancel_existence),
+    ):
+        with pytest.raises(SendCancelled):
+            ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
+        mock_download.assert_not_called()
+
+    # 2. Cancelled scope on _apply does not skip replace (bound_scope is None)
+    calls = []
+
+    def _run_pass_unscoped(fn, *args, **kwargs):
+        calls.append(kwargs)
+        if "bound_scope" in kwargs and kwargs.get("bound_scope") is not None:
+            raise SendCancelled("cancelled")
+        return fn(*args)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png"),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run_pass_unscoped),
+    ):
+        res = ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
+
+    assert res["status"] == "ok"
+    assert len(calls) == 2
+    # Existence check does not pass bound_scope=None
+    assert "bound_scope" not in calls[0] or calls[0]["bound_scope"] is not None
+    # _apply passes bound_scope=None
+    assert "bound_scope" in calls[1]
+    assert calls[1]["bound_scope"] is None
 
 
 def test_image_get_info_anchor_type_from_enum_name():
@@ -1263,6 +1346,27 @@ def test_image_crop_bake_failure_is_tool_execution_error():
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "bake failed" in res.get("message", "")
+    obj.setPropertyValue.assert_not_called()
+
+
+def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    graphic = MagicMock()
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
+        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(50000, 50000)),
+        patch("plugin.writer.images.images.image_mark.bake", side_effect=ValueError("Region exceeds maximum bake limit")),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+        patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
+        patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
+    ):
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 45000, 45000])
+    assert res["status"] != "ok"
+    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("details", {}).get("width_px") == 50000
+    assert res.get("details", {}).get("height_px") == 50000
     obj.setPropertyValue.assert_not_called()
 
 
@@ -1510,7 +1614,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
         patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
-        patch("plugin.writer.images.images.clone_text_range", return_value=saved_cursor),
+        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1518,6 +1622,63 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
     assert res["images"][0]["page"] == 2
     vc.gotoRange.assert_any_call(start_pos, False)
     assert vc.gotoRange.call_args_list[-1] == ((saved_cursor, False),)
+
+
+def test_image_list_cursor_save_fails_skips_gotorange_and_page():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: MagicMock()
+    anchor = MagicMock()
+    anchor.getStart.return_value = MagicMock()
+    graphic.getAnchor.return_value = anchor
+
+    vc = MagicMock()
+    controller = MagicMock()
+    controller.getViewCursor.return_value = vc
+    ctx.doc.getCurrentController = MagicMock(return_value=controller)
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+        patch("plugin.writer.images.images._cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert len(res["images"]) == 1
+    assert "page" not in res["images"][0]
+    vc.gotoRange.assert_not_called()
+
+
+def test_image_list_page_zero_omitted():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: MagicMock()
+    anchor = MagicMock()
+    anchor.getStart.return_value = MagicMock()
+    graphic.getAnchor.return_value = anchor
+
+    saved_cursor = MagicMock()
+    vc = MagicMock()
+    vc.getPage.return_value = 0
+    controller = MagicMock()
+    controller.getViewCursor.return_value = vc
+    ctx.doc.getCurrentController = MagicMock(return_value=controller)
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert len(res["images"]) == 1
+    assert "page" not in res["images"][0]
 
 
 def test_image_set_properties_unknown_hori_orient_no_writes():
@@ -1528,6 +1689,91 @@ def test_image_set_properties_unknown_hori_orient_no_writes():
     assert res["status"] != "ok"
     assert res.get("code") == "INVALID_PARAMETER"
     graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_set_properties_rollback_on_failure():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = True
+    graphic.getPropertySetInfo.return_value = psi
+
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    titles: list[str] = []
+
+    def _enter(title):
+        titles.insert(0, title)
+
+    undo_mgr.enterUndoContext.side_effect = _enter
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles)
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
+    def _set_prop(name, val):
+        if name == "Description":
+            raise RuntimeError("disk full on description")
+
+    graphic.setPropertyValue.side_effect = _set_prop
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", title="New Title", description="New Desc")
+
+    assert res["status"] != "ok"
+    assert res.get("code") == "SET_PROPERTIES_FAILED"
+    undo_mgr.undo.assert_called_once()
+
+
+def test_image_set_properties_success_does_not_undo():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = True
+    graphic.getPropertySetInfo.return_value = psi
+
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    titles = ["WriterAgent: Set image properties"]
+    undo_mgr.getAllUndoActionTitles.return_value = titles
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", title="New Title")
+
+    assert res["status"] == "ok"
+    undo_mgr.undo.assert_not_called()
+
+
+def test_image_set_properties_enter_fails_no_undo():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = True
+    graphic.getPropertySetInfo.return_value = psi
+
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.enterUndoContext.side_effect = RuntimeError("cannot enter")
+    undo_mgr.getAllUndoActionTitles.return_value = ["User previous action"]
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
+    graphic.setPropertyValue.side_effect = RuntimeError("set failed")
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", title="New Title")
+
+    assert res["status"] != "ok"
+    assert res.get("code") == "SET_PROPERTIES_FAILED"
+    assert "could not be rolled back" in res.get("message", "")
+    undo_mgr.undo.assert_not_called()
 
 
 def test_image_set_properties_compound_undo_grouping():

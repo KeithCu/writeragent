@@ -31,7 +31,6 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, resolve_exception_message
 from plugin.framework.queue_executor import execute_on_main_thread, _SCOPE_UNSET
 from plugin.framework.thread_guard import on_main_thread
@@ -52,10 +51,11 @@ def _run_on_main(
 # Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
 _DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from .image_utils import (
+    IMAGE_CONTENT_TYPE_DENYLIST,
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
     resolve_generation_size,
-    suffix_for_image_bytes,
+    validated_image_suffix,
 )
 from . import image_mark, image_tools
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
@@ -66,6 +66,7 @@ from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc import visual_helpers
 from .image_tools import (
+    _cursor_for_writer_view,
     add_image_to_gallery,
     export_graphic_object_to_bytes,
     insert_image,
@@ -557,18 +558,23 @@ class ImageList(ToolWriterImageBase):
                             if not vc_saved_attempted:
                                 vc_saved_attempted = True
                                 try:
-                                    vc = doc.getCurrentController().getViewCursor()
-                                    saved_vc = clone_text_range(vc)
+                                    ctrl = doc.getCurrentController()
+                                    vc = ctrl.getViewCursor() if ctrl is not None else None
+                                    if vc is not None:
+                                        _, saved_vc = _cursor_for_writer_view(vc)
                                 except Exception:
                                     saved_vc = None
                             try:
-                                if vc is None:
-                                    vc = doc.getCurrentController().getViewCursor()
-                                if anchor is not None:
+                                if saved_vc is not None and anchor is not None and vc is not None:
                                     start = anchor.getStart()
                                     if start is not None:
                                         vc.gotoRange(start, False)
-                                        page = vc.getPage()
+                                        try:
+                                            p = int(vc.getPage())
+                                            if p > 0:
+                                                page = p
+                                        except (TypeError, ValueError):
+                                            pass
                             except Exception as exc:
                                 reraise_if_disposed(exc)
                     else:
@@ -900,72 +906,104 @@ class ImageSetProperties(ToolWriterImageBase):
         if kwargs.get("description") is not None and not visual_helpers.has_uno_property(graphic, "Description"):
             return self._tool_error("Graphic does not support Description.", code="UNSUPPORTED_DOC_TYPE")
 
+        new_size = None
+        if width_mm is not None or height_mm is not None:
+            from com.sun.star.awt import Size
+
+            current = _object_size(graphic)
+            curr_w, curr_h = current.Width, current.Height
+
+            new_size = Size()
+            new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
+            new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
+
         from plugin.writer.edit_review import WriterCompoundUndo
 
+        undo_title = "WriterAgent: Set image properties"
+        mgr = None
+        try:
+            candidate = ctx.doc.getUndoManager()
+            if candidate is not None and candidate.isLocked() is not True:
+                mgr = candidate
+        except Exception:
+            mgr = None
+
         updated = []
-        with WriterCompoundUndo(ctx.doc, "WriterAgent: Set image properties"):
-            # Size
-            if width_mm is not None or height_mm is not None:
-                from com.sun.star.awt import Size
+        error_msg: str | None = None
+        try:
+            with WriterCompoundUndo(ctx.doc, undo_title):
+                # Size
+                if new_size is not None:
+                    if visual_helpers.safe_set_property(graphic, "Size", new_size) or visual_helpers.safe_try_method(graphic, "setSize", new_size):
+                        updated.append("size")
+                    else:
+                        return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
 
-                current = _object_size(graphic)
-                curr_w, curr_h = current.Width, current.Height
+                # Title
+                title = kwargs.get("title")
+                if title is not None:
+                    graphic.setPropertyValue("Title", title)
+                    updated.append("title")
 
-                new_size = Size()
-                new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
-                new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
-                if visual_helpers.safe_set_property(graphic, "Size", new_size) or visual_helpers.safe_try_method(graphic, "setSize", new_size):
-                    updated.append("size")
-                else:
-                    return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
+                # Description (alt-text)
+                description = kwargs.get("description")
+                if description is not None:
+                    graphic.setPropertyValue("Description", description)
+                    updated.append("description")
 
-            # Title
-            title = kwargs.get("title")
-            if title is not None:
-                graphic.setPropertyValue("Title", title)
-                updated.append("title")
+                # Anchor type
+                if anchor_type is not None:
+                    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
 
-            # Description (alt-text)
-            description = kwargs.get("description")
-            if description is not None:
-                graphic.setPropertyValue("Description", description)
-                updated.append("description")
+                    anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
+                    graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
+                    updated.append("anchor_type")
 
-            # Anchor type
-            if anchor_type is not None:
-                from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
+                # Orientation
+                if resolved_hori is not None:
+                    graphic.setPropertyValue("HoriOrient", resolved_hori)
+                    updated.append("hori_orient")
 
-                anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
-                graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
-                updated.append("anchor_type")
+                if resolved_vert is not None:
+                    graphic.setPropertyValue("VertOrient", resolved_vert)
+                    updated.append("vert_orient")
 
-            # Orientation
-            if resolved_hori is not None:
-                graphic.setPropertyValue("HoriOrient", resolved_hori)
-                updated.append("hori_orient")
+                # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
+                if has_crop:
+                    from com.sun.star.text import GraphicCrop
 
-            if resolved_vert is not None:
-                graphic.setPropertyValue("VertOrient", resolved_vert)
-                updated.append("vert_orient")
+                    try:
+                        cc = graphic.getPropertyValue("GraphicCrop")
+                        cur = (cc.Top, cc.Bottom, cc.Left, cc.Right)
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        cur = (0, 0, 0, 0)
+                    top, bottom, left, right = _resolve_crop_edges(kwargs, cur)
+                    crop = GraphicCrop()
+                    crop.Top = top
+                    crop.Bottom = bottom
+                    crop.Left = left
+                    crop.Right = right
+                    graphic.setPropertyValue("GraphicCrop", crop)
+                    updated.append("crop")
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            error_msg = str(exc)
 
-            # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
-            if has_crop:
-                from com.sun.star.text import GraphicCrop
-
+        if error_msg is not None:
+            undone = False
+            if mgr is not None:
                 try:
-                    cc = graphic.getPropertyValue("GraphicCrop")
-                    cur = (cc.Top, cc.Bottom, cc.Left, cc.Right)
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    cur = (0, 0, 0, 0)
-                top, bottom, left, right = _resolve_crop_edges(kwargs, cur)
-                crop = GraphicCrop()
-                crop.Top = top
-                crop.Bottom = bottom
-                crop.Left = left
-                crop.Right = right
-                graphic.setPropertyValue("GraphicCrop", crop)
-                updated.append("crop")
+                    titles = mgr.getAllUndoActionTitles()
+                    if titles and titles[0] == undo_title:
+                        mgr.undo()
+                        undone = True
+                except Exception:
+                    log.exception("image_set_properties rollback failed")
+            msg = error_msg
+            if not undone:
+                msg = "the properties were written and could not be rolled back: " + msg
+            return self._tool_error(msg, code="SET_PROPERTIES_FAILED")
 
         return {"status": "ok", "image_name": image_name, "updated": updated}
 
@@ -1078,7 +1116,15 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         height_100mm = max(1, int(round(width_100mm * region_h / region_w)))
         # Bake failures propagate. The picture is not written until bake returns.
         # execute_safe logs once and maps the error, including disposal.
-        baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
+        try:
+            baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
+        except ValueError as e:
+            extra = {}
+            if width_px is not None:
+                extra["width_px"] = width_px
+            if height_px is not None:
+                extra["height_px"] = height_px
+            return self._tool_error(str(e), code="INVALID_PARAMETER", **extra)
 
         with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
             saved_graphic = visual_helpers.safe_get_property(obj, "Graphic")
@@ -1364,7 +1410,7 @@ class ImageInsert(ToolWriterImageBase):
             image_name = graphic.getName() if hasattr(graphic, "getName") else ""
             return {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
 
-        return _run_on_main(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC)
+        return _run_on_main(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
 
 # ------------------------------------------------------------------
@@ -1512,7 +1558,7 @@ class ImageReplace(ToolWriterImageBase):
                 return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
             return {"status": "ok", "image_name": image_name}
 
-        return _run_on_main(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC)
+        return _run_on_main(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
 
 # ------------------------------------------------------------------
@@ -1649,7 +1695,7 @@ def _download_image_to_cache(
             fd = -1
             with urllib.request.urlopen(request, context=context, timeout=timeout) as response:
                 content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                if content_type in ("text/html", "text/plain", "application/xhtml+xml", "application/json"):
+                if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
                     raise ValueError("Invalid Content-Type '%s' for image download" % content_type)
 
                 declared = response.headers.get("Content-Length")
@@ -1701,9 +1747,7 @@ def _download_image_to_cache(
                     fh.write(chunk)
             if total == 0:
                 raise RuntimeError("empty image download")
-            sniffed_ext = suffix_for_image_bytes(initial_bytes)
-            if sniffed_ext == ".img":
-                raise ValueError("Downloaded data is not a recognized image format")
+            sniffed_ext = validated_image_suffix(initial_bytes)
 
         local_path = os.path.join(cache_dir, url_hash + sniffed_ext)
         os.replace(partial_path, local_path)

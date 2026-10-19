@@ -266,3 +266,49 @@ def test_bake_scratch_draw_close_error_preserves_export_failure():
             image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
     draw.close.assert_called_once_with(True)
 
+
+def test_bake_rejects_region_exceeding_max_pixels():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    graphic = _graphic(px=(10000, 10000))
+
+    # region_w * region_h = 40_040_000 > 40_000_000
+    with pytest.raises(ValueError, match="exceeds maximum bake limit"):
+        image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 40000, 1001), stroke=2)
+    desktop.loadComponentFromURL.assert_not_called()
+
+
+def test_bake_accepts_region_under_cap():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    draw = MagicMock()
+    desktop.loadComponentFromURL.return_value = draw
+
+    export_filter = MagicMock()
+    provider = MagicMock()
+
+    def _create(service, c):
+        if "Desktop" in service:
+            return desktop
+        if "GraphicExportFilter" in service:
+            return export_filter
+        if "GraphicProvider" in service:
+            return provider
+        return MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    graphic = _graphic()
+
+    with (
+        patch("uno.invoke", return_value=True),
+        patch("tempfile.mkstemp", return_value=(999, "/tmp/test_under_cap.png")),
+        patch("os.close"),
+        patch("os.remove"),
+        patch("plugin.writer.images.image_mark._load", return_value=MagicMock()),
+    ):
+        result = image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
+    assert result is not None
+    desktop.loadComponentFromURL.assert_called_once()
+
+

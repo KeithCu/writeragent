@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 TRIM_IMAGES_IN_LOG = True
 IMAGE_DOWNLOAD_MAX_BYTES: int = 32 * 1024 * 1024
+IMAGE_CONTENT_TYPE_DENYLIST: tuple[str, ...] = ("text/html", "text/plain", "application/xhtml+xml", "application/json")
 
 
 def suffix_for_image_bytes(data: bytes) -> str:
@@ -55,6 +56,18 @@ def suffix_for_image_bytes(data: bytes) -> str:
     if b"<svg" in first_kb and b"<html" not in first_kb and b"<!doctype html" not in first_kb:
         return ".svg"
     return ".img"
+
+
+def validated_image_suffix(data: bytes) -> str:
+    """Validate image payload size and sniff extension, rejecting non-images and oversized data."""
+    if not data:
+        raise RuntimeError("empty image download")
+    if len(data) > IMAGE_DOWNLOAD_MAX_BYTES:
+        raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
+    suffix = suffix_for_image_bytes(data)
+    if suffix == ".img":
+        raise RuntimeError("Downloaded data is not a recognized image format")
+    return suffix
 
 
 def write_temp_image(data: bytes, suffix: str | None = None) -> str:
@@ -156,9 +169,10 @@ class EndpointImageProvider(ImageProvider):
         self.ctx = ctx
 
     def _save_b64(self, b64_data: str) -> list[str]:
+        if len(b64_data) > (IMAGE_DOWNLOAD_MAX_BYTES * 4) // 3 + 4:
+            raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
         raw_bytes = base64.b64decode(b64_data)
-        sniffed = suffix_for_image_bytes(raw_bytes)
-        suffix = sniffed if sniffed != ".img" else ".png"
+        suffix = validated_image_suffix(raw_bytes)
         return [write_temp_image(raw_bytes, suffix=suffix)]
 
     def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> list[str]:
@@ -177,14 +191,10 @@ class EndpointImageProvider(ImageProvider):
         )
         body = getattr(resp, "body", resp)
         content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
-        if content_type in ("text/html", "text/plain", "application/xhtml+xml", "application/json"):
+        if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
             raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
-        if len(body) > IMAGE_DOWNLOAD_MAX_BYTES:
-            raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
-        sniffed = suffix_for_image_bytes(body)
-        if sniffed == ".img":
-            raise RuntimeError("Downloaded data is not a recognized image format")
-        return [write_temp_image(body, suffix=sniffed)]
+        suffix = validated_image_suffix(body)
+        return [write_temp_image(body, suffix=suffix)]
 
     def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
