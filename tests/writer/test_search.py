@@ -554,3 +554,108 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     obj.getPropertyValue.side_effect = RuntimeException("uno")
     obj.CellName = "B2"
     assert _prop(obj, "CellName") == "B2"
+
+
+def test_find_occurrence_range_repeated_text_and_past_end():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    first = MagicMock()
+    first.getString.return_value = "hit"
+    second = MagicMock()
+    second.getString.return_value = "hit"
+
+    doc.findFirst.return_value = first
+    doc.findNext.side_effect = [second, None]
+
+    # occurrence 0
+    res0 = find_occurrence_range(doc, "hit", occurrence=0)
+    assert res0 is first
+
+    # occurrence 1
+    doc.findFirst.return_value = first
+    doc.findNext.side_effect = [second, None]
+    res1 = find_occurrence_range(doc, "hit", occurrence=1)
+    assert res1 is second
+
+    # occurrence past end
+    doc.findFirst.return_value = first
+    doc.findNext.side_effect = [second, None]
+    with pytest.raises(IndexError, match=r"occurrence 5 out of range \(found 2 match\(es\), use 0\.\.1\)\."):
+        find_occurrence_range(doc, "hit", occurrence=5)
+
+
+def test_find_occurrence_range_case_sensitive_flags():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+    hit = MagicMock()
+    hit.getString.return_value = "Word"
+    doc.findFirst.return_value = hit
+
+    # case_sensitive = True
+    find_occurrence_range(doc, "Word", case_sensitive=True)
+    assert sd.SearchCaseSensitive is True
+
+    # case_sensitive = False
+    find_occurrence_range(doc, "Word", case_sensitive=False)
+    assert sd.SearchCaseSensitive is False
+
+
+def test_find_occurrence_range_escapes_literal_dot():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+    doc.findFirst.return_value = None
+
+    find_occurrence_range(doc, "file.txt")
+    assert r"\." in sd.SearchString
+
+
+def test_find_occurrence_range_normalizes_nbsp_and_multispace():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+    doc.findFirst.return_value = None
+
+    find_occurrence_range(doc, "hello\u00a0world    again")
+    assert sd.SearchRegularExpression is True
+    assert "hello" in sd.SearchString and "world" in sd.SearchString
+
+
+def test_find_occurrence_range_newline_passage():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    doc.findFirst.side_effect = [None, None, None]
+
+    assert find_occurrence_range(doc, "Para 1\nPara 2") is None
+
+
+def test_find_first_range_sensitive_then_insensitive_fallback():
+    from plugin.writer.search import find_first_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    hit = MagicMock()
+    hit.getString.return_value = "lower"
+
+    doc.findFirst.side_effect = [None, hit]
+
+    res = find_first_range(doc, "LOWER")
+    assert res is hit
+

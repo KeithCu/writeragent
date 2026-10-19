@@ -78,6 +78,7 @@ RED_UNO_SINKS = {
     "get_document_end",
     "get_document_length",
     "get_text_cursor_at_range",
+    "get_text_cursor_at_range_reached",
     "get_selection_range",
     "get_paragraph_ranges",
     "build_heading_tree",

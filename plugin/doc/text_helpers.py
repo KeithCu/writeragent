@@ -14,6 +14,7 @@ load ``document_helpers`` → chat context / ``DocumentService``.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -149,20 +150,78 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
         return 0
 
 
+def selected_text_range(controller: Any) -> Any:
+    """Find the non-empty text selection range from the current view.
+
+    Skips shape selections and collapsed ranges when a non-collapsed range is present,
+    falling back to the first text range (caret) or None.
+    """
+    if controller is None:
+        return None
+    try:
+        sel = controller.getSelection()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
+    if not sel or not hasattr(sel, "getCount"):
+        return None
+    try:
+        count_val = sel.getCount()
+        count = int(count_val)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
+    if count <= 0:
+        return None
+
+    first_text_range = None
+    for i in range(count):
+        try:
+            rng = sel.getByIndex(i)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue
+        if rng is None:
+            continue
+        if hasattr(rng, "supportsService"):
+            svc_val = uno_read(functools.partial(rng.supportsService, "com.sun.star.drawing.Shape"), _FAILED)
+            if svc_val is True or (type(svc_val) is int and svc_val == 1):
+                continue
+
+        if first_text_range is None:
+            first_text_range = rng
+
+        if not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
+            continue
+
+        start = uno_read(rng.getStart, None)
+        end = uno_read(rng.getEnd, None)
+        rng_text = uno_read(rng.getText, None) if hasattr(rng, "getText") else None
+
+        cmp_val = None
+        if rng_text is not None and hasattr(rng_text, "compareRegionStarts") and start is not None and end is not None:
+            cmp_val = uno_read(functools.partial(rng_text.compareRegionStarts, start, end), None)
+
+        if type(cmp_val) is int:
+            if cmp_val != 0:
+                return rng
+        else:
+            s = uno_read(rng.getString, "") if hasattr(rng, "getString") else ""
+            if s:
+                return rng
+
+    return first_text_range
+
+
 def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
         check_disposed(model, "Document Model")
         controller = safe_call(model.getCurrentController, "Get current controller")
-        sel = safe_call(controller.getSelection, "Get selection")
-        sel_count = 0
-        if sel and hasattr(sel, "getCount"):
-            sel_count = safe_call(sel.getCount, "Get selection count")
-        if not sel or sel_count == 0:
-            vc = safe_call(controller.getViewCursor, "Get view cursor")
+        rng = selected_text_range(controller)
+        if not rng:
+            vc = safe_call(controller.getViewCursor, "Get view cursor") if controller else None
             rng = vc
-        else:
-            rng = safe_call(sel.getByIndex, "Get selection by index", 0)
         if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
             return None
         text = safe_call(rng.getText, "Get range text")
@@ -172,7 +231,7 @@ def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
 
 
 @main_thread_only
-def get_selection_range(model: Any) -> tuple[int, int]:
+def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, int]:
     """Return (start_offset, end_offset) character positions into the document.
     Cursor (no selection) = same start and end. Returns (0, 0) when there is no
     body-text range: no selection, an error other than a closed document, or the
@@ -184,9 +243,20 @@ def get_selection_range(model: Any) -> tuple[int, int]:
         if sel_positions is None:
             return (0, 0)
         _text, sel_start_pos, sel_end_pos = sel_positions
-        doc_len = _writer_char_count(model)
+        if doc_len is None:
+            doc_len = _writer_char_count(model)
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
-        end_offset = _char_offset_of_position(model, sel_end_pos, doc_len)
+        equal = False
+        if sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos):
+            equal = True
+        elif hasattr(_text, "compareRegionStarts"):
+            cmp = safe_call(_text.compareRegionStarts, "compareRegionStarts", sel_start_pos, sel_end_pos)
+            if cmp == 0:
+                equal = True
+        if equal:
+            end_offset = start_offset
+        else:
+            end_offset = _char_offset_of_position(model, sel_end_pos, doc_len)
         if start_offset < 0 or end_offset < 0:
             # Not in the body offset space. (0, 0) is "no body selection",
             # not a cursor at the start. Chat overlap returns False first,
@@ -343,7 +413,9 @@ def _visible_portions(
             chunk = portion.getString()
         except Exception:
             continue
-        if chunk:
+        # A Frame portion (as-character formula/object) has no text but html export
+        # still needs it in place; it adds zero to offsets.
+        if chunk or portion_type == "Frame":
             yield portion, chunk
 
 
@@ -592,20 +664,15 @@ def get_selection_text(model: Any) -> str | None:
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.WRITER:
-            sel = safe_call(controller.getSelection, "Get selection")
-            sel_count = 0
-            if sel and hasattr(sel, "getCount"):
-                sel_count = safe_call(sel.getCount, "Get selection count")
-            if not sel or sel_count == 0:
+            rng = selected_text_range(controller)
+            if not rng:
                 vc = safe_call(controller.getViewCursor, "Get view cursor")
                 if vc:
                     check_disposed(vc, "View Cursor")
                     return safe_call(vc.getString, "Get view cursor string")
             else:
-                rng = safe_call(sel.getByIndex, "Get selection by index", 0)
-                if rng:
-                    check_disposed(rng, "Selection Range")
-                    return safe_call(rng.getString, "Get selection string")
+                check_disposed(rng, "Selection Range")
+                return safe_call(rng.getString, "Get selection string")
         elif doc_type == _doc_type.DocumentType.CALC:
             selection = safe_call(controller.getSelection, "Get selection")
             if selection:
@@ -814,6 +881,16 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
     The cursor is positioned at start and expanded to end so caller can setString('') and insert.
     goRight is used in chunks because UNO's goRight takes short (max 32767).
     Returns None on error or invalid range."""
+    cursor, _ = get_text_cursor_at_range_reached(model, start_offset, end_offset)
+    return cursor
+
+
+@main_thread_only
+def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: int) -> tuple[Any, bool]:
+    """Return (cursor, fully_reached) selecting character range [start_offset, end_offset).
+
+    fully_reached is false when any goRight returns false (e.g. past document end).
+    """
     try:
         check_disposed(model, "Document Model")
         # Offsets are not clamped to get_document_length(). For Writer
@@ -836,19 +913,21 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
             if safe_call(cursor.goRight, "Cursor goRight", n, False) is False:
-                return cursor
+                return cursor, False
             remaining -= n
         # Expand selection by (end_offset - start_offset)
+        fully_reached = True
         remaining = end_offset - start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
             if safe_call(cursor.goRight, "Cursor goRight", n, True) is False:
+                fully_reached = False
                 break
             remaining -= n
-        return cursor
+        return cursor, fully_reached
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
-        return None
+        return None, False
 
 
 # ast_source_offset splits lines on \r\n, \r, or \n, matching

@@ -106,12 +106,25 @@ def test_inject_no_math_leaves_html() -> None:
     from plugin.writer.math import math_mml_export as exp
 
     html = '<div class="paragraph-Standard">prose</div>'
-    with patch.object(exp, "iter_writer_math_objects", return_value=[_Hit("x")]), patch.object(
-        exp.log, "error"
-    ) as err:
+    with patch.object(exp, "iter_writer_math_objects") as mock_iter:
         out = inject_math_tex_into_html(object(), object(), html)
-    err.assert_called()
+    mock_iter.assert_not_called()
     assert out == html
+
+
+def test_portion_math_embed_and_read_starmath() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math.math_mml_convert import MATH_CLSID
+    from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
+
+    portion = MagicMock()
+    embed = MagicMock()
+    embed.CLSID = MATH_CLSID
+    embed.getEmbeddedObject.return_value.Formula = "x + 1"
+    portion.getPropertyValue.side_effect = lambda k: embed if k == "TextEmbeddedObject" else None
+
+    assert portion_math_embed(portion) is embed
+    assert read_starmath(embed) == "x + 1"
 
 
 def test_math_export_result_shape() -> None:

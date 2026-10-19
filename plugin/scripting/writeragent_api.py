@@ -2436,7 +2436,7 @@ class _WriterProxy:
         return _rpc_call("search_in_document", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets)
 
     def set_selection(self, *, search_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> dict[str, Any]:
-        """Select a passage in the document (highlights it for the user and lets a following apply_document_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Returns the selected text and its character range.
+        """Select a passage in the document (highlights it for the user and lets a following apply_document_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Character offsets are returned only for a fully applied char range. The search path returns selected_text and length.
 
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).

@@ -54,9 +54,10 @@ def test_selection_falls_back_to_view_cursor_never_end():
 
 
 def test_selection_uses_explicit_selection_range():
-    from unittest.mock import patch
-
     rng = MagicMock()
+    rng.getStart.return_value = MagicMock()
+    rng.getEnd.return_value = MagicMock()
+    rng.getText.return_value.compareRegionStarts.return_value = -1
     sel_cursor = MagicMock()
     rng.getText.return_value.createTextCursorByRange.return_value = sel_cursor
     sel = MagicMock()
@@ -65,18 +66,21 @@ def test_selection_uses_explicit_selection_range():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, body_cursor = _ctx_with_controller(controller)
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
-        result = resolve_target_cursor(ctx, "selection", None)
+    result = resolve_target_cursor(ctx, "selection", None)
     assert result is sel_cursor           # built in the selection's own text (cell/frame-safe)
     body_cursor.gotoEnd.assert_not_called()
 
 
 def test_selection_skips_empty_ranges_on_multiple_selection():
-    from unittest.mock import patch
-
     rng0 = MagicMock()
+    rng0.getStart.return_value = MagicMock()
+    rng0.getEnd.return_value = MagicMock()
+    rng0.getText.return_value.compareRegionStarts.return_value = 0
     rng0.getString.return_value = ""
     rng1 = MagicMock()
+    rng1.getStart.return_value = MagicMock()
+    rng1.getEnd.return_value = MagicMock()
+    rng1.getText.return_value.compareRegionStarts.return_value = -1
     rng1.getString.return_value = "highlighted"
 
     sel_cursor = MagicMock()
@@ -93,11 +97,23 @@ def test_selection_skips_empty_ranges_on_multiple_selection():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, body_cursor = _ctx_with_controller(controller)
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
-        result = resolve_target_cursor(ctx, "selection", None)
+    result = resolve_target_cursor(ctx, "selection", None)
 
     assert result is sel_cursor
     body_cursor.gotoEnd.assert_not_called()
+
+
+def test_selection_target_disposed_raises_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    controller = MagicMock()
+    controller.getSelection.side_effect = DisposedException("closed")
+    ctx, _ = _ctx_with_controller(controller)
+    with pytest.raises(DocumentDisposedError):
+        resolve_target_cursor(ctx, "selection", None)
 
 
 # ---- C2: set_selection -------------------------------------------------------
@@ -114,28 +130,49 @@ def test_set_selection_by_search_text_selects_and_reports():
     ctx, doc, controller = _selection_ctx()
     found = MagicMock()
     found.getString.return_value = "clause 3.2"
-    doc.findFirst.return_value = found
-    res = SetSelection().execute(ctx, search_text="clause 3.2")
+    with patch("plugin.writer.selection.find_occurrence_range", return_value=found):
+        res = SetSelection().execute(ctx, search_text="clause 3.2")
     assert res["status"] == "ok" and res["selected_text"] == "clause 3.2"
     controller.select.assert_called_once_with(found)
 
 
 def test_set_selection_occurrence_walks_findNext():
     ctx, doc, controller = _selection_ctx()
-    first, second = MagicMock(), MagicMock()
+    second = MagicMock()
     second.getString.return_value = "hit2"
-    doc.findFirst.return_value = first
-    doc.findNext.return_value = second
-    res = SetSelection().execute(ctx, search_text="hit", occurrence=1)
+    with patch("plugin.writer.selection.find_occurrence_range", return_value=second) as mock_find:
+        res = SetSelection().execute(ctx, search_text="hit", occurrence=1)
     assert res["status"] == "ok" and res["selected_text"] == "hit2"
     controller.select.assert_called_once_with(second)
+    mock_find.assert_called_once_with(doc, "hit", occurrence=1, case_sensitive=True)
 
 
 def test_set_selection_no_match_errors():
     ctx, doc, controller = _selection_ctx()
-    doc.findFirst.return_value = None
-    res = SetSelection().execute(ctx, search_text="nope")
+    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
+        res = SetSelection().execute(ctx, search_text="nope")
     assert res["status"] == "error" and "No match" in res["message"]
+    controller.select.assert_not_called()
+
+
+def test_set_selection_shape_match_returns_shape_message():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.selection.drawing_shape_containing", return_value="Box 1"):
+        res = SetSelection().execute(ctx, search_text="in_shape")
+    assert res["status"] == "error"
+    assert "shapes toolset" in res["message"]
+    assert "Box 1" in res["message"]
+    controller.select.assert_not_called()
+
+
+def test_set_selection_occurrence_out_of_range():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.selection.find_occurrence_range", side_effect=IndexError("occurrence 3 out of range (found 2 match(es), use 0..1).")):
+        res = SetSelection().execute(ctx, search_text="hit", occurrence=3)
+    assert res["status"] == "error"
+    assert "occurrence 3 out of range (found 2 match(es), use 0..1)." in res["message"]
     controller.select.assert_not_called()
 
 
@@ -151,26 +188,97 @@ def test_set_selection_char_range_requires_both():
     assert res["status"] == "error" and "char_start and char_end" in res["message"]
 
 
-def test_set_selection_by_char_offsets_happy_path():
-    from unittest.mock import patch
+def test_set_selection_mixed_args_error():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, search_text="clause", char_start=0)
+    assert res["status"] == "error"
+    assert "Cannot combine" in res["message"]
 
+
+def test_set_selection_char_range_bool_error():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, char_start=True, char_end=10)
+    assert res["status"] == "error"
+    assert "integer" in res["message"]
+
+
+def test_set_selection_char_range_negative_error():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, char_start=-1, char_end=10)
+    assert res["status"] == "error"
+    assert "non-negative" in res["message"]
+
+
+def test_set_selection_char_range_reversed_error():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, char_start=15, char_end=10)
+    assert res["status"] == "error"
+    assert "exceed" in res["message"]
+
+
+def test_set_selection_char_range_start_equals_end_error():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, char_start=10, char_end=10)
+    assert res["status"] == "error"
+    controller.select.assert_not_called()
+
+
+def test_set_selection_char_range_start_past_end_no_select():
+    ctx, doc, controller = _selection_ctx()
+    rng = MagicMock()
+    rng.getString.return_value = ""
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, False)):
+        res = SetSelection().execute(ctx, char_start=100, char_end=110)
+    assert res["status"] == "error"
+    controller.select.assert_not_called()
+
+
+def test_set_selection_char_range_truncated_end_omits_char_end_and_sets_warning():
+    ctx, doc, controller = _selection_ctx()
+    rng = MagicMock()
+    rng.getString.return_value = "truncated"
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, False)):
+        res = SetSelection().execute(ctx, char_start=10, char_end=50)
+    assert res["status"] == "ok"
+    assert res["char_start"] == 10
+    assert "char_end" not in res
+    assert "warning" in res
+    assert res["length"] == len("truncated")
+    controller.select.assert_called_once_with(rng)
+
+
+def test_set_selection_by_char_offsets_happy_path():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.return_value = "faixa"
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=rng):
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, True)):
         res = SetSelection().execute(ctx, char_start=10, char_end=15)
     assert res["status"] == "ok" and res["selected_text"] == "faixa"
     assert res["char_start"] == 10 and res["char_end"] == 15
+    assert "warning" not in res
     controller.select.assert_called_once_with(rng)
+
+
+def test_set_selection_getString_disposed_is_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    ctx, doc, controller = _selection_ctx()
+    rng = MagicMock()
+    rng.getString.side_effect = DocumentDisposedError("gone")
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, True)):
+        res = SetSelection().execute_safe(ctx, char_start=10, char_end=15)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
 
 
 def test_selection_target_spans_in_the_ranges_own_text():
     """A selection inside a table cell/frame lives in a different XText: the resolver must build
     the cursor there (a body-cursor gotoRange raises a raw UNO RuntimeException that escapes
     callers expecting ValueError)."""
-    from unittest.mock import patch
-
     rng = MagicMock()
+    rng.getStart.return_value = MagicMock()
+    rng.getEnd.return_value = MagicMock()
+    rng.getText.return_value.compareRegionStarts.return_value = -1
     cell_cursor = MagicMock()
     rng.getText.return_value.createTextCursorByRange.return_value = cell_cursor
     sel = MagicMock()
@@ -179,8 +287,7 @@ def test_selection_target_spans_in_the_ranges_own_text():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, body_cursor = _ctx_with_controller(controller)
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
-        result = resolve_target_cursor(ctx, "selection", None)
+    result = resolve_target_cursor(ctx, "selection", None)
     assert result is cell_cursor          # built via rng.getText(), not the body cursor
     body_cursor.gotoRange.assert_not_called()
     body_cursor.gotoEnd.assert_not_called()
@@ -188,9 +295,11 @@ def test_selection_target_spans_in_the_ranges_own_text():
 
 def test_selection_target_wraps_span_failure_in_valueerror():
     import pytest as _pytest
-    from unittest.mock import patch
 
     rng = MagicMock()
+    rng.getStart.return_value = MagicMock()
+    rng.getEnd.return_value = MagicMock()
+    rng.getText.return_value.compareRegionStarts.return_value = -1
     rng.getText.return_value.createTextCursorByRange.side_effect = RuntimeError("cross-text")
     sel = MagicMock()
     sel.getCount.return_value = 1
@@ -198,9 +307,8 @@ def test_selection_target_wraps_span_failure_in_valueerror():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, _ = _ctx_with_controller(controller)
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
-        with _pytest.raises(ValueError):
-            resolve_target_cursor(ctx, "selection", None)
+    with _pytest.raises(ValueError):
+        resolve_target_cursor(ctx, "selection", None)
 
 
 def test_set_selection_is_core_read_only():
@@ -236,4 +344,5 @@ def test_set_selection_disposal_is_document_disposed():
     res = SetSelection().execute_safe(ctx, search_text="test")
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
 

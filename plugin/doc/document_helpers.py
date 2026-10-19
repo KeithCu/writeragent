@@ -218,7 +218,7 @@ def get_document_context_for_chat(
             if include_selection:
                 sel_positions = _text_helpers._get_writer_selection_positions(model)
                 if sel_positions is not None and _text_helpers._writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                    start_offset, end_offset = _text_helpers.get_selection_range(model)
+                    start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))
                     if start_offset > end_offset:

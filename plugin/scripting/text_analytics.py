@@ -123,22 +123,19 @@ def _get_writer_selection_text(doc: Any) -> str:
     """
     try:
         from plugin.doc.doc_type import is_writer
-        from plugin.doc.text_helpers import get_string_without_tracked_deletions  # local import only
+        from plugin.doc.text_helpers import get_string_without_tracked_deletions, selected_text_range
 
         if not is_writer(doc):
             return ""
         controller = doc.getCurrentController()
         if not controller:
             return ""
-        sel = controller.getSelection()
-        if not sel or not hasattr(sel, "getCount") or sel.getCount() == 0:
+        rng = selected_text_range(controller)
+        if rng is None:
             return ""
-        rng = sel.getByIndex(0)
         return get_string_without_tracked_deletions(rng) or ""
     except Exception as exc:
-        # What was wrong: disposed document exceptions were caught and swallowed, returning empty text.
-        # How it happened: generic except Exception caught DisposedException without reraising.
-        # Why this change: reraise_if_disposed re-raises DocumentDisposedError so callers handle closed documents.
+        # Re-raise DocumentDisposedError so callers handle closed documents.
         from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: selection text failed", exc_info=True)
@@ -639,11 +636,13 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
 
     # Position after selection/caret
     try:
+        from plugin.doc.text_helpers import selected_text_range
+
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
-        sel = controller.getSelection()
-        if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
-            end = sel.getByIndex(0).getEnd()
+        rng = selected_text_range(controller)
+        if rng is not None:
+            end = rng.getEnd()
             vc.gotoRange(end, False)
         controller.select(vc)
     except Exception:

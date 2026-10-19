@@ -730,6 +730,35 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     assert (rows, cols, names) == (1, 1, [])
 
 
+def test_substitute_math_placeholders_entities_and_fallback():
+    from plugin.writer.html_export import _substitute_math_placeholders
+    from plugin.writer.math.math_mml_export import MathExportResult
+
+    p1 = chr(0xE000)
+    p2 = chr(0xE001)
+    p3 = chr(0xE002)
+
+    html = f"<p>{p1} and &#xe001; and &#57346;</p>"
+    records = [
+        (p1, "a + b", False),
+        (p2, "x", True),
+        (p3, "bad starmath", False),
+    ]
+
+    def fake_convert(ctx: object, starmath: str) -> MathExportResult:
+        if starmath == "a + b":
+            return MathExportResult(True, "a + b", None, None)
+        if starmath == "x":
+            return MathExportResult(True, "x", None, None)
+        return MathExportResult(False, None, None, "error")
+
+    with patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", side_effect=fake_convert):
+        out = _substitute_math_placeholders(html, records, object())
+
+    assert "$a + b$" in out
+    assert "$$x$$" in out
+    assert "[Math export fallback] bad starmath" in out
+
 def test_range_export_skips_flat_odf_when_no_autostyle():
     """Flat ODF is skipped when XHTML contains no paragraph-P<digits> autostyle classes."""
     text = MagicMock()

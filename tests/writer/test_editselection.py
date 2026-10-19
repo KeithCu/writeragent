@@ -252,3 +252,31 @@ def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_c
         assert mock_msgbox.call_args.args[2] == format_error_message(long_err)
 
 
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions")
+def test_extend_selection_none_selection_shows_message_and_returns(mock_get_str, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    model.CurrentController.getSelection.return_value = None
+
+    do_extend_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_get_str.assert_not_called()
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions")
+def test_edit_selection_none_selection_shows_message_and_returns(mock_get_str, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    model.CurrentController.getSelection.return_value = None
+
+    do_edit_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_get_str.assert_not_called()
+
+

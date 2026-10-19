@@ -927,9 +927,17 @@ def collapsed_anchor(text_range: Any) -> Any | None:
 
 
 def selection_anchor(doc: Any) -> Any | None:
-    """Collapsed anchor at the view cursor's start (the selection insert site)."""
+    """Collapsed anchor at the selection range's start (or view cursor fallback)."""
     def anchor() -> Any:
-        vc = doc.getCurrentController().getViewCursor()
+        controller = doc.getCurrentController()
+        if controller is None:
+            return None
+        from plugin.doc.text_helpers import selected_text_range
+
+        rng = selected_text_range(controller)
+        if rng is not None:
+            return rng.getText().createTextCursorByRange(rng.getStart())
+        vc = controller.getViewCursor()
         return vc.getText().createTextCursorByRange(vc.getStart())
 
     return uno_read(anchor, None)

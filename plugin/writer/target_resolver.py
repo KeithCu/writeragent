@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.errors import reraise_if_disposed
 from plugin.writer import search as search_mod
 from .format import content_has_markup, html_to_plain_text
 
@@ -39,19 +40,22 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         controller = None
         try:
             controller = doc.getCurrentController()
-        except Exception:
+        except Exception as e:
+            reraise_if_disposed(e)
             controller = None
         rng = None
         if controller is not None:
             try:
-                from plugin.writer.selection import selected_text_range
+                from plugin.doc.text_helpers import selected_text_range
                 rng = selected_text_range(controller)
-            except Exception:
+            except Exception as e:
+                reraise_if_disposed(e)
                 rng = None
             if rng is None:
                 try:
                     rng = controller.getViewCursor()
-                except Exception:
+                except Exception as e:
+                    reraise_if_disposed(e)
                     rng = None
         if rng is None:
             raise ValueError(
@@ -66,6 +70,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
             scursor.gotoRange(rng.getEnd(), True)
             return scursor
         except Exception as e:
+            reraise_if_disposed(e)
             raise ValueError("Could not span the current selection (%s). Use target='search' "
                              "with old_content, or call set_selection." % e)
     elif target == "beginning":
