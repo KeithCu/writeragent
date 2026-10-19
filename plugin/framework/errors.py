@@ -407,6 +407,25 @@ def _is_connection_refused(exc: BaseException, reason: str) -> bool:
     return "Connection refused" in reason
 
 
+def _is_socket_timeout_phrase(text: str) -> bool:
+    """True for standard socket/HTTP timeout phrases rather than host timeouts."""
+    stripped = text.strip().lower()
+    return stripped == "timed out" or "the read operation timed out" in stripped
+
+
+def http_status_message(status: int) -> str | None:
+    """Return common user-friendly advice for HTTP status codes, or None if unmapped."""
+    if status == 401:
+        return _("Invalid API Key. Please check your settings.")
+    if status == 403:
+        return _("API access Forbidden. Your key may lack permissions for this model.")
+    if status == 404:
+        return _("Endpoint not found (404). Check your URL and Model name.")
+    if status == 429:
+        return _("Rate limited (429). Wait a moment and try again.")
+    return None
+
+
 @deal.post(lambda result: isinstance(result, str))
 def format_error_message(e: BaseException) -> str:
     """Map common exceptions to user-friendly, localized advice.
@@ -433,17 +452,12 @@ def format_error_message(e: BaseException) -> str:
             code = int(code_candidate) if code_candidate is not None else 0
         except (TypeError, ValueError):
             code = 0
-        reason = "mock" if UNDER_CROSSHAIR else str(getattr(e, "reason", "") or "")
-        if code == 401:
-            return _("Invalid API Key. Please check your settings.")
-        if code == 403:
-            return _("API access Forbidden. Your key may lack permissions for this model.")
-        if code == 404:
-            return _("Endpoint not found (404). Check your URL and Model name.")
-        if code == 429:
-            return _("Rate limited (429). Wait a moment and try again.")
+        mapped = http_status_message(code)
+        if mapped is not None:
+            return mapped
         if code >= 500:
             return _("Server error ({0}). The AI provider is having issues.").format(code)
+        reason = "mock" if UNDER_CROSSHAIR else str(getattr(e, "reason", "") or "")
         return _("HTTP Error {0}: {1}").format(code, reason)
 
     # Typed exceptions first. Substring checks below are last-resort for
@@ -463,8 +477,6 @@ def format_error_message(e: BaseException) -> str:
         return _("Formula spill collision: destination range contains non-empty cells.")
     if isinstance(e, SandboxSecurityError):
         return _("Script execution blocked by sandbox policy: {0}").format(getattr(e, "message", str(e)))
-    if isinstance(e, socket.timeout):
-        return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
 
     # Filesystem errors are not a down local server. Match connection-shaped
     # OSError, not FileNotFoundError or PermissionError.
@@ -479,7 +491,10 @@ def format_error_message(e: BaseException) -> str:
         else:
             reason_obj = e
         if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
-            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
+            msg_obj = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
+            if _is_socket_timeout_phrase(msg_obj):
+                return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
+            return msg_obj
         # urllib.request wraps a certificate failure as URLError(reason=SSLError).
         # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
         # and hide the TLS sentence.
@@ -511,11 +526,6 @@ def format_error_message(e: BaseException) -> str:
         return _("Python execution timed out. Open Settings → Python to raise the timeout.")
     if msg.strip() == "#SPILL!":
         return _("Formula spill collision: destination range contains non-empty cells.")
-    # Formula evaluation also says "timed out". The Python branch above
-    # already covers "python timed out" and "python execution timed out",
-    # so this request-timeout sentence skips formula text.
-    if "timed out" in lower and "formula" not in lower:
-        return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
     if "finish_reason=error" in msg:
         return _("The AI provider reported an error. Try again.")
 
@@ -715,15 +725,14 @@ def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document"
 
 
 # safe_uno_call is for probes (any failure returns default, except real disposal).
-# handle_errors / safe_call wrap real operations. Both treat only DisposedException
-# as disposal. suppress_disposed still uses the broad is_disposed_exception heuristic.
+# safe_call wraps real operations; treats only DisposedException as disposal.
+# suppress_disposed still uses the broad is_disposed_exception heuristic.
 def safe_uno_call(default: Any = None) -> Any:
     """Decorator to safely call UNO methods with automatic error handling, returning default on failure (disposal exceptions re-raised).
 
     A UNO ``RuntimeException`` is not disposal: probes return ``default``, and
-    :func:`safe_call` / :func:`handle_errors` wrap it as ``UnoObjectError`` /
-    ``ToolExecutionError``. Re-raise only ``DisposedException`` /
-    ``DocumentDisposedError``.
+    :func:`safe_call` wraps it as ``UnoObjectError``. Re-raise only
+    ``DisposedException`` / ``DocumentDisposedError``.
     See ``docs/framework/uno-thread-safety.md`` and
     ``test_safe_uno_call_returns_default_on_runtime_error``.
     """
@@ -745,39 +754,6 @@ def safe_uno_call(default: Any = None) -> Any:
                     raise DocumentDisposedError(f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"original_error": resolve_exception_message(e)}) from e
                 logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
                 return default
-
-        return wrapper
-
-    return decorator
-
-
-def handle_errors(context_name: str) -> Any:
-    """Decorator to catch exceptions and wrap them in WriterAgentException."""
-
-    def decorator(fn: Any) -> Any:
-        from functools import wraps
-
-        @wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return fn(*args, **kwargs)
-            except WriterAgentException:
-                raise
-            except Exception as e:
-                # Catch Exception; current PyUNO errors subclass Exception;
-                # KeyboardInterrupt and SystemExit propagate. We immediately wrap it.
-                e_name = type(e).__name__
-                # is_disposed_exception matches any RuntimeException name.
-                # A live-document failure is not disposal and must not skip
-                # the live-doc check in is_tool_document_disposed.
-                if is_real_disposal(e):
-                    raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": resolve_exception_message(e)}) from e
-                else:
-                    # Bugfix: handle_errors previously overrode the error code with code="INTERNAL_ERROR",
-                    # which bypassed ToolExecutionError's standard code "TOOL_EXECUTION_ERROR" and required
-                    # downstream handlers to rewrite it. Omitting code allows ToolExecutionError's default code to apply.
-                    text = resolve_exception_message(e)
-                    raise ToolExecutionError(f"{context_name} failed: {text}", details={"error": text, "type": e_name}) from e
 
         return wrapper
 
@@ -845,7 +821,7 @@ __all__ = [
     "check_not_none",
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
     "format_error_payload",
-    "handle_errors",
+    "http_status_message",
     "is_disposed_exception",
     "is_document_disposed",
     "is_real_disposal",

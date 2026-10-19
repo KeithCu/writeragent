@@ -230,7 +230,6 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 | `is_document_disposed` | Best-effort `getImplementationName` probe. |
 | `safe_uno_call` | Decorator: probes return `default`; re-raise only real disposal. |
 | `safe_call` | Call a UNO method; wrap failures in `UnoObjectError` / `DocumentDisposedError`. |
-| `handle_errors` | Decorator: wrap unexpected exceptions for real operations. |
 | `resolve_exception_message` | Prefer UNO `.Message` over empty `str(exc)`. |
 | `uno_probe` | Return `fn()`, or *default* when it raises a non-disposal `Exception`. |
 | `uno_read` | Return `fn()`, or *default* when it raises an ordinary `Exception`; re-raise only real disposal. |
@@ -422,7 +421,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `visual_helpers` vs `image_tools` | Lookup/properties vs insert/gallery/GraphicProvider. Wrappers already delegate. |
 | `get_document_from_frame` vs `get_active_document` | Sidebar must bind the **frame’s** document, not Desktop current (wrong-doc bug). |
 | sandbox / session_manager URL→path vs UNO converters | Off-main, no PyUNO. |
-| `safe_uno_call` vs `safe_call` / `handle_errors` | Probes return default and re-raise only real disposal; `safe_call` / `handle_errors` wrap other failures as `UnoObjectError` / `ToolExecutionError`. |
+| `safe_uno_call` vs `safe_call` | Probes return default and re-raise only real disposal; `safe_call` wraps other failures as `UnoObjectError`. |
 | LibrePy vs WriterAgent dispatch parsers | Two OXT protocol ids. |
 | PathSettings `Work` vs `UserConfig` vs `Storage_writable` | Different directories. |
 
