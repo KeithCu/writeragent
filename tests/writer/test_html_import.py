@@ -186,6 +186,13 @@ def test_ensure_html_linebreaks_does_not_unescape_again():
     assert "<p>see" in wrapped
 
 
+def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
+    out = _ensure_html_linebreaks("<p>List<String> and 2 < 3</p>")
+    assert "List&lt;String&gt;" in out
+    assert "2 &lt; 3" in out
+    assert "<p>" in out and "</p>" in out
+
+
 def test_decode_complete_character_references_only_decodes_with_semicolon():
     from plugin.writer.html_import import _decode_complete_character_references
 

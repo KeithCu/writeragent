@@ -166,3 +166,88 @@ def test_styled_insert_at_end_cursor_walk_uno(ctx: Any, doc: Any) -> None:
     assert paras[20].getPropertyValue("ParaStyleName") == "Heading 1"
 
 
+def _find_field_by_service(doc: Any, service: str) -> Any | None:
+    enum = doc.getTextFields().createEnumeration()
+    while enum.hasMoreElements():
+        tf = enum.nextElement()
+        if hasattr(tf, "supportsService") and tf.supportsService(service):
+            return tf
+    return None
+
+
+@native_test
+@with_native_doc("writer")
+def test_restore_fields_on_writer_inserts_uno(ctx: Any, doc: Any) -> None:
+    """replace_full_document, beginning/end insert, and search replace restore live fields."""
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import ApplyDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    field_html = '<p>Page <span title="page-number" data-subtype="NEXT" data-offset="1"/></p>'
+
+    # 1. replace_full_document
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=field_html)
+    assert res.get("status") == "ok", res
+    tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
+    assert tf is not None
+    assert getattr(tf.getPropertyValue("SubType"), "value", str(tf.getPropertyValue("SubType"))) == "NEXT"
+    assert tf.getPropertyValue("Offset") == 1
+
+    # 2. insert at beginning
+    doc.getText().setString("body")
+    res = ApplyDocumentContent().execute(tool_ctx, target="position", position="beginning", content=field_html)
+    assert res.get("status") == "ok", res
+    tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
+    assert tf is not None
+    assert getattr(tf.getPropertyValue("SubType"), "value", str(tf.getPropertyValue("SubType"))) == "NEXT"
+    assert tf.getPropertyValue("Offset") == 1
+
+    # 3. insert at end
+    doc.getText().setString("body")
+    res = ApplyDocumentContent().execute(tool_ctx, target="position", position="end", content=field_html)
+    assert res.get("status") == "ok", res
+    tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
+    assert tf is not None
+    assert getattr(tf.getPropertyValue("SubType"), "value", str(tf.getPropertyValue("SubType"))) == "NEXT"
+    assert tf.getPropertyValue("Offset") == 1
+
+    # 4. search replace with block field html
+    doc.getText().setString("target to replace")
+    res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="target to replace", content=field_html)
+    assert res.get("status") == "ok", res
+    tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
+    assert tf is not None
+    assert getattr(tf.getPropertyValue("SubType"), "value", str(tf.getPropertyValue("SubType"))) == "NEXT"
+    assert tf.getPropertyValue("Offset") == 1
+
+    # 5. inline search replace with <span title="date"/>
+    doc.getText().setString("today is DATE here")
+    res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="DATE", content='<span title="date"/>')
+    assert res.get("status") == "ok", res
+    date_tf = _find_field_by_service(doc, "com.sun.star.text.textfield.DateTime")
+    assert date_tf is not None
+    assert date_tf.getPropertyValue("IsDate") is True
+
+
+@native_test
+@with_native_doc("writer")
+def test_escape_prose_angle_brackets_survives_starwriter_filter_uno(ctx: Any, doc: Any) -> None:
+    """Prose angle brackets survive without dropping text, while real HTML tags format."""
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import ApplyDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>List<String> tail</p>")
+    assert res.get("status") == "ok", res
+    plain = doc.getText().getString().strip()
+    assert plain == "List<String> tail"
+
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p><b>bold</b></p>")
+    assert res.get("status") == "ok", res
+    para = doc.getText().createEnumeration().nextElement()
+    portion = para.createEnumeration().nextElement()
+    assert portion.getString() == "bold"
+    assert portion.getPropertyValue("CharWeight") > 100
+
+
+

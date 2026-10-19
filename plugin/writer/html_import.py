@@ -491,7 +491,9 @@ def _ensure_html_linebreaks(content: str) -> str:
     """
     if not isinstance(content, str) or not content:
         return content
-    content = _normalize(content)
+    from plugin.framework.html_stripper import escape_prose_angle_brackets
+
+    content = escape_prose_angle_brackets(_normalize(content))
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         from . import format as format_mod
@@ -761,6 +763,9 @@ def insert_html_fragment_at_cursor(
     When *model* is provided, moves *cursor* past the imported content
     (needed for multi-segment Writer inserts).
     """
+    from plugin.framework.html_stripper import escape_prose_angle_brackets
+
+    html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if model is not None else None
     from . import format as format_mod
@@ -878,6 +883,8 @@ def _insert_mixed_or_plain_html(
     applying the named style would restyle pre-existing content. We still strip data-lo-style for a
     clean StarWriter import either way.
     """
+    nonce = uuid.uuid4().hex[:8]
+    unescaped_content = rewrite_exported_field_spans(unescaped_content, nonce=nonce)
     # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
     clean, block_styles = _extract_block_lo_styles(unescaped_content)
@@ -903,10 +910,9 @@ def _insert_mixed_or_plain_html(
         single = _ensure_html_linebreaks(expanded)
         if not styled:
             _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
-            _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
-            return
-        # model=None: keep the cursor at the end of the inserted content.
-        insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
+        else:
+            # model=None: keep the cursor at the end of the inserted content.
+            insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
 
     if styled:
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
@@ -917,6 +923,8 @@ def _insert_mixed_or_plain_html(
         _cursor_goto_document_end(model, cursor)
     if not has_math:
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
+    if model is not None:
+        _restore_field_placeholders(model, text_obj, nonce=nonce)
 
 
 
@@ -1031,7 +1039,9 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     if not content_has_markup(content):
         cursor.getText().insertString(cursor, content, False)
         return
-    inline_html = content.replace("\\n", "\n").replace("\\t", "\t")
+    nonce = uuid.uuid4().hex[:8]
+    inline_html = rewrite_exported_field_spans(content, nonce=nonce)
+    inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
     # Same <rt> handling as the other import paths: StarWriter would glue the reading onto the base.
     inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
     # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
@@ -1051,6 +1061,8 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     if core:
         insert_html_fragment_at_cursor(cursor, core, wrap=False, config_svc=config_svc, model=None)
     _apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
+    if model is not None:
+        _restore_field_placeholders(model, text, nonce=nonce)
 
 
 # Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
@@ -1244,11 +1256,15 @@ def _replace_single_range_with_content(
         # it does not recognise <span> as HTML and would wrap it in <p>, creating an
         # extra body paragraph). model=None leaves the cursor at the end of the
         # INSERTED content (not the document end), so [anchor, cursor] bounds it.
-        inline_html = prepared.replace("\\n", "\n").replace("\\t", "\t")
+        nonce = uuid.uuid4().hex[:8]
+        inline_html = rewrite_exported_field_spans(prepared, nonce=nonce)
+        inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
         inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
         ruby_skip = _ruby_skip(text_obj, anchor, ruby_spans)
         insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
+        if model is not None:
+            _restore_field_placeholders(model, text_obj, nonce=nonce)
         # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
         # Skip it while Track Changes is recording: setString("") above leaves the old text in
         # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -1325,7 +1341,7 @@ _FIELD_SPAN_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _FIELD_TOKEN_RE = re.compile(
-    r"\[\[WA-FIELD:([a-z-]+)(?:\|([^\]]+))?\]\]",
+    r"\[\[WA-FIELD:([a-zA-Z0-9]+):([a-z-]+)(?:\|([^\]]+))?\]\]",
     re.IGNORECASE,
 )
 _FIELD_TITLE_TO_SERVICE = {
@@ -1351,11 +1367,13 @@ _PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
 }
 
 
-def rewrite_exported_field_spans(html: str) -> str:
+def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
     if not html or "title=" not in html:
         return html
     from . import format as format_mod
+
+    field_nonce = nonce if nonce is not None else uuid.uuid4().hex[:8]
 
     def _repl(match: re.Match[str]) -> str:
         title = match.group(1).lower()
@@ -1391,7 +1409,7 @@ def rewrite_exported_field_spans(html: str) -> str:
                     props.append(f"numbering_type={nt_name}")
 
         prop_str = ("|" + "|".join(props)) if props else ""
-        return f"[[WA-FIELD:{title}{prop_str}]]"
+        return f"[[WA-FIELD:{field_nonce}:{title}{prop_str}]]"
 
     return _FIELD_SPAN_RE.sub(_repl, html)
 
@@ -1547,25 +1565,30 @@ def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
                 props[k] = v
     return props
 
-def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
+def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search."""
     restored = 0
+    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
     for _unused in range(50):
         try:
             plain = text_obj.getString() or ""
         except Exception as e:
             log.debug("_restore_fields_by_cursor getString failed: %s", e)
             return restored
-        if "[[WA-FIELD:" not in plain:
+        if prefix not in plain:
             return restored
 
-        match = _FIELD_TOKEN_RE.search(plain)
+        match = None
+        for m in _FIELD_TOKEN_RE.finditer(plain):
+            if nonce is None or m.group(1) == nonce:
+                match = m
+                break
         if not match:
             return restored
 
         token = match.group(0)
-        title = match.group(1).lower()
-        props = _parse_field_token_props(match.group(2))
+        title = match.group(2).lower()
+        props = _parse_field_token_props(match.group(3))
 
         cursor = _select_placeholder(text_obj, token)
         if cursor is None:
@@ -1581,7 +1604,7 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
     return restored
 
 
-def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
+def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | None = None) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
     When *text_obj* is set, walk that XText first. ``findFirst`` misses a
@@ -1590,16 +1613,21 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     when the cursor walk cannot see the token.
     """
     walked = 0
+    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
     if text_obj is not None:
-        walked = _restore_fields_by_cursor(model, text_obj)
+        walked = _restore_fields_by_cursor(model, text_obj, nonce=nonce)
         plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
-        if plain is not _FAILED and "[[WA-FIELD:" not in plain:
+        if plain is not _FAILED and prefix not in plain:
             return walked
     if model is None or not hasattr(model, "createSearchDescriptor"):
         if text_obj is not None:
             plain = uno_read(lambda: text_obj.getString() or "", "")
-            if "[[WA-FIELD:" in plain:
-                match = _FIELD_TOKEN_RE.search(plain)
+            if prefix in plain:
+                match = None
+                for m in _FIELD_TOKEN_RE.finditer(plain):
+                    if nonce is None or m.group(1) == nonce:
+                        match = m
+                        break
                 tok = match.group(0) if match else "[[WA-FIELD:...]]"
                 raise ToolExecutionError(
                     f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
@@ -1613,8 +1641,9 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     sd = model.createSearchDescriptor()
     sd.SearchRegularExpression = True
 
+    nonce_pat = re.escape(nonce) if nonce else r"[a-zA-Z0-9]+"
     for title in _EXPORTED_FIELD_TITLES:
-        sd.SearchString = r"\[\[WA-FIELD:" + title + r"(?:\|[^\]]+)?\]\]"
+        sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":" + title + r"(?:\|[^\]]+)?\]\]"
         found = model.findFirst(sd)
 
         while found is not None:
@@ -1628,9 +1657,9 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
             token = found.getString()
             if isinstance(token, str):
                 match = _FIELD_TOKEN_RE.match(token)
-                if match:
-                    field_title = match.group(1).lower()
-                    props = _parse_field_token_props(match.group(2))
+                if match and (nonce is None or match.group(1) == nonce):
+                    field_title = match.group(2).lower()
+                    props = _parse_field_token_props(match.group(3))
 
             # Capture the next hit before the insert replaces this range.
             nxt = model.findNext(found.getEnd(), sd)
@@ -1646,8 +1675,12 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
 
     if text_obj is not None:
         plain = uno_read(lambda: text_obj.getString() or "", "")
-        if "[[WA-FIELD:" in plain:
-            match = _FIELD_TOKEN_RE.search(plain)
+        if prefix in plain:
+            match = None
+            for m in _FIELD_TOKEN_RE.finditer(plain):
+                if nonce is None or m.group(1) == nonce:
+                    match = m
+                    break
             tok = match.group(0) if match else "[[WA-FIELD:...]]"
             raise ToolExecutionError(
                 f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
@@ -1688,10 +1721,11 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     """
     if text_obj is None:
         raise ToolExecutionError("No text object to import into.")
+    nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded = expanded.replace("\\n", "\n").replace("\\t", "\t")
     expanded, ruby_spans = extract_and_strip_ruby(expanded)
-    rewritten = rewrite_exported_field_spans(expanded)
+    rewritten = rewrite_exported_field_spans(expanded, nonce=nonce)
     prepared = _ensure_html_linebreaks(rewritten)
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
@@ -1728,7 +1762,57 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         )
         _apply_ruby_spans(text_obj, ruby_spans)
         if model is not None:
-            _restore_field_placeholders(model, text_obj)
+            _restore_field_placeholders(model, text_obj, nonce=nonce)
+
+        # Issue #1424: HTML import can leave a trailing empty paragraph.
+        # If there is more than one paragraph and the last one is entirely empty, remove it.
+        try:
+            enum = text_obj.createEnumeration()
+            paras = []
+            while enum.hasMoreElements() is True:
+                try:
+                    paras.append(enum.nextElement())
+                except Exception as e:
+                    reraise_if_disposed(e)
+                    log.debug("Failed to enumerate paragraph: %s", e)
+                    break
+            if len(paras) > 1:
+                last_para = paras[-1]
+                if not last_para.getString():
+                    # Check for fields/portions before deleting
+                    has_content = False
+                    try:
+                        portions = last_para.createEnumeration()
+                        while portions.hasMoreElements() is True:
+                            portion = portions.nextElement()
+                            if portion.getString() or portion.getPropertyValue("TextPortionType") != "Text":
+                                has_content = True
+                                break
+                    except Exception as e:
+                        # A frame, field, or image paragraph has empty getString(); delete only when the walk finishes empty.
+                        reraise_if_disposed(e)
+                        log.debug("Failed to inspect trailing paragraph portions: %s", e)
+                        has_content = True
+                    if not has_content:
+                        try:
+                            # To actually remove the trailing break, select from the end of the previous paragraph
+                            # to the end of the document, and set String to empty.
+                            cursor = text_obj.createTextCursorByRange(paras[-2])
+                            cursor.gotoEndOfParagraph(False)
+                            cursor.gotoRange(last_para.getEnd(), True)
+                            cursor.setString("")
+                        except Exception as e:
+                            reraise_if_disposed(e)
+                            log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
+                            try:
+                                if hasattr(last_para, "dispose"):
+                                    last_para.dispose()
+                            except Exception as e2:
+                                reraise_if_disposed(e2)
+                                log.debug("Failed to dispose trailing paragraph: %s", e2)
+        except Exception as e:
+            reraise_if_disposed(e)
+            log.debug("Failed to inspect trailing paragraph: %s", e)
     except Exception as exc:
         if mgr is not None:
             left = False
@@ -1760,56 +1844,6 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
             mgr.leaveUndoContext()
         except Exception:
             log.exception("replace_xtext_with_html: leaveUndoContext failed")
-
-    # Issue #1424: HTML import can leave a trailing empty paragraph.
-    # If there is more than one paragraph and the last one is entirely empty, remove it.
-    try:
-        enum = text_obj.createEnumeration()
-        paras = []
-        while enum.hasMoreElements() is True:
-            try:
-                paras.append(enum.nextElement())
-            except Exception as e:
-                reraise_if_disposed(e)
-                log.debug("Failed to enumerate paragraph: %s", e)
-                break
-        if len(paras) > 1:
-            last_para = paras[-1]
-            if not last_para.getString():
-                # Check for fields/portions before deleting
-                has_content = False
-                try:
-                    portions = last_para.createEnumeration()
-                    while portions.hasMoreElements() is True:
-                        portion = portions.nextElement()
-                        if portion.getString() or portion.getPropertyValue("TextPortionType") != "Text":
-                            has_content = True
-                            break
-                except Exception as e:
-                    # A frame, field, or image paragraph has empty getString(); delete only when the walk finishes empty.
-                    reraise_if_disposed(e)
-                    log.debug("Failed to inspect trailing paragraph portions: %s", e)
-                    has_content = True
-                if not has_content:
-                    try:
-                        # To actually remove the trailing break, select from the end of the previous paragraph
-                        # to the end of the document, and set String to empty.
-                        cursor = text_obj.createTextCursorByRange(paras[-2])
-                        cursor.gotoEndOfParagraph(False)
-                        cursor.gotoRange(last_para.getEnd(), True)
-                        cursor.setString("")
-                    except Exception as e:
-                        reraise_if_disposed(e)
-                        log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
-                        try:
-                            if hasattr(last_para, "dispose"):
-                                last_para.dispose()
-                        except Exception as e2:
-                            reraise_if_disposed(e2)
-                            log.debug("Failed to dispose trailing paragraph: %s", e2)
-    except Exception as e:
-        reraise_if_disposed(e)
-        log.debug("Failed to inspect trailing paragraph: %s", e)
 
 
 def content_has_markup(content: str | None) -> bool:

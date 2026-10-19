@@ -135,10 +135,10 @@ def test_rewrite_exported_field_spans_matches_body_xhtml():
         '<span title="page-count">A</span> '
         '<span title="time">17:41:00</span></p>'
     )
-    out = rewrite_exported_field_spans(html)
-    assert "[[WA-FIELD:page-number]]" in out
-    assert "[[WA-FIELD:page-count]]" in out
-    assert "[[WA-FIELD:time]]" in out
+    out = rewrite_exported_field_spans(html, nonce="test1234")
+    assert "[[WA-FIELD:test1234:page-number]]" in out
+    assert "[[WA-FIELD:test1234:page-count]]" in out
+    assert "[[WA-FIELD:test1234:time]]" in out
     assert "title=\"page-number\"" not in out
 
 
@@ -157,11 +157,11 @@ def test_rewrite_exported_field_spans_letterhead_subset():
         '<span title="title"/> '
         '<span title="subject"/></p>'
     )
-    out = rewrite_exported_field_spans(html)
+    out = rewrite_exported_field_spans(html, nonce="test1234")
     for title in (
         "chapter", "author-name", "author-initials", "file-name", "title", "subject",
     ):
-        assert "[[WA-FIELD:%s]]" % title in out
+        assert "[[WA-FIELD:test1234:%s]]" % title in out
         assert 'title="%s"' % title not in out
 
 
@@ -274,7 +274,8 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
 
 def test_restore_fields_in_region_without_document_search():
     """A footer on an unused page style is invisible to findFirst. Walk that XText."""
-    needle = "[[WA-FIELD:page-number]]"
+    nonce = "test1234"
+    needle = f"[[WA-FIELD:{nonce}:page-number]]"
 
     class _Portion:
         def getPropertyValue(self, name):
@@ -324,7 +325,7 @@ def test_restore_fields_in_region_without_document_search():
         return True
 
     with patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted):
-        restored = _restore_field_placeholders(model, text)
+        restored = _restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
     model.findFirst.assert_not_called()
@@ -332,12 +333,13 @@ def test_restore_fields_in_region_without_document_search():
     # Region with no token: findFirst is not called.
     clean_text = _Text()
     clean_text.plain = "Clean region without token"
-    assert _restore_field_placeholders(model, clean_text) == 0
+    assert _restore_field_placeholders(model, clean_text, nonce=nonce) == 0
     model.findFirst.assert_not_called()
 
 
 def test_restore_fields_in_region_two_paragraphs_advances_past_break():
-    needle = "[[WA-FIELD:page-number]]"
+    nonce = "test1234"
+    needle = f"[[WA-FIELD:{nonce}:page-number]]"
     para1_text = "First paragraph"
     para2_text = needle
 
@@ -400,7 +402,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
         return True
 
     with patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted):
-        restored = _restore_field_placeholders(model, text)
+        restored = _restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
     assert go_right_offsets[0] == len(para1_text) + 1
@@ -408,7 +410,8 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
 
 
 def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains():
-    needle = "[[WA-FIELD:page-number]]"
+    nonce = "test1234"
+    needle = f"[[WA-FIELD:{nonce}:page-number]]"
     text = MagicMock()
     text.getString.return_value = "Unresolved " + needle
 
@@ -429,7 +432,7 @@ def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains
         patch("plugin.writer.html_import.uno_same", return_value=True),
         patch("plugin.writer.html_import._insert_restored_field", side_effect=_clear_token) as insert,
     ):
-        restored = _restore_field_placeholders(model, text)
+        restored = _restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored >= 2
     assert model.findFirst.called
@@ -439,7 +442,8 @@ def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains
 def test_restore_field_placeholders_raises_when_token_remains_after_find_first():
     from plugin.framework.errors import ToolExecutionError
 
-    needle = "[[WA-FIELD:page-number]]"
+    nonce = "test1234"
+    needle = f"[[WA-FIELD:{nonce}:page-number]]"
     text = MagicMock()
     text.getString.return_value = "Unresolved " + needle
 
@@ -448,16 +452,16 @@ def test_restore_field_placeholders_raises_when_token_remains_after_find_first()
 
     with (
         patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
-        pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:page-number\]\]"),
+        pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
-        _restore_field_placeholders(model, text)
+        _restore_field_placeholders(model, text, nonce=nonce)
     assert text.getString() == "Unresolved " + needle
 
 
 def test_rewrite_exported_field_spans_keeps_page_offset():
     html = '<p><span title="page-number" data-offset="-2" data-subtype="PREV"/></p>'
-    out = rewrite_exported_field_spans(html)
-    assert out.count("[[WA-FIELD:page-number|subtype=PREV|offset=-2]]") == 1
+    out = rewrite_exported_field_spans(html, nonce="test1234")
+    assert out.count("[[WA-FIELD:test1234:page-number|subtype=PREV|offset=-2]]") == 1
 
 
 def test_insert_restored_field_unknown_title_raises():
@@ -522,3 +526,49 @@ def test_restore_field_placeholders_find_error_propagates():
     model.findFirst.side_effect = RuntimeError("find failed")
     with pytest.raises(RuntimeError, match="find failed"):
         _restore_field_placeholders(model)
+
+
+def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonce():
+    """A body string that already contains [[WA-FIELD:page-number]] is left alone when nonce differs."""
+    text = MagicMock()
+    text.getString.return_value = "Existing [[WA-FIELD:page-number]] and [[WA-FIELD:other:page-number]]"
+    model = MagicMock()
+    model.createSearchDescriptor.return_value = MagicMock()
+    model.findFirst.return_value = None
+
+    with patch("plugin.writer.html_import._insert_restored_field") as mock_insert:
+        restored = _restore_field_placeholders(model, text, nonce="thiscall")
+
+    assert restored == 0
+    mock_insert.assert_not_called()
+
+
+def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
+    from plugin.writer.html_import import insert_content_at_position, replace_full_document
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    doc.getText.return_value = body_text
+    cur = MagicMock()
+    body_text.createTextCursor.return_value = cur
+    cur.getText.return_value = body_text
+
+    with (
+        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.html_import._restore_field_placeholders") as mock_restore,
+    ):
+        replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None
+
+    with (
+        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.html_import._restore_field_placeholders") as mock_restore,
+    ):
+        insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None

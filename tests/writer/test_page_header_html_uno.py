@@ -440,3 +440,22 @@ def test_page_set_header_undo_rollback_on_field_restore_failure(ctx, doc):
     assert len(scan_after["fields"]) == len(scan_before["fields"])
     assert len(scan_after["images"]) == len(scan_before["images"])
 
+
+@native_test
+@with_native_doc("writer")
+def test_header_trailing_paragraph_cleanup_single_undo_step_uno(ctx, doc):
+    """Trailing empty paragraph cleanup is inside the undo context so one undo restores OLD."""
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("OLD")
+
+    replace_xtext_with_html(header, "<p>New header</p><p></p>", model=doc)
+    assert header.getString().strip() == "New header"
+
+    doc.getUndoManager().undo()
+    assert header.getString().strip() == "OLD"
+
+

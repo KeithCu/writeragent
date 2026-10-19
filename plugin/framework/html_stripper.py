@@ -169,6 +169,79 @@ def _is_real_html_tag(buf: str) -> bool:
     return (not rest) or rest[0].isspace()
 
 
+@deal.post(lambda result: isinstance(result, str))
+def escape_prose_angle_brackets(text: str) -> str:
+    """Escape prose angle brackets while preserving valid HTML tags."""
+    # crosshair: off
+    if not text or "<" not in text:
+        return text
+
+    out: list[str] = []
+    in_tag = False
+    tag_buffer = ""
+    quote = ""
+
+    def release_buffer(buf: str) -> None:
+        if not buf:
+            return
+        if buf.startswith("<"):
+            out.append("&lt;")
+            out.append(buf[1:])
+        else:
+            out.append(buf)
+
+    for char in text:
+        if not in_tag:
+            if char == "<":
+                in_tag = True
+                tag_buffer = "<"
+                quote = ""
+            else:
+                out.append(char)
+        elif quote:
+            if char == quote:
+                quote = ""
+            tag_buffer += char
+            if len(tag_buffer) > 256:
+                release_buffer(tag_buffer)
+                in_tag = False
+                tag_buffer = ""
+                quote = ""
+        elif char in ('"', "'"):
+            tag_buffer += char
+            quote = char
+        elif char == "<":
+            release_buffer(tag_buffer)
+            tag_buffer = "<"
+            quote = ""
+        elif char == ">":
+            in_tag = False
+            buf = tag_buffer
+            tag_buffer = ""
+            quote = ""
+            if _is_real_html_tag(buf):
+                out.append(buf + ">")
+            else:
+                out.append("&lt;" + buf[1:] + "&gt;")
+        else:
+            tag_buffer += char
+            if len(tag_buffer) == 2:
+                first_char = tag_buffer[1]
+                if not (first_char.isalpha() or first_char in ("/", "!", "?")):
+                    release_buffer(tag_buffer)
+                    in_tag = False
+                    tag_buffer = ""
+            elif len(tag_buffer) > 256:
+                release_buffer(tag_buffer)
+                in_tag = False
+                tag_buffer = ""
+
+    if in_tag and tag_buffer:
+        release_buffer(tag_buffer)
+
+    return "".join(out)
+
+
 class StreamingHTMLStripper:
     """Stateful, stream-friendly HTML tag stripper.
 

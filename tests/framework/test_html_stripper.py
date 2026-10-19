@@ -319,4 +319,21 @@ def test_hypothesis_html_to_search_text_always_returns_string():
     prop()
 
 
+def test_escape_prose_angle_brackets():
+    from plugin.framework.html_stripper import escape_prose_angle_brackets
+
+    assert escape_prose_angle_brackets("<p>List<String> and 2 < 3</p>") == "<p>List&lt;String&gt; and 2 &lt; 3</p>"
+    assert escape_prose_angle_brackets("<b>x</b>") == "<b>x</b>"
+    assert escape_prose_angle_brackets("<td>A</td>") == "<td>A</td>"
+    assert escape_prose_angle_brackets("&lt;p&gt;hello&lt;/p&gt;") == "&lt;p&gt;hello&lt;/p&gt;"
+    assert escape_prose_angle_brackets("<spanish>hi</spanish>") == "&lt;spanish&gt;hi&lt;/spanish&gt;"
+    assert escape_prose_angle_brackets("<p>List<String> 2 < 3 AT&T</p>") == "<p>List&lt;String&gt; 2 &lt; 3 AT&T</p>"
+    assert escape_prose_angle_brackets('<span title="page-number"/>') == '<span title="page-number"/>'
+    assert escape_prose_angle_brackets("<!-- comment -->") == "<!-- comment -->"
+    assert escape_prose_angle_brackets("2 < 3") == "2 &lt; 3"
+    assert escape_prose_angle_brackets("4 > 1") == "4 > 1"
+    assert escape_prose_angle_brackets("") == ""
+
+
+
 
