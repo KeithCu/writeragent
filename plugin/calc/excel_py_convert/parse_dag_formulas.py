@@ -11,12 +11,6 @@ from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child, local_
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import parse_python_formula
 
-# Backwards-compatible aliases
-_local = local_name
-_findall = find_all
-_find_child = find_child
-_workbook_sheets = workbook_sheets
-
 
 def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
     try:

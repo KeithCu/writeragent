@@ -38,7 +38,7 @@ STANDARD_OOXML_NAMESPACES: dict[str, str] = {
     "x14ac": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac",
     "x14": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
     "x15": "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main",
-    "x16": "http://schemas.microsoft.com/office/spreadsheetml/2015/02/main",
+    "x16": "http://schemas.microsoft.com/office/spreadsheetml/2014/11/main",
     "x16r2": "http://schemas.microsoft.com/office/spreadsheetml/2015/02/main",
     "xr": "http://schemas.microsoft.com/office/spreadsheetml/2014/revision",
     "xr2": "http://schemas.microsoft.com/office/spreadsheetml/2015/revision2",
@@ -268,9 +268,3 @@ def rewrite_zip(
             except OSError:
                 pass
 
-
-# Backward-compatible private aliases
-_local = local_name
-_findall = find_all
-_find_child = find_child
-_workbook_sheets = workbook_sheets

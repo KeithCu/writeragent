@@ -43,6 +43,7 @@ CODE_SHEET_NOTE = (
 INLINE_CODE_MAX_CHARS = 1000
 
 _RE_A1 = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
+_A1_SPAN_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 _SAFE_SHEET = re.compile(r"[^\w]+", re.UNICODE)
 # Binding-only sandbox xl accepts "%Pn%" strings (same as excel_xl.make_xl).
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
@@ -105,64 +106,26 @@ def _col_letters_to_index(col: str) -> int:
     return n
 
 
-def _index_to_col_letters(n: int) -> str:
-    letters = []
-    while n > 0:
-        n, rem = divmod(n - 1, 26)
-        letters.append(chr(65 + rem))
-    return "".join(reversed(letters))
-
-
 def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
     """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
-    cell_re = re.compile(r"^([A-Za-z]+)(\d+)$")
     raw = (ref or "").replace("$", "").strip()
     if "!" in raw:
         raw = raw.split("!", 1)[1].strip()
     if not raw:
         return None
     if ":" not in raw:
-        m = cell_re.match(raw)
+        m = _A1_SPAN_CELL_RE.match(raw)
         if not m:
             return None
         c, r = _col_letters_to_index(m.group(1)), int(m.group(2))
         return ((c, r), (c, r))
     left, right = raw.split(":", 1)
-    m1, m2 = cell_re.match(left.strip()), cell_re.match(right.strip())
+    m1, m2 = _A1_SPAN_CELL_RE.match(left.strip()), _A1_SPAN_CELL_RE.match(right.strip())
     if not m1 or not m2:
         return None
     c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
     c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
     return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
-
-
-def iter_a1_span(ref: str) -> list[str]:
-    """Expand ``A1:B2`` (no sheet) into cell coordinates; single cell → [cell].
-
-    Used by openpyxl / UNO spill clear before rewriting a converted PY anchor.
-    """
-    # Spill refs are sheet-local A1; strip $ and optional Sheet! prefix only.
-    cell_re = re.compile(r"^([A-Za-z]+)(\d+)$")
-    raw = (ref or "").replace("$", "")
-    if "!" in raw:
-        raw = raw.split("!", 1)[1]
-    if ":" not in raw:
-        return [raw] if cell_re.match(raw) else []
-    left, right = raw.split(":", 1)
-    m1, m2 = cell_re.match(left), cell_re.match(right)
-    if not m1 or not m2:
-        return []
-    c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
-    c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
-    if c1 > c2:
-        c1, c2 = c2, c1
-    if r1 > r2:
-        r1, r2 = r2, r1
-    out: list[str] = []
-    for r in range(r1, r2 + 1):
-        for c in range(c1, c2 + 1):
-            out.append(f"{_index_to_col_letters(c)}{r}")
-    return out
 
 
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:
@@ -192,11 +155,9 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", exc
         except ValueError as exc:
             if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
                 err = f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}"
-                cell.issues.append(err)
                 raise ValueError(err) from exc
     if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
         err = f"script too long ({len(cell.converted_code)} chars) to inline"
-        cell.issues.append(err)
         raise ValueError(err)
     return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
 
@@ -321,62 +282,6 @@ def defined_name_targets_sheet(name: str, val: str, sheet_title: str) -> bool:
         if token.lower() == target_l:
             return True
     return False
-
-
-def _openpyxl_sheet_is_bank(wb: Any, code_sheet: str, ws: Any) -> bool:
-    expected_def = bank_defined_name_for(code_sheet)
-    if hasattr(wb, "defined_names") and wb.defined_names is not None:
-        try:
-            if expected_def in wb.defined_names:
-                return True
-        except Exception:
-            pass
-        try:
-            for dn in getattr(wb.defined_names, "definedName", []):
-                name = str(getattr(dn, "name", "") or "")
-                val = str(getattr(dn, "attr_text", "") or getattr(dn, "value", "") or "")
-                if defined_name_targets_sheet(name, val, code_sheet):
-                    return True
-        except Exception:
-            pass
-    try:
-        if ws[CODE_SHEET_NOTE_CELL].value == CODE_SHEET_NOTE:
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def ensure_code_sheet_openpyxl(wb: Any, code_sheet: str, bank: dict[str, str] | None = None) -> Any:
-    """Return (creating if needed) a visible bank worksheet named *code_sheet*."""
-    if code_sheet in wb.sheetnames:
-        ws = wb[code_sheet]
-        if not _openpyxl_sheet_is_bank(wb, code_sheet, ws):
-            raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
-    else:
-        ws = wb.create_sheet(code_sheet)
-    if hasattr(wb, "defined_names") and wb.defined_names is not None:
-        try:
-            from openpyxl.workbook.defined_name import DefinedName
-
-            def_name = bank_defined_name_for(code_sheet)
-            if def_name not in wb.defined_names:
-                wb.defined_names.add(DefinedName(name=def_name, attr_text=f"'{code_sheet}'!$A$1"))
-        except Exception:
-            pass
-    if not bank or CODE_SHEET_NOTE_CELL not in bank:
-        ws[CODE_SHEET_NOTE_CELL] = CODE_SHEET_NOTE
-    return ws
-
-
-def write_script_bank_openpyxl(wb: Any, banks: dict[str, dict[str, str]]) -> None:
-    """Write per-source-sheet banks onto ``py_code_<Sheet>`` worksheets."""
-    for code_sheet, bank in sorted(banks.items()):
-        if not bank:
-            continue
-        ws = ensure_code_sheet_openpyxl(wb, code_sheet, bank=bank)
-        for a1, code in sorted(bank.items()):
-            ws[a1] = code
 
 
 def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:

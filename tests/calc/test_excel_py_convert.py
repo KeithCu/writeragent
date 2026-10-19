@@ -37,8 +37,6 @@ from plugin.calc.excel_py_convert.resolve_refs import resolve_dep
 from plugin.calc.excel_py_convert.script_bank import (
     a1_span_bounds,
     formula_for_converted_cell,
-    iter_a1_span,
-    write_script_bank_openpyxl,
 )
 from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
@@ -661,11 +659,6 @@ def test_export_object_suppress_exact_trailer_only():
     assert res2 == inside_str
 
 
-def test_iter_a1_span_expands_ranges():
-    assert iter_a1_span("A1") == ["A1"]
-    assert iter_a1_span("A1:B2") == ["A1", "B1", "A2", "B2"]
-    assert iter_a1_span("Sheet1!B2:C3") == ["B2", "C2", "B3", "C3"]
-    assert iter_a1_span("") == []
 
 
 def test_reverse_preserves_headers_false_and_return_type():
@@ -2303,18 +2296,37 @@ def test_write_excel_python_xlsx_unmarked_py_code_sheet_survives(tmp_path: Path)
         assert "xl/worksheets/sheet2.xml" in zf.namelist()
 
 
-def test_write_script_bank_openpyxl_name_collision():
+def test_write_dag_formulas_bank_sheet_collision_raises(tmp_path: Path):
     """Colliding with existing unmanaged sheet raises ValueError without overwriting."""
-    openpyxl = pytest.importorskip("openpyxl")
-    wb = openpyxl.Workbook()
-    ws_notes = wb.create_sheet("py_code_Sheet1")
-    ws_notes["A1"] = "Keep this content"
+    src = tmp_path / "collision_src.xlsx"
+    src_bytes = _dag_xlsx_bytes()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(src_bytes), "r") as zin, zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            if info.filename == "xl/workbook.xml":
+                wb_root = ET.fromstring(zin.read(info.filename))
+                sheets_el = wb_root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheets")
+                assert sheets_el is not None
+                ET.SubElement(sheets_el, "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet", {"name": "py_code_Sheet1", "sheetId": "2", "r:id": "rId2"})
+                zout.writestr(info, ET.tostring(wb_root))
+            elif info.filename == "xl/_rels/workbook.xml.rels":
+                rels_root = ET.fromstring(zin.read(info.filename))
+                ET.SubElement(rels_root, "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship", {"Id": "rId2", "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet", "Target": "worksheets/sheet2.xml"})
+                zout.writestr(info, ET.tostring(rels_root))
+            else:
+                zout.writestr(info, zin.read(info.filename))
+        sh2_xml = b'<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>user data</v></c></row></sheetData></worksheet>'
+        zout.writestr("xl/worksheets/sheet2.xml", sh2_xml)
+    src.write_bytes(buf.getvalue())
 
     cell = ConvertedCell(
         sheet="Sheet1", cell="A1", direction="dag", original_code="", converted_code="a" * 1200, data_args=[], converted=True
     )
+    report = ConversionReport(direction="dag", cells=[cell])
+    out = tmp_path / "collision_out.xlsx"
     with pytest.raises(ValueError, match="Bank sheet collision"):
-        write_script_bank_openpyxl(wb, {"py_code_Sheet1": {"A1": cell.converted_code}})
+        write_dag_formulas_xlsx(src, report, out)
+    assert not out.exists()
 
 
 def test_formula_for_converted_cell_over_1000_chars_refuses_inline():
@@ -2327,8 +2339,7 @@ def test_formula_for_converted_cell_over_1000_chars_refuses_inline():
 
 
 def test_write_dag_formulas_atomic_save_failure_leaves_dest(tmp_path: Path):
-    """Failure during workbook save leaves the existing destination file untouched."""
-    openpyxl = pytest.importorskip("openpyxl")
+    """Failure during rewrite_zip / replace leaves destination file untouched and cleans up temp files."""
     src = tmp_path / "src.xlsx"
     src.write_bytes(_dag_xlsx_bytes())
     out = tmp_path / "atomic_target.xlsx"
@@ -2340,11 +2351,13 @@ def test_write_dag_formulas_atomic_save_failure_leaves_dest(tmp_path: Path):
     report = ConversionReport(direction="dag", cells=[cell])
 
     from unittest.mock import patch
-    with patch.object(openpyxl.Workbook, "save", side_effect=IOError("disk full")):
-        with pytest.raises(IOError, match="disk full"):
+    with patch.object(Path, "replace", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
             write_dag_formulas_xlsx(src, report, out)
 
     assert out.read_text() == "original content"
+    temp_files = [p for p in tmp_path.iterdir() if p.name.startswith("atomic_target") and p != out]
+    assert temp_files == []
 
 
 def test_a1_span_bounds_allocates_nothing_large():
@@ -2683,22 +2696,6 @@ def test_excel_report_with_fatal_placeholder_refuses_export(tmp_path: Path):
 
 
 def test_bank_defined_name_exact_matching(tmp_path: Path):
-    from plugin.calc.excel_py_convert.script_bank import ensure_code_sheet_openpyxl
-    import openpyxl
-    from openpyxl.workbook.defined_name import DefinedName
-
-    wb = openpyxl.Workbook()
-    ws1 = wb.active
-    assert ws1 is not None
-    ws1.title = "py_code_Data"
-    _ws2 = wb.create_sheet("py_code_Data2")
-    wb.defined_names.add(DefinedName(name="_py_code_bank_py_code_Data2", attr_text="py_code_Data2!$A$1"))
-
-    # On openpyxl side: py_code_Data is not a bank sheet, so collision is raised
-    with pytest.raises(ValueError, match="Bank sheet collision"):
-        ensure_code_sheet_openpyxl(wb, "py_code_Data")
-
-    # On excel export side: py_code_Data kept, py_code_Data2 dropped
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr(
@@ -2751,6 +2748,15 @@ def test_bank_defined_name_exact_matching(tmp_path: Path):
 
     src = tmp_path / "bank_exact.xlsx"
     src.write_bytes(buf.getvalue())
+
+    # On DAG write side: py_code_Data is not a bank sheet, so banking for Data raises collision
+    dag_cell = ConvertedCell(sheet="Data", cell="A1", direction="dag", original_code="", converted_code="x = " + "1" * 1200, data_args=[], converted=True)
+    dag_report = ConversionReport(direction="dag", cells=[dag_cell])
+    dag_out = tmp_path / "dag_collision_out.xlsx"
+    with pytest.raises(ValueError, match="Bank sheet collision"):
+        write_dag_formulas_xlsx(src, dag_report, dag_out)
+
+    # On excel export side: py_code_Data kept, py_code_Data2 dropped
     cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="excel", original_code="", converted_code="x = 1", data_args=[], converted=True, script_index=0)
     report = ConversionReport(direction="excel", cells=[cell])
     out = tmp_path / "bank_exact_out.xlsx"
@@ -2814,26 +2820,35 @@ def test_worksheet_custom_prefix_roundtrip(tmp_path: Path):
         assert 'xmlns:custom="http://schemas.openxmlformats.org/spreadsheetml/2006/main"' in ws_xml
 
 
-def test_clear_spill_range_touches_existing_cells_only():
-    from plugin.calc.excel_py_convert.xlsx_write import _clear_spill_range
-    import openpyxl
+def test_clear_spill_xml_touches_stored_cells_only():
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _clear_spill_xml
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    assert ws is not None
+    ws_root = ET.Element("worksheet")
+    ET.SubElement(ws_root, "sheetData")
+    index = _WorksheetCellIndex(ws_root)
 
-    # Empty sheet with ref A1:B1000
-    _clear_spill_range(ws, "A1", "A1:B1000")
-    assert getattr(ws, "_cells", {}) == {}
+    c_anchor = index.ensure_cell("A1")
+    v_a = ET.SubElement(c_anchor, "v")
+    v_a.text = "anchor"
 
-    # Anchor and B2 populated
-    ws["A1"] = "anchor"
-    ws["B2"] = "spill"
-    assert len(ws._cells) == 2
-    _clear_spill_range(ws, "A1", "A1:B1000")
-    assert ws["A1"].value == "anchor"
-    assert ws["B2"].value is None
-    assert len(ws._cells) == 2
+    c_spill = index.ensure_cell("B2")
+    v_s = ET.SubElement(c_spill, "v")
+    v_s.text = "spill"
+
+    c_outside = index.ensure_cell("A10001")
+    v_o = ET.SubElement(c_outside, "v")
+    v_o.text = "outside"
+
+    _clear_spill_xml(ws_root, "A1", "A1:XFD10000", index=index)
+
+    # Anchor value kept
+    v_a_found = c_anchor.find("v")
+    assert v_a_found is not None and v_a_found.text == "anchor"
+    # In-range non-anchor cleared
+    assert c_spill.find("v") is None
+    # Out-of-range cell kept
+    v_o_found = c_outside.find("v")
+    assert v_o_found is not None and v_o_found.text == "outside"
 
 
 def test_strip_python_in_excel_parts_preserves_python_notes(tmp_path: Path):
@@ -3045,7 +3060,210 @@ def test_parse_and_extract_namespaces_single_pass():
     assert b'mc:Ignorable="x14ac"' in out
 
 
+def test_parse_python_scripts_normal_and_hostile_indices():
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import _parse_python_scripts
+
+    normal_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="0"><code>x = 1</code></pythonScript>
+  <pythonScript index="1"><code>y = 2</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", normal_xml)
+    with zipfile.ZipFile(buf, "r") as zf:
+        scripts = _parse_python_scripts(zf)
+        assert scripts == ["x = 1", "y = 2"]
+
+    hostile_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="1000000000"><code>x = 1</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", hostile_xml)
+    with zipfile.ZipFile(buf, "r") as zf:
+        with pytest.raises(ValueError, match="invalid script index 1000000000 in xl/pythonScripts.xml"):
+            _parse_python_scripts(zf)
 
 
+def test_standard_namespaces_x16_mapping():
+    from plugin.calc.excel_py_convert.ooxml_util import register_standard_namespaces
+
+    register_standard_namespaces()
+    el = ET.Element("{http://schemas.microsoft.com/office/spreadsheetml/2014/11/main}test")
+    out = ET.tostring(el, encoding="utf-8")
+    assert b"x16:test" in out
 
 
+def test_write_dag_formulas_preserves_drawings_and_vba(tmp_path: Path):
+    src = tmp_path / "preserve_src.xlsx"
+    out = tmp_path / "preserve_out.xlsx"
+    drawing_bytes = b"<xdr:wsDr xmlns:xdr='http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing'/>"
+    vba_bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1vba_binary"
+    sheet_xml = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        b'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        b'<sheetData><row r="1"><c r="A1"><v>old</v></c><c r="B1"><v>keep</v></c></row></sheetData>'
+        b'<drawing r:id="rIdDrawing1"/>'
+        b'</worksheet>'
+    )
+    sheet_rels = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        b'<Relationship Id="rIdDrawing1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>'
+        b'</Relationships>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>
+</Types>""",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        )
+        zf.writestr("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        zf.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet_rels)
+        zf.writestr("xl/drawings/drawing1.xml", drawing_bytes)
+        zf.writestr("xl/vbaProject.bin", vba_bytes)
+    src.write_bytes(buf.getvalue())
+
+    cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="dag", original_code="x = 1", converted_code="x = 1", data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[cell])
+    write_dag_formulas_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        assert zf.read("xl/drawings/drawing1.xml") == drawing_bytes
+        assert zf.read("xl/vbaProject.bin") == vba_bytes
+        sh1 = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert "drawing" in sh1
+        assert "rIdDrawing1" in sh1
+
+
+def test_write_dag_formulas_bank_sheet_structure(tmp_path: Path):
+    src = tmp_path / "bank_struct_src.xlsx"
+    out = tmp_path / "bank_struct_out.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+
+    long_code = "result = " + "9" * 1100
+    cell = ConvertedCell(sheet="Sheet1", cell="H4", direction="dag", original_code="", converted_code=long_code, data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[cell])
+    write_dag_formulas_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        wb = ET.fromstring(zf.read("xl/workbook.xml"))
+        sheets_el = wb.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheets")
+        assert sheets_el is not None
+        sheet_tags = list(sheets_el)
+        assert len(sheet_tags) == 2
+        assert sheet_tags[0].attrib.get("name") == "Sheet1"
+        assert sheet_tags[1].attrib.get("name") == "py_code_Sheet1"
+        assert sheet_tags[1].attrib.get("sheetId") == "2"
+        bank_rid = sheet_tags[1].attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+
+        rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        bank_rel = [r for r in rels if r.attrib.get("Id") == bank_rid][0]
+        assert bank_rel.attrib.get("Target") == "worksheets/sheet2.xml"
+
+        ct = zf.read("[Content_Types].xml").decode("utf-8")
+        assert 'PartName="/xl/worksheets/sheet2.xml"' in ct
+
+        dns = wb.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}definedNames")
+        assert dns is not None
+        dn = [d for d in dns if d.attrib.get("name") == "_py_code_bank_py_code_Sheet1"][0]
+        assert dn.text == "'py_code_Sheet1'!$A$1"
+
+        bank_ws = ET.fromstring(zf.read("xl/worksheets/sheet2.xml"))
+        cells = {c.attrib.get("r"): c for c in bank_ws.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")}
+        assert "ZZ1" in cells
+        assert cells["ZZ1"].attrib.get("t") == "inlineStr"
+        t_zz1 = cells["ZZ1"].find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t")
+        assert t_zz1 is not None and t_zz1.text is not None and t_zz1.text.startswith("Python script bank")
+        assert "H4" in cells
+        assert cells["H4"].attrib.get("t") == "inlineStr"
+        t_h4 = cells["H4"].find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t")
+        assert t_h4 is not None and t_h4.text == long_code
+
+
+def test_write_dag_formulas_shared_formula_unsharing(tmp_path: Path):
+    src = tmp_path / "shared_unshare_src.xlsx"
+    out = tmp_path / "shared_unshare_out.xlsx"
+    sheet_xml = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        b'<sheetData>'
+        b'<row r="1">'
+        b'<c r="A1"><f t="shared" ref="A1:A2" si="0">B1+1</f><v>2</v></c>'
+        b'<c r="B1"><v>1</v></c>'
+        b'<c r="C1"><f t="shared" ref="C1:C2" si="1">D1+1</f><v>3</v></c>'
+        b'<c r="D1"><v>2</v></c>'
+        b'</row>'
+        b'<row r="2">'
+        b'<c r="A2"><f t="shared" si="0"/><v>3</v></c>'
+        b'<c r="B2"><v>2</v></c>'
+        b'<c r="C2"><f t="shared" si="1"/><v>4</v></c>'
+        b'<c r="D2"><v>3</v></c>'
+        b'</row>'
+        b'</sheetData>'
+        b'</worksheet>'
+    )
+    wb_xml = '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    rels_xml = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml.decode("utf-8"), workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="dag", original_code="x = 10", converted_code="x = 10", data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[cell])
+    write_dag_formulas_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        ws = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
+        cells = {c.attrib.get("r"): c for c in ws.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")}
+        f_a1 = cells["A1"].find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+        assert f_a1 is not None
+        assert f_a1.attrib.get("t") is None
+        assert f_a1.attrib.get("si") is None
+
+        f_a2 = cells["A2"].find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+        assert f_a2 is not None
+        assert f_a2.attrib.get("t") is None
+        assert f_a2.attrib.get("si") is None
+        assert f_a2.text == "B2+1"
+
+        f_c1 = cells["C1"].find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+        assert f_c1 is not None
+        assert f_c1.attrib.get("t") == "shared"
+        assert f_c1.attrib.get("si") == "1"
+
+
+def test_write_dag_formulas_multiple_cell_errors_collected(tmp_path: Path):
+    src = tmp_path / "multi_err_src.xlsx"
+    out = tmp_path / "multi_err_out.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+
+    c1 = ConvertedCell(sheet="Sheet1", cell="invalid_cell_1", direction="dag", original_code="", converted_code="x = " + "1" * 1100, data_args=[], converted=True)
+    c2 = ConvertedCell(sheet="Sheet1", cell="invalid_cell_2", direction="dag", original_code="", converted_code="y = " + "2" * 1100, data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[c1, c2])
+
+    with pytest.raises(ValueError) as excinfo:
+        write_dag_formulas_xlsx(src, report, out)
+    msg = str(excinfo.value)
+    assert "Sheet1!invalid_cell_1" in msg
+    assert "Sheet1!invalid_cell_2" in msg
+    assert not out.exists()

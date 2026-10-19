@@ -19,20 +19,9 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     find_all,
     find_child,
     local_name,
-    parse_rels,
     parse_rels_with_types,
-    resolve_rel_target,
     workbook_sheets,
 )
-
-# Backwards-compatible aliases
-_local = local_name
-_findall = find_all
-_find_child = find_child
-_workbook_sheets = workbook_sheets
-_parse_rels = parse_rels
-_parse_rels_with_types = parse_rels_with_types
-_resolve_rel_target = resolve_rel_target
 
 _RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
@@ -270,7 +259,9 @@ def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
             try:
                 idx = int(idx_s)
             except ValueError:
-                pass
+                raise ValueError(f"invalid script index {idx_s!r} in xl/pythonScripts.xml")
+            if idx < 0 or idx > 100_000 or idx > len(script_els) + 10_000:
+                raise ValueError(f"invalid script index {idx} in xl/pythonScripts.xml")
         scripts_by_idx[idx] = text
 
     if not scripts_by_idx:

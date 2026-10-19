@@ -18,7 +18,6 @@ from plugin.calc.excel_py_convert.to_excel import (
 )
 from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 from plugin.calc.excel_py_convert.xlsx_write import (
-    _clear_spill_range,
     _clear_spill_xml,
     _ensure_cell,
     _patch_content_types,
@@ -26,7 +25,6 @@ from plugin.calc.excel_py_convert.xlsx_write import (
     _strip_content_types_python,
     _strip_python_in_excel_parts,
     _strip_rels_python,
-    non_anchor_spill_cells,
     write_dag_formulas_xlsx,
     write_excel_python_xlsx,
 )
@@ -45,11 +43,9 @@ __all__ = [
     "convert_uno_doc_to_excel",
     "dag_report_to_meta_payload",
     "load_dag_meta_from_doc",
-    "non_anchor_spill_cells",
     "store_dag_meta_on_doc",
     "write_dag_formulas_xlsx",
     "write_excel_python_xlsx",
-    "_clear_spill_range",
     "_clear_spill_xml",
     "_ensure_cell",
     "_patch_content_types",
