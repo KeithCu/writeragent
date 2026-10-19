@@ -12,8 +12,22 @@ from scripts.manifest_common import (
     add_numericfield as _common_add_numericfield,
     add_combobox as _common_add_combobox,
     add_button as _common_add_button,
+    require_widget,
     write_if_changed as _write_if_changed,
 )
+
+_SETTINGS_ALLOWED_WIDGETS = frozenset({
+    "text",
+    "checkbox",
+    "password",
+    "textarea",
+    "number",
+    "slider",
+    "select",
+    "combo",
+    "button",
+    "separator",
+})
 
 # SettingsDialog page separators (widget:separator and config_inline children).
 _SETTINGS_SEP_LEFT = 8
@@ -106,17 +120,16 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
             for field_name, schema in cfg.items():
                 if schema.get("internal"):
                     continue
-                widget = schema.get("widget", "text")
-                if widget == "list_detail":
+                if librepy_flavor and schema.get("librepy_exclude"):
                     continue
+                where = f"{prefix}.{field_name}" if prefix else field_name
+                widget = require_widget(schema, _SETTINGS_ALLOWED_WIDGETS, where=where)
                 if widget == "separator":
                     row_height = 0
                     sep_id = f"sep_{prefix}_{field_name}" if prefix else f"sep_{field_name}"
                     curr_y = _settings_add_separator(
                         board, sep_id, curr_y, label=schema.get("label"),
                     )
-                    continue
-                if librepy_flavor and schema.get("librepy_exclude"):
                     continue
 
                 ctrl_id = f"{prefix}__{field_name}" if prefix else field_name
@@ -164,7 +177,15 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                         ctrl_el.set(_dlg("readonly"), "true")
                 elif widget in ("number", "slider"):
                     num_w = field_w if "width" in schema else "60"
-                    ctrl_el = _common_add_numericfield(board, ctrl_id, field_x, curr_y, num_w, 14, spin="true")
+                    # Pass schema bounds so spin stays within range; strict save rejects out-of-range values after execute() returns.
+                    ctrl_el = _common_add_numericfield(
+                        board, ctrl_id, field_x, curr_y, num_w, 14,
+                        spin="true",
+                        min_val=schema.get("min"),
+                        max_val=schema.get("max"),
+                        step_val=schema.get("step"),
+                        decimal_accuracy="1" if schema.get("type") == "float" else "0",
+                    )
                 elif widget in ("select", "combo"):
                     ctrl_el = _common_add_combobox(
                         board, ctrl_id, field_x, curr_y, field_w, 14,
@@ -212,7 +233,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                 # Skip children with no visible config fields
                 visible_child_fields = [
                     (fn, s) for fn, s in child_cfg.items()
-                    if not s.get("internal") and s.get("widget") != "list_detail"
+                    if not s.get("internal")
                     and not (librepy_flavor and s.get("librepy_exclude"))
                 ]
                 if not visible_child_fields:

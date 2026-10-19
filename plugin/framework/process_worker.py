@@ -59,7 +59,7 @@ from plugin.scripting.ipc import (
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_pickle_frame_with_timeout,
+    read_pickle_frame,
     write_packed_frame_with_timeout,
 )
 
@@ -552,7 +552,7 @@ class BaseProcessWorker:
             try:
                 ready_data: Any = None
                 if proc is not None and proc.stdout is not None:
-                    ready_data = read_pickle_frame_with_timeout(
+                    ready_data = read_pickle_frame(
                         proc.stdout,
                         timeout_sec,
                         is_alive=self.is_alive,
@@ -883,7 +883,7 @@ class BaseProcessWorker:
                     # The frame was written. Do not start a read on a spent clock.
                     return self._fail_timeout(deadline, pid)
                 try:
-                    resp = read_pickle_frame_with_timeout(stdout, remaining, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, unpacker=self._unpacker)
+                    resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, unpacker=self._unpacker)
                 except subprocess.TimeoutExpired:
                     # The frame never arrived. Kill rather than read it later:
                     # the next caller would consume this response as its own.

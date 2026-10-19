@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -14,58 +16,16 @@ if str(_REPO_ROOT) not in sys.path:
 from scripts.build_librepy_oxt import (  # noqa: E402
     LIBREPY_DIALOG_FILES,
     LIBREPY_GENERATED_DIALOG_FILES,
+    _FORBIDDEN_RUNTIME,
+    _FORBIDDEN_UI,
+    _REQUIRED_RUNTIME,
+    _REQUIRED_UI,
+    BuildError,
     iter_librepy_archive_entries,
     librepy_include_paths,
+    librepy_manifest_cmd,
     stage_librepy_plugin_tree,
-)
-
-_REQUIRED_RUNTIME = (
-    "plugin/main_core.py",
-    "plugin/librepy/sidebar_menus.py",
-    "plugin/calc/python/addin_librepy.py",
-    "plugin/calc/python/workbook_lifecycle.py",
-    "plugin/scripting/venv_worker.py",
-    "XPythonFunction.rdb",
-    "Jobs.xcu",
-    "ProtocolHandler.xcu",
-    "registry/org/openoffice/Office/CalcAddIns.xcu",
-    "registry/org/openoffice/Office/UI/Sidebar.xcu",
-    "registry/org/openoffice/Office/UI/Factories.xcu",
-    "plugin/notebook/import_filter.py",
-    "registry/org/openoffice/TypeDetection/Types.xcu",
-    "registry/org/openoffice/TypeDetection/Filters.xcu",
-    "registry/org/openoffice/TypeDetection/Misc.xcu",
-)
-
-_REQUIRED_UI = (
-    "Dialogs/PythonScriptDialog.xdl",
-    "Dialogs/PythonCellEditorDialog.xdl",
-    "Dialogs/PythonTestProgressDialog.xdl",
-    "Dialogs/PythonSidebarDialog.xdl",
-    "Dialogs/TextAnalyticsDialog.xdl",
-    "Dialogs/LatexInputDialog.xdl",
-    "Dialogs/MsgBoxWithCopyDialog.xdl",
-    "Dialogs/ErrorReportDialog.xdl",
-)
-
-_FORBIDDEN_RUNTIME = (
-    "plugin/main.py",
-    "plugin/calc/python/addin.py",
-    "plugin/calc/prompt_addin.py",
-    "plugin/calc/prompt_function.py",
-    "plugin/framework/client/llm_client.py",
-    "plugin/embeddings/",
-    "plugin/mcp/",
-    "XPromptFunction.rdb",
-)
-
-_FORBIDDEN_UI = (
-    "Dialogs/ChatPanelDialog.xdl",
-    "Dialogs/SearchDialog.xdl",
-    "Dialogs/EvalDialog.xdl",
-    "Dialogs/SpreadsheetImportDialog.xdl",
-    "Dialogs/WebSearchQueryEditDialog.xdl",
-    "Dialogs/ServerStatusDialog.xdl",
+    verify_librepy_archive,
 )
 
 
@@ -211,3 +171,150 @@ assert _under(mc.__file__), mc.__file__
         check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def _create_synthetic_zip(
+    zip_path: Path,
+    *,
+    omit_metadata: bool = False,
+    extra_entries: dict[str, str] | None = None,
+    description_version: str | None = None,
+    manifest_entries: list[str] | None = None,
+) -> None:
+    import zipfile
+    from plugin.version import EXTENSION_VERSION
+
+    version = description_version or EXTENSION_VERSION
+    manifest_fps = manifest_entries if manifest_entries is not None else ["plugin/main_core.py"]
+
+    manifest_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest">\n'
+        + "".join(
+            '  <manifest:file-entry manifest:media-type="text/plain" manifest:full-path="%s" />\n' % fp
+            for fp in manifest_fps
+        )
+        + "</manifest:manifest>\n"
+    )
+
+    desc_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<description xmlns="http://openoffice.org/extensions/description/2006">\n'
+        '  <version value="%s"/>\n'
+        "</description>\n" % version
+    )
+
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("plugin/_manifest.py", "#\n")
+        zf.writestr("plugin/lib/isodate/__init__.py", "#\n")
+        zf.writestr("plugin/lib/json_repair/__init__.py", "#\n")
+        zf.writestr("plugin/lib/latex2mathml/__init__.py", "#\n")
+        zf.writestr("plugin/lib/mathml_to_latex/__init__.py", "#\n")
+        if not omit_metadata:
+            zf.writestr("plugin/lib/latex2mathml-3.81.0.dist-info/METADATA", "Name: latex2mathml\n")
+
+        for req in _REQUIRED_RUNTIME:
+            zf.writestr(req, "#\n")
+        for req in _REQUIRED_UI:
+            zf.writestr(req, "<dlg/>\n")
+
+        zf.writestr("META-INF/manifest.xml", manifest_xml)
+        zf.writestr("description.xml", desc_xml)
+
+        if extra_entries:
+            for arcname, data in extra_entries.items():
+                zf.writestr(arcname, data)
+
+
+def test_verify_librepy_archive_valid(tmp_path: Path):
+    zip_path = tmp_path / "valid.oxt"
+    _create_synthetic_zip(zip_path)
+    verify_librepy_archive(str(zip_path), with_tests=False)
+
+
+def test_verify_librepy_archive_missing_metadata(tmp_path: Path):
+    zip_path = tmp_path / "missing_meta.oxt"
+    _create_synthetic_zip(zip_path, omit_metadata=True)
+    with pytest.raises(BuildError, match="METADATA"):
+        verify_librepy_archive(str(zip_path), with_tests=False)
+
+
+def test_verify_librepy_archive_tests_entry_forbidden_in_release(tmp_path: Path):
+    zip_path = tmp_path / "has_test.oxt"
+    _create_synthetic_zip(zip_path, extra_entries={"tests/test_foo.py": "#\n"})
+    with pytest.raises(BuildError, match="test entry"):
+        verify_librepy_archive(str(zip_path), with_tests=False)
+    # with_tests=True skips the test check
+    verify_librepy_archive(str(zip_path), with_tests=True)
+
+
+def test_verify_librepy_archive_missing_manifest_entry(tmp_path: Path):
+    zip_path = tmp_path / "missing_manifest_entry.oxt"
+    _create_synthetic_zip(zip_path, manifest_entries=["plugin/main_core.py", "absent_file.py"])
+    with pytest.raises(BuildError, match="manifest.xml entry not in archive"):
+        verify_librepy_archive(str(zip_path), with_tests=False)
+
+
+def test_verify_librepy_archive_wrong_description_version(tmp_path: Path):
+    zip_path = tmp_path / "wrong_ver.oxt"
+    _create_synthetic_zip(zip_path, description_version="0.0.1")
+    with pytest.raises(BuildError, match="description.xml version"):
+        verify_librepy_archive(str(zip_path), with_tests=False)
+
+
+def test_librepy_manifest_cmd_and_makefile_recipe():
+    cmd = librepy_manifest_cmd(str(_REPO_ROOT))
+    assert cmd.count("scripting") == 1
+    assert cmd.count("vision") == 1
+
+    makefile_content = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    lines = makefile_content.splitlines()
+    manifest_core_lines: list[str] = []
+    in_target = False
+    for line in lines:
+        if line.startswith("manifest-core:"):
+            in_target = True
+            continue
+        if in_target:
+            if line.startswith(("\t", " ")):
+                manifest_core_lines.append(line)
+            else:
+                break
+    recipe = "\n".join(manifest_core_lines)
+    assert "scripting" not in recipe
+    assert "vision" not in recipe
+    assert "--manifest-only" in recipe
+def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path: Path):
+    from scripts.build_librepy_oxt import BuildError, assemble_librepy_bundle
+
+    monkeypatch.setattr("scripts.build_librepy_oxt._ensure_librepy_manifest", lambda base_dir: None)
+    monkeypatch.setattr("scripts.build_librepy_oxt.patch_description_xml", lambda dest: None)
+    monkeypatch.setattr("scripts.build_librepy_oxt.generate_update_xml", lambda base, name: None)
+
+    real_isfile = os.path.isfile
+
+    def fake_isfile(path: str) -> bool:
+        if "SettingsDialog.xdl" in path:
+            return False
+        return real_isfile(path)
+
+    monkeypatch.setattr("os.path.isfile", fake_isfile)
+    with pytest.raises(BuildError, match="SettingsDialog.xdl"):
+        assemble_librepy_bundle(str(_REPO_ROOT), bundle_dir=str(tmp_path / "bundle"))
+
+
+def test_librepy_bundle_includes_latex2mathml_metadata(tmp_path: Path):
+    from scripts.build_oxt import sync_vendor_into_lib
+    from scripts.librepy_bundle_paths import LIBREPY_VENDOR_PACKAGES
+
+    vendor_dir = str(_REPO_ROOT / "vendor")
+    lib_dir = tmp_path / "plugin" / "lib"
+    sync_vendor_into_lib(
+        vendor_dir,
+        str(lib_dir),
+        prune_websockets=False,
+        only=LIBREPY_VENDOR_PACKAGES,
+    )
+    meta_files = list(lib_dir.glob("latex2mathml-*.dist-info/METADATA"))
+    assert len(meta_files) == 1
+    assert meta_files[0].is_file()

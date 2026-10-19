@@ -20,13 +20,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 
@@ -34,6 +35,8 @@ from .specialized_base import ToolWriterStructuralBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
+
+log = logging.getLogger(__name__)
 
 
 def _at_page_anchor_page(obj: Any) -> Any | None:
@@ -50,7 +53,9 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         if obj.getPropertyValue("AnchorType") != AT_PAGE:
             return None
         return obj.getPropertyValue("AnchorPageNo")
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("Failed to read AnchorPageNo for object %s: %s", getattr(obj, "Name", type(obj).__name__), exc)
         return None
 
 
@@ -135,8 +140,9 @@ class GetPageObjects(ToolBase):
             else:
                 try:
                     page = doc.getCurrentController().getViewCursor().getPage()
-                except Exception:
-                    page = 1
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    return self._tool_error("Cannot resolve view cursor page: %s" % exc)
 
         if page is None or page <= 0:
             return self._tool_error("Cannot resolve page: invalid page %s" % page)
@@ -187,8 +193,9 @@ class GetPageObjects(ToolBase):
                 if self._content_page(doc, vc, g, retry_if_zero=True) == page:
                     size = g.getPropertyValue("Size")
                     images.append({"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100, "title": g.getPropertyValue("Title")})
-            except Exception:
-                pass
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("Failed to scan graphic object '%s': %s", name, exc)
 
         tables = []
         for name in doc.getTextTables().getElementNames():
@@ -196,8 +203,9 @@ class GetPageObjects(ToolBase):
                 t = doc.getTextTables().getByName(name)
                 if self._content_page(doc, vc, t, retry_if_zero=True) == page:
                     tables.append({"name": name, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
-            except Exception:
-                pass
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("Failed to scan text table '%s': %s", name, exc)
 
         frames = []
         for fname in doc.getTextFrames().getElementNames():
@@ -206,8 +214,9 @@ class GetPageObjects(ToolBase):
                 if self._content_page(doc, vc, fr, retry_if_zero=True) == page:
                     size = fr.getPropertyValue("Size")
                     frames.append({"name": fname, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
-            except Exception:
-                pass
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("Failed to scan text frame '%s': %s", fname, exc)
 
         # Do not jumpToEndOfPage + body createTextCursorByRange: end-of-page often sits in a
         # table/frame, and the body XText then raises RuntimeException ("End of content node
@@ -219,6 +228,7 @@ class GetPageObjects(ToolBase):
 
         for i in range(draw_page.getCount()):
             shape = draw_page.getByIndex(i)
+            shape_name = getattr(shape, "Name", "") or ("shape_%d" % i)
             include_shape = False
             try:
                 page_no = _at_page_anchor_page(shape)
@@ -230,12 +240,13 @@ class GetPageObjects(ToolBase):
                         anchor = shape.getAnchor()
                         if anchor and self._page_at_range(doc, vc, anchor, retry_if_zero=False) == page:
                             include_shape = True
-            except Exception:
-                pass
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("Failed to scan draw shape '%s': %s", shape_name, exc)
 
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
-                shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": shape.getString().strip() if hasattr(shape, "getString") else ""}
+                shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
                 pos = shape.getPosition()
                 size = shape.getSize()
                 shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
@@ -273,7 +284,7 @@ class SectionRead(ToolWriterStructuralBase):
         while enum.hasMoreElements():
             para = enum.nextElement()
             if para.supportsService("com.sun.star.text.Paragraph"):
-                paragraphs.append(para.getString())
+                paragraphs.append(get_string_without_tracked_deletions(para))
             else:
                 paragraphs.append("[Table]")
 
@@ -332,7 +343,11 @@ class CloneHeadingBlock(ToolBaseDummy):
 
     name: str | None = "clone_heading_block"
     intent: str | None = "edit"
-    description: str = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
+    description: str = (
+        "Clone an entire heading block (heading + all sub-headings + body). Plain paragraph text and "
+        "paragraph style are copied; character formatting, lists, fields, hyperlinks, bookmarks, and "
+        "inline objects are not copied; tables are skipped. The clone is inserted right after the original block."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
@@ -354,12 +369,12 @@ class CloneHeadingBlock(ToolBaseDummy):
             return self._tool_error("writer_nav module not loaded; cannot resolve heading block.")
 
         tree = tree_svc.build_heading_tree(ctx.doc)
-        node = tree_svc._find_node_by_para_index(tree, para_index)
+        node = tree_svc.find_heading_by_para_index(tree, para_index)
         if node is None:
             return self._tool_error("No heading found at paragraph %d." % para_index)
 
         # Total paragraphs in the block: heading + body + all children
-        total = 1 + tree_svc._count_all_children(node)
+        total = 1 + tree_svc.heading_block_body_count(node)
 
         # Collect elements for the block
         doc_text = ctx.doc.getText()

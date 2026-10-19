@@ -22,14 +22,16 @@ if PROJECT_ROOT not in sys.path:
 from scripts.build_oxt import (  # noqa: E402
     collect_files,
     remap_path,
-    should_exclude,
+    resolve_archive_sources,
     strip_production_code,
-    _vendor_copy_ignore,
+    sync_vendor_into_lib,
+    verify_bundle_manifest,
+    write_oxt_zip,
 )
 from scripts.libreharper_bundle_paths import (  # noqa: E402
+    LIBREHARPER_VENDOR_PACKAGES,
     collect_libreharper_plugin_paths,
     is_libreharper_forbidden_chat_ui,
-    iter_libreharper_vendor_packages,
     slim_libreharper_package_inits,
 )
 from scripts.manifest_registry import generate_update_xml, patch_description_xml  # noqa: E402
@@ -100,10 +102,10 @@ def assemble_libreharper_bundle(base_dir: str, *, with_tests: bool = False, stri
         )
         return 0
 
+    sources = resolve_archive_sources(base_dir, files, _libreharper_remap_path)
     count = 0
-    for rel in files:
-        src = os.path.join(base_dir, rel)
-        arcname = _libreharper_remap_path(rel)
+    for rel, arcname in sources:
+        src = rel if os.path.isabs(rel) else os.path.join(base_dir, rel)
         dst = os.path.join(bundle_path, arcname)
         if rel.endswith("/"):
             os.makedirs(dst, exist_ok=True)
@@ -119,19 +121,16 @@ def assemble_libreharper_bundle(base_dir: str, *, with_tests: bool = False, stri
     count += 1
 
     vendor_dir = os.path.join(base_dir, "vendor")
-    vendor_packages = iter_libreharper_vendor_packages(vendor_dir)
-    if vendor_packages:
-        vendor_count = 0
-        for entry in vendor_packages:
-            src_path = os.path.join(vendor_dir, entry)
-            dst_path = os.path.join(bundle_path, "plugin", "lib", entry)
-            if os.path.exists(dst_path):
-                shutil.rmtree(dst_path)
-            shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
-            vendor_count += 1
+    vendor_count = sync_vendor_into_lib(
+        vendor_dir,
+        os.path.join(bundle_path, "plugin", "lib"),
+        prune_websockets=False,
+        only=LIBREHARPER_VENDOR_PACKAGES,
+    )
+    if vendor_count:
         print(
             "Vendored %d packages into plugin/lib/ (%s)"
-            % (vendor_count, ", ".join(vendor_packages))
+            % (vendor_count, ", ".join(sorted(LIBREHARPER_VENDOR_PACKAGES)))
         )
 
     if strip and not with_tests:
@@ -139,6 +138,12 @@ def assemble_libreharper_bundle(base_dir: str, *, with_tests: bool = False, stri
 
     slim_libreharper_package_inits(os.path.join(bundle_path, "plugin"))
     print("  Slimmed writer/doc/client package inits for LibreHarper")
+
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=False)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 0
 
     print(
         "Assembled %d files in %s (%d plugin modules)"
@@ -153,27 +158,18 @@ def zip_libreharper_bundle(base_dir: str, output: str) -> int:
         print("ERROR: %s not found. Run without --repack first." % LIBREHARPER_BUNDLE_DIR, file=sys.stderr)
         return 1
 
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=False)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
+
     output_path = os.path.join(base_dir, output)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    if os.path.exists(output_path):
-        os.remove(output_path)
-
-    count = 0
-    import zipfile
-
-    # strict_timestamps=False: freshly vendored wheels and reused Cloud Agent
-    # snapshot checkouts can carry pre-1980 (epoch-0) mtimes, which the default
-    # rejects with "ZIP does not support timestamps before 1980" and aborts the
-    # build. False clamps such entries to 1980-01-01 instead of failing.
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
-        for root, dirs, filenames in os.walk(bundle_path):
-            dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
-            for fn in filenames:
-                filepath = os.path.join(root, fn)
-                arcname = os.path.relpath(filepath, bundle_path)
-                if not should_exclude(arcname, with_tests=True):
-                    zf.write(filepath, arcname)
-                    count += 1
+    try:
+        count = write_oxt_zip(bundle_path, output_path)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
 
     print("Created %s with %d files (%s)" % (output, count, LIBREHARPER_EXTENSION_ID))
     return 0

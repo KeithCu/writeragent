@@ -136,6 +136,13 @@ def add_helper(board, helper_id, helper_text, left, top, width, height):
     return ET.SubElement(board, _dlg("text"), attrs)
 
 
+def require_widget(schema, allowed: frozenset[str], *, where: str) -> str:
+    widget = schema.get("widget") or "text"
+    if widget not in allowed:
+        raise ValueError(f"{where}: unknown widget {widget!r}")
+    return widget
+
+
 def write_if_changed(path, content, mode="w", encoding="utf-8"):
     """Write content to path only if the file does not exist or the content has changed."""
     import os

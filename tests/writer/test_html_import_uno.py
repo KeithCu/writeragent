@@ -83,3 +83,24 @@ def test_preserve_format_replace_keeps_existing_ruby_uno(ctx: Any, doc: Any) -> 
     assert any(kind == "Ruby" and reading == "かんじ" for kind, _text, reading in kinds), kinds
     got = GetDocumentContent().execute(tool_ctx, scope="full")
     assert "<rt>かんじ</rt>" in (got.get("content") or ""), got
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_ruby_with_math_creates_ruby_on_both_bases_uno(ctx: Any, doc: Any) -> None:
+    """A paragraph with a ruby, an inline formula, and a second ruby gets RubyText on both bases."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import ApplyDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    html = "<p><ruby>東<rt>ひがし</rt></ruby> \\(x^2\\) <ruby>西<rt>にし</rt></ruby></p>"
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
+    assert res.get("status") == "ok", res
+
+    kinds = _ruby_portions(doc)
+    assert any(kind == "Ruby" and reading == "ひがし" for kind, _text, reading in kinds), kinds
+    assert any(kind == "Ruby" and reading == "にし" for kind, _text, reading in kinds), kinds
+    assert any(kind == "Text" and text == "東" for kind, text, _reading in kinds), kinds
+    assert any(kind == "Text" and text == "西" for kind, text, _reading in kinds), kinds
+

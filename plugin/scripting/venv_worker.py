@@ -49,7 +49,7 @@ from plugin.scripting.ipc import (
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_frame_payload_with_timeout,
+    read_frame_payload,
     unpack_pickle_frame,
     write_packed_frame_with_timeout,
 )
@@ -1138,7 +1138,7 @@ class PythonWorkerManager:
         frame_label="venv worker frame".
         """
         try:
-            payload = read_frame_payload_with_timeout(
+            payload = read_frame_payload(
                 stdout,
                 float(timeout_sec),
                 deadline=deadline,

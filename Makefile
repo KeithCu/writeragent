@@ -81,11 +81,8 @@ ifeq ($(OS),Windows_NT)
     LO_PROGRAM := $(firstword $(wildcard C:/Progra~1/LibreOffice/program) $(wildcard C:/Progra~2/LibreOffice/program))
     ifneq ($(LO_PROGRAM),)
         UNOPKG := "$(LO_PROGRAM)/unopkg.exe"
-        LO_PYTHON ?= $(LO_PROGRAM)/python.exe
     else
         UNOPKG := unopkg
-        # No LibreOffice program dir: leave LO_PYTHON unset. A random
-        # python.exe cannot host pyuno; test-uno must fail loudly instead.
     endif
 else
     SCRIPTS = $(PROJECT_ROOT)/scripts
@@ -97,44 +94,8 @@ else
     UNAME_S := $(shell uname -s 2>/dev/null)
     ifeq ($(UNAME_S),Darwin)
     LO_CONF := $(HOME)/Library/Application Support/LibreOffice/4
-    # Official macOS entry is Contents/Resources/python (pyuno/zipcore/python.sh
-    # + mac.sh): it sets UNO_PATH, URE_BOOTSTRAP, PYTHONHOME, PYTHONPATH
-    # (Resources + Frameworks) and execs Python.app's LibreOfficePython.
-    # officehelper.py / uno.py ship in Contents/Resources (LIBO_LIB_PYUNO_FOLDER).
-    # The raw LibreOfficePython.framework .../bin/python3 does not put those
-    # modules on sys.path — macOS CI 33708366478 imported nothing and died
-    # before bootstrap. Framework python3 remains a fallback for older
-    # layouts; LO_PYTHON_ENV then supplies the wrapper variables.
-    # Never fall through to $(PYTHON) / .venv (macOS CI 33447724981 segfault).
-    LO_APP := $(firstword $(wildcard \
-        /Applications/LibreOffice.app \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app))
-    LO_PYTHON ?= $(firstword $(wildcard \
-        /Applications/LibreOffice.app/Contents/Resources/python \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Resources/python \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Resources/python \
-        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
-        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3))
-    # Recipe prefix only — do not export PYTHONPATH (would break pytest / .venv).
-    # UNO_PATH is Contents/MacOS (soffice), not Resources (wrapper default).
-    ifneq ($(LO_APP),)
-    LO_FUNDAMENTALRC := $(firstword $(wildcard \
-        $(LO_APP)/Contents/Resources/fundamentalrc \
-        $(LO_APP)/Contents/Resources/fundamental.ini))
-    LO_PYTHON_ENV = UNO_PATH="$(LO_APP)/Contents/MacOS" URE_BOOTSTRAP="vnd.sun.star.pathname:$(or $(LO_FUNDAMENTALRC),$(LO_APP)/Contents/Resources/fundamentalrc)" PYTHONPATH="$(LO_APP)/Contents/Resources:$(LO_APP)/Contents/Frameworks"
-    endif
     else
     LO_CONF := $(HOME)/.config/libreoffice/4
-    # python3-uno binds to the distro interpreter. setup-python / uv put
-    # another python3 first on PATH, so a bare `python3 -c "import uno"`
-    # fails on Ubuntu CI even when python3-uno is installed (33453027089,
-    # again 33456719039 on this branch before #532 was merged in).
-    LO_PYTHON ?= $(shell /usr/bin/python3 -c "import uno" 2>/dev/null && echo /usr/bin/python3)
     endif
     HOME_DIR = $(HOME)
     UNOPKG := unopkg
@@ -164,6 +125,13 @@ ifneq ($(wildcard $(PROJECT_ROOT)/.venv/Scripts/python.exe),)
     PYTHON := $(PROJECT_ROOT)/.venv/Scripts/python.exe
 endif
 endif
+ifeq ($(origin LO_PYTHON),undefined)
+LO_PYTHON := $(shell "$(PYTHON)" "$(SCRIPTS)/lo_paths.py" find lo-python)
+endif
+ifneq ($(origin LO_PYTHON_ENV),undefined)
+export LO_PYTHON_ENV
+endif
+
 # Optional PySpector CLI (console script; no python -m). Not part of make test.
 ifeq ($(OS),Windows_NT)
     PYSPECTOR := $(PROJECT_ROOT)/.venv/Scripts/pyspector.exe
@@ -181,7 +149,7 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording release release-no-test release-build update-xml repack repack-deploy register-built-oxt manifest manifest-core manifest-harper rdb-core build-core build-core-native deploy-core register-librepy-oxt build-harper deploy-harper register-libreharper-oxt xcu clean \
+.PHONY: help build build-no-recording release release-verify release-no-test release-build update-xml repack repack-deploy register-built-oxt manifest manifest-core manifest-harper rdb-core build-core build-core-native deploy-core register-librepy-oxt build-harper deploy-harper register-libreharper-oxt xcu clean \
         native build-native clean-native update-vec sync-vec \
         proxy-stubs \
         openrouter-catalog \
@@ -194,7 +162,7 @@ endif
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
-        set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
+        set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
         eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
@@ -211,6 +179,7 @@ help:
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
 	@echo "  make release                Typecheck + bandit, then stripped-bundle tests in /tmp,"
 	@echo "                              then build/register the release .oxt. (Cython if 'make native')"
+	@echo "  make release-verify         Run stripped-bundle verification tests without full release build"
 	@echo "  make release-no-test        Build release OXT and register it without running tests/verification"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
 	@echo "  make build-core             Build standalone LibrePy.oxt (scientific Python)"
@@ -294,7 +263,7 @@ help:
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
 	@echo "  make typecheck              ruff-for-build, then basedpyright/bandit/opengrep/pyspector/ty/thread-safety/mypy in parallel (basedpyright does not walk numpy/etc. source)"
 	@echo "  make typecheck-full         same as typecheck, but basedpyright walks library source (numpy/etc.); used by make release"
-	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run by typecheck/test)"
+	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"
 	@echo "  make fix-uno                Same as ensure-uno with verbose output"
 	@echo "  make mypy / make basedpyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
@@ -326,24 +295,10 @@ docker-build:
 	@echo "Done: build/writeragent.oxt"
 
 auto-translate:
-	@echo "Regenerating translation templates (.pot)..."; \
-	$(MAKE) extract-strings; \
-	"$(PYTHON)" scripts/translate_missing.py --preview; \
-	if [ -n "$$OPENROUTER_API_KEY" ]; then \
-		echo "Auto-translating missing strings with AI..."; \
-		"$(PYTHON)" scripts/translate_missing.py --execute --skip-initial-status; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --auto-translate
 
 refresh-pot:
-	@if command -v xgettext >/dev/null 2>&1; then \
-		echo "Regenerating translation templates (.pot) without updating .po..."; \
-		"$(PYTHON)" scripts/extract_xdl_strings.py; \
-		xgettext --add-location=file -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
-		"$(PYTHON)" scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
-		rm -f plugin/xdl_strings.py; \
-	else \
-		echo "Skipping .pot regeneration (xgettext not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --pot-only
 
 preview-translations: refresh-pot
 	"$(PYTHON)" scripts/translate_missing.py --preview
@@ -374,25 +329,12 @@ release: clean
 	@$(MAKE) schema-docs
 	@$(MAKE) vendor compile-translations
 	@$(MAKE) typecheck-full
-	@echo "Building stripped bundle for verification in a temp dir..."
-	@set -e; \
-	RELEASE_TMP=$$("$(PYTHON)" -c "import tempfile; print(tempfile.mkdtemp(prefix='writeragent-release-'))"); \
-	RELEASE_SEED="$$RELEASE_TMP.seed"; \
-	trap '$(MAKE) -C "$(PROJECT_ROOT)" lo-kill || true; rm -rf "$$RELEASE_TMP" "$$RELEASE_SEED"' EXIT; \
-	echo "Stripped verification tree: $$RELEASE_TMP"; \
-	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --strip --bundle-dir "$$RELEASE_TMP" --skip-zip; \
-	echo "Registering the stripped bundle into scratch HOME $$RELEASE_SEED/home (test-uno seeds its throwaway profile from it; the user profile is untouched)..."; \
-	mkdir -p "$$RELEASE_SEED/home"; \
-	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --repack --bundle-dir "$$RELEASE_TMP" --output "$$RELEASE_SEED/$(EXTENSION_NAME).oxt"; \
-	HOME="$$RELEASE_SEED/home" $(UNOPKG) add -f "$$RELEASE_SEED/$(EXTENSION_NAME).oxt"; \
-	"$(PYTHON)" -m compileall -j 0 -q "$$RELEASE_TMP/plugin" "$$RELEASE_TMP/tests"; \
-	cp pyproject.toml "$$RELEASE_TMP/pyproject.toml"; \
-	echo "Running tests against stripped bundle..."; \
-	echo "  (grammar_obs call-site tests self-skip via _grammar_obs_call_sites_present; whole modules ignored below)"; \
-	cd "$$RELEASE_TMP" && PYTHONPATH=. "$(abspath $(PYTHON))" -m pytest --ignore=tests/scripts --ignore=tests/compute_service --ignore=tests/librepy/test_main_core.py --ignore=tests/scripts/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py --ignore=tests/framework/test_thread_guard.py --ignore=tests/framework/test_thread_affinity.py --ignore=tests/doc/test_specialized_delegation_threading.py --ignore=tests/writer/locale/test_grammar_obs.py --ignore=tests/writer/locale/test_libreharper_oxt.py --ignore=tests/chatbot/test_sidebar_test_hooks.py -k "not test_sync_tool_marshaled_from_background and not test_execute_on_main_thread_timeout and not test_execute_python_addin_from_background_thread" tests; \
-	cd "$$RELEASE_TMP" && PYTHONPATH=. HOME="$$RELEASE_SEED/home" $(MAKE) -f "$(PROJECT_ROOT)/Makefile" test-uno; \
-	$(MAKE) -C "$(PROJECT_ROOT)" release-build; \
-	$(MAKE) -C "$(PROJECT_ROOT)" register-built-oxt
+	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
+	@$(MAKE) release-build
+	@$(MAKE) register-built-oxt
+
+release-verify: vendor manifest compile-translations
+	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
 
 release-no-test:
 	@$(MAKE) release-build
@@ -424,26 +366,18 @@ repack-deploy: repack register-built-oxt
 # Does not start LO (use ``make deploy`` with writer/calc/draw/impress, or ``make lo-start``).
 # Also removes LibrePy: both OXTs register org.extension.writeragent.PythonFunction,
 # so leaving LibrePy installed makes unopkg fail with "enabling: addin.py".
+REGISTER_LOGS = --log "$(HOME_DIR)/writeragent.log" --log "$(HOME_DIR)/writeragent_agent.log" --log "$(HOME_DIR)/writeragent_debug.log" --log "$(LO_DEBUG_LOG)" --log "$(LO_CONF)/user/writeragent_debug.log" --log "$(LO_CONF)/user/writeragent_agent.log"
+
 register-built-oxt:
 	@echo "Registering build/$(EXTENSION_NAME).oxt..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
-	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add build/$(EXTENSION_NAME).oxt
-	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
+	"$(PYTHON)" scripts/lo_profile.py register --oxt build/$(EXTENSION_NAME).oxt --profile "$(LO_CONF)" --remove $(LIBREPY_EXTENSION_ID) --remove org.extension.writeragent $(REGISTER_LOGS)
 	@echo "Registered org.extension.writeragent (start LibreOffice manually to load it)."
 
 manifest:
 	"$(PYTHON)" $(SCRIPTS)/generate_manifest.py
 
 manifest-core:
-	"$(PYTHON)" $(SCRIPTS)/generate_manifest.py --modules scripting vision \
-		--manifest-output build/generated/_manifest_librepy.py \
-		--skip-writeragent-extension
+	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --manifest-only
 
 rdb-core:
 	# Bash-only (no Windows .ps1). CI without unoidl-write reuses the
@@ -453,22 +387,14 @@ rdb-core:
 
 build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (standalone core extension)..."
-	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
+	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT) --skip-manifest
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
 
 build-core-native: native build-core
 
 register-librepy-oxt:
 	@echo "Registering $(LIBREPY_OXT)..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
-	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add $(LIBREPY_OXT)
-	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
+	"$(PYTHON)" scripts/lo_profile.py register --oxt $(LIBREPY_OXT) --profile "$(LO_CONF)" --remove $(LIBREPY_EXTENSION_ID) --remove org.extension.writeragent $(REGISTER_LOGS)
 	@echo "Registered $(LIBREPY_EXTENSION_ID) (start LibreOffice manually to load it)."
 
 deploy-core: build-core register-librepy-oxt
@@ -484,12 +410,7 @@ build-harper: vendor
 
 register-libreharper-oxt:
 	@echo "Registering $(LIBREHARPER_OXT)..."
-	$(MAKE) lo-kill
-	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
-	-$(UNOPKG) remove $(LIBREHARPER_EXTENSION_ID) 2>/dev/null
-	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
-	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
-	$(UNOPKG) add $(LIBREHARPER_OXT)
+	"$(PYTHON)" scripts/lo_profile.py register --oxt $(LIBREHARPER_OXT) --profile "$(LO_CONF)" --remove $(LIBREHARPER_EXTENSION_ID)
 	@echo "Registered $(LIBREHARPER_EXTENSION_ID) (WriterAgent left installed if present)."
 
 deploy-harper: build-harper register-libreharper-oxt
@@ -543,9 +464,7 @@ proxy-stubs:
 xcu: manifest
 
 clean: clean-native
-	$(RM_RF) build
-	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-	find . -name "*.pyc" -delete 2>/dev/null || true
+	"$(PYTHON)" scripts/clean.py
 
 # ── Install ──────────────────────────────────────────────────────────────────
 
@@ -635,24 +554,10 @@ nuke-cache-force:
 
 # ── Translation ──────────────────────────────────────────────────────────────
 extract-strings:
-	@if command -v xgettext >/dev/null 2>&1; then \
-		"$(PYTHON)" scripts/extract_xdl_strings.py; \
-		xgettext --add-location=file --keyword=N_ -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
-		"$(PYTHON)" scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
-		rm -f plugin/xdl_strings.py; \
-		$(MAKE) merge-translations; \
-	else \
-		echo "Skipping string extraction (xgettext not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py
 
-# Merge each locale .po with writeragent.pot, then strip obsolete entries (#~) so removed
-# source strings do not accumulate. (msgattrib --no-obsolete: portable where msgmerge lacks --no-obsolete.)
 merge-translations:
-	@if command -v msgmerge >/dev/null 2>&1; then \
-		find locales -name writeragent.po -exec sh -c 'f="$$1"; msgmerge --add-location=file --update --backup=none "$$f" locales/writeragent.pot && msgattrib --no-obsolete -o "$$f.tmp" "$$f" && mv -f "$$f.tmp" "$$f"' _ {} \;; \
-	else \
-		echo "Skipping .po merge (msgmerge not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" scripts/extract_strings.py --merge-only
 
 
 add-language:
@@ -713,18 +618,6 @@ check-ext:
 	@echo "---"
 	@"$(PYTHON)" -c "from plugin._manifest import MODULES; print('Manifest OK: %d modules, %d with config' % (len(MODULES), len([m for m in MODULES if m.get('config')])))"
 
-# Host Python that can import the real pyuno bridge.
-# Windows / Darwin set LO_PYTHON above to LibreOffice's bundled interpreter.
-# Linux (and any platform that left it unset) probes system python3, then python.
-# Do NOT fall back to the project venv: on macOS that CPython 3.13 loads pyuno
-# and segfaults with no output (CI 33447724981). If nothing can import uno,
-# LO_PYTHON stays empty and _check-lo-python fails with the paths we looked for.
-LO_PYTHON ?= $(shell python3 -c "import uno" 2>/dev/null && echo python3 || (python -c "import uno" 2>/dev/null && echo python))
-# Darwin sets this to UNO_PATH / URE_BOOTSTRAP / PYTHONPATH. Empty elsewhere.
-LO_PYTHON_ENV ?=
-# Drop host-venv leaks so LibreOffice's interpreter does not inherit
-# PYTHONHOME / VIRTUAL_ENV / __PYVENV_LAUNCHER__ (Darwin venv leak).
-LO_PYTHON_UNSET := env -u VIRTUAL_ENV -u __PYVENV_LAUNCHER__ -u PYTHONHOME
 
 # -j6 leaves a core free. Do not pass basedpyright --threads: it nests workers on this pool.
 typecheck: manifest ruff-for-build
@@ -796,33 +689,13 @@ FILTER ?=
 # python3 exists but cannot import officehelper without the Resources
 # wrapper / URE_BOOTSTRAP (CI 33708366478). Probe both modules here.
 _check-lo-python:
-	@if [ -z "$(strip $(LO_PYTHON))" ]; then \
-		echo >&2 "error: LO_PYTHON is empty — no interpreter that can import uno was found."; \
-		echo >&2 "LibreOffice pyuno cannot be hosted by an arbitrary CPython (macOS CI"; \
-		echo >&2 "segfaulted in ~150ms with no output when the project venv was used)."; \
-		echo >&2 "Looked for:"; \
-		echo >&2 "  macOS: /Applications/LibreOffice.app/Contents/Resources/python"; \
-		echo >&2 "         (official wrapper; also Homebrew Caskroom LibreOffice.app)"; \
-		echo >&2 "         fallback: LibreOfficePython.framework/.../bin/python3"; \
-		echo >&2 "  Linux: /usr/bin/python3 (python3-uno), then python3 or python on PATH"; \
-		echo >&2 "  Windows: LibreOffice/program/python.exe"; \
-		echo >&2 "Set LO_PYTHON to LibreOffice's bundled interpreter — not the project .venv."; \
-		exit 1; \
-	fi
-	@echo "LO_PYTHON=$(LO_PYTHON)"
-	@if ! $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -c "from plugin.testing_runner import _ensure_libreoffice_python_path; _ensure_libreoffice_python_path(); import officehelper, uno; print('officehelper=' + officehelper.__file__); print('uno=' + uno.__file__)"; then \
-		echo >&2 "error: $(LO_PYTHON) cannot import officehelper and uno."; \
-		echo >&2 "On macOS use Contents/Resources/python (sets URE_BOOTSTRAP / PYTHONPATH)"; \
-		echo >&2 "or set those vars yourself. officehelper.py lives in Contents/Resources."; \
-		echo >&2 "Do not fall back to the project .venv — that CPython cannot host pyuno."; \
-		exit 1; \
-	fi
+	@"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" check-lo-python --python "$(LO_PYTHON)"
 
 test-uno: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	# Release runs this from a /tmp tree with no .venv. The spill UNO test
 	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
-	PYTHONUNBUFFERED=1 WRITERAGENT_PROJECT_ROOT="$(PROJECT_ROOT)" $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 # Same office process, N times: stress Draw factory-open / close (URP DisposedException flakes).
 # FILTER defaults to the Draw native suite. PAIR=tree-math | dup-move expands --pair.
@@ -839,11 +712,11 @@ SOAK_FILTERS := --pair $(PAIR) $(FILTER)
 endif
 test-uno-soak: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --repeat $(REPEAT) $(SOAK_FILTERS); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner --repeat $(REPEAT) $(SOAK_FILTERS); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 test-mock-sidebar: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	WRITERAGENT_UNO_TEST_TIMEOUT=120 PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --user-profile $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_TEST_TIMEOUT=120 -- -u -m plugin.testing_runner --user-profile $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 # Cap xdist at 6 so subprocess-heavy compute_service / venv worker tests
 # do not starve handshake timeouts on an 8-core box (PYTEST_WORKERS=auto).
@@ -870,7 +743,6 @@ vhs:
 	$(_VHS_EXTENSIVE) "$(PYTHON)" -m pytest \
 		tests/scripting/test_serialization_ab.py \
 		tests/chatbot/test_fsm_verification.py \
-		tests/mcp/test_mcp_state_verification.py \
 		tests/calc/python/test_formula_edit_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/writer/test_writer_diff_and_html_verification.py \
@@ -884,13 +756,13 @@ vhs:
 		-k hypothesis -s --hypothesis-verbosity=verbose
 
 test-visible: _check-lo-python
-	PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 lo-test-threadguard:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(MAKE) test-uno
 
 lo-test-threadguard-visible: _check-lo-python
-	WRITERAGENT_UNO_THREAD_GUARD=1 PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_THREAD_GUARD=1 -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 opengrep-lint:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)

@@ -55,10 +55,13 @@ def _stop_for_tracked_changes(ctx: Any, title: str, text_range: Any) -> bool:
 
 
 def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
-    from plugin.writer.selection import selected_text_range
+    from plugin.doc.text_helpers import selected_text_range
 
     text_range = selected_text_range(model.CurrentController)
     title = _("WriterAgent: Extend Selection")
+    if text_range is None:
+        msgbox(ctx, title, _("Select text first"))
+        return
     if _stop_for_tracked_changes(ctx, title, text_range):
         return
     original_text = get_string_without_tracked_deletions(text_range)
@@ -96,7 +99,7 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
     def on_error(e: BaseException) -> None:
         session.abort_and_restore()
-        msgbox(ctx, title, _(format_error_message(e)))
+        msgbox(ctx, title, format_error_message(e))
 
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).
@@ -104,10 +107,13 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
 
 def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
-    from plugin.writer.selection import selected_text_range
+    from plugin.doc.text_helpers import selected_text_range
 
     text_range = selected_text_range(model.CurrentController)
     title = _("WriterAgent: Edit Selection")
+    if text_range is None:
+        msgbox(ctx, title, _("Select text first"))
+        return
     if _stop_for_tracked_changes(ctx, title, text_range):
         return
     original_text = get_string_without_tracked_deletions(text_range)
@@ -143,7 +149,7 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
     def on_error(e: BaseException) -> None:
         session.abort_and_restore()
-        msgbox(ctx, title, _(format_error_message(e)))
+        msgbox(ctx, title, format_error_message(e))
 
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).

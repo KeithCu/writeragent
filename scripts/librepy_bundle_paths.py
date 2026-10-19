@@ -19,7 +19,9 @@ LIBREPY_CALC_FUNCTIONS_EXCLUDES: tuple[str, ...] = (
 
 # vendor/ package dirs copied into plugin/lib/ (WriterAgent ships full requirements-vendor.txt).
 # Excluded from LibrePy: snowballstemmer (grammar/embeddings), websockets (CDP), defusedxml (embeddings).
-LIBREPY_VENDOR_PACKAGES: frozenset[str] = frozenset({"isodate", "json_repair", "latex2mathml"})
+LIBREPY_VENDOR_PACKAGES: frozenset[str] = frozenset(
+    {"isodate", "json_repair", "latex2mathml", "mathml_to_latex"}
+)
 
 # Whole subtrees under plugin/, minus relative paths in the exclude set.
 LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {

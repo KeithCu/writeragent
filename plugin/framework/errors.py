@@ -29,7 +29,7 @@ from typing import Any, Callable, TypeVar, overload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
 
 try:
     from com.sun.star.lang import DisposedException
@@ -159,21 +159,45 @@ class suppress_disposed(contextlib.ContextDecorator):
 
 def resolve_exception_message(e: Any) -> str:
     """Extract non-empty message string from an exception, resolving UNO Exception Message attributes and causes."""
-    msg = getattr(e, "Message", None) or str(e)
-    if isinstance(msg, str):
-        msg = msg.strip()
-    else:
-        msg = ""
-    if not msg and isinstance(e, Exception):
-        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        if cause is not None:
-            msg = getattr(cause, "Message", None) or str(cause)
-            if isinstance(msg, str):
-                msg = msg.strip()
-            else:
-                msg = ""
+    msg = ""
+    try:
+        raw = getattr(e, "Message", None)
+        if isinstance(raw, str) and raw.strip():
+            msg = raw.strip()
+    except Exception:
+        pass
     if not msg:
-        msg = type(e).__name__ if isinstance(e, Exception) else "Unknown error"
+        try:
+            raw = str(e)
+            if isinstance(raw, str) and raw.strip():
+                msg = raw.strip()
+        except Exception:
+            pass
+    if not msg:
+        cause = None
+        try:
+            cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        except Exception:
+            pass
+        if cause is not None and cause is not e:
+            try:
+                raw = getattr(cause, "Message", None)
+                if isinstance(raw, str) and raw.strip():
+                    msg = raw.strip()
+            except Exception:
+                pass
+            if not msg:
+                try:
+                    raw = str(cause)
+                    if isinstance(raw, str) and raw.strip():
+                        msg = raw.strip()
+                except Exception:
+                    pass
+    if not msg:
+        if isinstance(e, BaseException):
+            msg = type(e).__name__.strip() or "BaseException"
+        else:
+            msg = "Unknown error"
     return msg
 
 
@@ -211,20 +235,16 @@ class WriterAgentException(Exception):
     details: dict[str, Any]
     context: dict[str, Any]
 
-    def __init__(self, message: Any, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
+    def __init__(self, message: Any, *, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
         # Accept both `details` and legacy `context` (alias).
         if details is None and context is not None:
             details = context
 
-        super().__init__(message)
-        if UNDER_CROSSHAIR:
-            self.message = "mock"
-        else:
-            # Runtime / interpolated strings are not in the gettext catalog;
-            # _() is a no-op unless the exact source string was extracted.
-            # Messages longer than the msgid bound skip _() — see
-            # _translate_exception_message.
-            self.message = _translate_exception_message(message)
+        # Runtime / interpolated strings are not in the gettext catalog; _() is a no-op
+        # unless the exact source string was extracted. Long messages skip _().
+        text = "mock" if UNDER_CROSSHAIR else _translate_exception_message(message)
+        super().__init__(text)
+        self.message = text
         if code is not None:
             self.code = code
         self.details = details or {}
@@ -387,9 +407,8 @@ def _is_connection_refused(exc: BaseException, reason: str) -> bool:
     return "Connection refused" in reason
 
 
-@deal.pre(lambda e: isinstance(e, Exception))
 @deal.post(lambda result: isinstance(result, str))
-def format_error_message(e: Exception) -> str:
+def format_error_message(e: BaseException) -> str:
     """Map common exceptions to user-friendly, localized advice.
 
     Keep this function focused on the common cross-cutting cases. Provider-
@@ -503,15 +522,18 @@ def format_error_message(e: Exception) -> str:
     return msg
 
 
-@deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str) and ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
-def make_tool_error(message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
+def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads.
 
     A long UNO or provider string is a runtime message. Construction goes
     through ``WriterAgentException``, which does not apply the gettext msgid
     length contract to that text.
     """
+    if not isinstance(message, str):
+        message = resolve_exception_message(message)
+    if not isinstance(code, str) or not code:
+        code = "TOOL_EXECUTION_ERROR"
     return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
 
@@ -603,16 +625,17 @@ def is_document_disposed(doc: Any) -> bool:
     """Safely check if a UNO document or component is disposed or invalid."""
     if doc is None:
         return True
-    if hasattr(doc, "getImplementationName"):
-        try:
-            _unused = doc.getImplementationName()
+    try:
+        impl_fn = getattr(doc, "getImplementationName", None)
+        if not callable(impl_fn):
             return False
-        except Exception as exc:
-            # A live document can raise RuntimeException for a bad call.
-            # Only a disposal exception means the document is gone.
-            name = type(exc).__name__
-            return isinstance(exc, DocumentDisposedError) or "DisposedException" in name
-    return False
+        _unused = impl_fn()
+        return False
+    except Exception as exc:
+        # A live document can raise RuntimeException for a bad call.
+        # Only a disposal exception means the document is gone.
+        name = type(exc).__name__
+        return isinstance(exc, DocumentDisposedError) or "DisposedException" in name
 
 
 def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
@@ -646,6 +669,14 @@ def is_real_disposal(exc: BaseException) -> bool:
     return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
 
 
+def _uno_disposal_message(exc: BaseException) -> str:
+    """Resolve exception text, falling back to standard UNO disposal sentence."""
+    msg = resolve_exception_message(exc)
+    if msg == type(exc).__name__:
+        return "UNO object was disposed"
+    return msg
+
+
 def reraise_if_disposed(
     exc: BaseException,
     message: str = "Document disposed during operation",
@@ -655,9 +686,12 @@ def reraise_if_disposed(
     """Disposed UNO is a closed document or component, not a generic tool failure.
 
     Only DisposedException and DocumentDisposedError become DocumentDisposedError.
+    An existing DocumentDisposedError is re-raised unchanged.
     A bare RuntimeException must remain the original exception because wrapping
     it makes is_tool_document_disposed skip the live-document probe.
     """
+    if isinstance(exc, DocumentDisposedError):
+        raise exc
     if is_real_disposal(exc):
         raise DocumentDisposedError(message, object_type=object_type) from exc
 
@@ -826,4 +860,5 @@ __all__ = [
     "suppress_disposed",
     "uno_probe",
     "uno_read",
+    "_uno_disposal_message",
 ]

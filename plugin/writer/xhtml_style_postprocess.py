@@ -47,6 +47,7 @@ _PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
 _TRAILING_EMPTY_P_RE = re.compile(
     r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
+_BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
 
 from plugin.framework.deal_shim import deal
 
@@ -69,6 +70,17 @@ def compact_lo_style_name(uno_name: str) -> str:
     if type(uno_name) is not str:
         return ""
     return uno_name.replace(" ", "")
+
+
+@deal.post(lambda result: isinstance(result, bool))
+def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
+    """True when body contains at least one paragraph-P<digits> autostyle class."""
+    # crosshair: off
+    if type(xhtml) is not str:
+        return False
+    match = _BODY_RE.search(xhtml)
+    body = match.group(1) if match else _STYLE_BLOCK_RE.sub("", xhtml)
+    return bool(_BODY_AUTOSTYLE_RE.search(body))
 
 
 _FODT_STYLE_RE = re.compile(r"<style:style\b([^>]*?)/?>", re.IGNORECASE)

@@ -18,7 +18,6 @@ import sys
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.sandbox import (
     BASE_BUILTIN_MODULES,
-    CALC_AUTHORIZED_IMPORTS,
     DANGEROUS_MODULES,
     VENV_AUTHORIZED_IMPORTS,
     _VENV_STDLIB,
@@ -73,10 +72,6 @@ PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
     "Therefore, the specialized_workflow_finished tool API only accepts basic Python types (strings, lists, numbers, dicts)."
 )
 
-INPROCESS_SANDBOX_CONTEXT_PREFIX = (
-    "PYTHON IN-PROCESS SANDBOX: You are running in LibreOffice's embedded stdlib-only Python sandbox "
-    "(not the user venv). Helpers lp/set_range read and write sheet cells; imports are stdlib-only."
-)
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
@@ -141,10 +136,6 @@ def venv_blocked_modules() -> tuple[str, ...]:
     return tuple(sorted(set(DANGEROUS_MODULES) | set(_VENV_COMMON_BLOCKED)))
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
-def inprocess_authorized_modules() -> tuple[str, ...]:
-    """Modules allowed in LO embedded execute_python_script sandbox."""
-    return CALC_AUTHORIZED_IMPORTS
 
 
 def _join_modules(modules: tuple[str, ...]) -> str:
@@ -229,15 +220,6 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     return " ".join(parts)
 
 
-def format_inprocess_import_policy_for_prompt() -> str:
-    """Prompt line for execute_python_script (stdlib in-process sandbox)."""
-    allowed = _join_modules(inprocess_authorized_modules())
-    blocked = _join_modules(tuple(sorted(DANGEROUS_MODULES)))
-    return (
-        f"{INPROCESS_SANDBOX_CONTEXT_PREFIX} "
-        f"Allowed imports in this sandbox: {allowed}. "
-        f"Blocked: {blocked} and anything else not listed."
-    )
 
 
 _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {

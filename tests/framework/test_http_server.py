@@ -5,12 +5,15 @@
 """Dual-stack HTTP server: reuse, TLS wrap, cancel, and daemon workers."""
 
 from concurrent.futures import Future
+import errno
 import socket
 import ssl
 import threading
 import time
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer, _RequestThreads
 
@@ -27,7 +30,12 @@ def _reuse(sock: socket.socket) -> int:
 
 
 def test_reuseaddr_follows_allow_reuse_address() -> None:
-    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    # The default is off on Windows (there SO_REUSEADDR lets another program grab the port),
+    # so turn it on explicitly to check that the flag is honored.
+    class _Reuse(DualStackThreadPoolHTTPServer):
+        allow_reuse_address = True
+
+    server = _Reuse(("127.0.0.1", 0), _Handler)
     try:
         assert server.sockets
         # macOS/BSD getsockopt returns the option's flag bit (4), not 1; any nonzero means on.
@@ -263,7 +271,7 @@ def test_drain_executor_waits_for_in_flight_handler_released_mid_wait(caplog) ->
         waiting.set()
         return real_shutdown(*args, **kwargs)
 
-    server.executor.shutdown = _shutdown_spy  # type: ignore[method-assign]
+    setattr(server.executor, "shutdown", _shutdown_spy)
     drained = threading.Event()
 
     def _drain() -> None:
@@ -301,3 +309,260 @@ def test_drain_executor_abandons_after_timeout_and_warns(caplog) -> None:
     finally:
         release.set()
         server.server_close()
+
+
+def test_accept_queue_cap_closes_excess_socket() -> None:
+    ran: list[object] = []
+
+    class _Counting:
+        def __init__(self, request: object, client_address: object, server: object) -> None:
+            ran.append(request)
+
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Counting, max_threads=1, max_queued=1)
+    hold = threading.Event()
+    started = threading.Event()
+
+    def _occupy() -> None:
+        started.set()
+        hold.wait(timeout=5)
+
+    sock1 = MagicMock()
+    sock2 = MagicMock()
+    try:
+        server.executor.submit(_occupy)
+        assert started.wait(timeout=2)
+        # One request stays queued and its mock socket is not closed.
+        server.process_request(sock1, ("127.0.0.1", 1001))
+        sock1.close.assert_not_called()
+        assert server.executor._work_queue.qsize() == 1
+
+        # The next request closes the socket, does not run the handler,
+        # and leaves the queue depth unchanged.
+        server.process_request(sock2, ("127.0.0.1", 1002))
+        sock2.close.assert_called_once()
+        assert ran == []
+        assert server.executor._work_queue.qsize() == 1
+    finally:
+        hold.set()
+        server.server_close()
+
+
+def test_handle_error_connection_error_does_not_call_super() -> None:
+    from unittest.mock import patch
+
+    server = DualStackThreadPoolHTTPServer.__new__(DualStackThreadPoolHTTPServer)
+    for exc_type in (ConnectionResetError, BrokenPipeError):
+        try:
+            raise exc_type("client closed")
+        except ConnectionError:
+            with patch("socketserver.BaseServer.handle_error") as super_handle:
+                server.handle_error(None, ("127.0.0.1", 1))
+        super_handle.assert_not_called()
+
+
+def test_worker_start_failure_leaves_queue_empty_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _RequestThreads(max_workers=2, thread_name_prefix="test_start_fail")
+    fail = True
+    real_start = pool._start_one_locked
+
+    def _failing_start() -> None:
+        if fail:
+            raise RuntimeError("can't start new thread")
+        real_start()
+
+    monkeypatch.setattr(pool, "_start_one_locked", _failing_start)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        pool.submit(lambda: 42)
+
+    assert pool._pending == 0
+    assert pool._work_queue.qsize() == 0
+    assert len(pool._threads) == 0
+
+    fail = False
+    fut = pool.submit(lambda: 42)
+    assert fut.result(timeout=2) == 42
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and pool._pending > 0:
+        time.sleep(0.001)
+    assert pool._pending == 0
+    pool.shutdown(wait=True)
+
+
+def test_worker_start_failure_with_live_worker_queues_and_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _RequestThreads(max_workers=2, thread_name_prefix="test_start_fallback")
+    started = threading.Event()
+    release = threading.Event()
+
+    def _occupy() -> int:
+        started.set()
+        release.wait(timeout=5)
+        return 1
+
+    fut1 = pool.submit(_occupy)
+    assert started.wait(timeout=2)
+    assert len(pool._threads) == 1
+
+    def _failing_start() -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(pool, "_start_one_locked", _failing_start)
+    fut2 = pool.submit(lambda: 2)
+    assert len(pool._threads) == 1
+
+    release.set()
+    assert fut1.result(timeout=2) == 1
+    assert fut2.result(timeout=2) == 2
+    assert len(pool._threads) == 1
+    pool.shutdown(wait=True)
+
+
+def test_process_request_closes_socket_on_start_failure_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[object] = []
+
+    class _CountingHandler:
+        def __init__(self, request: object, client_address: object, server: object) -> None:
+            ran.append(request)
+
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _CountingHandler, max_threads=2)
+    fail = True
+    real_start = server.executor._start_one_locked
+
+    def _failing_start() -> None:
+        if fail:
+            raise RuntimeError("can't start new thread")
+        real_start()
+
+    monkeypatch.setattr(server.executor, "_start_one_locked", _failing_start)
+    sock1 = MagicMock()
+    server.process_request(sock1, ("127.0.0.1", 1001))
+    sock1.close.assert_called_once()
+    assert ran == []
+
+    fail = False
+    sock2 = MagicMock()
+    server.process_request(sock2, ("127.0.0.1", 1002))
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not ran:
+        time.sleep(0.01)
+    assert ran == [sock2]
+    server.server_close()
+
+
+def _ipv6_loopback_supported() -> bool:
+    if not socket.has_ipv6:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as test_sock:
+            test_sock.bind(("::1", 0))
+            return True
+    except OSError:
+        return False
+
+
+@pytest.mark.parametrize("host", ["", "localhost", "127.0.0.1", "::1"])
+def test_loopback_hosts_listen_on_ipv4_and_ipv6_shared_port(host: str) -> None:
+    if not _ipv6_loopback_supported():
+        pytest.skip("IPv6 loopback not supported on this host")
+    server = DualStackThreadPoolHTTPServer((host, 0), _Handler)
+    try:
+        assert len(server.sockets) == 2
+        families = {s.family for s in server.sockets}
+        assert socket.AF_INET in families
+        assert socket.AF_INET6 in families
+        ports = {s.getsockname()[1] for s in server.sockets}
+        assert len(ports) == 1
+        port = next(iter(ports))
+        assert port != 0
+        addresses = {s.getsockname()[0] for s in server.sockets}
+        assert "0.0.0.0" not in addresses
+        assert "::" not in addresses
+        assert "127.0.0.1" in addresses
+        assert "::1" in addresses
+    finally:
+        server.server_close()
+
+
+def test_bind_ignores_eafnosupport_for_ipv6(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_bind = socket.socket.bind
+
+    def _fake_bind(self: socket.socket, addr: Any) -> None:
+        if self.family == socket.AF_INET6:
+            raise OSError(errno.EAFNOSUPPORT, "Address family not supported")
+        real_bind(self, addr)
+
+    monkeypatch.setattr(socket.socket, "bind", _fake_bind)
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    try:
+        assert len(server.sockets) == 1
+        assert server.sockets[0].family == socket.AF_INET
+    finally:
+        server.server_close()
+
+
+def test_occupied_ipv4_port_fails_fast_and_releases_ipv6() -> None:
+    occupier = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupier.bind(("127.0.0.1", 0))
+    occupier.listen(1)
+    port = occupier.getsockname()[1]
+    try:
+        with pytest.raises(OSError) as exc_info:
+            DualStackThreadPoolHTTPServer(("127.0.0.1", port), _Handler)
+        assert exc_info.value.errno in (errno.EADDRINUSE, 98, 48, 10048)
+
+        if _ipv6_loopback_supported():
+            test_v6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            try:
+                test_v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                test_v6.bind(("::1", port))
+            finally:
+                test_v6.close()
+    finally:
+        occupier.close()
+
+
+def test_all_families_eafnosupport_raises_could_not_bind(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_bind(self: socket.socket, addr: Any) -> None:
+        raise OSError(errno.EAFNOSUPPORT, "Address family not supported")
+
+    monkeypatch.setattr(socket.socket, "bind", _fake_bind)
+    with pytest.raises(OSError, match="Could not bind to any address"):
+        DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+
+
+def test_shutdown_before_serve_forever_returns_immediately_and_clears_flag() -> None:
+    ran: list[object] = []
+
+    class _CountingHandler:
+        def __init__(self, request: object, client_address: object, server: object) -> None:
+            ran.append(request)
+
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _CountingHandler)
+    try:
+        t0 = time.monotonic()
+        server.shutdown()
+        assert time.monotonic() - t0 < 0.1
+        assert server._dual_shutdown_request is True
+
+        serve_thread1 = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5})
+        serve_thread1.start()
+        serve_thread1.join(timeout=1.0)
+        assert not serve_thread1.is_alive()
+        assert server._dual_shutdown_request is False
+        assert ran == []
+
+        serve_thread2 = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5})
+        serve_thread2.start()
+        port = server.server_address[1]
+        with socket.create_connection(("127.0.0.1", port), timeout=2.0) as client:
+            client.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not ran:
+                time.sleep(0.01)
+        assert len(ran) == 1
+        server.shutdown()
+        serve_thread2.join(timeout=2.0)
+        assert not serve_thread2.is_alive()
+    finally:
+        server.server_close()
+
+

@@ -80,6 +80,24 @@ def test_calc_chart_colors(ctx, doc):
     assert res.get("status") == "ok", f"Create with colors failed: {res}"
     chart_name = res.get("name")
 
+    # Read back first series color
+    sheet = doc.getSheets().getByIndex(0)
+    chart_obj = sheet.getCharts().getByName(chart_name)
+    chart_doc = chart_obj.getEmbeddedObject()
+    diag = chart_doc.getFirstDiagram()
+    if diag:
+        coords = diag.getCoordinateSystems()
+        if coords:
+            ctypes = coords[0].getChartTypes()
+            if ctypes:
+                series_list = ctypes[0].getDataSeries()
+                if series_list:
+                    s0 = series_list[0]
+                    for prop in ["FillColor", "Color"]:
+                        if s0.getPropertySetInfo().hasPropertyByName(prop):
+                            assert s0.getPropertyValue(prop) == 0x00FF00
+                            break
+
     # 3. Edit chart with another color (e.g. shorthand hex and CSS name)
     edit_res = _execute(doc, ctx, "manage_charts", {
         "action": "edit",
@@ -203,6 +221,20 @@ def test_calc_multisheet_charts(ctx, doc):
     })
     assert edit_res.get("status") == "ok"
 
+    # Edit data_range and verify get_info data_ranges matches _range_to_str
+    edit_data_res = _execute(doc, ctx, "manage_charts", {
+        "action": "edit",
+        "name": "Chart_1",
+        "data_range": "'Sheet1'.A1:B2",
+    })
+    assert edit_data_res.get("status") == "ok"
+    from plugin.calc.bridge import CalcBridge
+    bridge = CalcBridge(doc)
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    expected_range_str = bridge._range_to_str(sheet1.getCellRangeByName("A1:B2").getRangeAddress())
+    info_c1 = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": "Chart_1"})
+    assert info_c1.get("data_ranges") == [expected_range_str]
+
     # 7. Create Chart 2 with has_header=False
     res3 = _execute(doc, ctx, "manage_charts", {
         "action": "create",
@@ -214,6 +246,22 @@ def test_calc_multisheet_charts(ctx, doc):
     })
     assert res3.get("status") == "ok"
     assert res3.get("name") == "Chart_2"
+
+    dashboard_sheet = doc.getSheets().getByName("Dashboard")
+    c2_chart = dashboard_sheet.getCharts().getByName("Chart_2")
+    assert c2_chart.getHasColumnHeaders() is False
+    assert c2_chart.getHasRowHeaders() is False
+
+    # Edit Chart_0 with has_header=False and read back flags
+    edit_hdr_res = _execute(doc, ctx, "manage_charts", {
+        "action": "edit",
+        "name": "Chart_0",
+        "has_header": False,
+    })
+    assert edit_hdr_res.get("status") == "ok"
+    sheet1_chart = sheet1.getCharts().getByName("Chart_0")
+    assert sheet1_chart.getHasColumnHeaders() is False
+    assert sheet1_chart.getHasRowHeaders() is False
 
     del_res = _execute(doc, ctx, "manage_charts", {
         "action": "delete",

@@ -365,7 +365,8 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     assert int(_control_tops(xdl_path)["audio__stt_provider"]) < int(_control_tops(xdl_path)["audio__stt_model"])
     assert int(_control_tops(xdl_path)["audio__stt_model"]) < int(_control_tops(xdl_path)["audio__stt_local_model"])
     assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
-    assert tips["doc__grammar_proofreader_recheck"].startswith("Clears cached grammar results")
+    recheck_tip = tips["doc__grammar_proofreader_recheck"]
+    assert recheck_tip is not None and recheck_tip.startswith("Clears cached grammar results")
     assert not tips.get("chatbot__max_tool_rounds")
     assert not tips.get("audio__test_voice")
 
@@ -376,7 +377,7 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
         for field_name, schema in config.items():
             if not isinstance(schema, dict):
                 continue
-            if schema.get("internal") or schema.get("widget") in ("list_detail", "separator"):
+            if schema.get("internal") or schema.get("widget") == "separator":
                 continue
             ctrl_id = f"{prefix}__{field_name}"
             expected = _settings_hover_text(schema)
@@ -521,5 +522,229 @@ def test_vision_helper_lines_fit_the_dialog(tmp_path: Path) -> None:
         assert left == 8
         assert width == dlg_width - 16
         assert left + width <= dlg_width
+
+
+@pytest.mark.parametrize("bad_widget", ["list_detail", "nope"])
+def test_unknown_widget_rejected_by_settings_and_standalone(tmp_path: Path, bad_widget: str) -> None:
+    """Settings and standalone generators reject unsupported or unknown widgets."""
+    from manifest_xdl import generate_standalone_config_dialog
+
+    fake_module = {
+        "name": "sample",
+        "title": "Sample",
+        "config": {
+            "bad_field": {"widget": bad_widget},
+        },
+    }
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog.xdl"
+    with pytest.raises(ValueError, match="unknown widget"):
+        generate_settings_dialog_tabs([fake_module], str(tpl), str(out))
+
+    with pytest.raises(ValueError, match="unknown widget"):
+        generate_standalone_config_dialog(fake_module)
+
+
+def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
+    """Saved field specs for all Settings tab modules and inline children match XDL control IDs."""
+    from unittest.mock import patch
+    from plugin._manifest import MODULES
+    from plugin.chatbot.settings_fields import build_module_field_specs
+    from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
+
+    xdl_path, _ = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    xdl_ids: set[str] = {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
+    }
+
+    inline_map = _build_inline_maps(MODULES)[1]
+    tab_modules = []
+    for m in iter_settings_tab_modules(MODULES):
+        tab_modules.append(m)
+        if inline_map.get(m["name"]):
+            for child_m, _ in inline_map[m["name"]]:
+                tab_modules.append(child_m)
+
+    all_specs_names = set()
+    with patch("plugin.chatbot.settings_fields.get_config", return_value=""):
+        for m in tab_modules:
+            specs = build_module_field_specs(m["name"], control_ids="prefixed")
+            for spec in specs:
+                name = spec["name"]
+                all_specs_names.add(name)
+                assert name in xdl_ids, f"Field spec {name} missing from SettingsDialog.xdl"
+
+    for m in tab_modules:
+        prefix = m["name"].replace(".", "_")
+        cfg = m.get("config") or {}
+        for fname, schema in cfg.items():
+            if schema.get("settings_persist") is False and schema.get("widget") == "button":
+                btn_id = f"{prefix}__{fname}"
+                assert btn_id in xdl_ids, f"Button {btn_id} missing from SettingsDialog.xdl"
+                assert btn_id not in all_specs_names, f"Button {btn_id} should not be in field specs"
+
+
+def test_vision_standalone_dialog_fields_agreement() -> None:
+    """Vision standalone field specs match controls in VisionSettingsDialog.xdl."""
+    from unittest.mock import patch
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+    from plugin.chatbot.settings_fields import build_module_field_specs
+
+    vision_module = next(m for m in MODULES if m["name"] == "vision")
+    xml_str = generate_standalone_config_dialog(vision_module)
+    root = ET.fromstring(xml_str)
+    xdl_ids: set[str] = {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
+    }
+
+    with patch("plugin.chatbot.settings_fields.get_config", return_value=""):
+        specs = build_module_field_specs("vision", control_ids="flat")
+
+    spec_names = {s["name"] for s in specs}
+    for name in spec_names:
+        assert name in xdl_ids, f"Vision spec {name} missing from VisionSettingsDialog.xdl"
+
+    extras = xdl_ids - spec_names
+    for extra in extras:
+        is_known_extra = (
+            extra in ("VisionSettingsDialog", "__module__", "btn_apply", "btn_ok", "btn_close")
+            or extra.startswith("label_")
+            or extra.startswith("hlp_")
+            or extra.startswith("btn_tab_")
+        )
+        assert is_known_extra, f"Unexpected extra control {extra} in VisionSettingsDialog.xdl"
+
+
+_EXPECTED_NUMERIC_BOUNDS: dict[str, tuple[int, int]] = {
+    "doc__grammar_proofreader_batch_sentences": (1, 8),
+    "doc__grammar_proofreader_max_in_flight": (1, 8),
+    "calc__max_rows_display": (100, 100000),
+    "chatbot__max_tool_rounds": (1, 200),
+    "chatbot__web_cache_max_mb": (0, 500),
+    "chatbot__web_cache_validity_days": (1, 30),
+    "chatbot__audio_silence_stop_ms": (0, 15000),
+    "mcp__mcp_port": (1024, 65535),
+    "scripting__python_exec_timeout": (1, 600),
+    "scripting__python_max_data_cells": (1000, 2000000),
+}
+
+
+def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
+    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+    attrs = _control_attrs(xdl_path)
+
+    for ctrl_id, (min_v, max_v) in _EXPECTED_NUMERIC_BOUNDS.items():
+        assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
+        el = elements[ctrl_id]
+        assert el.get(f"{{{_DLG_NS}}}value-min") == str(min_v)
+        assert el.get(f"{{{_DLG_NS}}}value-max") == str(max_v)
+        assert el.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+        assert el.get(f"{{{_DLG_NS}}}spin") == "true"
+        assert el.get(f"{{{_DLG_NS}}}value-step") is None
+
+        # Verify geometry attributes remain intact.
+        assert ctrl_id in attrs
+        assert int(attrs[ctrl_id]["left"]) > 0
+        assert int(attrs[ctrl_id]["top"]) > 0
+        assert int(attrs[ctrl_id]["width"]) > 0
+        assert int(attrs[ctrl_id]["height"]) > 0
+
+
+def test_settings_numeric_field_step_and_float_accuracy(tmp_path: Path) -> None:
+    modules = [
+        {
+            "name": "doc",
+            "title": "Document",
+            "config": {
+                "stepped_int": {
+                    "type": "integer",
+                    "widget": "number",
+                    "label": "Stepped Int",
+                    "min": 2,
+                    "max": 10,
+                    "step": 2,
+                },
+                "float_val": {
+                    "type": "float",
+                    "widget": "number",
+                    "label": "Float Val",
+                    "min": 0.5,
+                    "max": 5.0,
+                },
+            },
+        }
+    ]
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog-synthetic.xdl"
+    generate_settings_dialog_tabs(modules, str(tpl), str(out))
+    root = ET.parse(out).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+
+    stepped = elements["doc__stepped_int"]
+    assert stepped.get(f"{{{_DLG_NS}}}value-min") == "2"
+    assert stepped.get(f"{{{_DLG_NS}}}value-max") == "10"
+    assert stepped.get(f"{{{_DLG_NS}}}value-step") == "2"
+    assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+
+    flt = elements["doc__float_val"]
+    assert flt.get(f"{{{_DLG_NS}}}value-min") == "0.5"
+    assert flt.get(f"{{{_DLG_NS}}}value-max") == "5.0"
+    assert flt.get(f"{{{_DLG_NS}}}decimal-accuracy") == "1"
+    assert flt.get(f"{{{_DLG_NS}}}value-step") is None
+
+
+def test_standalone_numeric_field_step_and_bounds(tmp_path: Path) -> None:
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    out = tmp_path / "VisionSettingsDialog.xdl"
+    out.write_text(generate_standalone_config_dialog(vision), encoding="utf-8")
+    root = ET.parse(out).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+
+    scale = elements["images_scale"]
+    assert scale.get(f"{{{_DLG_NS}}}value-min") == "0.5"
+    assert scale.get(f"{{{_DLG_NS}}}value-max") == "3.0"
+    assert scale.get(f"{{{_DLG_NS}}}decimal-accuracy") == "1"
+    assert scale.get(f"{{{_DLG_NS}}}value-step") is None
+
+    synthetic = {
+        "name": "custom",
+        "title": "Custom",
+        "config_dialog": {"id": "CustomDialog", "width": 400, "height": 300},
+        "config": {
+            "stepped_param": {
+                "type": "integer",
+                "widget": "number",
+                "label": "Stepped Param",
+                "min": 1,
+                "max": 100,
+                "step": 5,
+            }
+        },
+    }
+    synth_out = tmp_path / "CustomDialog.xdl"
+    synth_out.write_text(generate_standalone_config_dialog(synthetic), encoding="utf-8")
+    synth_root = ET.parse(synth_out).getroot()
+    synth_elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in synth_root.findall(".//dlg:numericfield", ns)}
+
+    stepped = synth_elements["stepped_param"]
+    assert stepped.get(f"{{{_DLG_NS}}}value-min") == "1"
+    assert stepped.get(f"{{{_DLG_NS}}}value-max") == "100"
+    assert stepped.get(f"{{{_DLG_NS}}}value-step") == "5"
+    assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+
 
 

@@ -26,7 +26,13 @@ def test_error_532_is_div_zero():
 def test_other_formula_error_codes_keep_their_labels():
     assert "Pair missing bracket (code 508)" in formula_evaluation_error_message(508)
     assert "#REF!" in formula_evaluation_error_message(524)
-    assert formula_evaluation_error_message(519) == "Formula evaluation error: code 519"
+    assert "#VALUE!" in formula_evaluation_error_message(519)
+    assert "Circular reference" in formula_evaluation_error_message(522)
+    msg_538 = formula_evaluation_error_message(538)
+    assert "#VALUE!" in msg_538 and "Array or matrix size" in msg_538
+    msg_539 = formula_evaluation_error_message(539)
+    assert "#VALUE!" in msg_539 and "Unsupported inline array content" in msg_539
+    assert formula_evaluation_error_message(9999) == "Formula evaluation error: code 9999"
 
 
 class _EvalCell:
@@ -39,8 +45,11 @@ class _EvalCell:
         self.kind = None
         self.value: float | str = 7
         self.text = "7"
+        self.raise_on_set_formula: Exception | None = None
 
     def setFormula(self, formula: str) -> None:
+        if self.raise_on_set_formula is not None:
+            raise self.raise_on_set_formula
         self.formulas.append(formula)
 
     def getType(self):
@@ -90,6 +99,7 @@ class _EvalSheets:
         self.names = {live.name}
         self.copied: list[tuple[str, str, int]] = []
         self.removed: list[str] = []
+        self.raise_on_remove: Exception | None = None
 
     def hasByName(self, name: str) -> bool:
         return name in self.names
@@ -107,18 +117,43 @@ class _EvalSheets:
         return self.temp
 
     def removeByName(self, name: str) -> None:
+        if self.raise_on_remove is not None:
+            raise self.raise_on_remove
         self.removed.append(name)
         self.names.discard(name)
 
 
+class _EvalUndoManager:
+    def __init__(self, possible: bool = False) -> None:
+        self.possible = possible
+        self.hidden_contexts_entered = 0
+        self.hidden_contexts_left = 0
+        self.cleared = False
+
+    def isUndoPossible(self) -> bool:
+        return self.possible
+
+    def enterHiddenUndoContext(self) -> None:
+        self.hidden_contexts_entered += 1
+
+    def leaveUndoContext(self) -> None:
+        self.hidden_contexts_left += 1
+
+    def clear(self) -> None:
+        self.cleared = True
+
+
 class _EvalDoc:
-    def __init__(self) -> None:
+    def __init__(self, undo_possible: bool = False, modified: bool = False) -> None:
         self.live_cell = _EvalCell()
         self.temp_cell = _EvalCell()
         self.live = _EvalSheet("Sheet1", self.live_cell)
         # Qualifying a name on the copy still yields the live cell.
         self.temp = _EvalSheet("temp", self.temp_cell, foreign=self.live_cell)
         self.sheets = _EvalSheets(self.live, self.temp)
+        self.undo_mgr = _EvalUndoManager(possible=undo_possible)
+        self._modified = modified
+        self.set_modified_calls: list[bool] = []
 
     def getSheets(self) -> _EvalSheets:
         return self.sheets
@@ -128,6 +163,16 @@ class _EvalDoc:
 
     def getActiveSheet(self) -> _EvalSheet:
         return self.live
+
+    def getUndoManager(self) -> _EvalUndoManager:
+        return self.undo_mgr
+
+    def isModified(self) -> bool:
+        return self._modified
+
+    def setModified(self, val: bool) -> None:
+        self._modified = val
+        self.set_modified_calls.append(val)
 
 
 def _eval_ctx(doc: _EvalDoc) -> ToolContext:
@@ -218,3 +263,84 @@ def test_evaluate_formula_string_zero_stays_a_string():
         assert result["status"] == "ok"
         assert result["result"] == text_val
         assert isinstance(result["result"], str)
+
+
+def test_evaluate_formula_undo_guard_when_undo_possible():
+    doc = _EvalDoc(undo_possible=True)
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    assert res["status"] == "ok"
+    assert doc.undo_mgr.hidden_contexts_entered == 1
+    assert doc.undo_mgr.hidden_contexts_left == 1
+    assert doc.undo_mgr.cleared is False
+
+
+def test_evaluate_formula_undo_guard_when_undo_not_possible():
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    assert res["status"] == "ok"
+    assert doc.undo_mgr.hidden_contexts_entered == 0
+    assert doc.undo_mgr.cleared is True
+    assert False in doc.set_modified_calls
+
+
+def test_evaluate_formula_cleanup_failure_no_clear_and_warns():
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    doc.sheets.raise_on_remove = RuntimeError("Lock contention")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    assert res["status"] == "ok"
+    assert "warning" in res
+    assert "Failed to clean up" in res["warning"]
+    assert doc.undo_mgr.cleared is False
+    assert False not in doc.set_modified_calls
+
+
+def test_evaluate_formula_cleanup_failure_when_eval_fails_returns_error(monkeypatch):
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    doc.sheets.raise_on_remove = RuntimeError("Lock contention")
+
+    def _broken_get_by_name(_name: str):
+        raise RuntimeError("Sheet retrieval failure")
+
+    monkeypatch.setattr(doc.sheets, "getByName", _broken_get_by_name)
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    assert res["status"] == "error"
+    assert "Failed to clean up" in res["message"]
+
+
+def test_evaluate_formula_none_parameters():
+    doc = _EvalDoc()
+    res1 = EvaluateFormula().execute(_eval_ctx(doc), formula=None)
+    assert res1["status"] == "error"
+    assert "formula is required" in res1["message"]
+
+    res2 = EvaluateFormula().execute(_eval_ctx(doc), formula="=2+3", cell=None)
+    assert res2["status"] == "ok"
+    assert res2["result"] == 7
+
+
+def test_evaluate_formula_set_formula_raising():
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    doc = _EvalDoc()
+    doc.temp_cell.raise_on_set_formula = RuntimeError("Unexpected syntax error")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=BAD()", cell="B2")
+    assert res["status"] == "error"
+    assert "=BAD()" in res["message"]
+    assert "B2" in res["message"]
+    assert "Unexpected syntax error" in res["message"]
+
+    disposed_doc = _EvalDoc()
+    disposed_doc.temp_cell.raise_on_set_formula = DisposedException("Sheet disposed")
+    with pytest.raises(DisposedException):
+        EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
+
+
+def test_evaluate_formula_document_lock_and_mutation():
+    tool = EvaluateFormula()
+    assert tool.requires_document_lock() is True
+    assert tool.detects_mutation() is False
+    assert tool.is_mutation is False
+

@@ -23,6 +23,31 @@ def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
     assert mmc._exception_message(_QuietExc()) == "_QuietExc"
     assert "ValueError" in mmc._exception_message(ValueError("bad"))
 
+    class _Uno(Exception):
+        def __init__(self) -> None:
+            super().__init__("")
+            self.Message = "filter failed"
+
+    assert mmc._exception_message(_Uno()) == "_Uno: filter failed"
+
+
+def test_math_root_extraction() -> None:
+    from plugin.writer.math.math_mml_convert import math_root
+
+    assert math_root('<?xml version="1.0"?><math><mi>x</mi></math>') == '<math><mi>x</mi></math>'
+    assert math_root('prefix <math display="block"><mi>y</mi></math> suffix') == '<math display="block"><mi>y</mi></math>'
+    assert math_root('not a math root') is None
+    assert math_root('') is None
+
+
+def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
+    from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
+
+    res = convert_mathml_to_starmath(object(), "<html><body>not math</body></html>")
+    assert res.ok is False
+    assert res.error_message == "not_math_root"
+
+
 
 
 class TestCollapseStarmathNewline:

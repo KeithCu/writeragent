@@ -74,6 +74,15 @@ class _RequestWork(NamedTuple):
     args: tuple[Any, ...]
 
 
+class _AcceptQueueFull(Exception):
+    """Raised when accepted connections exceed max_workers + max_queued."""
+
+    def __init__(self, pending: int, limit: int) -> None:
+        super().__init__(f"Accept queue full: {pending} pending (limit={limit})")
+        self.pending: int = pending
+        self.limit: int = limit
+
+
 class _RequestThreads:
     """Bounded daemon pool for accepted connections.
 
@@ -99,6 +108,7 @@ class _RequestThreads:
     """
 
     _max_workers: int
+    _max_queued: int
     _prefix: str
     _work_queue: queue.SimpleQueue[_RequestWork | None]
     _threads: list[threading.Thread]
@@ -107,13 +117,14 @@ class _RequestThreads:
     _sentinels: bool
     _pending: int
 
-    def __init__(self, max_workers: int | None, thread_name_prefix: str) -> None:
+    def __init__(self, max_workers: int | None, thread_name_prefix: str, *, max_queued: int = 128) -> None:
         # Same default as ThreadPoolExecutor: an omitted count stays bounded.
         if max_workers is None:
             max_workers = min(32, (os.cpu_count() or 1) + 4)
         if max_workers <= 0:
             raise ValueError("max_workers must be greater than 0")
         self._max_workers = max_workers
+        self._max_queued = max_queued
         self._prefix = thread_name_prefix
         self._work_queue = queue.SimpleQueue()
         self._threads = []
@@ -126,25 +137,32 @@ class _RequestThreads:
         with self._lock:
             if self._shutdown:
                 raise RuntimeError("request pool is shut down")
+            # The queue used to grow by one fd per accept after every worker was busy.
+            # The listen backlog only counts sockets not yet accepted. Closing past
+            # workers + 128 bounds that without turning a normal burst into an HTTP 503.
+            if self._pending >= self._max_workers + self._max_queued:
+                raise _AcceptQueueFull(self._pending, self._max_workers + self._max_queued)
+            # Tip: don't size the pool from idle workers; one about to get() a queued
+            # item still looks idle, so GET /health could starve behind a busy handler.
+            # _pending counts every call not yet finished; start a thread while that
+            # count is above the number of threads, up to the cap. Start missing workers
+            # before queueing so a thread creation failure with zero live workers leaves
+            # _pending and the queue unchanged, allowing later submits to recover.
+            need = min(self._max_workers, self._pending + 1)
+            try:
+                while len(self._threads) < need:
+                    self._start_one_locked()
+            except Exception as exc:
+                if not self._threads:
+                    raise
+                log.warning(
+                    "HTTP worker start failed (%s); queueing on the %d live worker(s)",
+                    exc,
+                    len(self._threads),
+                )
             fut: Future[Any] = Future()
             self._work_queue.put(_RequestWork(fut, fn, args))
-            # What was wrong: _idle was incremented before get() and
-            # decremented only after get() returned. A worker about to
-            # take an already queued item still looked idle, so this
-            # branch did not start a thread. The worker then blocked
-            # inside one handler. Later accepts, including GET /health,
-            # stayed on the queue while len(_threads) was under the cap,
-            # and nothing submitted again to grow the pool.
-            # How: the health test holds the one worker permit and queues
-            # more executes on the listeners. Health needs a thread that
-            # was never started.
-            # Why: _pending counts every call not yet finished. Start a
-            # thread while that count is above the number of threads,
-            # up to the cap. A thread already blocked in get() is in
-            # _threads, so a finished serial call does not grow the pool.
             self._pending += 1
-            while len(self._threads) < min(self._max_workers, self._pending):
-                self._start_one_locked()
             return fut
 
     def _start_one_locked(self) -> None:
@@ -225,7 +243,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     The socket accept loop uses selectors.DefaultSelector to monitor all bound sockets concurrently.
     Incoming connections are submitted to ``_RequestThreads``. The worker count is bounded.
-    The accept queue is not: a burst waits for a thread instead of being rejected.
+    The accept queue is capped (default 128); past the ceiling the accept thread closes the socket and writes no response. Compute HTTP 503 is worker admission, not this path.
     Supports optional TLS socket wrapping.
 
     ``socket_timeout`` is None unless the caller passes one. None means the
@@ -243,6 +261,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     _serving: bool
     executor: _RequestThreads
     _queued_lock: threading.Lock
+    _last_queue_full_warn: float = 0.0
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
     sockets: list[Socket]
@@ -259,11 +278,13 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         *,
         thread_name_prefix: str = "http-worker",
         socket_timeout: float | None = None,
+        max_queued: int = 128,
     ) -> None:
         self.sockets = []
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
         self._serving = False
+        self._last_queue_full_warn = 0.0
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
         # timestamp. shutdown_request pops the entry on every path that
@@ -275,7 +296,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._queued: dict[Future[Any], Any] = {}
         self._queued_lock = threading.Lock()
         self.socket_timeout = socket_timeout
-        self.executor = _RequestThreads(max_threads, thread_name_prefix)
+        self.executor = _RequestThreads(max_threads, thread_name_prefix, max_queued=max_queued)
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
         inherited = self.socket
@@ -441,9 +462,13 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         Why: one tuple covers the older runtime this extension still claims.
         """
         _typ, exc, _tb = sys.exc_info()
-        if isinstance(exc, (socket.timeout, TimeoutError)):
+        # The pre-run() read is outside wsgiref's catch, and ConnectionError is the same disconnect MCP already ignores.
+        if isinstance(exc, (socket.timeout, TimeoutError, ConnectionError)):
             host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
-            log.info("HTTP read timed out from %s", host)
+            if isinstance(exc, ConnectionError):
+                log.info("HTTP client disconnected from %s", host)
+            else:
+                log.info("HTTP read timed out from %s", host)
             return
         super().handle_error(request, client_address)
 
@@ -526,6 +551,20 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         """Submit incoming request to the thread pool executor."""
         try:
             fut = self.executor.submit(self.process_request_thread, request, client_address)
+        except _AcceptQueueFull as exc:
+            now = time.monotonic()
+            if now - self._last_queue_full_warn >= 1.0:
+                self._last_queue_full_warn = now
+                log.warning(
+                    "Accept queue full (%d pending, cap %d); closing connection",
+                    exc.pending,
+                    exc.limit,
+                )
+            try:
+                self.shutdown_request(request)
+            except Exception:
+                log.exception("Failed to close accepted connection")
+            return
         except Exception:
             log.exception("Failed to submit accepted connection")
             try:

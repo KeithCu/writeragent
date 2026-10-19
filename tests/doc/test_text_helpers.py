@@ -542,3 +542,87 @@ def test_writer_char_count_disposed():
 
     with pytest.raises(DocumentDisposedError):
         _writer_char_count(model)
+
+
+def test_selected_text_range_none_controller():
+    from plugin.doc.text_helpers import selected_text_range
+
+    assert selected_text_range(None) is None
+
+
+def test_selected_text_range_skips_collapsed_index0():
+    from plugin.doc.text_helpers import selected_text_range
+
+    rng0 = MagicMock()
+    rng0.getStart.return_value = MagicMock()
+    rng0.getEnd.return_value = MagicMock()
+    rng0.getText.return_value.compareRegionStarts.return_value = 0
+
+    rng1 = MagicMock()
+    rng1.getStart.return_value = MagicMock()
+    rng1.getEnd.return_value = MagicMock()
+    rng1.getText.return_value.compareRegionStarts.return_value = -1
+
+    sel = MagicMock()
+    sel.getCount.return_value = 2
+    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
+
+    ctrl = MagicMock()
+    ctrl.getSelection.return_value = sel
+
+    assert selected_text_range(ctrl) is rng1
+
+
+def test_selected_text_range_all_collapsed_returns_first():
+    from plugin.doc.text_helpers import selected_text_range
+
+    rng0 = MagicMock()
+    rng0.getStart.return_value = MagicMock()
+    rng0.getEnd.return_value = MagicMock()
+    rng0.getText.return_value.compareRegionStarts.return_value = 0
+
+    rng1 = MagicMock()
+    rng1.getStart.return_value = MagicMock()
+    rng1.getEnd.return_value = MagicMock()
+    rng1.getText.return_value.compareRegionStarts.return_value = 0
+
+    sel = MagicMock()
+    sel.getCount.return_value = 2
+    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
+
+    ctrl = MagicMock()
+    ctrl.getSelection.return_value = sel
+
+    assert selected_text_range(ctrl) is rng0
+
+
+def test_selected_text_range_shape_service_returns_none():
+    from plugin.doc.text_helpers import selected_text_range
+
+    shape_rng = MagicMock()
+    shape_rng.getStart.return_value = MagicMock()
+    shape_rng.getEnd.return_value = MagicMock()
+    shape_rng.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
+
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = shape_rng
+
+    ctrl = MagicMock()
+    ctrl.getSelection.return_value = sel
+
+    assert selected_text_range(ctrl) is None
+
+
+def test_selected_text_range_disposed_raises():
+    from plugin.doc.text_helpers import selected_text_range
+
+    class DisposedException(Exception):
+        pass
+
+    ctrl = MagicMock()
+    ctrl.getSelection.side_effect = DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        selected_text_range(ctrl)
+

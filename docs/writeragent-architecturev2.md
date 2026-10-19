@@ -38,7 +38,6 @@ This pattern is applied to the hardest orchestration paths, each with its own ty
 | Tool loop | `plugin/chatbot/tool_loop_state.py` | `ToolLoopState` (`round_num`, `pending_tools`, `is_stopped`, `max_rounds`), `EventKind` (`STOP_REQUESTED`, `STREAM_DONE`, `NEXT_TOOL`, `TOOL_RESULT`, `FINAL_DONE`, `ERROR`) |
 | Send button | `plugin/chatbot/send_state.py` | `SendButtonState` (`is_busy`, `is_recording`, `has_text`, `has_audio`), events for text/record/send/stop lifecycle |
 | Send handler | `plugin/chatbot/state_machine.py` | Chat-send orchestration |
-| MCP | `plugin/mcp/mcp_state.py` | Tool-call routing, error and response effects |
 | Audio recorder | `plugin/chatbot/audio_recorder_state.py` | Record/stop/auto-stop lifecycle |
 | MCP tunnel | `plugin/mcp/tunnel_state.py` | Reconnection with explicit `StartProcessEffect`/`ScheduleRetryTimerEffect`/`NotifyUrlAcquiredEffect` |
 
@@ -160,7 +159,7 @@ The Calc add-in executes Python expressions with **extension-owned array spill**
 
 #### Two-Phase Orchestration
 
-Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. The in-process `execute_python_script` remains a separate stdlib-only sandbox for light logic without a venv.
+Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. Chat Python and `=PY()` run in the user venv.
 
 #### Domain Helpers
 
@@ -178,7 +177,7 @@ The quality of a product is hidden in the details. WriterAgent includes:
 
 #### A Disciplined Exception Policy
 
-Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DISPOSED_OBJECT` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposed_exception`/`DocumentDisposedError`.
+Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DOCUMENT_DISPOSED` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposed_exception`/`DocumentDisposedError`.
 
 #### Automated Localization
 

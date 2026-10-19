@@ -1387,8 +1387,57 @@ class TestHandsFreeRecord:
         with patch("plugin.audio.tts_service.stop_speech"):
             listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
         assert listener.stop_control.getModel().Enabled is True
+        assert listener.status_control.setText.call_args.args[0].startswith("Recording")
         captured["on_complete"]()
         assert listener.stop_control.getModel().Enabled is True
+        assert listener.status_control.setText.call_args.args[0].startswith("Recording")
+
+    def test_speech_finished_does_not_overwrite_hands_free_off_during_take(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._terminal_status = "Ready"
+        listener._sync_has_text_from_query = MagicMock()
+        listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        spoken = MagicMock()
+        spoken.messages = []
+        listener.session = spoken
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(listener, "chat")
+        spoken.messages.append({"role": "assistant", "content": "Hello there"})
+        captured: dict[str, Any] = {}
+
+        def _speak(_text: str, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+        with (
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
+            patch("plugin.audio.tts_service.is_speaking", return_value=True),
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
+            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.doc.peer_message.kick_pending_peer_starts"),
+        ):
+            listener._finish_send_drain_ui()
+        assert "on_complete" in captured
+        # Armed sticky take is recording, then user clicks Stop to step down out of hands-free.
+        listener._record_gesture = RecordGesture(sticky=True)
+        with patch("plugin.audio.tts_service.stop_speech"):
+            listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+        assert listener._record_gesture.sticky is True
+        assert listener.sidebar_state.send.is_recording is True
+        assert listener.stop_during_take() is True
+        assert listener._record_gesture.sticky is False
+        assert listener.sidebar_state.send.is_recording is True
+        assert listener.status_control.setText.call_args.args[0] == "Hands-free off"
+
+        # When playback completes while take is still recording, Hands-free off must not be overwritten with Ready.
+        captured["on_complete"]()
+        assert listener.status_control.setText.call_args.args[0] == "Hands-free off"
 
     def _empty_take_send(self, listener: SendButtonListener) -> None:
         listener.cached_doc_type = "writer"

@@ -130,7 +130,8 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
             chart_type="bar",
             headers=headers,
             rows=rows,
-            title="Writer Chart"
+            title="Writer Chart",
+            colors=["#FF0000"],
         )
         assert res_ok.get("status") == "ok", f"Writer chart creation failed: {res_ok}"
         chart_name = res_ok.get("name")
@@ -164,6 +165,21 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         assert col_desc == ("Sales", "Expenses"), f"Column descriptions mismatch: {col_desc}"
         assert data_matrix == ((100.0, 80.0), (150.0, 110.0), (200.0, 130.0)), f"Data matrix mismatch: {data_matrix}"
 
+        # Read back series color
+        diag = chart_doc.getFirstDiagram()
+        if diag:
+            coords = diag.getCoordinateSystems()
+            if coords:
+                ctypes = coords[0].getChartTypes()
+                if ctypes:
+                    series_list = ctypes[0].getDataSeries()
+                    if series_list:
+                        s0 = series_list[0]
+                        for prop in ["FillColor", "Color"]:
+                            if s0.getPropertySetInfo().hasPropertyByName(prop):
+                                assert s0.getPropertyValue(prop) == 0xFF0000
+                                break
+
         # Test edit action in Writer
         new_headers = ["Period", "Revenue"]
         new_rows = [["Q1", 500], ["Q2", 600]]
@@ -176,6 +192,18 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
             title="Edited Writer Chart"
         )
         assert res_edit.get("status") == "ok", f"Writer manage_charts edit failed: {res_edit}"
+
+        # Delete by name, assert hasByName is false and draw-page OLE shape is gone
+        res_del = get_tools().execute("manage_charts", writer_ctx, action="delete", name=chart_name)
+        assert res_del.get("status") == "ok", f"Writer manage_charts delete failed: {res_del}"
+        assert not objects.hasByName(chart_name)
+        found_deleted_shape = False
+        for i in range(draw_page.getCount()):
+            shape = draw_page.getByIndex(i)
+            if shape.supportsService("com.sun.star.drawing.OLE2Shape") and (getattr(shape, "Name", None) == chart_name or shape == chart_shape):
+                found_deleted_shape = True
+                break
+        assert not found_deleted_shape, "Draw-page OLE shape still present after delete"
 
     finally:
         TestingFactory.close_doc(writer_doc)

@@ -200,3 +200,83 @@ def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_st
         mock_msgbox.assert_called_once()
         assert "Failed" in mock_msgbox.call_args.args[2]
 
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock_create_client, mock_stream_completion, mock_msgbox):
+    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from plugin.framework.errors import format_error_message
+
+    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    selection = MagicMock()
+    selection.getByIndex.return_value = MagicMock()
+    model.CurrentController.getSelection.return_value = selection
+
+    long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_extend_selection(ctx, model, MagicMock())
+        on_error_fn = mock_stream_completion.call_args.args[7]
+        on_error_fn(long_err)
+        mock_msgbox.assert_called_once()
+        assert mock_msgbox.call_args.args[2] == format_error_message(long_err)
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_create_client, mock_stream_completion, mock_msgbox):
+    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from plugin.framework.errors import format_error_message
+
+    set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    selection = MagicMock()
+    selection.getByIndex.return_value = MagicMock()
+    model.CurrentController.getSelection.return_value = selection
+
+    long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("make it better", "")):
+        do_edit_selection(ctx, model, MagicMock())
+        on_error_fn = mock_stream_completion.call_args.args[7]
+        on_error_fn(long_err)
+        mock_msgbox.assert_called_once()
+        assert mock_msgbox.call_args.args[2] == format_error_message(long_err)
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions")
+def test_extend_selection_none_selection_shows_message_and_returns(mock_get_str, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    model.CurrentController.getSelection.return_value = None
+
+    do_extend_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_get_str.assert_not_called()
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions")
+def test_edit_selection_none_selection_shows_message_and_returns(mock_get_str, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    model.CurrentController.getSelection.return_value = None
+
+    do_edit_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_get_str.assert_not_called()
+
+

@@ -910,7 +910,7 @@ def _resolve_default(key: str) -> Any:
             return _dataclass_field_default(f)
 
     # Strict check: if not in schema and not a recognized dynamic pattern, it's a bug.
-    raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
+    raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", code="CONFIG_KEY_NOT_FOUND", details={"key": key})
 
 
 def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:

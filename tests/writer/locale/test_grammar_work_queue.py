@@ -38,12 +38,12 @@ def _grammar_obs_call_sites_present() -> bool:
     return "grammar_obs(" in source
 
 
-def _item(seq: int, key: str = "d|en-US|k1") -> GrammarWorkItem:
+def _item(seq: int, key: str = "d|en-US|k1", *, partial: bool = False) -> GrammarWorkItem:
     return GrammarWorkItem(
         ctx=None,
         text="x",
         grammar_bcp47="en-US",
-        partial_sentence=False,
+        partial_sentence=partial,
         doc_id="d",
         inflight_key=key,
         enqueue_seq=seq,
@@ -266,7 +266,12 @@ def test_record_enqueue_latest_detects_out_of_order() -> None:
     d2, out_of_order, prev_bad = record_enqueue_latest(d, _item(5))
     assert out_of_order is True
     assert prev_bad == 10
-    assert d2["d|en-US|k1"] == 5
+    assert d2["d|en-US|k1"] == 10
+
+    d3, out_of_order3, prev_bad3 = record_enqueue_latest(d, _item(15))
+    assert out_of_order3 is False
+    assert prev_bad3 is None
+    assert d3["d|en-US|k1"] == 15
 
 
 # NOTE (historical): test_tail_enqueue_operation and the entire Layer 1
@@ -276,20 +281,9 @@ def test_record_enqueue_latest_detects_out_of_order() -> None:
 
 
 def test_drain_loop_collapses_same_key_items_during_burst() -> None:
-    """Regression: the drain loop's batch_by_key accumulator is now the
-    *primary* (and, after removal of historical Layer 1 tail-replace, the
-    only enqueue-time-path-independent) mechanism that collapses same-key
-    items during rapid typing.
-
-    The worker drains so quickly that the queue is empty between keystrokes
-    in the common case; items that arrive while a previous batch is being
-    processed (or while the worker is blocked on get()) are collapsed here
-    using should_replace_for_key.
-
-    Historical note (old text for reference): during typing bursts the worker pulls items between keystrokes,
-    so enqueue's tail-replace path cannot help \u2014 the queue is empty between
-    each keystroke. The drain loop's accumulator must collapse same-key items
-    as they arrive so the worker's batch holds only one item per inflight_key.
+    """Completes and partials are dispatched in separate batches.
+    Completes coalesce for GRAMMAR_COMPLETE_COALESCE_S, while partials
+    debounce for GRAMMAR_WORKER_PAUSE_TIMEOUT_S. Same-key collapse still holds.
     """
     import threading
 
@@ -299,11 +293,11 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
     complete_b = "doc1|en-US|complete-b"
 
     items = [
-        _item(1, key=incomplete_key),
-        _item(2, key=complete_a),
-        _item(3, key=incomplete_key),
-        _item(4, key=complete_b),
-        _item(5, key=incomplete_key),
+        _item(1, key=incomplete_key, partial=True),
+        _item(2, key=complete_a, partial=False),
+        _item(3, key=incomplete_key, partial=True),
+        _item(4, key=complete_b, partial=False),
+        _item(5, key=incomplete_key, partial=True),
     ]
 
     drained: list[list[GrammarWorkItem]] = []
@@ -311,24 +305,155 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
 
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
-        q._q.put(None)
-        drain_done.set()
+        if len(drained) == 2:
+            q._q.put(None)
+            drain_done.set()
 
     for it in items:
         q._q.put(it)
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
-         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.01):
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.05), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
         q._ensure_workers(None)
-        assert drain_done.wait(timeout=2.0), "drain loop did not run"
+        assert drain_done.wait(timeout=2.0), "drain loop did not run both batches"
+
+    assert len(drained) == 2
+    # Batch 1: completes
+    completes_batch = drained[0]
+    assert {item.inflight_key for item in completes_batch} == {complete_a, complete_b}
+    by_key_completes = {item.inflight_key: item for item in completes_batch}
+    assert by_key_completes[complete_a].enqueue_seq == 2
+    assert by_key_completes[complete_b].enqueue_seq == 4
+
+    # Batch 2: partials (highest seq 5 kept)
+    partials_batch = drained[1]
+    assert len(partials_batch) == 1
+    assert partials_batch[0].inflight_key == incomplete_key
+    assert partials_batch[0].enqueue_seq == 5
+
+
+def test_drain_loop_complete_latency_under_one_second() -> None:
+    """One complete item is handed to the batch runner well under a second (does not wait for 1.0s pause)."""
+    import threading
+    import time
+
+    q = GrammarWorkQueue()
+    drained: list[list[GrammarWorkItem]] = []
+    done_evt = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        drained.append(list(group_items))
+        q._q.put(None)
+        done_evt.set()
+
+    start_time = time.monotonic()
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run):
+        # Leave real GRAMMAR_WORKER_PAUSE_TIMEOUT_S (1.0s) in place
+        q._ensure_workers(None)
+        q.enqueue(_item(1, key="doc1|en-US|complete-1", partial=False))
+        assert done_evt.wait(timeout=2.0)
+    elapsed = time.monotonic() - start_time
+    assert elapsed < 0.6, f"Complete item took {elapsed}s to drain; expected well under 1.0s"
+    assert len(drained) == 1
+    assert drained[0][0].enqueue_seq == 1
+
+
+def test_drain_loop_partial_debounces_until_quiet_period() -> None:
+    """Partial enqueues every 50ms for less than the pause produce no call; after quiet period, one call with newest seq."""
+    import threading
+    import time
+
+    q = GrammarWorkQueue()
+    drained: list[list[GrammarWorkItem]] = []
+    done_evt = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        drained.append(list(group_items))
+        q._q.put(None)
+        done_evt.set()
+
+    key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.2):
+        q._ensure_workers(None)
+        # Send 3 partial enqueues spaced by 50ms (total 100ms < 200ms pause)
+        for seq in (1, 2, 3):
+            q.enqueue(_item(seq, key=key, partial=True))
+            time.sleep(0.05)
+            assert len(drained) == 0
+
+        assert done_evt.wait(timeout=2.0)
 
     assert len(drained) == 1
-    survivors = drained[0]
-    assert {item.inflight_key for item in survivors} == {incomplete_key, complete_a, complete_b}
-    by_key = {item.inflight_key: item for item in survivors}
-    assert by_key[incomplete_key].enqueue_seq == 5
-    assert by_key[complete_a].enqueue_seq == 2
-    assert by_key[complete_b].enqueue_seq == 4
+    assert drained[0][0].enqueue_seq == 3
+
+
+def test_drain_loop_complete_dispatched_while_partial_pending() -> None:
+    """A complete item is dispatched while partial enqueues are still resetting the partial deadline."""
+    import threading
+    import time
+
+    q = GrammarWorkQueue()
+    drained: list[list[GrammarWorkItem]] = []
+    complete_done = threading.Event()
+    all_done = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        drained.append(list(group_items))
+        if len(drained) == 1:
+            complete_done.set()
+        elif len(drained) == 2:
+            q._q.put(None)
+            all_done.set()
+
+    incomplete_key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
+    complete_key = "doc1|en-US|complete-key"
+
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.4):
+        q._ensure_workers(None)
+        q.enqueue(_item(1, key=incomplete_key, partial=True))
+        time.sleep(0.02)
+        q.enqueue(_item(2, key=complete_key, partial=False))
+
+        assert complete_done.wait(timeout=0.25), "Complete was not dispatched while partial was pending"
+        assert len(drained) == 1
+        assert drained[0][0].inflight_key == complete_key
+
+        assert all_done.wait(timeout=1.0)
+        assert len(drained) == 2
+        assert drained[1][0].inflight_key == incomplete_key
+
+
+def test_drain_loop_exception_resilience() -> None:
+    """A raising batch runner does not prevent a later item on that same worker from running."""
+    import threading
+
+    q = GrammarWorkQueue()
+    calls: list[int] = []
+    first_failed = threading.Event()
+    second_done = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        seq = group_items[0].enqueue_seq
+        calls.append(seq)
+        if seq == 1:
+            first_failed.set()
+            raise RuntimeError("Boom!")
+        if seq == 2:
+            q._q.put(None)
+            second_done.set()
+
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
+        q._ensure_workers(None)
+        q.enqueue(_item(1, key="k1", partial=False))
+        assert first_failed.wait(timeout=2.0)
+        q.enqueue(_item(2, key="k2", partial=False))
+        assert second_done.wait(timeout=2.0)
+
+    assert calls == [1, 2]
 
 
 def test_inflight_superseded() -> None:
@@ -387,7 +512,7 @@ def test_ensure_workers_spawns_up_to_config() -> None:
          patch("plugin.writer.locale.grammar_work_queue.threading.Thread", side_effect=track_thread), \
          patch("plugin.writer.locale.grammar_work_queue.time.sleep", side_effect=sleep_unlocked) as sleep_mock:
         q._ensure_workers(ctx)
-    assert sleep_mock.call_count == 2
+    assert sleep_mock.call_count == 0
     assert q._worker_count == 3
     assert started == ["writeragent-grammar-queue-0", "writeragent-grammar-queue-1", "writeragent-grammar-queue-2"]
     # Idempotent: second call does not spawn more when count already matches desired.

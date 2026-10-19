@@ -34,24 +34,77 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     triples: list[tuple[str, str, str, dict[str, Any]]] = []
 
     sheets = doc.getSheets()
-    sheet_by_name: dict[str, Any] = {
-        str(sheets.getByIndex(i).getName()): sheets.getByIndex(i)
-        for i in range(sheets.getCount())
-    }
+    sheet_by_name: dict[str, Any] = {}
+    for i in range(sheets.getCount()):
+        sh = sheets.getByIndex(i)
+        sheet_by_name[str(sh.getName())] = sh
+    lower_sheet_by_name: dict[str, Any] = {k.lower(): v for k, v in sheet_by_name.items()}
+
+    bank_cache: dict[str, dict[str, str]] = {}
+
+    def _get_bank_strings(bank_sheet: Any, sheet_key: str) -> dict[str, str]:
+        if sheet_key in bank_cache:
+            return bank_cache[sheet_key]
+        cached: dict[str, str] = {}
+        string_cells = uno_probe(lambda: bank_sheet.queryContentCells(CellFlags.STRING), None)
+        if string_cells is not None and hasattr(string_cells, "getCount"):
+            for idx in range(string_cells.getCount()):
+                rng = string_cells.getByIndex(idx)
+                addr = rng.getRangeAddress()
+                data = rng.getDataArray() if hasattr(rng, "getDataArray") else None
+                if data is not None:
+                    for r_offset, row_data in enumerate(data):
+                        r = addr.StartRow + r_offset
+                        for c_offset, val in enumerate(row_data):
+                            s = str(val or "")
+                            if s.strip():
+                                c = addr.StartColumn + c_offset
+                                coord = f"{index_to_column(c)}{r + 1}"
+                                cached[coord] = s
+        if not cached:
+            cells_attr = getattr(bank_sheet, "_cells", None)
+            if isinstance(cells_attr, dict):
+                for (c, r), cell in cells_attr.items():
+                    s = str(cell.getString() if hasattr(cell, "getString") else "")
+                    if s.strip():
+                        cached[f"{index_to_column(c)}{r + 1}"] = s
+            elif hasattr(bank_sheet, "createCursor"):
+                cursor = bank_sheet.createCursor()
+                cursor.gotoStartOfUsedArea(False)
+                cursor.gotoEndOfUsedArea(True)
+                addr = cursor.getRangeAddress()
+                data = cursor.getDataArray() if hasattr(cursor, "getDataArray") else None
+                if data is not None:
+                    for r_offset, row_data in enumerate(data):
+                        r = addr.StartRow + r_offset
+                        for c_offset, val in enumerate(row_data):
+                            s = str(val or "")
+                            if s.strip():
+                                c = addr.StartColumn + c_offset
+                                coord = f"{index_to_column(c)}{r + 1}"
+                                cached[coord] = s
+        bank_cache[sheet_key] = cached
+        return cached
 
     def _uno_lookup(sheet_name: str, a1: str) -> str | None:
         bank_sheet = sheet_by_name.get(sheet_name)
         if bank_sheet is None:
-            lower = {k.lower(): v for k, v in sheet_by_name.items()}
-            bank_sheet = lower.get(sheet_name.lower())
+            bank_sheet = lower_sheet_by_name.get(sheet_name.lower())
         if bank_sheet is None:
             return None
-        return uno_probe(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), None)
+        sheet_key = str(bank_sheet.getName())
+        cached = _get_bank_strings(bank_sheet, sheet_key)
+        if a1 in cached:
+            val = cached[a1]
+            return val if val.strip() else None
+        val = uno_probe(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), "")
+        return val if val and val.strip() else None
 
     # Higher ceiling than sidebar discovery — export must see every PY cell.
     max_scan = 100_000
     total_scanned = 0
     stop_scanning = False
+    scan_limit_reached = False
 
     for sheet_name, sheet in sheet_by_name.items():
         if stop_scanning:
@@ -65,18 +118,23 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
 
         for i in range(count):
             if total_scanned >= max_scan:
-                # stop_scanning breaks both loops. break alone leaves the
-                # inner loop, and a per-sheet counter lets later sheets
-                # keep scanning past max_scan.
+                # stop_scanning breaks both loops; a per-sheet counter would let later sheets scan past max_scan.
+                scan_limit_reached = True
                 stop_scanning = True
                 break
             cell_range = formula_cells.getByIndex(i)
             addr = cell_range.getRangeAddress()
+            area = (int(addr.EndRow) - int(addr.StartRow) + 1) * (int(addr.EndColumn) - int(addr.StartColumn) + 1)
+            if area > max_scan - total_scanned:
+                scan_limit_reached = True
+                stop_scanning = True
+                break
             formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
             if formula_matrix is None:
                 continue
             for r_idx, row_formulas in enumerate(formula_matrix):
                 if total_scanned >= max_scan:
+                    scan_limit_reached = True
                     stop_scanning = True
                     break
                 row = addr.StartRow + r_idx
@@ -91,7 +149,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                     if parts is None:
                         continue
                     resolved = resolve_bank_cell_reference(parts.code, _uno_lookup)
-                    if resolved is not None:
+                    if resolved is not None and resolved.strip():
                         formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
                     else:
                         formula_out = canonical
@@ -102,4 +160,11 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                     triples.append((sheet_name, a1, formula_out, cell_meta))
 
     report = convert_dag_cells_to_excel(triples)
+    if scan_limit_reached:
+        report.issues.append(f"scan limit reached ({max_scan} formula cells); export aborted")
+    doc_url = uno_probe(lambda: str(doc.getURL() or ""), "")
+    if not doc_url:
+        doc_url = getattr(doc, "url", "") or ""
+    if doc_url:
+        report.source_path = doc_url
     return report

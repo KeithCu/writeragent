@@ -1456,7 +1456,7 @@ def test_harper_try_lint_pumps_events_while_lint_outstanding() -> None:
         return True
 
     ctx = MagicMock()
-    with patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i):
+    with patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i):
         res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
 
     assert res == {"errors": []}
@@ -1508,7 +1508,7 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
 
         def _run() -> None:
             with (
-                patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i),
+                patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
                 patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
             ):
                 box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
@@ -1552,7 +1552,7 @@ def test_harper_try_lint_reenter_during_wait_logs_and_returns_none(caplog: pytes
     _ready_harper_client(_slow_lint)
     caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
     ctx = MagicMock()
-    with patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i):
+    with patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i):
         res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
 
     assert res == {"errors": []}

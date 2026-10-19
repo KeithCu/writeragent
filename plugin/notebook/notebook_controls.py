@@ -21,10 +21,12 @@ So we attach **one** shared ``XActionListener`` to the form controller container
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import time
 from typing import Any
+import unicodedata
 
 import uno
 from com.sun.star.awt import Size
@@ -64,6 +66,7 @@ __all__ = [
     "wired_run_listener_count",
     "form_run_listeners",
     "prune_dead_listeners",
+    "forget_document_wiring",
     "NotebookRunButtonListener",
     "NotebookFormContainerListener",
     "NotebookFormRunListener",
@@ -72,11 +75,15 @@ __all__ = [
     "install_notebook_run_button_wiring",
     "_resolve_para_style",
     "_page_style",
+    "_text_width_from_style",
+    "_cap_from_style",
     "_text_area_width_units",
     "_max_field_height_units",
     "_height_for_text",
+    "_raw_height_for_text",
     "_anchor_control_as_character",
     "_set_model_prop",
+    "_set_model_props",
     "_style_code_field_model",
     "_style_run_button_model",
     "_style_control_paragraph",
@@ -124,60 +131,105 @@ def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
 def _page_style(doc: Any | None) -> Any | None:
     """Page style of the first body paragraph, else Standard/Default.
 
-    What was wrong: ``doc.getPropertyValue("PageDescName")`` always raised.
-    PageDescName is a paragraph property (writer/page.py ``_apply_page_break``);
-    the text document model does not have it. The inner except left ``name``
-    empty, so code fields were always sized from Standard/Default.
-    How: a cursor at the start of the body text carries the first paragraph's
-    PageDescName. File Open has no view yet, so this is not the view cursor.
-    Why: ``_text_area_width_units`` / ``_max_field_height_units`` then follow
-    the page style actually applied to the body.
+    A cursor at the start of the body text carries the first paragraph's
+    PageDescName; the document model does not have this property.
+    File Open has no view yet, so this is not the view cursor.
     """
     if doc is None:
         return None
-    families = doc.getStyleFamilies().getByName("PageStyles")
-    cursor = doc.getText().createTextCursor()
-    cursor.gotoStart(False)
-    name = str(cursor.getPropertyValue("PageDescName") or "")
-    if name and families.hasByName(name):
-        return families.getByName(name)
-    for candidate in ("Standard", "Default", "Default Page Style"):
-        if families.hasByName(candidate):
-            return families.getByName(candidate)
-    return None
+
+    def _get() -> Any | None:
+        families = doc.getStyleFamilies().getByName("PageStyles")
+        cursor = doc.getText().createTextCursor()
+        cursor.gotoStart(False)
+        name = str(cursor.getPropertyValue("PageDescName") or "")
+        if name and families.hasByName(name):
+            return families.getByName(name)
+        for candidate in ("Standard", "Default", "Default Page Style"):
+            if families.hasByName(candidate):
+                return families.getByName(candidate)
+        return None
+
+    return best_effort(_get, "notebook controls page style lookup failed")
+
+
+def _text_width_from_style(style: Any | None) -> int:
+    """Page width minus left/right margins (1/100 mm), falling back to _DEFAULT_WIDTH."""
+    if style is None:
+        return _DEFAULT_WIDTH
+
+    def _calc() -> int:
+        page_w = int(style.getPropertyValue("Width"))
+        left = int(style.getPropertyValue("LeftMargin"))
+        right = int(style.getPropertyValue("RightMargin"))
+        return max(6000, page_w - left - right)
+
+    val = best_effort(_calc, "notebook controls width from style failed")
+    return val if val is not None else _DEFAULT_WIDTH
 
 
 def _text_area_width_units(doc: Any | None) -> int:
     """Page width minus left/right margins (1/100 mm), for code fields and images."""
     style = _page_style(doc)
+    return _text_width_from_style(style)
+
+
+def _cap_from_style(style: Any | None) -> int:
+    """Cap AS_CHARACTER code fields at roughly body height, falling back to _MAX_FIELD_HEIGHT."""
     if style is None:
-        return _DEFAULT_WIDTH
-    page_w = int(style.getPropertyValue("Width"))
-    left = int(style.getPropertyValue("LeftMargin"))
-    right = int(style.getPropertyValue("RightMargin"))
-    return max(6000, page_w - left - right)
+        return _MAX_FIELD_HEIGHT
+
+    def _calc() -> int:
+        page_h = int(style.getPropertyValue("Height"))
+        top = int(style.getPropertyValue("TopMargin"))
+        bottom = int(style.getPropertyValue("BottomMargin"))
+        # Leave room for the In [n]: gutter on the same page when possible.
+        return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
+
+    val = best_effort(_calc, "notebook controls cap from style failed")
+    return val if val is not None else _MAX_FIELD_HEIGHT
 
 
 def _max_field_height_units(doc: Any | None) -> int:
     """Cap AS_CHARACTER code fields at roughly the page body height."""
     style = _page_style(doc)
-    if style is None:
-        return _MAX_FIELD_HEIGHT
-    page_h = int(style.getPropertyValue("Height"))
-    top = int(style.getPropertyValue("TopMargin"))
-    bottom = int(style.getPropertyValue("BottomMargin"))
-    # Leave room for the In [n]: gutter on the same page when possible.
-    return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
+    return _cap_from_style(style)
 
 
-def _height_for_text(text: str, doc: Any | None = None) -> int:
-    """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
+def _line_display_cols(line: str) -> int:
+    if line.endswith("\r"):
+        line = line[:-1]
+    line = line.expandtabs(4)
+    cols = 0
+    for ch in line:
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            cols += 2
+        else:
+            cols += 1
+    return cols
+
+
+def _raw_height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None) -> int:
+    if field_w is None and doc is not None:
+        field_w = _text_area_width_units(doc)
+    if field_w is None:
+        cols = 80
+    else:
+        char_width = int(_CODE_FONT_HEIGHT * 2540 * 0.6 / 72)
+        cols = max(8, field_w // char_width)
     lines = 0
     for line in (text or "").split("\n"):
-        lines += max(1, (len(line) + 79) // 80)
+        cols_count = _line_display_cols(line)
+        lines += max(1, (cols_count + cols - 1) // cols)
     lines = max(1, lines)
-    raw = lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
-    cap = _max_field_height_units(doc)
+    return lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
+
+
+def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:
+    """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
+    raw = _raw_height_for_text(text, doc, field_w=field_w)
+    if cap is None:
+        cap = _max_field_height_units(doc)
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
 
 
@@ -193,36 +245,54 @@ def _anchor_control_as_character(shape: Any) -> None:
     shape.setPropertyValue("TextWrap", 0)
 
 
-def _set_model_prop(model: Any, name: str, value: Any) -> None:
-    """Set one form-model property. Skip names this model lacks.
+def _set_model_props(model: Any, pairs: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] | dict[str, Any]) -> None:
+    """Set form-model properties querying getPropertySetInfo once. Skip names this model lacks.
 
     CommandButton has no ``Border``; the form TextField has no ``AutoVScroll``.
     A rejected value must not abort insertion of the code field.
     """
-    if not model.getPropertySetInfo().hasPropertyByName(name):
+    info = best_effort(lambda: model.getPropertySetInfo(), "notebook controls getPropertySetInfo failed")
+    if info is None:
         return
-    best_effort(lambda: model.setPropertyValue(name, value), f"notebook controls could not set model {name}")
+    items = pairs.items() if isinstance(pairs, dict) else pairs
+    for name, value in items:
+        if info.hasPropertyByName(name):
+            best_effort(functools.partial(model.setPropertyValue, name, value), f"notebook controls could not set model {name}")
 
 
-def _style_code_field_model(model: Any) -> None:
+def _set_model_prop(model: Any, name: str, value: Any) -> None:
+    """Set one form-model property. Skip names this model lacks."""
+    _set_model_props(model, [(name, value)])
+
+
+def _style_code_field_model(model: Any, *, vscroll: bool = False) -> None:
     """Jupyter-like code box: light gray fill, hairline border, Liberation Mono."""
-    _set_model_prop(model, "MultiLine", True)
-    _set_model_prop(model, "FontName", _CODE_FONT_NAME)
-    _set_model_prop(model, "FontHeight", _CODE_FONT_HEIGHT)
-    _set_model_prop(model, "BackgroundColor", _CODE_FIELD_BG)
-    _set_model_prop(model, "Border", 2)
-    _set_model_prop(model, "BorderColor", _CODE_FIELD_BORDER)
-    _set_model_prop(model, "VScroll", False)
-    _set_model_prop(model, "AutoVScroll", False)
+    _set_model_props(
+        model,
+        [
+            ("MultiLine", True),
+            ("FontName", _CODE_FONT_NAME),
+            ("FontHeight", _CODE_FONT_HEIGHT),
+            ("BackgroundColor", _CODE_FIELD_BG),
+            ("Border", 2),
+            ("BorderColor", _CODE_FIELD_BORDER),
+            ("VScroll", vscroll),
+        ],
+    )
 
 
 def _style_run_button_model(model: Any) -> None:
     """Small ▶ without a fat 3D square around it."""
-    _set_model_prop(model, "Border", 0)
-    _set_model_prop(model, "BackgroundColor", 0xFFFFFF)
-    _set_model_prop(model, "FontHeight", 8)
-    _set_model_prop(model, "FocusOnClick", False)
-    _set_model_prop(model, "DefaultControl", "com.sun.star.form.control.CommandButton")
+    _set_model_props(
+        model,
+        [
+            ("Border", 0),
+            ("BackgroundColor", 0xFFFFFF),
+            ("FontHeight", 8),
+            ("FocusOnClick", False),
+            ("DefaultControl", "com.sun.star.form.control.CommandButton"),
+        ],
+    )
 
 
 def _style_control_paragraph(doc: Any) -> None:
@@ -280,10 +350,27 @@ def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int, 
     _log_shape_add(step="run_button", name=model.Name, shapes_before=controls_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add), shape_h=_RUN_BUTTON_SIZE)
 
 
-def _insert_code_input_in_flow(doc: Any, *, name: str, source: str, controls_before: int) -> None:
+def _insert_code_input_in_flow(
+    doc: Any,
+    *,
+    name: str,
+    source: str,
+    controls_before: int,
+    field_w: int | None = None,
+    cap: int | None = None,
+) -> None:
     """Editable code cell: form TextField anchored in document flow at body end."""
     display, truncated = _prepare_display_text(_coerce_notebook_text(source))
     raw_chars = len(source or "")
+
+    if field_w is None:
+        field_w = _text_area_width_units(doc)
+    if cap is None:
+        cap = _max_field_height_units(doc)
+
+    raw_h = _raw_height_for_text(display, field_w=field_w)
+    h = max(_MIN_FIELD_HEIGHT, min(cap, raw_h))
+    vscroll = raw_h > cap
 
     t0 = time.monotonic()
     model = doc.createInstance("com.sun.star.form.component.TextField")
@@ -292,15 +379,13 @@ def _insert_code_input_in_flow(doc: Any, *, name: str, source: str, controls_bef
     model.Name = name
     if hasattr(model, "Label"):
         model.Label = "Code"
-    _style_code_field_model(model)
+    _style_code_field_model(model, vscroll=vscroll)
     create_ms = _mono_ms(t0)
 
     t_text = time.monotonic()
     model.Text = display
     text_ms = _mono_ms(t_text)
 
-    h = _height_for_text(display, doc)
-    field_w = _text_area_width_units(doc)
     t_shape = time.monotonic()
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
     if shape is None:
@@ -652,6 +737,14 @@ class NotebookFormContainerListener(BaseContainerListener):
         elem = getattr(Event, "Element", None)
         _attach_action_listener(elem, self._form_listener)
 
+    def on_disposing(self, Source: Any) -> None:
+        global _listener_refs, _wired_form_docs
+        with _lock:
+            pair = {self, self._form_listener}
+            _listener_refs = [lis for lis in _listener_refs if lis not in pair]
+            if not any(getattr(lis, "_doc_key_val", None) == self._doc_key_val and getattr(lis, "_form_level", False) for lis in _listener_refs):
+                _wired_form_docs.discard(self._doc_key_val)
+
 
 def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> bool:
     if control is None:
@@ -785,6 +878,32 @@ def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
     best_effort(_remove_actions, "notebook controls: removeActionListener failed")
 
 
+def forget_document_wiring(doc: Any) -> None:
+    """Drop ▶ listeners and registry bookkeeping for *doc* on unload."""
+    if doc is None:
+        return
+    global _listener_refs, _wired_keys, _wired_form_docs
+    doc_key = _doc_key(doc)
+    with _lock:
+        to_drop = [lis for lis in _listener_refs if getattr(lis, "_doc_key_val", None) == doc_key]
+    if not to_drop:
+        with _lock:
+            _wired_form_docs.discard(doc_key)
+            _wired_keys = {k for k in _wired_keys if k[0] != doc_key}
+        return
+    for lis in to_drop:
+        if isinstance(lis, NotebookFormContainerListener):
+            best_effort(
+                functools.partial(_detach_wiring, lis._container, lis._form_listener, lis),
+                "notebook controls: detach wiring on unload failed",
+            )
+    with _lock:
+        drop_set = set(to_drop)
+        _listener_refs = [lis for lis in _listener_refs if lis not in drop_set]
+        _wired_form_docs.discard(doc_key)
+        _wired_keys = {k for k in _wired_keys if k[0] != doc_key}
+
+
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
@@ -883,11 +1002,16 @@ def _install_doc_event_listener(ctx: Any) -> None:
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
                 try:
                     name = getattr(Event, "EventName", "") or ""
-                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
+                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew", "OnUnload"):
                         return
 
                     controller = getattr(Event, "ViewController", None)
                     doc = controller.getModel() if controller else getattr(Event, "Source", None)
+
+                    if name == "OnUnload":
+                        if doc is not None:
+                            forget_document_wiring(doc)
+                        return
 
                     if doc is not None and has_notebook_registry(doc):
                         # File Open wire_all runs inside XFilter.filter() before

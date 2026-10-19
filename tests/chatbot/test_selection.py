@@ -231,3 +231,21 @@ def test_stream_completion_tasks_waits_for_existing_owner():
         reset_sentry_state()
         _drain_idle_callbacks.clear()
         _drain_idle_callbacks.extend(original_callbacks)
+
+
+def test_prompt_for_edit_instructions_long_error_does_not_raise_contract_error():
+    from plugin.chatbot.selection import prompt_for_edit_instructions
+    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from plugin.framework.errors import format_error_message
+
+    long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
+
+    def input_box_fail(*args, **kwargs):
+        raise long_err
+
+    ctx = MagicMock()
+    with patch("plugin.chatbot.selection.msgbox") as mock_msgbox:
+        result = prompt_for_edit_instructions(ctx, input_box_fail, "Title")
+        assert result is None
+        mock_msgbox.assert_called_once_with(ctx, "Title", format_error_message(long_err))
+

@@ -255,3 +255,11 @@ def test_streaming_html_stripper_feed_tag_spans_deal_slice():
     stripper = StreamingHTMLStripper()
     assert stripper.feed(text) + stripper.finalize() == ("a" * (DEAL_MAX_HTML_CHUNK - 1)) + "z"
 
+
+def test_strip_html_tags_fast_path_and_entities():
+    assert strip_html_tags("plain text here") == "plain text here"
+    assert strip_html_tags("a &amp; b") == "a & b"
+    assert strip_html_tags("<p>a</p>") == "a"
+    assert strip_html_tags("3 < 5") == "3 < 5"
+
+

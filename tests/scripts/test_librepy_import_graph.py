@@ -12,6 +12,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.build_librepy_oxt import stage_librepy_plugin_tree  # noqa: E402
+from scripts.build_oxt import sync_vendor_into_lib  # noqa: E402
 from scripts.librepy_bundle_paths import (  # noqa: E402
     LIBREPY_VENDOR_PACKAGES,
     collect_librepy_plugin_paths,
@@ -97,7 +98,7 @@ def _module_level_import_nodes(tree: ast.AST) -> list[ast.AST]:
             elif isinstance(stmt, ast.With):
                 walk(stmt.body)
 
-    walk(tree.body)
+    walk(getattr(tree, "body", []))
     return nodes
 
 
@@ -360,8 +361,6 @@ def test_librepy_shipped_function_level_imports_are_safe():
 
 def test_librepy_staged_bundle_imports_without_writeragent(tmp_path: Path):
     """Verify that every shipped LibrePy module imports cleanly in an isolated tree."""
-    import shutil
-
     staged = tmp_path / "staged"
     stage_librepy_plugin_tree(str(_REPO_ROOT), str(staged))
 
@@ -374,10 +373,12 @@ def test_librepy_staged_bundle_imports_without_writeragent(tmp_path: Path):
     # Vendor packages into plugin/lib
     vendor_dir = _REPO_ROOT / "vendor"
     lib_dir = staged / "plugin" / "lib"
-    for pkg in LIBREPY_VENDOR_PACKAGES:
-        src = vendor_dir / pkg
-        if src.is_dir():
-            shutil.copytree(src, lib_dir / pkg)
+    sync_vendor_into_lib(
+        str(vendor_dir),
+        str(lib_dir),
+        prune_websockets=False,
+        only=LIBREPY_VENDOR_PACKAGES,
+    )
 
     # Isolate subprocess to staged tree without editable finder hooks
     script = r"""

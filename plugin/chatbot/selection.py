@@ -62,7 +62,7 @@ def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str) -> tup
     try:
         user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
     except Exception as e:
-        msgbox(ctx, title, _(format_error_message(e)))
+        msgbox(ctx, title, format_error_message(e))
         return None
 
     if not user_input:

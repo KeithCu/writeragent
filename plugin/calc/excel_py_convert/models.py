@@ -65,12 +65,13 @@ class ExcelWorkbookModel:
     # Anchor/spill snapshots: "Sheet!A6" or "A6" → A1 range
     anchor_snapshots: dict[str, str] = field(default_factory=dict)
     source_path: str = ""
+    issues: list[str] = field(default_factory=list)
 
     def sheet_order_map(self) -> dict[str, int]:
         return {s.title: s.order for s in self.sheets}
 
     def to_dict(self) -> dict[str, Any]:
-        return {"scripts": list(self.scripts), "cells": [asdict(c) for c in self.cells], "sheets": [asdict(s) for s in self.sheets], "tables": dict(self.tables), "anchor_snapshots": dict(self.anchor_snapshots), "source_path": self.source_path}
+        return {"scripts": list(self.scripts), "cells": [asdict(c) for c in self.cells], "sheets": [asdict(s) for s in self.sheets], "tables": dict(self.tables), "anchor_snapshots": dict(self.anchor_snapshots), "source_path": self.source_path, "issues": list(self.issues)}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExcelWorkbookModel:
@@ -104,6 +105,7 @@ class ExcelWorkbookModel:
             tables={str(k): str(v) for k, v in (data.get("tables") or {}).items()},
             anchor_snapshots={str(k): str(v) for k, v in (data.get("anchor_snapshots") or {}).items()},
             source_path=str(data.get("source_path") or ""),
+            issues=[str(i) for i in (data.get("issues") or [])],
         )
 
 

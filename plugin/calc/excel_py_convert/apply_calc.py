@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.excel_py_convert.script_bank import collect_script_bank, formula_for_converted_cell, iter_a1_span, report_safety_warnings, write_script_bank_uno
+from plugin.calc.excel_py_convert.script_bank import collect_script_bank, formula_for_converted_cell, report_safety_warnings, write_script_bank_uno
 from plugin.framework.errors import best_effort
 
 if TYPE_CHECKING:
@@ -36,18 +36,62 @@ def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
     return None
 
 
+def _rect_to_a1(c1: int, r1: int, c2: int, r2: int) -> str:
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_index_to_str
+
+    if c1 == c2 and r1 == r2:
+        return f"{_col_index_to_str(c1)}{r1}"
+    return f"{_col_index_to_str(c1)}{r1}:{_col_index_to_str(c2)}{r2}"
+
+
+def _clear_range_object(rng: Any) -> None:
+    if hasattr(rng, "clearContents"):
+        try:
+            rng.clearContents(511)
+        except Exception:
+            rng.clearContents(0)
+    else:
+        rng.setFormula("")
+        rng.setString("")
+
+
 def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
     if not array_ref:
         return
-    cells = iter_a1_span(array_ref)
-    if len(cells) <= 1:
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_row
+    from plugin.calc.excel_py_convert.script_bank import a1_span_bounds
+
+    bounds = a1_span_bounds(array_ref)
+    if bounds is None:
         return
-    for coord in cells:
-        if coord == anchor:
-            continue
-        cell = sheet.getCellRangeByName(coord)
-        cell.setFormula("")
-        cell.setString("")
+    (c1, r1), (c2, r2) = bounds
+    if c1 == c2 and r1 == r2:
+        return
+
+    a_row, a_col = _col_row(anchor)
+
+    anchor_cell = sheet.getCellRangeByName(anchor)
+    prev_formula = anchor_cell.getFormula() if hasattr(anchor_cell, "getFormula") else ""
+    try:
+        rng = sheet.getCellRangeByName(array_ref)
+        _clear_range_object(rng)
+        anchor_cell.setFormula(prev_formula)
+    except Exception:
+        rects: list[tuple[int, int, int, int]] = []
+        if r1 < a_row:
+            rects.append((c1, r1, c2, a_row - 1))
+        if r2 > a_row:
+            rects.append((c1, a_row + 1, c2, r2))
+        if c1 < a_col:
+            rects.append((c1, a_row, a_col - 1, a_row))
+        if c2 > a_col:
+            rects.append((a_col + 1, a_row, c2, a_row))
+        for rc1, rr1, rc2, rr2 in rects:
+            try:
+                r_ref = _rect_to_a1(rc1, rr1, rc2, rr2)
+                _clear_range_object(sheet.getCellRangeByName(r_ref))
+            except Exception:
+                pass
 
 
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:

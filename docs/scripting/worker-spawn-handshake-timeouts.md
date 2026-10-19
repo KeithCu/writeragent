@@ -96,12 +96,12 @@ Look for `spawn handshake timed out` on stderr, not only the pytest summary.
 ```bash
 .venv/bin/python -c "
 import subprocess, sys, time
-from plugin.scripting.ipc import read_pickle_frame_with_timeout
+from plugin.scripting.ipc import read_pickle_frame
 p = subprocess.Popen([sys.executable, 'compute_service/formula_worker.py'],
                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
 t0 = time.monotonic()
 try:
-    d = read_pickle_frame_with_timeout(p.stdout, 15.0)
+    d = read_pickle_frame(p.stdout, 15.0)
     print('ready', d, 'in', round(time.monotonic()-t0, 3))
 except Exception as e:
     print(type(e), e, 'in', round(time.monotonic()-t0, 3))
@@ -123,7 +123,7 @@ FormulaProcessPool / get_formula_pool
   → BaseProcessWorker.__init__ → _spawn
       Popen([sys.executable, formula_worker.py], stdin/stdout=PIPE, stderr=log file, bufsize=0)
       optimize_popen_pipes (Linux F_SETPIPE_SZ on the stdout pipe)
-      read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
+      read_pickle_frame(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
 formula_worker.py and vision.py (child), current:
@@ -249,7 +249,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 | [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | `_spawn`, handshake, fail-open, missing stderr on timeout |
 | [`compute_service/formula_worker.py`](../../compute_service/formula_worker.py) | Import + Cython before ready |
 | [`compute_service/vision.py`](../../compute_service/vision.py) | Same loop, lighter imports |
-| [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame_with_timeout`, empty-read → EOF, `max_payload_bytes` |
+| [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame`, empty-read → EOF, `max_payload_bytes` |
 | [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | No ready frame; import-before-read |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | Host spawn, `scrub_subprocess_env`, warm timeout |
 | [`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py) | `optimize_popen_pipes`, scrub |

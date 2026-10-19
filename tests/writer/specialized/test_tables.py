@@ -1264,7 +1264,7 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
 
 
 def test_resolve_uno_context():
-    from plugin.writer.table_helpers import _resolve_uno_context
+    from plugin.writer.specialized.tables import _resolve_uno_context
     ctx = SimpleNamespace(ctx="CUSTOM_UNO_CTX")
     assert _resolve_uno_context(ctx) == "CUSTOM_UNO_CTX"
 
@@ -1272,7 +1272,7 @@ def test_resolve_uno_context():
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
     import pytest
-    from plugin.writer.table_helpers import _is_text_table, _iter_direct_children, _cell_hosted_table_names
+    from plugin.writer.specialized.tables import _is_text_table, _iter_direct_children, _cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")

@@ -14,7 +14,7 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from scripts.build_librepy_locales import _extract_python_msgids
+from scripts.build_librepy_locales import _extract_python_msgids, _xdl_paths
 
 LIBREPY_POT = _REPO / "build" / "generated" / "librepy.pot"
 FULL_POT = _REPO / "locales" / "writeragent.pot"
@@ -26,17 +26,12 @@ pytestmark = [
 
 
 def _ensure_manifest_core() -> None:
-    manifest_script = _REPO / "scripts" / "generate_manifest.py"
+    build_script = _REPO / "scripts" / "build_librepy_oxt.py"
     subprocess.run(
         [
             sys.executable,
-            str(manifest_script),
-            "--modules",
-            "scripting",
-            "vision",
-            "--manifest-output",
-            str(_REPO / "build" / "generated" / "_manifest_librepy.py"),
-            "--skip-writeragent-extension",
+            str(build_script),
+            "--manifest-only",
         ],
         cwd=_REPO,
         check=True,
@@ -101,3 +96,24 @@ def test_extract_python_msgids_reads_underscore_calls(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _extract_python_msgids([str(src)]) == {"Plain", "BoldBit", "multiline"}
+
+
+def test_xdl_paths_filters_to_shipped_dialogs_only(tmp_path: Path) -> None:
+    settings_xdl = tmp_path / "build" / "generated" / "Dialogs" / "SettingsDialog.xdl"
+    vision_xdl = tmp_path / "build" / "generated" / "Dialogs" / "VisionSettingsDialog.xdl"
+    scripting_xdl = tmp_path / "build" / "generated" / "Dialogs" / "scripting.xdl"
+    chat_panel_xdl = tmp_path / "build" / "generated" / "Dialogs" / "ChatPanelDialog.xdl"
+    chat_panel_lower = tmp_path / "build" / "generated" / "dialogs" / "ChatPanelDialog.xdl"
+    handwritten_xdl = tmp_path / "extension" / "Dialogs" / "PythonScriptDialog.xdl"
+
+    for path in (settings_xdl, vision_xdl, scripting_xdl, chat_panel_xdl, chat_panel_lower, handwritten_xdl):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("<dlg/>\n", encoding="utf-8")
+
+    paths = _xdl_paths(root=str(tmp_path))
+    assert str(settings_xdl) in paths
+    assert str(vision_xdl) in paths
+    assert str(handwritten_xdl) in paths
+    assert not any("scripting.xdl" in p for p in paths)
+    assert not any("ChatPanelDialog.xdl" in p for p in paths)
+    assert len(paths) == 3

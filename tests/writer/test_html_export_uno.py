@@ -441,3 +441,79 @@ def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
     content = result.get("content") or ""
 
     assert "Table" in content, content
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) -> None:
+    """Selection and range export must preserve inline ($) and display ($$) formulas."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.writer.content import GetDocumentContent
+    from plugin.writer.math.math_mml_convert import insert_writer_math_formula
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Start ", False)
+    insert_writer_math_formula(doc, cur, "a + b", display_block=False)
+    text.insertString(cur, " middle", False)
+    insert_writer_math_formula(doc, cur, "x", display_block=True)
+    text.insertString(cur, "End", False)
+
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+
+    # Scope selection covering all text
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(text.getStart(), False)
+    vc.gotoRange(text.getEnd(), True)
+    sel_res = GetDocumentContent().execute(tool_ctx, scope="selection")
+    assert sel_res.get("status") == "ok", sel_res
+    sel_html = sel_res.get("content") or ""
+    assert "$$" in sel_html, sel_html
+    assert sel_html.count("$$") == 2, sel_html
+    idx_inline = sel_html.find("$a") if "$a" in sel_html else sel_html.find("a + b")
+    idx_display = sel_html.find("$$x$$") if "$$x$$" in sel_html else sel_html.find("x")
+    assert idx_inline != -1 and idx_display != -1, sel_html
+    assert idx_inline < idx_display, sel_html
+
+    # Scope range covering the full character count
+    full_len = len(text.getString())
+    range_res = GetDocumentContent().execute(
+        tool_ctx, scope="range", start=0, end=full_len
+    )
+    assert range_res.get("status") == "ok", range_res
+    range_html = range_res.get("content") or ""
+    assert "$$" in range_html, range_html
+    assert range_html.count("$$") == 2, range_html
+    r_idx_inline = range_html.find("$a") if "$a" in range_html else range_html.find("a + b")
+    r_idx_display = range_html.find("$$x$$") if "$$x$$" in range_html else range_html.find("x")
+    assert r_idx_inline != -1 and r_idx_display != -1, range_html
+    assert r_idx_inline < r_idx_display, range_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
+    """A formula in a header must export its TeX through xtext_to_content."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
+    from plugin.writer.html_export import xtext_to_content
+    from plugin.writer.math.math_mml_convert import insert_writer_math_formula
+
+    styles = doc.getStyleFamilies().getByName("PageStyles")
+    style_name = "Standard" if styles.hasByName("Standard") else styles.getElementNames()[0]
+    style = styles.getByName(style_name)
+    style.setPropertyValue("HeaderIsOn", True)
+    header_text = style.getPropertyValue("HeaderText")
+    cur = header_text.createTextCursor()
+    header_text.insertString(cur, "Header math: ", False)
+    insert_writer_math_formula(doc, cur, "y = m x + b", display_block=False)
+
+    content = xtext_to_content(header_text, doc, ctx)
+    assert content, "Expected non-empty HTML from header xtext_to_content"
+    assert "y = m x + b" in content or "y=mx+b" in content or "m x" in content
+    assert "$" in content
+

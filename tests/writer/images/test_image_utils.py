@@ -39,7 +39,7 @@ class TestEndpointImageProvider:
         
         assert (len(paths)) == (1)
         assert (err) == ("")
-        assert (paths[0].endswith(".webp"))
+        assert (paths[0].endswith(".img"))
         from plugin.framework.config import get_config_int
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
@@ -600,5 +600,90 @@ class TestCanonicalAspectRatio:
         assert (canonical_resolution(2048, 2048, family="imagen")) == ("2K")
         assert (canonical_resolution(4096, 4096, family="imagen")) == ("2K")
         assert (canonical_resolution(0, 512)) is None
+
+
+def test_resolve_generation_size_enums():
+    from plugin.writer.images.image_utils import resolve_generation_size
+
+    w43, h43, ratio43 = resolve_generation_size(1024, "4:3")
+    w32, h32, ratio32 = resolve_generation_size(1024, "3:2")
+    assert (w43, h43) != (w32, h32)
+    assert (w43, h43) == (1344, 1024)
+    assert ratio43 == "4:3"
+    assert (w32, h32) == (1536, 1024)
+    assert ratio32 == "3:2"
+
+    w34, h34, ratio34 = resolve_generation_size(1024, "3:4")
+    w23, h23, ratio23 = resolve_generation_size(1024, "2:3")
+    assert (w34, h34) != (w23, h23)
+    assert (w34, h34) == (1024, 1344)
+    assert ratio34 == "3:4"
+    assert (w23, h23) == (1024, 1536)
+    assert ratio23 == "2:3"
+
+    for enum_val in ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"]:
+        w, h, wire = resolve_generation_size(1024, enum_val)
+        assert w % 64 == 0
+        assert h % 64 == 0
+        assert wire is not None
+
+
+def test_resolve_generation_size_omitted_and_explicit():
+    from plugin.writer.images.image_utils import resolve_generation_size
+
+    w, h, wire = resolve_generation_size(1024, "Landscape (3:2)")
+    assert (w, h, wire) == (1536, 1024, "3:2")
+
+    w, h, wire = resolve_generation_size(1024, "Square")
+    assert (w, h, wire) == (1024, 1024, "1:1")
+
+    w, h, wire = resolve_generation_size(1024, "16:9", width=1280, height=720)
+    assert (w, h, wire) == (1280, 720, "16:9")
+
+    w, h, wire = resolve_generation_size(1024, "16:9", width=1000, height=200)
+    assert (w, h, wire) == (1000, 200, None)
+
+
+def test_write_temp_image_and_suffix():
+    from plugin.writer.images.image_utils import suffix_for_image_bytes, write_temp_image
+
+    assert suffix_for_image_bytes(b"\x89PNG\r\n\x1a\n") == ".png"
+    assert suffix_for_image_bytes(b"\x89PNG") == ".png"
+    assert suffix_for_image_bytes(b"\xff\xd8\xff") == ".jpg"
+    assert suffix_for_image_bytes(b"GIF89a") == ".gif"
+    assert suffix_for_image_bytes(b"RIFF\x00\x00\x00\x00WEBP") == ".webp"
+    assert suffix_for_image_bytes(b"BM\x00\x00") == ".bmp"
+    assert suffix_for_image_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'></svg>") == ".svg"
+    assert suffix_for_image_bytes(b"<!DOCTYPE html><html><svg></svg></html>") == ".img"
+    assert suffix_for_image_bytes(b"random-bytes") == ".img"
+
+    path = write_temp_image(b"\x89PNG\r\n\x1a\nfake-png")
+    try:
+        assert os.path.basename(path).startswith("wa-img-")
+        assert path.endswith(".png")
+        assert os.path.isfile(path)
+    finally:
+        os.unlink(path)
+
+
+def test_temp_cleanup_on_failure():
+    import pytest
+    from plugin.writer.images.image_utils import EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
+
+    provider = EndpointImageProvider({"model": "test"}, None)
+
+    with pytest.raises(Exception):
+        provider._save_b64("not-valid-base64!!!")
+
+    with patch("plugin.writer.images.image_utils.sync_request", side_effect=RuntimeError("net error")):
+        with pytest.raises(RuntimeError):
+            provider._save_url("https://example.com/fail.png")
+
+    huge_data = b"x" * (IMAGE_DOWNLOAD_MAX_BYTES + 1)
+    with patch("plugin.writer.images.image_utils.sync_request", return_value=huge_data):
+        with pytest.raises(RuntimeError) as exc_info:
+            provider._save_url("https://example.com/huge.png")
+        assert "exceeded" in str(exc_info.value)
+
 
 

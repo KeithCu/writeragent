@@ -63,6 +63,7 @@ PRINT_CALL_NAMES: frozenset[str] = frozenset({"print", "pprint"})
 LOGGER_STRIP_ATTRS: frozenset[str] = frozenset({"debug", "info"})
 
 EXCLUDED_STRIP_PATTERNS: list[str] = [
+    "plugin/lib/",
     "plugin/testing_runner.py",
     "plugin/tests/",
     "tests/",
@@ -143,6 +144,7 @@ def _walk_and_strip_expr_statements(
     action = "Dry run: would strip" if dry_run else "Stripping"
     print(f"  {action} {label} from {bundle_path} using AST...")
 
+    errors: list[str] = []
     for root, _, filenames in os.walk(bundle_path):
         for fn in filenames:
             if not fn.endswith(".py"):
@@ -180,8 +182,13 @@ def _walk_and_strip_expr_statements(
                         f.write(new_content)
 
             except Exception as e:
-                if "match" not in str(e):
-                    print(f"    SKIPPING {fn}: {e}")
+                errors.append(f"{rel_path}: {e}")
+
+    if errors:
+        raise RuntimeError(
+            f"Failed stripping {label} due to parse/rewrite errors:\n"
+            + "\n".join(f"  {err}" for err in errors)
+        )
 
     print(f"  Done: Stripped {label} from bundle.")
 
@@ -234,7 +241,7 @@ def strip_print_calls(bundle_path: str, dry_run: bool = False) -> None:
     )
 
 
-def _is_deal_decorator(node: ast.AST) -> bool:
+def _is_deal_decorator(node: ast.expr) -> bool:
     """True if *node* is a decorator under the ``deal`` namespace (e.g. ``@deal.pre``)."""
     curr: ast.AST = node
     if isinstance(curr, ast.Call):
@@ -249,13 +256,14 @@ def _strip_matching_decorators(
     *,
     label: str,
     needle: str,
-    should_remove: Callable[[ast.AST], bool],
+    should_remove: Callable[[ast.expr], bool],
     dry_run: bool,
 ) -> None:
     """Delete matching decorators from FunctionDef / AsyncFunctionDef / ClassDef lists."""
     action = "Dry run: would strip" if dry_run else "Stripping"
     print(f"  {action} {label} from {bundle_path} using AST...")
 
+    errors: list[str] = []
     for root, _, filenames in os.walk(bundle_path):
         for fn in filenames:
             if not fn.endswith(".py"):
@@ -273,7 +281,7 @@ def _strip_matching_decorators(
                     continue
 
                 tree = ast.parse(content)
-                decorators_to_remove: list[ast.AST] = []
+                decorators_to_remove: list[ast.expr] = []
 
                 class FindVisitor(ast.NodeVisitor):
                     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -332,8 +340,13 @@ def _strip_matching_decorators(
                     f.write("".join(new_lines))
 
             except Exception as e:
-                if "match" not in str(e):
-                    print(f"    SKIPPING {fn}: {e}")
+                errors.append(f"{rel_path}: {e}")
+
+    if errors:
+        raise RuntimeError(
+            f"Failed stripping {label} due to parse/rewrite errors:\n"
+            + "\n".join(f"  {err}" for err in errors)
+        )
 
     print(f"  Done: Stripped {label} from bundle.")
 
@@ -535,7 +548,11 @@ def main() -> int:
         print(f"Error: {args.bundle_path} is not a valid directory.", file=sys.stderr)
         return 1
 
-    strip_production_code(args.bundle_path, dry_run=args.dry_run)
+    try:
+        strip_production_code(args.bundle_path, dry_run=args.dry_run)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     return 0
 
 

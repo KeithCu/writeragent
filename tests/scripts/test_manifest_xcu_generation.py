@@ -11,7 +11,12 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from scripts.manifest_xdl import _OOR_NS, _oor  # noqa: E402  (needs scripts on sys.path)
+from manifest_xdl import (  # noqa: E402  (needs scripts on sys.path)
+    _OOR_NS,
+    _oor,
+    generate_standalone_config_dialogs,
+    remove_stale_generated_xdls,
+)
 
 _OOR_NAME = "{%s}name" % _OOR_NS
 
@@ -26,6 +31,38 @@ def test_oor_attribute_serializes_with_oor_prefix_not_none():
     xml = ET.tostring(el, encoding="unicode")
     assert 'oor:name="X"' in xml and 'oor:op="replace"' in xml
     assert "None=" not in xml
+
+
+def test_generate_standalone_config_dialogs_preserves_siblings(tmp_path):
+    """generate_standalone_config_dialogs writes its dialog and leaves sibling XDLs untouched."""
+    dialogs_dir = tmp_path / "Dialogs"
+    dialogs_dir.mkdir()
+    (dialogs_dir / "SettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "old_gone.xdl").write_text("<x/>", encoding="utf-8")
+    modules = [
+        {"name": "vision", "config_dialog": {"id": "VisionSettingsDialog"}, "config": {}},
+    ]
+    ids = generate_standalone_config_dialogs(modules, str(tmp_path))
+    assert ids == ["VisionSettingsDialog"]
+    names = {p.name for p in dialogs_dir.glob("*.xdl")}
+    assert "VisionSettingsDialog.xdl" in names
+    assert "SettingsDialog.xdl" in names
+    assert "old_gone.xdl" in names
+
+
+def test_remove_stale_generated_xdls(tmp_path):
+    """remove_stale_generated_xdls removes unlisted XDLs and keeps listed ones."""
+    dialogs_dir = tmp_path / "Dialogs"
+    dialogs_dir.mkdir()
+    (dialogs_dir / "SettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "VisionSettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "chatbot.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "audio.xdl").write_text("<x/>", encoding="utf-8")
+    keep = {"SettingsDialog.xdl", "VisionSettingsDialog.xdl"}
+    count = remove_stale_generated_xdls(str(dialogs_dir), keep)
+    assert count == 2
+    names = {p.name for p in dialogs_dir.glob("*.xdl")}
+    assert names == {"SettingsDialog.xdl", "VisionSettingsDialog.xdl"}
 
 
 def test_generate_update_xml_default_only_generates_writeragent(tmp_path):

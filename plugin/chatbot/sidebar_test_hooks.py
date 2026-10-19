@@ -57,6 +57,8 @@ _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 _LIVE_SEND_LISTENERS: list[Any] = []
 # Last native-test ctx so URP fallbacks can executeDispatch without get_ctx().
 _HOOK_CTX: Any = None
+# Last doc whose deck wait_for_chat_dialog_controls was asked for.
+_HOOK_DOC: Any = None
 # Out-of-process mock-sidebar: controller bound to the live XDL ListBox over URP.
 _URP_SLASH_POPUP: Any = None
 
@@ -264,9 +266,36 @@ def _read_json_dict(path: str, *, retry: bool = False) -> dict[str, Any]:
     return {}
 
 
+def _replace_state_file(tmp_path: str, path: str) -> None:
+    """os.replace that rides out a reader holding *path* open.
+
+    Tip: on Windows, replace fails with WinError 5 while another thread or the
+    URP side has the old file open in _read_json_dict. Retry briefly.
+    """
+    for attempt in range(20):
+        try:
+            os.replace(tmp_path, path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.01)
+
+
 def _remove_quiet(path: str) -> None:
     with contextlib.suppress(OSError):
         os.remove(path)
+
+
+def _fake_child_python() -> str:
+    """Python that the fake recorder / TTS children run under.
+
+    Tip: inside LibreOffice on macOS, sys.executable is soffice, not Python, so
+    "soffice -c script" just exits 1. Use the office's real bundled Python.
+    """
+    from plugin.scripting.sandbox import resolve_libreoffice_python
+
+    return resolve_libreoffice_python() or sys.executable
 
 
 def read_fake_stt_state() -> dict[str, Any]:
@@ -278,7 +307,7 @@ def _fake_stt_refresh_locked() -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(_FAKE_STT_STATE, handle)
         handle.flush()
-    os.replace(tmp_path, path)
+    _replace_state_file(tmp_path, path)
 
 def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> None:
     _FAKE_STT_STATE["spawn_count"] = _FAKE_STT_STATE.get("spawn_count", 0) + 1
@@ -456,7 +485,7 @@ def _apply_fake_stt(mode: str) -> None:
         if not _FAKE_STT_STATE or _FAKE_STT_STATE.get("mode") != mode:
             _FAKE_STT_STATE = {
                 "mode": mode,
-                "interpreter": sys.executable,
+                "interpreter": _fake_child_python(),
                 "spawn_count": 0,
                 "pids": [],
                 "alive": [],
@@ -505,7 +534,7 @@ def _apply_fake_stt(mode: str) -> None:
                 elif is_recorder and _FAKE_STT_MODE in ("silence", "noisy", "hold"):
                     script = _fake_recorder_script(_FAKE_STT_MODE, _fake_recorder_output(requested_cmd))
 
-                new_cmd = [sys.executable, "-c", script]
+                new_cmd = [_fake_child_python(), "-c", script]
                 new_args = list(args)
                 if new_args:
                     new_args[0] = new_cmd
@@ -545,7 +574,7 @@ def _apply_fake_stt(mode: str) -> None:
             # interpreter the fake children run under.
             def fake_resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
                 del ctx
-                return sys.executable, ""
+                return _fake_child_python(), ""
 
             setattr(audio_recorder, "resolve_recording_python", fake_resolve_recording_python)
 
@@ -620,7 +649,7 @@ def _fake_tts_refresh_locked() -> None:
             rcs[str(pid)] = rc
     _FAKE_TTS_STATE["alive"] = alive
     _FAKE_TTS_STATE["mode"] = _FAKE_TTS_MODE
-    _FAKE_TTS_STATE["interpreter"] = sys.executable
+    _FAKE_TTS_STATE["interpreter"] = _fake_child_python()
     _FAKE_TTS_STATE.setdefault("spawn_count", 0)
     _FAKE_TTS_STATE.setdefault("pids", [])
     _FAKE_TTS_STATE.setdefault("overlap_spawns", 0)
@@ -641,7 +670,7 @@ def _fake_tts_refresh_locked() -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(_FAKE_TTS_STATE, handle)
         handle.flush()
-    os.replace(tmp_path, path)
+    _replace_state_file(tmp_path, path)
 
 
 def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any]) -> None:
@@ -656,7 +685,7 @@ def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any
     _FAKE_TTS_PROCS[pid] = proc
     _FAKE_TTS_STATE.setdefault("pids", []).append(pid)
     _FAKE_TTS_STATE["spawn_count"] = _FAKE_TTS_STATE.get("spawn_count", 0) + 1
-    _FAKE_TTS_STATE.setdefault("argv0s", []).append(sys.executable)
+    _FAKE_TTS_STATE.setdefault("argv0s", []).append(_fake_child_python())
     base = os.path.basename(requested[0]) if requested else ""
     _FAKE_TTS_STATE.setdefault("requested_basenames", []).append(base)
     _fake_tts_refresh_locked()
@@ -746,7 +775,7 @@ def _apply_fake_tts(mode: str) -> None:
         if not _FAKE_TTS_STATE or _FAKE_TTS_STATE.get("mode") != mode:
             _FAKE_TTS_STATE = {
                 "mode": mode,
-                "interpreter": sys.executable,
+                "interpreter": _fake_child_python(),
                 "spawn_count": 0,
                 "pids": [],
                 "alive": [],
@@ -784,7 +813,7 @@ def _apply_fake_tts(mode: str) -> None:
                     return None
                 if _FAKE_TTS_MODE in ("hold", "crash"):
                     if os.path.basename(cmd) == "espeak":
-                        return sys.executable
+                        return _fake_child_python()
                 return orig_which(cmd, *args, **kwargs)
 
             setattr(fake_which, "_writeragent_fake_tts", True)
@@ -814,7 +843,7 @@ def _apply_fake_tts(mode: str) -> None:
                 else:
                     requested_cmd = []
 
-                new_cmd = [sys.executable, "-c", script]
+                new_cmd = [_fake_child_python(), "-c", script]
                 new_args = list(args)
                 if new_args:
                     new_args[0] = new_cmd
@@ -1036,6 +1065,10 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(_load_visible_calc_factory, sl=sl)
         _write_debug_snapshot(sl)
         return
+    if op == "CLOSE_CALC":
+        _post_to_soffice_vcl(_close_visible_calc, sl=sl)
+        _write_debug_snapshot(sl)
+        return
     # Packet O: fake vision backend inside soffice (the OCR venv is not installed in CI).
     if op.startswith("FAKE_VISION_"):
         _apply_fake_vision(op[len("FAKE_VISION_"):].lower())
@@ -1242,15 +1275,20 @@ def _doc_frame(doc: Any) -> Any:
     return uno_probe(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
 
 
-def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
-    """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice."""
+def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> dict[str, Any]:
+    """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice.
+
+    Tip: pass *doc* to aim at that document's deck. On macOS the desktop's current
+    component does not always follow the window brought to front.
+    """
     _require_debug()
     uno_ctx = ctx if ctx is not None else _HOOK_CTX
     if uno_ctx is None:
         from plugin.framework.uno_context import get_ctx
 
         uno_ctx = get_ctx()
-    doc = current_component(uno_ctx)
+    if doc is None:
+        doc = _urp_target_doc(uno_ctx)
     frame = _doc_frame(doc)
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
@@ -1272,12 +1310,33 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
     return _read_debug_snapshot()
 
 
+def _urp_target_controls(ctx: Any) -> dict[str, Any]:
+    """Chat controls of the current doc, else of the last doc a test focused.
+
+    Tip: on macOS, after a Calc window closes, the desktop's current component
+    can stay on a doc with no chat deck even though Writer is in front.
+    """
+    controls = chat_dialog_controls(ctx, current_component(ctx))
+    if controls:
+        return controls
+    doc = _HOOK_DOC
+    if doc is not None:
+        return chat_dialog_controls(ctx, doc) or {}
+    return {}
+
+
+def _urp_target_doc(ctx: Any) -> Any:
+    doc = current_component(ctx)
+    if _HOOK_DOC is not None and not chat_dialog_controls(ctx, doc) and chat_dialog_controls(ctx, _HOOK_DOC):
+        return _HOOK_DOC
+    return doc
+
+
 def _urp_send_control() -> Any:
     ctx = _HOOK_CTX
     if ctx is None:
         return None
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    return controls.get("send")
+    return _urp_target_controls(ctx).get("send")
 
 
 def _try_click_send_for_kind(kind: SendEventKind) -> bool:
@@ -1311,8 +1370,7 @@ def _urp_record_click_took() -> bool:
     ctx = _HOOK_CTX
     if ctx is None:
         return False
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    return control_enabled(controls.get("stop")) is True
+    return control_enabled(_urp_target_controls(ctx).get("stop")) is True
 
 
 def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
@@ -1520,6 +1578,36 @@ def close_component(doc: Any) -> None:
         best_effort(lambda: doc.close(True), "close component")
     elif hasattr(doc, "dispose"):
         best_effort(doc.dispose, "dispose component")
+
+
+def _close_visible_calc() -> None:
+    """Close every open Calc on soffice VCL (run via :func:`_post_to_soffice_vcl`)."""
+    from plugin.framework.uno_context import get_ctx
+
+    for doc in list(iter_desktop_components(get_ctx())):
+        if component_is_calc(doc):
+            close_component(doc)
+
+
+def close_calc_document(ctx: Any, doc: Any, *, timeout: float = 10.0) -> None:
+    """Close the visible Calc on soffice's main thread and wait until it is gone.
+
+    Tip: a URP doc.close() runs on a soffice URP thread. On macOS that thread's
+    autoreleased AppKit menus are freed when it exits, off the main thread, and
+    LibreOffice aborts (NSMenu dealloc, R5). On Linux it raced VCL idle tasks (E23).
+    """
+    _require_debug()
+    if doc is None:
+        return
+    try:
+        execute_debug_sidebar_op("CLOSE_CALC", ctx=ctx)
+    except Exception:
+        log.debug("CLOSE_CALC dispatch failed", exc_info=True)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() < deadline and find_calc_component(ctx) is not None:
+        time.sleep(0.1)
+    if find_calc_component(ctx) is not None:
+        close_component(doc)
 
 
 def _load_visible_calc_factory() -> None:
@@ -1893,8 +1981,10 @@ def wait_for_chat_dialog_controls(
     Pass *doc* to target a specific model (Calc after :func:`open_calc_document`,
     Packet P dual Writer+Calc). Default is ``current_component``.
     """
-    global _HOOK_CTX
+    global _HOOK_CTX, _HOOK_DOC
     _HOOK_CTX = ctx
+    if doc is not None:
+        _HOOK_DOC = doc
     _require_debug()
     deadline = time.monotonic() + max(0.0, timeout)
     last: dict[str, Any] | None = None
@@ -2140,7 +2230,7 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         return
     ctx = _HOOK_CTX
     if ctx is not None:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+        controls = _urp_target_controls(ctx)
         set_query_text_via_controls(controls, text)
         # QueryTextListener may not fire over URP setText; refresh inside soffice.
         popup = ensure_slash_popup()
@@ -2285,7 +2375,7 @@ def _urp_slash_controller() -> Any:
     ctx = _HOOK_CTX
     if ctx is None:
         return None
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    controls = _urp_target_controls(ctx)
     ctrl = controls.get("slash_popup")
     query = controls.get("query")
     if ctrl is None or query is None:
@@ -2320,7 +2410,7 @@ def ensure_slash_popup(*, listener: Any = None) -> Any:
         ctrl = None
         ctx = _HOOK_CTX
         if ctx is not None:
-            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+            controls = _urp_target_controls(ctx)
             ctrl = controls.get("slash_popup")
         if ctrl is None:
             return _urp_slash_controller()
@@ -2457,7 +2547,7 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
     ctx = _HOOK_CTX
     if ctx is None:
         return
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    controls = _urp_target_controls(ctx)
     clear_btn = controls.get("clear")
     if clear_btn is not None:
         try:
@@ -2774,7 +2864,7 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
             ctx = _HOOK_CTX
             if ctx is None:
                 return False
-            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+            controls = _urp_target_controls(ctx)
             stop = controls.get("stop")
             send = controls.get("send")
             if control_enabled(stop) is True:
@@ -2924,7 +3014,7 @@ def _write_fake_vision_state() -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(_FAKE_VISION_STATE, f)
-    os.replace(tmp, path)
+    _replace_state_file(tmp, path)
 
 
 def fake_ocr_text(image_name: str) -> str:
@@ -3014,9 +3104,14 @@ def get_writer_graphics_count(*, ctx: Any = None) -> int:
         return 0
     return len(doc.getGraphicObjects().getElementNames())
 
-def get_draw_graphics_count(*, ctx: Any = None) -> int:
-    """Return the number of Draw/Impress GraphicObjectShapes on the first page."""
-    doc = current_component(ctx)
+def get_draw_graphics_count(*, ctx: Any = None, doc: Any = None) -> int:
+    """Return the number of shapes on the first draw page of *doc* (default: current component).
+
+    Tip: pass *doc* when several documents are open. On macOS the desktop's current
+    component can stay on Writer after Calc opens, which would count the wrong document.
+    """
+    if doc is None:
+        doc = current_component(ctx)
     if doc is None or not hasattr(doc, "getDrawPages"):
         return 0
     return doc.getDrawPages().getByIndex(0).getCount()

@@ -181,9 +181,9 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
 
     ``aDocumentIdentifier`` is the persistence map key. It is often a small
     integer, not ``RuntimeUID``, so the model cannot be loaded from that map.
-    Prefer the desktop's current text component. Otherwise use the open Writer
-    whose ``RuntimeUID`` is *doc_id*, or the only open Writer. Several Writers
-    and no id match is not a guess.
+    RuntimeUID is checked first, and the desktop's current text component is the
+    fallback. Otherwise use the only open Writer. Several Writers and no id match
+    is not a guess.
     """
     from plugin.framework.thread_guard import on_main_thread
 
@@ -214,7 +214,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     return None
 
 
-def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
+def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
     ``get_document_model_for_id`` only returns ``p._model`` when a
@@ -227,27 +227,24 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
     key. Resolve the Writer on this main thread and pass that model
     in. A second call sees a bound model and does not replace it or
     reload udprops over live edits. No model → return without
-    raising.
+    raising. Returns the resolved model or None.
     """
     if not doc_id:
-        return
+        return None
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
-    if get_document_model_for_id(ctx, doc_id) is not None:
-        return
+    model = get_document_model_for_id(ctx, doc_id)
+    if model is not None:
+        return model
     try:
         model = _resolve_proofread_writer_model(ctx, doc_id)
         if model is None:
-            return
+            return None
         get_persistence(ctx, doc_id, model=model)
+        return model
     except Exception:
         log.exception("[grammar] persistence bind failed")
-
-
-def _add_doc_ignored_rule(p: Any, value: str) -> None:
-    with p._lock:
-        p._ignored_rules.add(value)
-    p._persist_to_udprops()
+        return None
 
 
 def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> None:
@@ -261,7 +258,7 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     from .grammar_ignore_rules import canonical_rule_keys
 
     stored = canonical_rule_keys(rule_identifier)[0]
-    _add_doc_ignored_rule(p, stored)
+    p.add_ignored_rule(stored)
     log.debug("[grammar] ignoreRule added: '%s' (stored: '%s') to doc_id=%s", rule_identifier, stored, doc_id)
 
 
@@ -273,18 +270,23 @@ def _reset_ignore_rules_on_main(ctx: Any, doc_id: str | None) -> None:
     p = get_persistence(ctx, doc_id) if doc_id else None
     if not p:
         return
-    with p._lock:
-        p._ignored_rules.clear()
-    p._persist_to_udprops()
+    p.clear_ignored_rules()
     log.debug("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
+
+
+_PROOFREADING_MARKUP_TYPE: int | None = None
 
 
 def _proofreading_markup_type() -> int:
     """``com.sun.star.text.TextMarkupType.PROOFREADING`` via PyUNO constant lookup."""
+    global _PROOFREADING_MARKUP_TYPE
+    if _PROOFREADING_MARKUP_TYPE is not None:
+        return _PROOFREADING_MARKUP_TYPE
     if uno_mod is None:
         return 0
     v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
-    return int(cast("int | float | str", v))
+    _PROOFREADING_MARKUP_TYPE = int(cast("int | float | str", v))
+    return _PROOFREADING_MARKUP_TYPE
 
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
@@ -382,7 +384,6 @@ def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: s
     a_res.aText = a_text
     a_res.aLocale = a_locale
     a_res.nStartOfSentencePosition = n_start_of_sentence_position
-    a_res.nStartOfNextSentencePosition = n_suggested_behind_end_of_sentence_position
     a_res.aProperties = ()
     a_res.xProofreader = proofreader
     a_res.aErrors = ()
@@ -396,6 +397,7 @@ def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: s
         ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
         if n_next == before and ch != "":
             n_next = n_suggested_behind_end_of_sentence_position + 1
+    # nStartOfNextSentencePosition and nBehindEndOfSentencePosition are both the whitespace-advanced end.
     a_res.nStartOfNextSentencePosition = n_next
     a_res.nBehindEndOfSentencePosition = n_next
     return a_res
@@ -481,6 +483,8 @@ def _obs_result_window(
     after UNO conversion. Grep ``stage='final'`` — this is not the pre-fast-path
     cache snapshot (empty lint vs Linguistic paint drop).
     """
+    if not log.isEnabledFor(logging.DEBUG):
+        return
     n_start = int(getattr(a_res, "nStartOfSentencePosition", 0) or 0)
     n_behind = int(getattr(a_res, "nBehindEndOfSentencePosition", 0) or 0)
     n_next = int(getattr(a_res, "nStartOfNextSentencePosition", 0) or 0)
@@ -512,11 +516,12 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
     if uno_mod is None:
         return ()
     out: list[Any] = []
+    markup_type = _proofreading_markup_type()
     for e in norms:
         a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
         a_err.nErrorStart = e.n_error_start
         a_err.nErrorLength = e.n_error_length
-        a_err.nErrorType = _proofreading_markup_type()
+        a_err.nErrorType = markup_type
         a_err.aRuleIdentifier = e.rule_identifier
         a_err.aSuggestions = tuple(e.suggestions)
         a_err.aShortComment = e.short_comment
@@ -535,6 +540,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     _implementation_name: str
     _supported_service_names: tuple[str, ...]
     _locales: tuple[Any, ...]
+    _provider: str = ""
+    _checker_identity: str = ""
 
     def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
@@ -543,6 +550,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         super().__init__()
         self.ctx = ctx
         self._doc_id_for_ignore: dict[str, str] = {}
+        self._bound_empty_uid_docs: set[str] = set()
+        self._failed_bind_deadlines: dict[str, float] = {}
+        self._bind_lock: threading.Lock = threading.Lock()
         self._lingu_listeners: list[Any] = []
         # First-session Harper: ensure-ready can broadcast before Writer hooks
         # XLinguServiceEventListener. Remember the miss and recover once.
@@ -556,6 +566,50 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self._implementation_name = IMPLEMENTATION_NAME
         self._supported_service_names = (SERVICE_NAME,)
         self._locales = _locale_tuple()
+
+    def _ensure_document_bound_on_main(self, doc_id: str) -> None:
+        # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
+        # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
+        # get_runtime_uid is main-thread-only, so this runs via _run_on_main_thread.
+        with self._bind_lock:
+            if doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs:
+                return
+            model = _ensure_persistence_bound(self.ctx, doc_id)
+            if model is None:
+                import time
+
+                self._failed_bind_deadlines[doc_id] = time.monotonic() + 1.5
+                return
+            self._failed_bind_deadlines.pop(doc_id, None)
+            try:
+                from plugin.framework.uno_context import get_runtime_uid
+
+                uid = get_runtime_uid(model)
+            except Exception:
+                log.debug("[grammar] persistence bind: get_runtime_uid failed", exc_info=True)
+                uid = None
+            if uid:
+                self._doc_id_for_ignore[uid] = doc_id
+            else:
+                self._bound_empty_uid_docs.add(doc_id)
+
+    def _ensure_document_bound(self, doc_id: str) -> None:
+        if not doc_id:
+            return
+        import time
+
+        should_hop = False
+        with self._bind_lock:
+            if doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs:
+                should_hop = False
+            else:
+                deadline = self._failed_bind_deadlines.get(doc_id)
+                if deadline is not None and time.monotonic() < deadline:
+                    should_hop = False
+                else:
+                    should_hop = True
+        if should_hop:
+            _run_on_main_thread(self._ensure_document_bound_on_main, doc_id)
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:
@@ -634,11 +688,17 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             return []
         return work_spans
 
-    def _process_cache_hits(self, a_doc_id: str, loc_key: str, work_spans: list[tuple[int, int, str]]) -> tuple[list[dict[str, Any]], list[tuple[int, int, str]]]:
+    def _process_cache_hits(
+        self,
+        a_doc_id: str,
+        loc_key: str,
+        work_spans: list[tuple[int, int, str]],
+        checker_identity: str = "",
+    ) -> tuple[list[dict[str, Any]], list[tuple[int, int, str]]]:
         """Check cache for spans; return (combined_errors, uncached_spans)."""
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
-        checker_ident = getattr(self, "_checker_identity", None)
+        checker_ident = checker_identity or getattr(self, "_checker_identity", None)
         for sent_start, _sent_end, sent_text in work_spans:
             get_kwargs: dict[str, Any] = {"ctx": self.ctx, "doc_id": a_doc_id}
             if checker_ident:
@@ -666,11 +726,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         loc_key: str,
         uncached_spans: list[tuple[int, int, str]],
         combined_errors: list[dict[str, Any]],
+        provider: str = "",
+        checker_identity: str = "",
     ) -> bool:
         """If this is Harper, lint ready process now or kick one ensure. True = do not enqueue."""
         from plugin.framework.config import user_config_dir
 
-        if self._active_grammar_provider() != "harper":
+        prov = provider or self._active_grammar_provider()
+        if prov != "harper":
             return False
 
         from dataclasses import asdict
@@ -681,15 +744,16 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
-        ident = getattr(self, "_checker_identity", "harper")
+        ident = checker_identity or getattr(self, "_checker_identity", "harper")
         first_text = uncached_spans[0][2] if uncached_spans else ""
         if first_text:
             emit_grammar_status("start", first_text, result="Harper")
-        last_text = first_text
+        last_text = ""
         issue_count = 0
         ensuring = False
-        for sent_start, unused_end, sent_text in uncached_spans:
-            del unused_end
+        ignored = doc_ignored_rules(self.ctx, a_doc_id)
+        global_ignored = ignored_rules_snapshot()
+        for sent_start, _sent_end, sent_text in uncached_spans:
             last_text = sent_text
             # Pass ctx so READY lint can PE2I; missing ctx blocks typing.
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
@@ -700,8 +764,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 break
             emit_grammar_status("request", sent_text, result="Harper check")
             errors = res.get("errors", [])
-            ignored = doc_ignored_rules(self.ctx, a_doc_id)
-            global_ignored = ignored_rules_snapshot()
             norm_errors = normalize_errors_for_text(sent_text, 0, len(sent_text), errors, self.ctx, loc_key)
             filtered = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
             payload = [asdict(e) for e in filtered]
@@ -716,9 +778,16 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
         return True
 
-    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]], ident: str) -> None:
+    def _enqueue_misses(
+        self,
+        a_doc_id: str,
+        loc_key: str,
+        uncached_spans: list[tuple[int, int, str]],
+        provider: str = "",
+        checker_identity: str = "",
+        paragraph_text: str = "",
+    ) -> None:
         """Enqueue uncached sentences for background processing."""
-        provider = ident
         for sent_start, sent_end, sent_text in uncached_spans:
             seq = next_enqueue_seq()
             complete_sentence = looks_complete_sentence(sent_text)
@@ -736,6 +805,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     enqueue_seq=seq,
                     provider=provider,
                     n_start=sent_start,
+                    checker_identity=checker_identity,
+                    paragraph_text=paragraph_text,
                 )
             )
 
@@ -756,36 +827,22 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             # Linguistic worker with an unhandled exception and could crash or hang Writer.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             try:
-                from plugin.writer.locale.grammar_persistence import get_document_model_for_id
-
-                if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
-                    _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
+                self._ensure_document_bound(aDocumentIdentifier)
 
                 loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
                 if not loc_key:
                     return a_res
 
-                # In Writer, grammar ignore receives the doc_id and stores rules per doc.
-                # In Draw, ignoreRule only gets the locale, and no aDocumentIdentifier.
-                # Thus, we store the known doc_id by a resolved model UID, avoiding
-                # the focused desktop guess.
-                model = get_document_model_for_id(self.ctx, aDocumentIdentifier)
-                if model is not None:
-                    from plugin.framework.uno_context import get_runtime_uid
-                    try:
-                        # Linguistic Dummy-* called @main_thread_only get_runtime_uid
-                        # directly. The guard posted a violation dialog, then this
-                        # except swallowed the RuntimeError, so the ignore map stayed
-                        # empty. Same UI-thread hop as the persistence bind above.
-                        uid = _run_on_main_thread(get_runtime_uid, model)
-                        if uid:
-                            if not hasattr(self, "_doc_id_for_ignore"):
-                                self._doc_id_for_ignore = {}
-                            self._doc_id_for_ignore[uid] = aDocumentIdentifier
-                    except Exception:
-                        pass
+                provider = self._active_grammar_provider()
+                pinned_ident = getattr(self, "_checker_identity", None)
+                if isinstance(pinned_ident, str) and pinned_ident:
+                    checker_identity = pinned_ident
+                elif provider in ("harper", "languagetool", "vale"):
+                    checker_identity = provider
+                else:
+                    from plugin.framework.config import grammar_checker_identity
 
-                ident = getattr(self, "_checker_identity", self._active_grammar_provider())
+                    checker_identity = grammar_checker_identity()
 
                 # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
                 paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
@@ -833,14 +890,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 #    this call asked about. LLM / queued providers still look up the
                 #    whole paragraph so a later call can carry earlier sentences'
                 #    now-warm cache (Writer honors aErrors outside the active window).
-                is_harper = self._active_grammar_provider() == "harper"
+                is_harper = provider == "harper"
                 cache_spans = active_spans if is_harper else paragraph_spans
                 combined_errors, uncached_cache_spans = self._process_cache_hits(
-                    aDocumentIdentifier, loc_key, cache_spans
+                    aDocumentIdentifier, loc_key, cache_spans, checker_identity
                 )
-
-                if combined_errors:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
 
                 # 4. Uncached work is only the active window. Harper already looked
                 #    up active_spans; queued providers intersect paragraph misses.
@@ -868,14 +922,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         cache_error_count=len(combined_errors),
                         miss_reason=miss_reason,
                     )
-                    if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
-                        if combined_errors:
-                            a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                    if is_harper and self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, provider, checker_identity):
                         result_source = "harper_fast"
                     else:
-                        self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans, ident)
+                        self._enqueue_misses(aDocumentIdentifier, loc_key, uncached_active_spans, provider, checker_identity, paragraph_text=aText)
                         log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
                         result_source = "enqueue"
+
+                if combined_errors:
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
 
                 _obs_result_window(
                     aDocumentIdentifier,
@@ -907,13 +962,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
             if current is not None:
                 uid = get_runtime_uid(current)
-                if uid and hasattr(self, "_doc_id_for_ignore") and uid in self._doc_id_for_ignore:
+                if uid and uid in self._doc_id_for_ignore:
                     return self._doc_id_for_ignore[uid]
-
-                # If current UID matches a known persistence job, we map to its doc ID.
-                # In Writer, uid and aDocumentIdentifier might be different.
         except Exception:
-            pass
+            log.debug("[grammar] resolve_doc_id_for_ignore failed", exc_info=True)
         return None
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:

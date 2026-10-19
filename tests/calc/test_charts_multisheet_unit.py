@@ -9,6 +9,7 @@
 """Unit tests for Calc multi-sheet chart helpers and non-empty exception formatting (no UNO required)."""
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,9 +18,11 @@ from plugin.calc.charts import (
     GetChartInfo,
     ManageCharts,
     UpsertChart,
+    _apply_chart_data_arrays,
+    _apply_chart_styling,
+    _find_calc_chart_and_sheet,
     _format_chart_exception_msg,
     _get_all_calc_chart_names,
-    _find_calc_chart_and_sheet,
 )
 
 
@@ -158,12 +161,16 @@ def test_manage_charts_schema_impress_strips_calc_fields():
     from plugin.calc.charts import ManageCharts
 
     mc = ManageCharts()
-    impress = mc.get_parameters("impress")["properties"]
+    impress_params = mc.get_parameters("impress")
+    assert impress_params is not None
+    impress = impress_params["properties"]
     assert "data_range" not in impress
     assert "sheet" not in impress
     assert "has_header" not in impress
     assert "headers" in impress
-    calc = mc.get_parameters("calc")["properties"]
+    calc_params = mc.get_parameters("calc")
+    assert calc_params is not None
+    calc = calc_params["properties"]
     assert "data_range" in calc
     assert "headers" not in calc
     assert "rows" not in calc
@@ -229,7 +236,7 @@ def test_legend_position_uses_chart_legend_position_enum():
 
 
 def test_legend_runtime_exception_removes_inserted_calc_chart():
-    """A legend RuntimeException after addNewByName must not leave the chart behind."""
+    """A legend RuntimeException produces a warning and keeps the chart."""
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
 
     def _raise_runtime(type_name, member):
@@ -244,11 +251,9 @@ def test_legend_runtime_exception_removes_inserted_calc_chart():
     ):
         result = tool.execute(ctx, action="create", chart_type="column", data_range="A1:B6", legend_position="top")
 
-    assert result["status"] == "error"
-    assert result.get("code") == "CHART_CREATE_ERROR"
-    added = charts.addNewByName.call_args[0][0]
-    charts.removeByName.assert_called_once_with(added)
-    assert "RuntimeException" in result["message"] or "unknown type" in result["message"]
+    assert result["status"] == "ok"
+    assert any("legend position" in w.lower() for w in result.get("warnings", []))
+    charts.removeByName.assert_not_called()
 
 
 def test_calc_diagram_failure_after_insert_removes_chart():
@@ -300,6 +305,7 @@ def test_edit_legend_failure_does_not_remove_existing_chart():
 
 
 def test_draw_legend_failure_removes_shape():
+    # A throwing getTitle() on create returns status ok, a warning, and does not remove the chart
     tool, _ctx, _charts, chart_doc, _bridge = _calc_chart_create_parts()
     ctx = MagicMock()
     page = MagicMock()
@@ -308,22 +314,18 @@ def test_draw_legend_failure_removes_shape():
     ctx.doc.getCurrentController.return_value.getCurrentPage.return_value = page
     rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
 
-    def _raise_runtime(type_name, member):
-        raise _UnoRuntimeException(f"unknown type {type_name}.{member}")
+    chart_doc.getTitle.side_effect = RuntimeError("title failure")
 
     with (
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
-        patch("plugin.calc.charts.uno.Enum", side_effect=_raise_runtime),
         patch("plugin.calc.charts._process_events", return_value=True),
     ):
-        try:
-            tool._create_draw_chart(ctx, rect, "com.sun.star.chart.BarDiagram", legend_position="left")
-        except _UnoRuntimeException:
-            pass
-        else:
-            raise AssertionError("legend failure should propagate after the shape is removed")
+        res = tool._create_draw_chart(ctx, rect, "com.sun.star.chart.BarDiagram", title="My Title", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "ok"
+    assert any("title failure" in w for w in res.get("warnings", []))
     page.add.assert_called_once_with(shape)
-    page.remove.assert_called_once_with(shape)
+    page.remove.assert_not_called()
 
 
 def test_writer_drop_falls_back_to_embedded_objects():
@@ -361,11 +363,13 @@ def test_manage_charts_validate_create_requires_data_or_arrays():
     mc = ManageCharts()
     ok, err = mc.validate(doc_type="writer", action="create", chart_type="column")
     assert ok is False
+    assert err is not None
     assert "headers" in err
     ok, err = mc.validate(doc_type="calc", action="create", chart_type="column")
     assert ok is False
+    assert err is not None
     assert "data_range" in err
-    ok, err = mc.validate(doc_type="writer", action="create", chart_type="column", headers=["A"], rows=[["x", 1]])
+    ok, err = mc.validate(doc_type="writer", action="create", chart_type="column", headers=["Category", "A"], rows=[["x", 1]])
     assert ok is True
 
 
@@ -441,7 +445,7 @@ def test_calc_diagram_disposal_propagates_after_removing_chart():
 def test_get_chart_info_ranges_disposal_propagates():
     chart_obj = MagicMock()
     chart_obj.getRanges.side_effect = DisposedException("gone")
-    ctx = SimpleNamespace(doc=MagicMock())
+    ctx: Any = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.charts._resolve_chart", return_value=chart_obj):
         with pytest.raises(DisposedException):
             GetChartInfo().execute(ctx, name="Chart_1")
@@ -460,7 +464,7 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
     chart_obj = MagicMock()
     chart_doc = MagicMock()
     chart_doc.setDiagram.side_effect = DisposedException("gone")
-    ctx = SimpleNamespace(doc=MagicMock())
+    ctx: Any = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
@@ -488,10 +492,404 @@ def test_writer_chart_insert_failure_reports_chart_create_error():
     text = doc.getText.return_value
     text.getString.return_value = "body"
     text.insertTextContent.side_effect = RuntimeError("insert rejected")
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock())
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
     with patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct):
         res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["a", "b"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
     assert "insert rejected" in res["message"]
-    assert text.insertTextContent.call_count == 3
+    assert text.insertTextContent.call_count == 2
+
+
+def test_data_arrays_validation_rejects_bad_shapes():
+    # Headers must have at least 2 entries; rows must match header length
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_doc.getData.return_value = chart_data
+
+    # Non-numeric cell in data column
+    with pytest.raises(ValueError) as exc:
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["A", "not_a_num"]])
+    assert "must be a number" in str(exc.value)
+    chart_data.setData.assert_not_called()
+
+    # Short row
+    with pytest.raises(ValueError) as exc:
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["A"]])
+    assert "does not match" in str(exc.value)
+    chart_data.setData.assert_not_called()
+
+    # Long row
+    with pytest.raises(ValueError) as exc:
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["A", 1, 2]])
+    assert "does not match" in str(exc.value)
+    chart_data.setData.assert_not_called()
+
+    # Boolean rejected
+    with pytest.raises(ValueError) as exc:
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["A", True]])
+    assert "cannot be boolean" in str(exc.value)
+
+
+def test_data_apply_disposal_raises():
+    # Disposal during data application must propagate
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_data.setData.side_effect = DisposedException("data gone")
+    chart_doc.getData.return_value = chart_data
+
+    with pytest.raises(DisposedException):
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["A", 10.0]])
+
+
+def test_create_data_apply_failure_removes_chart_and_errors():
+    # Writer chart create failure in data apply removes the inserted chart
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    text = doc.getText.return_value
+    text.getString.return_value = "hello"
+
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_data.setData.side_effect = RuntimeException("setData failed")
+    chart_doc.getData.return_value = chart_data
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_CREATE_ERROR"
+    assert "setData failed" in res["message"]
+    drop_mock.assert_called_once()
+
+
+def test_edit_data_apply_failure_returns_error_and_does_not_remove_chart():
+    # Chart edit data failure returns error without removing the chart
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_data.setData.side_effect = RuntimeException("setData failed")
+    chart_doc.getData.return_value = chart_data
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    ctx: Any = SimpleNamespace(doc=doc)
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
+    ):
+        res = UpsertChart().execute(ctx, action="edit", name="Chart_1", headers=["Cat", "A"], rows=[["x", 1]])
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_EDIT_ERROR"
+    assert "setData failed" in res["message"]
+    drop_mock.assert_not_called()
+
+
+def test_styling_background_failure_returns_warnings_not_removed():
+    # Background color failure produces warnings on status ok and keeps chart
+    chart_doc = MagicMock()
+    bg = MagicMock()
+    bg.setPropertyValue.side_effect = RuntimeException("bg failed")
+    chart_doc.getPageBackground.return_value = bg
+
+    warnings = _apply_chart_styling(chart_doc, bg_color="#FF0000")
+    assert any("background" in w.lower() for w in warnings)
+
+    # Invalid color string is also a warning
+    warnings_invalid = _apply_chart_styling(chart_doc, bg_color="not-a-color-at-all-xyz")
+    assert any("invalid bg_color" in w.lower() for w in warnings_invalid)
+
+
+def test_styling_logging_counts_not_payloads(caplog):
+    # Logs record counts, not cell contents, at INFO
+    import logging
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_doc.getData.return_value = chart_data
+
+    with caplog.at_level(logging.INFO, logger="writeragent.calc"):
+        _apply_chart_styling(chart_doc, headers=["Cat", "Val"], rows=[["SecretDistinctCellXYZ", 999.0]])
+    assert "SecretDistinctCellXYZ" not in caplog.text
+
+    # At DEBUG, first row may be inspected
+    with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
+        _apply_chart_styling(chart_doc, headers=["Cat", "Val"], rows=[["SecretDistinctCellXYZ", 999.0]])
+    assert "SecretDistinctCellXYZ" in caplog.text
+
+
+def test_position_contracts_and_schema():
+    # Draw/Impress omit position; Writer accepts 'cursor' and 'end'; Calc accepts cell address
+    mc = ManageCharts()
+    draw_params = mc.get_parameters("draw")
+    assert draw_params is not None
+    draw_props = draw_params["properties"]
+    assert "position" not in draw_props
+    impress_params = mc.get_parameters("impress")
+    assert impress_params is not None
+    impress_props = impress_params["properties"]
+    assert "position" not in impress_props
+
+    writer_params = mc.get_parameters("writer")
+    assert writer_params is not None
+    writer_props = writer_params["properties"]
+    assert "position" in writer_props
+
+    # Writer invalid position
+    ok, err = mc.validate(doc_type="writer", action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="page-2")
+    assert ok is False
+    assert err is not None
+    assert "cursor" in err and "end" in err
+
+    # Writer valid position
+    ok, _ = mc.validate(doc_type="writer", action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="cursor")
+    assert ok is True
+
+    # Writer omitted position
+    ok, _ = mc.validate(doc_type="writer", action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+    assert ok is True
+
+    # Calc position
+    ok, _ = mc.validate(doc_type="calc", action="create", chart_type="bar", data_range="A1:B2", position="C1")
+    assert ok is True
+
+
+def test_schema_symmetry_across_apps():
+    # ManageCharts and UpsertChart expose matching properties for each doc_type
+    mc = ManageCharts()
+    uc = UpsertChart()
+    for dt in ("calc", "writer", "draw", "impress"):
+        mc_params = mc.get_parameters(dt)
+        uc_params = uc.get_parameters(dt)
+        assert mc_params is not None and uc_params is not None
+        mc_props = set(mc_params["properties"].keys())
+        uc_props = set(uc_params["properties"].keys())
+        assert mc_props == uc_props
+
+    # Calc missing data_range
+    ok, err = mc.validate(doc_type="calc", action="create", chart_type="bar")
+    assert ok is False
+    assert err == "Parameter 'data_range' is required when action is 'create' in Calc"
+
+    # Writer missing headers/rows
+    ok, err = mc.validate(doc_type="writer", action="create", chart_type="bar")
+    assert ok is False
+    assert err == "Both 'headers' and 'rows' are required to create a chart in Writer or Draw/Impress"
+
+    # Non-numeric row validation error
+    ok, err = mc.validate(doc_type="writer", action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", "bad"]])
+    assert ok is False
+    assert err is not None
+    assert "must be a number" in err
+
+
+def test_calc_edit_updates_data_range_and_headers():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+
+    cell_range = MagicMock()
+    addr = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+
+    bridge = MagicMock()
+    bridge.get_cell_range.return_value = cell_range
+
+    ctx: Any = SimpleNamespace(doc=doc)
+
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="edit",
+            name="Chart_0",
+            data_range="A1:C10",
+            has_header=False,
+        )
+
+    assert res["status"] == "ok"
+    chart_obj.setRanges.assert_called_once_with((addr,))
+    chart_obj.setHasColumnHeaders.assert_called_once_with(False)
+    chart_obj.setHasRowHeaders.assert_called_once_with(False)
+
+
+def test_calc_edit_range_error_does_not_call_set_diagram():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+
+    bridge = MagicMock()
+    bridge.get_cell_range.side_effect = ValueError("invalid range")
+
+    ctx: Any = SimpleNamespace(doc=doc)
+
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="edit",
+            name="Chart_0",
+            chart_type="pie",
+            data_range="Invalid:Range",
+        )
+
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_EDIT_ERROR"
+    chart_doc.setDiagram.assert_not_called()
+
+
+def test_calc_create_bad_position_does_not_call_add_new_by_name():
+    tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
+
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        # 1. Mismatched sheet prefix
+        res1 = tool._create_calc_chart(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
+        assert res1["status"] == "error"
+        assert "Position names sheet" in res1["message"]
+        charts.addNewByName.assert_not_called()
+
+        # 2. Invalid position address (range or unparseable)
+        res2 = tool._create_calc_chart(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="A1:B2")
+        assert res2["status"] == "error"
+        assert "Invalid position" in res2["message"]
+        charts.addNewByName.assert_not_called()
+
+
+def test_calc_create_valid_position_sets_rect_and_creates():
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    sheet = bridge.get_active_sheet()
+    cell_obj = MagicMock()
+    cell_obj.getPosition.return_value = MagicMock(X=2500, Y=3500)
+    cell_obj.getSize.return_value = MagicMock(Width=5000, Height=2000)
+    sheet.getCellRangeByName.return_value = cell_obj
+
+    rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
+
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+    ):
+        res = tool._create_calc_chart(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="B5")
+
+    assert res["status"] == "ok"
+    assert rect.X == 2500
+    assert rect.Y == 3500
+    assert rect.Width == 5000
+    assert rect.Height == 2000
+    charts.addNewByName.assert_called_once()
+
+
+def test_calc_edit_position_warns_and_does_not_move():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    sheet = MagicMock()
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+    ctx: Any = SimpleNamespace(doc=doc)
+
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="edit",
+            name="Chart_0",
+            position="D5",
+        )
+
+    assert res["status"] == "ok"
+    assert any("placement is unchanged" in w.lower() for w in res.get("warnings", []))
+    sheet.getCellRangeByName.assert_not_called()
+
+
+def test_manage_charts_execute_unknown_action_returns_error():
+    mc = ManageCharts()
+    ctx: Any = SimpleNamespace(doc=MagicMock())
+    res = mc.execute(ctx, action="nope")
+    assert res["status"] == "error"
+    assert "Unsupported action" in res["message"]
+
+
+def test_unsupported_dim3d_yields_warning():
+    chart_doc = MagicMock()
+    diagram = MagicMock(spec=["Stacked"])  # no Dim3D attribute
+    chart_doc.getDiagram.return_value = diagram
+    warnings = _apply_chart_styling(chart_doc, is_3d=True)
+    assert any("Dim3D" in w for w in warnings)
+
+
+def test_data_applied_before_series_colors():
+    chart_doc = MagicMock()
+    chart_data = MagicMock()
+    chart_doc.getData.return_value = chart_data
+
+    call_order = []
+    chart_data.setData.side_effect = lambda data: call_order.append("setData")
+
+    series = MagicMock()
+    series.setPropertyValue.side_effect = lambda prop, val: call_order.append(f"setPropertyValue:{prop}")
+
+    coord = MagicMock()
+    ctype = MagicMock()
+    ctype.getDataSeries.return_value = [series]
+    coord.getChartTypes.return_value = [ctype]
+    first_diag = MagicMock()
+    first_diag.getCoordinateSystems.return_value = [coord]
+    chart_doc.getFirstDiagram.return_value = first_diag
+
+    _apply_chart_styling(
+        chart_doc,
+        headers=["Cat", "Val"],
+        rows=[["A", 10.0]],
+        colors=["#FF0000"],
+    )
+
+    assert "setData" in call_order
+    assert any("setPropertyValue" in c for c in call_order)
+    assert call_order.index("setData") < next(i for i, c in enumerate(call_order) if "setPropertyValue" in c)
+
+
+def test_validate_headers_and_rows_nan_inf_and_cell_cap():
+    from plugin.calc.charts import _validate_headers_and_rows
+
+    # Reject NaN and Inf
+    ok, err = _validate_headers_and_rows(["Cat", "Val"], [["A", float("nan")]])
+    assert not ok and "finite number" in (err or "")
+    ok, err = _validate_headers_and_rows(["Cat", "Val"], [["A", "nan"]])
+    assert not ok and "finite number" in (err or "")
+    ok, err = _validate_headers_and_rows(["Cat", "Val"], [["A", float("inf")]])
+    assert not ok and "finite number" in (err or "")
+    ok, err = _validate_headers_and_rows(["Cat", "Val"], [["A", "-inf"]])
+    assert not ok and "finite number" in (err or "")
+
+    # Reject cell count above 10,000
+    headers = ["Cat"] + [f"C{i}" for i in range(100)]  # 101 columns
+    rows = [["R"] + [1.0] * 100 for _ in range(100)]  # 100 rows * 101 cols = 10100 > 10000
+    ok, err = _validate_headers_and_rows(headers, rows)
+    assert not ok and "exceeds limit" in (err or "")
+
+

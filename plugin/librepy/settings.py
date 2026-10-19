@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible, translate_dialog
+from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible
+from plugin.framework.errors import ConfigValidationError
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import N_, _
 from plugin.framework.logging import init_logging
@@ -164,7 +165,6 @@ def open_librepy_settings(ctx: Any) -> None:
                 log.exception("LibrePy settings: populate failed for %r", field["name"])
                 raise
 
-        translate_dialog(dlg)
         dlg.getModel().Title = _("Python Settings")
 
         test_btn = get_optional(dlg, "scripting__test_venv")
@@ -177,14 +177,18 @@ def open_librepy_settings(ctx: Any) -> None:
             download_listener = _DownloadVecPackListener(ctx, dlg)
             download_btn.addActionListener(download_listener)
 
-        if dlg.execute():
+        while dlg.execute():
             result: dict[str, Any] = {}
             for field in field_specs:
                 ctrl = get_optional(dlg, field["name"])
                 if ctrl is None:
                     continue
                 result[field["name"]] = _extract_field(ctrl, field)
-            apply_field_specs_result(ctx, result, field_specs)
+            try:
+                apply_field_specs_result(ctx, result, field_specs)
+                break
+            except ConfigValidationError as ve:
+                msgbox(ctx, _("Invalid Setting"), str(ve))
     finally:
         # Do not return from finally: that would swallow a load or populate error.
         if dlg is not None:

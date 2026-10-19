@@ -563,24 +563,6 @@ class QueueExecutor:
         """
         return self._work_queue.qsize()
 
-    def callable_is_scheduled(self, fn: object) -> bool:
-        """True when *fn* itself is queued or waiting for AsyncCallback.
-
-        Queue depth is the wrong signal: this executor is process-wide, so an
-        unrelated item (or a unit test that left one behind) is not this
-        callback. A full pending list waits, then ``post`` raises; the
-        callable is not stored, so the caller can retry.
-        """
-        with self._claim_lock:
-            # ``Queue.queue`` is the deque. The mutex is the one ``put`` /
-            # ``get`` hold; ``_claim_lock`` is already held around those calls.
-            with self._work_queue.mutex:
-                queued = any(getattr(item, "fn", None) is fn and not getattr(item, "cancelled", False) for item in self._work_queue.queue)
-        if queued:
-            return True
-        with self._pending_lock:
-            return any(row[0] is fn for row in self._pending_posts)
-
     def is_marshal_ready(self) -> bool:
         """True when AsyncCallback initialization has completed successfully."""
         return bool(self._initialized and self._async_callback_service is not None)

@@ -11,10 +11,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import compileall
 import os
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
+import zipfile
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -24,16 +27,19 @@ if _SCRIPTS_DIR not in sys.path:
     # manifest_registry imports sibling modules (manifest_xdl) by bare name.
     sys.path.append(_SCRIPTS_DIR)
 
+from plugin.version import EXTENSION_VERSION  # noqa: E402
 from scripts.build_oxt import (  # noqa: E402
     collect_files,
     remap_path,
-    should_exclude,
+    resolve_archive_sources,
     strip_production_code,
-    _vendor_copy_ignore,
+    sync_vendor_into_lib,
+    verify_bundle_manifest,
+    write_oxt_zip,
 )
 from scripts.librepy_bundle_paths import (  # noqa: E402
+    LIBREPY_VENDOR_PACKAGES,
     collect_librepy_plugin_paths,
-    iter_librepy_vendor_packages,
     slim_librepy_smolagents_init,
 )
 from scripts.manifest_registry import generate_update_xml, patch_description_xml  # noqa: E402
@@ -41,6 +47,12 @@ from scripts.manifest_registry import generate_update_xml, patch_description_xml
 LIBREPY_BUNDLE_DIR = "build/bundle-librepy"
 LIBREPY_EXTENSION_ID = "org.extension.librepy"
 LIBREPY_MANIFEST = "build/generated/_manifest_librepy.py"
+LIBREPY_MANIFEST_MODULES: tuple[str, ...] = ("scripting", "vision")
+
+
+class BuildError(Exception):
+    """Raised when LibrePy OXT assembly or verification fails."""
+
 
 LIBREPY_EXTENSION_INCLUDES = [
     "extension-core/description.xml",
@@ -77,6 +89,55 @@ LIBREPY_DIALOG_FILES = (
 LIBREPY_GENERATED_DIALOG_FILES = (
     "build/generated/Dialogs/SettingsDialog.xdl",
     "build/generated/Dialogs/VisionSettingsDialog.xdl",
+)
+
+_REQUIRED_RUNTIME = (
+    "plugin/main_core.py",
+    "plugin/librepy/sidebar_menus.py",
+    "plugin/calc/python/addin_librepy.py",
+    "plugin/calc/python/workbook_lifecycle.py",
+    "plugin/scripting/venv_worker.py",
+    "XPythonFunction.rdb",
+    "Jobs.xcu",
+    "ProtocolHandler.xcu",
+    "registry/org/openoffice/Office/CalcAddIns.xcu",
+    "registry/org/openoffice/Office/UI/Sidebar.xcu",
+    "registry/org/openoffice/Office/UI/Factories.xcu",
+    "plugin/notebook/import_filter.py",
+    "registry/org/openoffice/TypeDetection/Types.xcu",
+    "registry/org/openoffice/TypeDetection/Filters.xcu",
+    "registry/org/openoffice/TypeDetection/Misc.xcu",
+)
+
+_REQUIRED_UI = (
+    "Dialogs/PythonScriptDialog.xdl",
+    "Dialogs/PythonCellEditorDialog.xdl",
+    "Dialogs/PythonTestProgressDialog.xdl",
+    "Dialogs/PythonSidebarDialog.xdl",
+    "Dialogs/TextAnalyticsDialog.xdl",
+    "Dialogs/LatexInputDialog.xdl",
+    "Dialogs/MsgBoxWithCopyDialog.xdl",
+    "Dialogs/ErrorReportDialog.xdl",
+)
+
+_FORBIDDEN_RUNTIME = (
+    "plugin/main.py",
+    "plugin/calc/python/addin.py",
+    "plugin/calc/prompt_addin.py",
+    "plugin/calc/prompt_function.py",
+    "plugin/framework/client/llm_client.py",
+    "plugin/embeddings/",
+    "plugin/mcp/",
+    "XPromptFunction.rdb",
+)
+
+_FORBIDDEN_UI = (
+    "Dialogs/ChatPanelDialog.xdl",
+    "Dialogs/SearchDialog.xdl",
+    "Dialogs/EvalDialog.xdl",
+    "Dialogs/SpreadsheetImportDialog.xdl",
+    "Dialogs/WebSearchQueryEditDialog.xdl",
+    "Dialogs/ServerStatusDialog.xdl",
 )
 
 
@@ -134,20 +195,107 @@ def stage_librepy_plugin_tree(base_dir: str, dest_dir: str) -> None:
     slim_librepy_smolagents_init(os.path.join(dest_dir, "plugin"))
 
 
-def _ensure_librepy_manifest(base_dir: str) -> None:
+def librepy_manifest_cmd(base_dir: str) -> list[str]:
     manifest_out = os.path.join(base_dir, LIBREPY_MANIFEST)
-    cmd = [
+    return [
         sys.executable,
         os.path.join(base_dir, "scripts", "generate_manifest.py"),
         "--modules",
-        "scripting",
-        "vision",
+        *LIBREPY_MANIFEST_MODULES,
         "--manifest-output",
         manifest_out,
         "--skip-writeragent-extension",
     ]
+
+
+def _ensure_librepy_manifest(base_dir: str) -> None:
+    cmd = librepy_manifest_cmd(base_dir)
     print("  Generating slim LibrePy manifest...")
-    subprocess.run(cmd, cwd=base_dir, check=True)
+    try:
+        subprocess.run(cmd, cwd=base_dir, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise BuildError("generate_manifest.py failed: %s" % exc) from exc
+
+
+def verify_librepy_archive(archive_path: str, *, with_tests: bool = False) -> None:
+    """Validate that the built LibrePy .oxt archive conforms to shipping contracts."""
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        namelist = zf.namelist()
+
+        for name in namelist:
+            if "\\" in name:
+                raise BuildError("Archive entry contains backslash: %s" % name)
+
+        if "plugin/_manifest.py" not in namelist:
+            raise BuildError("Archive missing plugin/_manifest.py")
+
+        for pkg in ("isodate", "json_repair", "latex2mathml", "mathml_to_latex"):
+            prefix = "plugin/lib/%s/" % pkg
+            if not any(name == prefix or name.startswith(prefix) for name in namelist):
+                raise BuildError("Archive missing %s" % prefix)
+
+        has_latex2mathml_meta = False
+        for name in namelist:
+            if name.startswith("plugin/lib/latex2mathml-") and name.endswith(".dist-info/METADATA"):
+                has_latex2mathml_meta = True
+            if name.endswith("/RECORD") and ".dist-info/" in name:
+                raise BuildError("Archive contains forbidden dist-info RECORD: %s" % name)
+        if not has_latex2mathml_meta:
+            raise BuildError("Archive missing plugin/lib/latex2mathml-*.dist-info/METADATA")
+
+        for name in namelist:
+            parts = [p for p in name.split("/") if p]
+            if any(p == "__pycache__" for p in parts) or name.endswith((".pyc", ".pyo")):
+                raise BuildError("Archive contains bytecode entry: %s" % name)
+
+        for path in (*_REQUIRED_RUNTIME, *_REQUIRED_UI):
+            if path not in namelist:
+                raise BuildError("Archive missing required entry: %s" % path)
+
+        if not with_tests:
+            for name in namelist:
+                parts = [p for p in name.split("/") if p]
+                if any(p == "tests" or p.startswith("test_") for p in parts):
+                    raise BuildError("Archive contains test entry in release build: %s" % name)
+            for path in (*_FORBIDDEN_RUNTIME, *_FORBIDDEN_UI):
+                if path in namelist:
+                    raise BuildError("Archive contains forbidden entry: %s" % path)
+            for name in namelist:
+                if name.startswith("plugin/embeddings/") or name.startswith("plugin/mcp/"):
+                    raise BuildError("Archive contains forbidden tree entry: %s" % name)
+
+        if "META-INF/manifest.xml" not in namelist:
+            raise BuildError("Archive missing META-INF/manifest.xml")
+        manifest_data = zf.read("META-INF/manifest.xml")
+        try:
+            m_root = ET.fromstring(manifest_data)
+        except Exception as exc:
+            raise BuildError("Malformed META-INF/manifest.xml: %s" % exc) from exc
+
+        manifest_entries = [
+            elem.attrib.get("{http://openoffice.org/2001/manifest}full-path")
+            for elem in m_root.findall(".//{http://openoffice.org/2001/manifest}file-entry")
+        ]
+        for fp in manifest_entries:
+            if fp and fp != "/" and fp not in namelist:
+                raise BuildError("manifest.xml entry not in archive: %s" % fp)
+
+        if "description.xml" not in namelist:
+            raise BuildError("Archive missing description.xml")
+        desc_data = zf.read("description.xml")
+        try:
+            d_root = ET.fromstring(desc_data)
+        except Exception as exc:
+            raise BuildError("Malformed description.xml: %s" % exc) from exc
+
+        ver_elem = None
+        for el in d_root.iter():
+            if el.tag.endswith("version"):
+                ver_elem = el
+                break
+        ver_val = ver_elem.attrib.get("value") if ver_elem is not None else None
+        if ver_val != EXTENSION_VERSION:
+            raise BuildError("description.xml version '%s' != EXTENSION_VERSION '%s'" % (ver_val, EXTENSION_VERSION))
 
 
 def assemble_librepy_bundle(
@@ -156,46 +304,46 @@ def assemble_librepy_bundle(
     with_tests: bool = False,
     strip: bool = True,
     bundle_dir: str | None = None,
+    skip_manifest: bool = False,
 ) -> int:
     bundle_rel = bundle_dir or LIBREPY_BUNDLE_DIR
     bundle_path = os.path.join(base_dir, bundle_rel) if not os.path.isabs(bundle_rel) else bundle_rel
     if os.path.exists(bundle_path):
         shutil.rmtree(bundle_path)
 
-    _ensure_librepy_manifest(base_dir)
+    if not skip_manifest:
+        _ensure_librepy_manifest(base_dir)
     patch_description_xml(os.path.join(base_dir, "extension-core"))
     generate_update_xml(base_dir, "update-librepy.xml")
 
     rdb_path = os.path.join(base_dir, "extension-core", "XPythonFunction.rdb")
     if not os.path.isfile(rdb_path):
-        print(
-            "ERROR: %s not found. Run: make rdb-core (requires LibreOffice SDK)"
-            % rdb_path,
-            file=sys.stderr,
+        raise BuildError(
+            "%s not found. Run: make rdb-core (requires LibreOffice SDK)" % rdb_path
         )
-        return 0
 
     manifest_src = os.path.join(base_dir, LIBREPY_MANIFEST)
     if not os.path.isfile(manifest_src):
-        print("ERROR: %s not found after manifest generation" % manifest_src, file=sys.stderr)
-        return 0
+        raise BuildError("%s not found after manifest generation" % manifest_src)
+
+    for dialog_rel in LIBREPY_GENERATED_DIALOG_FILES:
+        dialog_path = os.path.join(base_dir, dialog_rel)
+        if not os.path.isfile(dialog_path):
+            raise BuildError("%s not found. Run: make manifest-core" % dialog_path)
 
     locales_dir = os.path.join(base_dir, "build", "generated", "locales")
     if not os.path.isdir(locales_dir):
-        print(
-            "ERROR: %s not found. Run: make compile-translations-core (or make build-core)"
-            % locales_dir,
-            file=sys.stderr,
+        raise BuildError(
+            "%s not found. Run: make compile-translations-core (or make build-core)" % locales_dir
         )
-        return 0
 
     include = librepy_include_paths(base_dir, include_locales=True)
     files = collect_files(base_dir, include, with_tests=with_tests)
 
+    sources = resolve_archive_sources(base_dir, files, _librepy_remap_path)
     count = 0
-    for rel in files:
-        src = os.path.join(base_dir, rel)
-        arcname = _librepy_remap_path(rel)
+    for rel, arcname in sources:
+        src = rel if os.path.isabs(rel) else os.path.join(base_dir, rel)
         dst = os.path.join(bundle_path, arcname)
         if rel.endswith("/"):
             os.makedirs(dst, exist_ok=True)
@@ -211,19 +359,16 @@ def assemble_librepy_bundle(
     count += 1
 
     vendor_dir = os.path.join(base_dir, "vendor")
-    vendor_packages = iter_librepy_vendor_packages(vendor_dir)
-    if vendor_packages:
-        vendor_count = 0
-        for entry in vendor_packages:
-            src_path = os.path.join(vendor_dir, entry)
-            dst_path = os.path.join(bundle_path, "plugin", "lib", entry)
-            if os.path.exists(dst_path):
-                shutil.rmtree(dst_path)
-            shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
-            vendor_count += 1
+    vendor_count = sync_vendor_into_lib(
+        vendor_dir,
+        os.path.join(bundle_path, "plugin", "lib"),
+        prune_websockets=False,
+        only=LIBREPY_VENDOR_PACKAGES,
+    )
+    if vendor_count:
         print(
             "Vendored %d packages into plugin/lib/ (%s)"
-            % (vendor_count, ", ".join(vendor_packages))
+            % (vendor_count, ", ".join(sorted(LIBREPY_VENDOR_PACKAGES)))
         )
 
     if strip and not with_tests:
@@ -231,6 +376,18 @@ def assemble_librepy_bundle(
 
     slim_librepy_smolagents_init(os.path.join(bundle_path, "plugin"))
     print("  Slimmed plugin/contrib/smolagents/__init__.py for venv worker")
+
+    # Verify stripped Python files compile cleanly before packaging
+    if not compileall.compile_dir(bundle_path, quiet=1):
+        raise BuildError("compileall failed: invalid Python syntax in %s" % bundle_path)
+    for root, dirnames, _ in os.walk(bundle_path):
+        if "__pycache__" in dirnames:
+            shutil.rmtree(os.path.join(root, "__pycache__"), ignore_errors=True)
+
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=True)
+    except RuntimeError as err:
+        raise BuildError(str(err)) from err
 
     plugin_count = sum(1 for rel in files if rel.replace(os.sep, "/").startswith("plugin/"))
     print(
@@ -240,34 +397,23 @@ def assemble_librepy_bundle(
     return count
 
 
-def zip_librepy_bundle(base_dir: str, output: str) -> int:
+def zip_librepy_bundle(base_dir: str, output: str, *, with_tests: bool = False) -> int:
     bundle_path = os.path.join(base_dir, LIBREPY_BUNDLE_DIR)
     if not os.path.isdir(bundle_path):
-        print("ERROR: %s not found. Run without --repack first." % LIBREPY_BUNDLE_DIR, file=sys.stderr)
-        return 1
+        raise BuildError("%s not found. Run without --repack first." % LIBREPY_BUNDLE_DIR)
+
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=True)
+    except RuntimeError as err:
+        raise BuildError(str(err)) from err
 
     output_path = os.path.join(base_dir, output)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    if os.path.exists(output_path):
-        os.remove(output_path)
+    try:
+        count = write_oxt_zip(bundle_path, output_path)
+    except RuntimeError as err:
+        raise BuildError(str(err)) from err
 
-    count = 0
-    import zipfile
-
-    # strict_timestamps=False: freshly vendored wheels and reused Cloud Agent
-    # snapshot checkouts can carry pre-1980 (epoch-0) mtimes, which the default
-    # rejects with "ZIP does not support timestamps before 1980" and aborts the
-    # build. False clamps such entries to 1980-01-01 instead of failing.
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
-        for root, dirs, filenames in os.walk(bundle_path):
-            dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
-            for fn in filenames:
-                filepath = os.path.join(root, fn)
-                arcname = os.path.relpath(filepath, bundle_path)
-                if not should_exclude(arcname, with_tests=True):
-                    zf.write(filepath, arcname)
-                    count += 1
-
+    verify_librepy_archive(output_path, with_tests=with_tests)
     print("Created %s with %d files (%s)" % (output, count, LIBREPY_EXTENSION_ID))
     return 0
 
@@ -278,18 +424,29 @@ def main() -> int:
     parser.add_argument("--repack", action="store_true", help="Only re-zip bundle-librepy/")
     parser.add_argument("--with-tests", action="store_true", help="Include test trees in bundle")
     parser.add_argument("--no-strip", action="store_true", help="Skip production code stripping")
+    parser.add_argument("--manifest-only", action="store_true", help="Generate LibrePy manifest and exit")
+    parser.add_argument("--skip-manifest", action="store_true", help="Skip manifest generation during assembly")
     args = parser.parse_args()
 
-    if not args.repack:
-        assembled = assemble_librepy_bundle(
-            PROJECT_ROOT,
-            with_tests=args.with_tests,
-            strip=not args.no_strip,
-        )
-        if assembled == 0:
-            return 1
+    try:
+        if args.manifest_only:
+            _ensure_librepy_manifest(PROJECT_ROOT)
+            return 0
 
-    return zip_librepy_bundle(PROJECT_ROOT, args.output)
+        if not args.repack:
+            assembled = assemble_librepy_bundle(
+                PROJECT_ROOT,
+                with_tests=args.with_tests,
+                strip=not args.no_strip,
+                skip_manifest=args.skip_manifest,
+            )
+            if assembled == 0:
+                return 1
+
+        return zip_librepy_bundle(PROJECT_ROOT, args.output, with_tests=args.with_tests)
+    except BuildError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

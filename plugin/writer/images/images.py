@@ -31,8 +31,10 @@ import ssl
 import tempfile
 import typing
 from typing import Any
+import urllib.parse
 import urllib.request
 
+from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import reraise_if_disposed, resolve_exception_message
 from plugin.framework.queue_executor import execute_on_main_thread, _SCOPE_UNSET
 from plugin.framework.thread_guard import on_main_thread
@@ -48,7 +50,12 @@ def _run_on_main(
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
-from .image_utils import ImageService
+from .image_utils import (
+    IMAGE_DOWNLOAD_MAX_BYTES,
+    ImageService,
+    resolve_generation_size,
+    suffix_for_image_bytes,
+)
 from . import image_mark, image_tools
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
@@ -71,7 +78,7 @@ from .image_tools import (
 log = logging.getLogger("writeragent.writer")
 
 # Cap a chat image download. 32 MiB holds a large photo and rejects an unbounded body.
-_IMAGE_DOWNLOAD_MAX_BYTES = 32 * 1024 * 1024
+_IMAGE_DOWNLOAD_MAX_BYTES = IMAGE_DOWNLOAD_MAX_BYTES
 _IMAGE_DOWNLOAD_CHUNK = 64 * 1024
 
 
@@ -116,7 +123,7 @@ class ImageGenerate(ToolWriterImageBase):
     name: str | None = "image_generate"
     intent: str | None = "media"
     description: str = (
-        "Generate an image from a text prompt and insert it. "
+        "Generate an image from a text prompt using the Settings endpoint and insert it. "
         "To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected)."
     )
     parameters: dict[str, Any] | None = {
@@ -127,7 +134,6 @@ class ImageGenerate(ToolWriterImageBase):
                 "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
                 "Omit while a graphic is selected to edit in place; omit with no selection to create a new image."
             )},
-            "strength": {"type": "number", "description": "For editing: how much to change the image (0.0-1.0). Ignored when generating new.", "default": 0.75},
             "aspect_ratio": {"type": "string", "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"], "default": "square"},
             "base_size": {
                 "type": "integer",
@@ -139,7 +145,6 @@ class ImageGenerate(ToolWriterImageBase):
             },
             "width": {"type": "integer", "description": "Override calculated width"},
             "height": {"type": "integer", "description": "Override calculated height"},
-            "provider": {"type": "string", "description": "Override default provider"},
             "image_model": {"type": "string", "description": "Override Settings image model for this request (endpoint / OpenRouter)."},
         },
         "required": ["prompt"],
@@ -157,15 +162,19 @@ class ImageGenerate(ToolWriterImageBase):
         status_callback = getattr(ctx, "status_callback", None)
         stop_checker = getattr(ctx, "stop_checker", None)
         mt_timeout = float(get_config_int("request_timeout"))
-        provider = args.get("provider") or "endpoint"
-        if provider == "aihorde":
-            provider = "endpoint"
         add_to_gallery = get_config_bool("image_auto_gallery")
         add_frame = get_config_bool("image_insert_frame")
 
         source_image = args.get("source_image")
         if isinstance(source_image, str):
             source_image = source_image.strip() or None
+
+        if source_image is not None and (not isinstance(source_image, str) or source_image.lower() != "selection"):
+            return self._tool_error(
+                "Invalid source_image: only 'selection' or omitted is supported.",
+                code="INVALID_PARAMETER",
+                parameter="source_image",
+            )
 
         explicit_edit = bool(source_image and source_image.lower() == "selection")
         source_b64 = None
@@ -210,46 +219,41 @@ class ImageGenerate(ToolWriterImageBase):
                 source_b64, edit_width, edit_height = (str(picked[0]), int(picked[1]), int(picked[2]))
                 display_width, display_height = int(picked[3] or edit_width), int(picked[4] or edit_height)
 
-        # schema type integer; omitted uses get_config_int, which returns an int.
         base_size = args.get("base_size", get_config_int("image_base_size"))
 
-        aspect = args.get("aspect_ratio", get_config_str("image_default_aspect"))
-        if aspect in ("landscape_16_9", "16:9"):
-            w, h = int(base_size * 16 / 9), base_size
-        elif aspect in ("portrait_9_16", "9:16"):
-            w, h = base_size, int(base_size * 16 / 9)
-        elif aspect in ("landscape_3_2", "4:3"):
-            w, h = int(base_size * 1.5), base_size
-        elif aspect in ("portrait_2_3", "3:4"):
-            w, h = base_size, int(base_size * 1.5)
-        else:
-            w, h = base_size, base_size
-
-        w = (w // 64) * 64
-        h = (h // 64) * 64
-
-        width = args.get("width", edit_width if is_edit else w)
-        height = args.get("height", edit_height if is_edit else h)
-
-        image_svc = ImageService(ctx.ctx, config=None)  # ImageService should use accessors too, or we pass dict
-        args_copy = {k: v for k, v in args.items() if k not in ("prompt", "base_size", "aspect_ratio", "width", "height", "provider", "source_image")}
         if is_edit:
-            args_copy["source_image"] = source_b64
-            args_copy["strength"] = args.get("strength", 0.75)
+            width = args.get("width", edit_width)
+            height = args.get("height", edit_height)
+            wire_ratio = None
+        else:
+            aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
+            width, height, wire_ratio = resolve_generation_size(
+                base_size,
+                aspect,
+                width=args.get("width"),
+                height=args.get("height"),
+            )
+
+        image_svc = ImageService(ctx.ctx, config=None)
+        gen_kwargs: dict[str, Any] = {}
+        image_model = args.get("image_model")
+        if image_model:
+            gen_kwargs["image_model"] = image_model
+        if is_edit:
+            gen_kwargs["source_image"] = source_b64
 
         paths, error_msg = image_svc.generate_image(
             prompt,
-            provider_name=provider,
             width=width,
             height=height,
-            aspect_ratio=aspect,
+            aspect_ratio=wire_ratio,
             status_callback=status_callback,
             stop_checker=stop_checker,
-            **args_copy,
+            **gen_kwargs,
         )
 
         if not paths:
-            return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider=provider)
+            return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider="endpoint")
 
         img_path = paths[0]
 
@@ -257,28 +261,27 @@ class ImageGenerate(ToolWriterImageBase):
             # Bytes are already in hand. Stop may abort the network wait above;
             # it does not skip this document insert.
             if is_edit:
-                replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
+                replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
-                    insert_image(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
-                return "Image edited and inserted from %s." % provider
-            insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
-            return "Image generated and inserted from %s." % provider
+                    insert_image(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
+                return "Image edited and inserted from endpoint."
+            insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
+            return "Image generated and inserted from endpoint."
 
-        # _run_on_main defaults bound_scope to the current send scope, so
-        # Stop cancels the queued insert even though the image bytes are
-        # already downloaded. Once bytes are in hand, marshal the insert
-        # unscoped (bound_scope=None).
-        msg = _run_on_main(_insert_or_replace, timeout=mt_timeout, bound_scope=None)
-
+        # _run_on_main defaults bound_scope to the current send scope, so Stop would
+        # cancel the queued insert after the bytes are downloaded. Insert unscoped.
         # Stop after the download must not turn a finished insert into an error.
-        # generate_image still receives stop_checker, so a network wait can abort.
-        # The insert itself is a document mutation and already ran.
+        try:
+            msg = _run_on_main(_insert_or_replace, timeout=mt_timeout, bound_scope=None)
+        finally:
+            from plugin.writer.images.image_utils import _unlink_temp_paths
 
-        if provider in ("endpoint", "openrouter"):
-            image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
-            if image_model_used:
-                endpoint = get_config_str("endpoint").strip()
-                update_lru_history(image_model_used, "image_model_lru", endpoint)
+            _unlink_temp_paths(paths)
+
+        image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
+        if image_model_used:
+            endpoint = get_config_str("endpoint").strip()
+            update_lru_history(image_model_used, "image_model_lru", endpoint)
 
         return {"status": "ok", "message": msg}
 
@@ -361,6 +364,17 @@ class ImageListNearbyFiles(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+def _is_at_page(graphic: Any) -> bool:
+    """True when graphic is anchored AT_PAGE."""
+    try:
+        from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+        anchor_type = graphic.getPropertyValue("AnchorType")
+        return bool(anchor_type == AT_PAGE or (isinstance(anchor_type, int) and anchor_type == 2))
+    except Exception:
+        return False
+
+
 class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
@@ -388,51 +402,84 @@ class ImageList(ToolWriterImageBase):
 
         images = []
         skipped: list[dict[str, str]] = []
-        for name, graphic in graphics_names:
-            try:
-                size = _object_size(graphic)
-                title = _optional_property(graphic, "Title", "")
-                description = _optional_property(graphic, "Description", "")
 
-                # Paragraph index via anchor
-                paragraph_index = -1
-                if not is_calc and not is_draw and doc_svc:
-                    try:
-                        anchor = graphic.getAnchor()
-                        paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
+        vc = None
+        saved_vc = None
+        vc_saved_attempted = False
 
-                # Page number via view cursor
-                page = None
-                entry_pos: dict[str, typing.Any] = {}
-                if is_draw:
-                    try:
-                        pos = graphic.getPosition()
-                        entry_pos = {"x_mm": pos.X / 100.0, "y_mm": pos.Y / 100.0}
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                elif not is_calc:
-                    try:
-                        anchor = graphic.getAnchor()
-                        vc = doc.getCurrentController().getViewCursor()
-                        vc.gotoRange(anchor.getStart(), False)
-                        page = vc.getPage()
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                else:
-                    entry_pos = {}
+        try:
+            for name, graphic in graphics_names:
+                try:
+                    size = _object_size(graphic)
+                    title = _optional_property(graphic, "Title", "")
+                    description = _optional_property(graphic, "Description", "")
 
-                entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
-                if page is not None:
-                    entry["page"] = page
-                if is_draw:
-                    entry.update(entry_pos)
-                images.append(entry)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.exception("image_list: could not read '%s'", name)
-                skipped.append({"name": name, "error": resolve_exception_message(exc)})
+                    # Read anchor once and reuse for paragraph index and page
+                    anchor = None
+                    paragraph_index = -1
+                    if not is_calc and not is_draw:
+                        try:
+                            anchor = graphic.getAnchor()
+                            if doc_svc and anchor is not None:
+                                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+
+                    # Page number
+                    page = None
+                    entry_pos: dict[str, typing.Any] = {}
+                    if is_draw:
+                        try:
+                            pos = graphic.getPosition()
+                            entry_pos = {"x_mm": pos.X / 100.0, "y_mm": pos.Y / 100.0}
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                    elif not is_calc:
+                        if _is_at_page(graphic):
+                            page_no = _optional_property(graphic, "AnchorPageNo", 0)
+                            try:
+                                p = int(page_no)
+                                if p > 0:
+                                    page = p
+                            except (TypeError, ValueError):
+                                pass
+                        else:
+                            if not vc_saved_attempted:
+                                vc_saved_attempted = True
+                                try:
+                                    vc = doc.getCurrentController().getViewCursor()
+                                    saved_vc = clone_text_range(vc)
+                                except Exception:
+                                    saved_vc = None
+                            try:
+                                if vc is None:
+                                    vc = doc.getCurrentController().getViewCursor()
+                                if anchor is not None:
+                                    start = anchor.getStart()
+                                    if start is not None:
+                                        vc.gotoRange(start, False)
+                                        page = vc.getPage()
+                            except Exception as exc:
+                                reraise_if_disposed(exc)
+                    else:
+                        entry_pos = {}
+
+                    entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
+                    if page is not None:
+                        entry["page"] = page
+                    if is_draw:
+                        entry.update(entry_pos)
+                    images.append(entry)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.exception("image_list: could not read '%s'", name)
+                    skipped.append({"name": name, "error": resolve_exception_message(exc)})
+        finally:
+            if vc is not None and saved_vc is not None:
+                try:
+                    vc.gotoRange(saved_vc, False)
+                except Exception:
+                    pass
 
         result: dict[str, Any] = {"status": "ok", "images": images, "count": len(images)}
         if skipped:
@@ -649,7 +696,7 @@ class ImageSetProperties(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
         if not image_name:
-            return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
+            return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
 
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None and (type(anchor_type) is not int or anchor_type not in (0, 1, 2, 3, 4)):
@@ -663,81 +710,115 @@ class ImageSetProperties(ToolWriterImageBase):
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        updated = []
+        # Orientation accepts friendly names ('left'/'center'/'right', 'top'/'center'/'bottom') or
+        # raw UNO ints (back-compat), resolved via the build's own constants. Resolve before any write.
+        hori_orient = kwargs.get("hori_orient")
+        resolved_hori = None
+        if hori_orient is not None:
+            resolved_hori, err = _resolve_orient(hori_orient, "hori")
+            if err:
+                return self._tool_error(err, code="INVALID_PARAMETER", parameter="hori_orient")
 
-        # Size
+        vert_orient = kwargs.get("vert_orient")
+        resolved_vert = None
+        if vert_orient is not None:
+            resolved_vert, err = _resolve_orient(vert_orient, "vert")
+            if err:
+                return self._tool_error(err, code="INVALID_PARAMETER", parameter="vert_orient")
+
+        # Validate property support before mutating
         width_mm = kwargs.get("width_mm")
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
-            from com.sun.star.awt import Size
+            has_size = visual_helpers.has_uno_property(graphic, "Size") or callable(getattr(graphic, "setSize", None))
+            if not has_size:
+                return self._tool_error("Graphic does not support setting size.", code="UNSUPPORTED_DOC_TYPE")
 
-            # A live graphic has Size or getSize(). execute_safe reports a failure,
-            # including disposal, before Size is written.
-            current = _object_size(graphic)
-            curr_w, curr_h = current.Width, current.Height
+        if anchor_type is not None and not visual_helpers.has_uno_property(graphic, "AnchorType"):
+            return self._tool_error("Graphic does not support AnchorType.", code="UNSUPPORTED_DOC_TYPE")
 
-            new_size = Size()
-            new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
-            new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
-            graphic.setPropertyValue("Size", new_size)
-            updated.append("size")
+        if hori_orient is not None and not visual_helpers.has_uno_property(graphic, "HoriOrient"):
+            return self._tool_error("Graphic does not support HoriOrient.", code="UNSUPPORTED_DOC_TYPE")
 
-        # Title
-        title = kwargs.get("title")
-        if title is not None:
-            graphic.setPropertyValue("Title", title)
-            updated.append("title")
+        if vert_orient is not None and not visual_helpers.has_uno_property(graphic, "VertOrient"):
+            return self._tool_error("Graphic does not support VertOrient.", code="UNSUPPORTED_DOC_TYPE")
 
-        # Description (alt-text)
-        description = kwargs.get("description")
-        if description is not None:
-            graphic.setPropertyValue("Description", description)
-            updated.append("description")
+        has_crop = any(kwargs.get(k) is not None for k in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm"))
+        if has_crop and not visual_helpers.has_uno_property(graphic, "GraphicCrop"):
+            return self._tool_error("Graphic does not support GraphicCrop.", code="UNSUPPORTED_DOC_TYPE")
 
-        # Anchor type
-        if anchor_type is not None:
-            from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
+        if kwargs.get("title") is not None and not visual_helpers.has_uno_property(graphic, "Title"):
+            return self._tool_error("Graphic does not support Title.", code="UNSUPPORTED_DOC_TYPE")
 
-            anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
-            graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
-            updated.append("anchor_type")
+        if kwargs.get("description") is not None and not visual_helpers.has_uno_property(graphic, "Description"):
+            return self._tool_error("Graphic does not support Description.", code="UNSUPPORTED_DOC_TYPE")
 
-        # Orientation — accept friendly names ('left'/'center'/'right', 'top'/'center'/'bottom') or
-        # raw UNO ints (back-compat). Resolve via the build's own constants; reject unknown names.
-        hori_orient = kwargs.get("hori_orient")
-        if hori_orient is not None:
-            resolved, err = _resolve_orient(hori_orient, "hori")
-            if err:
-                return self._tool_error(err, code="INVALID_PARAMETER", parameter="hori_orient")
-            graphic.setPropertyValue("HoriOrient", resolved)
-            updated.append("hori_orient")
+        from plugin.writer.edit_review import WriterCompoundUndo
 
-        vert_orient = kwargs.get("vert_orient")
-        if vert_orient is not None:
-            resolved, err = _resolve_orient(vert_orient, "vert")
-            if err:
-                return self._tool_error(err, code="INVALID_PARAMETER", parameter="vert_orient")
-            graphic.setPropertyValue("VertOrient", resolved)
-            updated.append("vert_orient")
+        updated = []
+        with WriterCompoundUndo(ctx.doc, "WriterAgent: Set image properties"):
+            # Size
+            if width_mm is not None or height_mm is not None:
+                from com.sun.star.awt import Size
 
-        # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
-        if any(kwargs.get(k) is not None for k in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm")):
-            from com.sun.star.text import GraphicCrop
+                current = _object_size(graphic)
+                curr_w, curr_h = current.Width, current.Height
 
-            try:
-                cc = graphic.getPropertyValue("GraphicCrop")
-                cur = (cc.Top, cc.Bottom, cc.Left, cc.Right)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                cur = (0, 0, 0, 0)
-            top, bottom, left, right = _resolve_crop_edges(kwargs, cur)
-            crop = GraphicCrop()
-            crop.Top = top
-            crop.Bottom = bottom
-            crop.Left = left
-            crop.Right = right
-            graphic.setPropertyValue("GraphicCrop", crop)
-            updated.append("crop")
+                new_size = Size()
+                new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
+                new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
+                if visual_helpers.safe_set_property(graphic, "Size", new_size) or visual_helpers.safe_try_method(graphic, "setSize", new_size):
+                    updated.append("size")
+                else:
+                    return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
+
+            # Title
+            title = kwargs.get("title")
+            if title is not None:
+                graphic.setPropertyValue("Title", title)
+                updated.append("title")
+
+            # Description (alt-text)
+            description = kwargs.get("description")
+            if description is not None:
+                graphic.setPropertyValue("Description", description)
+                updated.append("description")
+
+            # Anchor type
+            if anchor_type is not None:
+                from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
+
+                anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
+                graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
+                updated.append("anchor_type")
+
+            # Orientation
+            if resolved_hori is not None:
+                graphic.setPropertyValue("HoriOrient", resolved_hori)
+                updated.append("hori_orient")
+
+            if resolved_vert is not None:
+                graphic.setPropertyValue("VertOrient", resolved_vert)
+                updated.append("vert_orient")
+
+            # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
+            if has_crop:
+                from com.sun.star.text import GraphicCrop
+
+                try:
+                    cc = graphic.getPropertyValue("GraphicCrop")
+                    cur = (cc.Top, cc.Bottom, cc.Left, cc.Right)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    cur = (0, 0, 0, 0)
+                top, bottom, left, right = _resolve_crop_edges(kwargs, cur)
+                crop = GraphicCrop()
+                crop.Top = top
+                crop.Bottom = bottom
+                crop.Left = left
+                crop.Right = right
+                graphic.setPropertyValue("GraphicCrop", crop)
+                updated.append("crop")
 
         return {"status": "ok", "image_name": image_name, "updated": updated}
 
@@ -974,9 +1055,10 @@ class ImageInsert(ToolWriterImageBase):
         def _place() -> dict[str, Any]:
             nonlocal paragraph_index
             doc = ctx.doc
+            doc_type = visual_helpers.get_visual_doc_type(doc)
 
             if target in ("header", "footer", "header_first", "footer_first"):
-                if visual_helpers.get_visual_doc_type(doc) not in ("writer", "web"):
+                if doc_type not in ("writer", "web"):
                     return self._tool_error(
                         "target='%s' is only supported for Writer documents." % target,
                         code="UNSUPPORTED_DOC_TYPE",
@@ -1007,6 +1089,12 @@ class ImageInsert(ToolWriterImageBase):
                     "style_name": placed["style_name"],
                     "auto_height": placed["auto_height"],
                 }
+
+            if (locator is not None or paragraph_index is not None) and doc_type not in ("writer", "web"):
+                return self._tool_error(
+                    "locator and paragraph parameters are only supported for Writer documents.",
+                    code="UNSUPPORTED_DOC_TYPE",
+                )
 
             text_cursor = None
             doc_svc = getattr(ctx.services, "document", None)
@@ -1053,8 +1141,17 @@ class ImageDelete(ToolWriterImageBase):
 
     name: str | None = "image_delete"
     intent: str | None = "media"
-    description: str = "Delete an image from the document."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image to delete (from image_list)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["name"]}
+    description: str = (
+        "Delete an image from the document. Removes the graphic object; "
+        "any frame created by image_insert_frame is a separate object."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name of the image to delete (from image_list)."},
+        },
+        "required": ["name"],
+    }
 
     is_mutation: bool | None = True
 
@@ -1170,6 +1267,9 @@ def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = Fa
     Image replace and image insert use this default, so an https URL is not
     fetched with hostname checks disabled.
     """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError("Unsupported URL scheme '%s': only http and https are allowed" % parsed.scheme)
 
     cache_dir = image_tools._image_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
@@ -1209,20 +1309,19 @@ def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = Fa
     request = urllib.request.Request(url)
     request.add_header("User-Agent", USER_AGENT)
 
-    # What was wrong: urlopen had no timeout and read the whole body, on the
-    # LibreOffice main thread (these tools were sync). A stalled host froze
-    # the UI, and a failed write left a truncated file that the cache-hit
-    # above treated as the image.
-    # How it happened: the bytes were written straight to local_path.
-    # Why this change: the socket is bounded by request_timeout, the body by
-    # _IMAGE_DOWNLOAD_MAX_BYTES, and local_path is replaced only after the
-    # full body is on a temp file. A failure unlinks the temp file.
+    # Runs off the UI thread but stays bounded: socket by request_timeout, body by the
+    # byte cap, and local_path is replaced only after the full body is on a temp file
+    # (a truncated file would look like a cache hit).
     timeout = get_config_int("request_timeout")
     fd, partial_path = tempfile.mkstemp(dir=cache_dir, prefix="img-", suffix=".partial")
     try:
         with os.fdopen(fd, "wb") as fh:
             fd = -1
             with urllib.request.urlopen(request, context=context, timeout=timeout) as response:
+                content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                if content_type in ("text/html", "text/plain", "application/xhtml+xml", "application/json"):
+                    raise ValueError("Invalid Content-Type '%s' for image download" % content_type)
+
                 declared = response.headers.get("Content-Length")
                 if declared is not None:
                     try:
@@ -1231,16 +1330,21 @@ def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = Fa
                     except ValueError:
                         pass
                 total = 0
+                initial_bytes = b""
                 while True:
                     chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
                     if not chunk:
                         break
+                    if len(initial_bytes) < 1024:
+                        initial_bytes += chunk[:1024 - len(initial_bytes)]
                     total += len(chunk)
                     if total > _IMAGE_DOWNLOAD_MAX_BYTES:
                         raise RuntimeError("image download exceeded %s bytes" % _IMAGE_DOWNLOAD_MAX_BYTES)
                     fh.write(chunk)
             if total == 0:
                 raise RuntimeError("empty image download")
+            if suffix_for_image_bytes(initial_bytes) == ".img":
+                raise ValueError("Downloaded data is not a recognized image format")
         os.replace(partial_path, local_path)
         partial_path = ""
     finally:
