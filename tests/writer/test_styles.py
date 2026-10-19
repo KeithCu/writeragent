@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
 import sys
 from contextlib import contextmanager
 
@@ -592,7 +593,8 @@ def test_import_styles(mock_pv, mock_uno, mock_isfile, mock_ctx):
     mock_pv.return_value = pv_instance
 
     tool = StyleImport()
-    res = tool.execute(mock_ctx, path="/path/to/doc.ott", overwrite=True)
+    # abspath adds a drive letter on Windows, where "/path/..." alone is not absolute.
+    res = tool.execute(mock_ctx, path=os.path.abspath("/path/to/doc.ott"), overwrite=True)
 
     assert res["status"] == "ok"
     assert len(mock_ctx.doc._load_styles_calls) == 1
@@ -1208,7 +1210,8 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
 
     # Absolute but non-existent
     with patch("os.path.isfile", return_value=False):
-        res2 = tool.execute(mock_ctx, path="/nonexistent/template.ott")
+        # abspath adds a drive letter on Windows, where "/nonexistent/..." alone is not absolute.
+        res2 = tool.execute(mock_ctx, path=os.path.abspath("/nonexistent/template.ott"))
         assert res2["status"] == "error"
         assert "path does not exist" in res2["message"]
         assert len(mock_ctx.doc._load_styles_calls) == 0

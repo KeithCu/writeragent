@@ -116,6 +116,28 @@ def _close_leftover_showcase_docs(ctx) -> int:
     return closed
 
 
+def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
+    """Wait until the doc's deferred spill / sheet-repair timers have run.
+
+    Tip: closing while a deferred spill write is still pending hangs close() on Windows.
+    """
+    from plugin.calc.python import function as python_function
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    key = _lifecycle_key(doc)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pump_main_thread_work_queue(max_items=20)
+        with python_function._PENDING_SPILL_LOCK:
+            pending = [t for k, t in python_function._PENDING_SPILL_TIMERS if k == key and not python_function._spill_timer_finished(t)]
+        if not pending:
+            break
+        time.sleep(0.05)
+    # A timer that just fired may still have its write queued for the UI thread.
+    time.sleep(0.3)
+    pump_main_thread_work_queue(max_items=20)
+
+
 def _close_doc_and_clear_sessions(ctx, doc) -> None:
     """Close the doc and any leftover showcase workbooks."""
     if doc is not None:
@@ -364,6 +386,7 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         assert [c.col for c in rec.cells] == [0] * 5
         assert [c.value for c in rec.cells] == [float(i) for i in range(1, 6)]
     finally:
+        _wait_spill_settled(doc)
         try:
             doc.close(True)
         except Exception:
