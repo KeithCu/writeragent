@@ -50,6 +50,7 @@ make mock-llm
 - **Default Endpoint:** `http://127.0.0.1:18766` (MCP uses ports `8765` / `18765`).
 - **Settings Configuration:** In LibreOffice Settings, configure endpoint `http://127.0.0.1:18766`, text model `writeragent-mock`, and enable **Rich Text Control Sidebar**. Compaction resolves that id to a **32768**-token window (`DEFAULT_MODELS` `ids.mock`; also advertised on `GET /v1/models` as `context_length`).
 - **Audio / STT:** The server advertises `input_audio` support on chat completions and lists `writeragent-mock-whisper` for STT. The endpoint `POST /v1/audio/transcriptions` returns canned text (default: `"Hello from the mock microphone."`, configurable via `--transcript`).
+- **Forced Scenarios & Image Generation:** The `--scenario` option accepts forced scenarios on user turns (including `table` and `content_filter`). Image generation endpoints support `--fail-image` (`none` | `status` | `malformed` | `hang`), `--image-delay-s`, and `--image-status`. Image Stop/timeout soaks use `--image-delay-s`; `--fail-image hang` closes after HTTP 200 with no body.
 - **Librarian / Smolagents Support:** Phrase matching inspects the `### CURRENT QUERY:` suffix so recovery turns (e.g. `hello` after `crash the stream`) do not match prior conversation history.
 
 ### 2.2. Trigger Phrase Master Table
@@ -65,10 +66,11 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `say nothing` / `empty reply` | No content, `finish_reason=length` → `[Response truncated -- the model ran out of tokens...]`. |
 | `empty finish stop` / `blank stop reason` | No content, `finish_reason=stop` → `[No text from model; any tool changes were still applied.]` + `[Debug: …]`. |
 | `content filter` / `filtered reply` | No content, `finish_reason=content_filter` → `[Content filter: response was truncated.]`. |
-| `think out loud` | Emits several `delta.reasoning` chunks, followed by HTML content. |
+| `think out loud` / `show thinking` | Emits several `delta.reasoning` chunks, followed by HTML content. |
 | `think tags` | Emits XML `<think>` markers inside `content`. |
 | `reasoning details` | Emits `reasoning_content` + `reasoning_details`, followed by HTML content. |
 | `fill the sidebar` / `very long` | Emits 40 paragraphs + HTML table + nested lists. |
+| `show a table` / `send a table` / `table please` | Streams produce inventory table (`<th>Item</th>`, not rotating hello template). |
 | `flood history` / `pad the context` | Packet K: large ASCII pad (hand-test / mock unit). Live Packet K grows `ChatSession` via debug `INFLATE_HISTORY` so the 24k HTML stream does not have to land on `session.messages`. |
 | `overflow once` / `prompt too large once` | Packet K: first **stream** POST returns HTTP 400 `prompt is too long`, then OK. Non-stream summarizer is never this fault. |
 | `llama process died` | Packet K: HTTP 400 `llama-server process has terminated` (process death, not overflow retry). |
@@ -78,6 +80,13 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `mixed tools` / `one tool fails` | Calls `add_comment` (empty search → error) + `apply_document_content` filler. |
 | `two tools` / `in parallel` | Calls `search_in_document` + `get_document_tree` in a single round. |
 | `insert filler` / `append a paragraph` | Calls `apply_document_content` to mutate the document end. |
+| `generate an image` | Calls `image_generate` (or delegates to the images domain). |
+| `generate two images` | Calls two `image_generate` tools in one turn (or delegates to the images domain). |
+| `ocr image` | Calls `extract_structure_from_image` (or delegates to the vision domain). |
+| `single agent edit` | Calls `apply_document_content` for a single in-paragraph replacement (one undo step). |
+| `adjacent agent edits` | Calls `apply_document_content` twice for adjacent in-paragraph replacements. |
+| `three agent edits` | Calls `apply_document_content` three times for three separate paragraph edits. |
+| `style tools` | Calls `apply_style` followed by `get_document_tree` in parallel. |
 | `list sheets` / `list pages` | Calls Calc/Draw list tools (`list_sheets` / `list_pages`) when advertised. |
 | `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
 | `wait after accepted` / `do not finish peer` | Packet P hang lock: inner sends then never finishes (peer does not start). |
