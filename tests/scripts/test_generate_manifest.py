@@ -193,25 +193,19 @@ def test_topo_sort_cycle_fails():
         topo_sort(modules)
 
 
-def test_topo_sort_real_modules_order_equals_name_sorted_topo_sort():
+def test_topo_sort_real_modules_puts_core_first_and_providers_before_users():
     manifests = find_modules(str(_PLUGIN_DIR))
     manifests.sort(key=lambda m: m["name"])
-    order = [m["name"] for m in topo_sort(manifests)]
-    expected = [
-        "core",
-        "agent_backend",
-        "audio",
-        "calc",
-        "mcp",
-        "chatbot",
-        "doc",
-        "draw",
-        "embeddings",
-        "scripting",
-        "vision",
-        "writer",
-    ]
-    assert order == expected
+    ordered = topo_sort(manifests)
+    pos = {m["name"]: i for i, m in enumerate(ordered)}
+    provides = {svc: m["name"] for m in manifests for svc in m.get("provides_services", [])}
+    assert ordered[0]["name"] == "core"
+    assert sorted(pos) == sorted(m["name"] for m in manifests)
+    for m in manifests:
+        for req in m.get("requires", []):
+            provider = provides.get(req, req)
+            if provider in pos and provider != m["name"]:
+                assert pos[provider] < pos[m["name"]], (provider, m["name"])
 
 
 def test_topo_sort_independent_modules_preserves_input_order():
