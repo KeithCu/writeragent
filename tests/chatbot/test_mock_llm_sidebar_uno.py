@@ -3570,7 +3570,7 @@ def _r_pump_undo(ctx, frame) -> None:
 def test_r1_adjacent_agent_edits(ctx):
     """Accepting one of two adjacent agent edits leaves the other pending and intact (#1666)."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3580,7 +3580,7 @@ def test_r1_adjacent_agent_edits(ctx):
         before = agent_changes(doc)
         assert len(before) == 2, f"R1 expected 2 pending agent edits, got {before}"
 
-        assert resolve_agent_change(doc, ctx, before[0]["token"], True), (
+        assert resolve_agent_change(doc, ctx, before[0]["token"], True)[0].status == ResolveStatus.RESOLVED, (
             f"R1 accepting the first adjacent agent edit was refused: {before}"
         )
         after = agent_changes(doc)
@@ -3594,7 +3594,7 @@ def test_r1_adjacent_agent_edits(ctx):
 def test_r2_user_redline_overlap(ctx):
     """An agent change overlapped by the user's own redline is refused; both stay put."""
     from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3608,7 +3608,7 @@ def test_r2_user_redline_overlap(ctx):
         assert idx >= 0, f"R2 agent filler not in body: {body!r}"
         insert_user_redline(doc, ctx, "UserEdit", idx, idx + len("soak"))
 
-        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True)[0].status == ResolveStatus.REFUSED_FOREIGN, (
             "R2 must refuse to resolve an agent change overlapped by the user's redline"
         )
         user = [r for r in list_redlines(doc) if r.get("RedlineAuthor") == "Test User"]
@@ -3734,7 +3734,7 @@ def test_r5_close_doc_pending_tool(ctx):
 def test_r6_undo_then_accept(ctx):
     """Accepting a change whose edit was undone fails cleanly and changes nothing."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3747,7 +3747,7 @@ def test_r6_undo_then_accept(ctx):
         _r_pump_undo(ctx, frame)
         assert agent_changes(doc) == [], "R6 undo should remove the pending change"
 
-        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True)[0].status == ResolveStatus.NOT_ELIGIBLE, (
             "R6 accepting a stale token must fail"
         )
         assert doc.getText().getString() == WELCOME_BODY, "R6 stale accept changed the body"

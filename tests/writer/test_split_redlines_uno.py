@@ -13,7 +13,7 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.edit_review import record_preserve_replace
 from plugin.writer.edit_review import EditReviewSession
-from plugin.writer.inline_review import agent_changes, resolve_agent_change
+from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
 
@@ -103,7 +103,7 @@ def test_split_changes_resolve_individually_uno(ctx, doc):
     changes = agent_changes(doc)
     assert len(changes) == 2, changes
     tok = [c["token"] for c in changes if c["new"] == "fast"][0]
-    assert resolve_agent_change(doc, ctx, tok, True) is True, "one surgical change must resolve alone"
+    assert resolve_agent_change(doc, ctx, tok, True)[0].status == ResolveStatus.RESOLVED, "one surgical change must resolve alone"
     left = agent_changes(doc)
     assert len(left) == 1 and left[0]["new"] == "sleepy", "the other surgical change stays pending: %r" % left
 
@@ -193,7 +193,7 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
     """End-to-end (logical, not GUI): agent edit changes 2 words in a long paragraph -> splits into
     2 surgical changes -> fast-travel visits them -> accept one individually ->
     per-change report shows outcome + final_text."""
-    from plugin.writer.inline_review import (goto_adjacent_agent_change,
+    from plugin.writer.inline_review import (ResolveStatus, goto_adjacent_agent_change,
                                              pending_agent_change_count, resolve_agent_change)
     _body(doc, ctx, "Intro.", _LONG)
     found = _find(doc, _LONG)
@@ -204,7 +204,7 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
         doc.getCurrentController().getViewCursor().gotoRange(doc.getText().getStart(), False)
         first = goto_adjacent_agent_change(doc, True)
         assert first is not None, "fast-travel must land on a change"
-        assert resolve_agent_change(doc, ctx, first, True) is True, "accept that one alone"
+        assert resolve_agent_change(doc, ctx, first, True)[0].status == ResolveStatus.RESOLVED, "accept that one alone"
         assert pending_agent_change_count(doc) == 1, "the other stays pending"
         payload = session._review_payload(complete=False, timed_out=False)
     session.cleanup()
@@ -231,7 +231,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
         record_preserve_replace(session, doc, _find(doc, "dog"), "dog runs", ctx, True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "runs" in chs[0]["new"], chs
-        assert resolve_agent_change(doc, ctx, chs[0]["token"], True) is True
+        assert resolve_agent_change(doc, ctx, chs[0]["token"], True)[0].status == ResolveStatus.RESOLVED
         ins = session._review_payload(complete=False, timed_out=False)["changes"][0]
     session.cleanup()
     assert ins["outcome"] == "accepted" and "runs" in (ins["final_text"] or ""), ins
@@ -242,7 +242,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
         record_preserve_replace(session, doc, _find(doc, "lazy "), "", ctx, True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "lazy" in chs[0]["old"], chs
-        assert resolve_agent_change(doc, ctx, chs[0]["token"], False) is True
+        assert resolve_agent_change(doc, ctx, chs[0]["token"], False)[0].status == ResolveStatus.RESOLVED
         dele = session._review_payload(complete=False, timed_out=False)["changes"][0]
     session.cleanup()
     assert dele["outcome"] == "rejected" and "lazy" in (dele["final_text"] or ""), dele
@@ -264,7 +264,7 @@ def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
         chs = agent_changes(doc)
         assert len(chs) == 3, chs   # three independent surgical runs
         mid = [c for c in chs if "DELTA" in c["new"]][0]
-        assert resolve_agent_change(doc, ctx, mid["token"], True) is True  # accept the middle alone
+        assert resolve_agent_change(doc, ctx, mid["token"], True)[0].status == ResolveStatus.RESOLVED  # accept the middle alone
         assert len(agent_changes(doc)) == 2, "the other two stay pending"
     session.cleanup()
     _accept_all(doc, ctx)  # accept the remaining two
