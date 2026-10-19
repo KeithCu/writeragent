@@ -79,8 +79,8 @@ class _AcceptQueueFull(Exception):
 
     def __init__(self, pending: int, limit: int) -> None:
         super().__init__(f"Accept queue full: {pending} pending (limit={limit})")
-        self.pending = pending
-        self.limit = limit
+        self.pending: int = pending
+        self.limit: int = limit
 
 
 class _RequestThreads:
