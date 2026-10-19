@@ -601,7 +601,7 @@ def replace_single_range_with_content(model: Any, text_range: Any, content: str,
     return impl(model, text_range, content, ctx, config_svc)
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
+def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> str | None:
     from .html_import import replace_xtext_with_html as impl
     return impl(text_obj, html, config_svc, model)
 

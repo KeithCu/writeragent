@@ -395,3 +395,24 @@ def test_diagnose_insert_cell_html_bold_logs_enter_exit(capsys, monkeypatch):
     assert "insert_cell_html: diagnose start" in err
     assert "insert_cell_html: diagnose done portions=1" in err
     assert "BoldBit" in dump
+
+
+def test_insert_cell_html_rich_decodes_only_complete_entities():
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, temp_doc, calc_ctrl, writer_ctrl = _cell_and_docs()
+    received_html = []
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body"),
+    ):
+        bridge = mock_bridge_cls.return_value
+        bridge.get_active_sheet.return_value = object()
+        bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda h: (received_html.append(h), h)[1]
+        insert_cell_html_rich(calc_doc, MagicMock(), "A1", "<b>&sect 2o &amp;lt;</b>")
+
+    assert received_html == ["<b>&sect 2o &lt;</b>"]
+
