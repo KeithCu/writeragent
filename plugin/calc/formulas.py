@@ -269,6 +269,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         eval_result: dict[str, Any] | None = None
         sheet_copied = False
         cleanup_failed = False
+        eval_exc: Exception | None = None
 
         with _EvaluationUndoGuard(doc) as undo_guard:
             try:
@@ -321,6 +322,9 @@ class EvaluateFormula(ToolCalcErrorBase):
 
                 eval_result = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
                 return eval_result
+            except Exception as exc:
+                # Held until cleanup runs; a cleanup failure is reported instead.
+                eval_exc = exc
             finally:
                 if sheet_copied:
                     try:
@@ -336,6 +340,8 @@ class EvaluateFormula(ToolCalcErrorBase):
 
         if cleanup_failed and eval_result is None:
             return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
+        if eval_exc is not None:
+            raise eval_exc
 
         if eval_result is not None:
             return eval_result
