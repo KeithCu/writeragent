@@ -21,31 +21,35 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, ClassVar, Sequence, cast
+from typing import Any, Sequence, cast
 
 from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
-from plugin.calc.excel_py_convert.to_dag import analyze_xl_calls
+from plugin.calc.excel_py_convert.to_dag import (
+    _OBJECT_SUPPRESS,
+    _normalize_excel_placeholders,
+    analyze_xl_calls,
+)
 from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
-from plugin.doc.text_helpers import ast_source_offset
+from plugin.doc.text_helpers import ast_source_offset, line_starts_exact
 
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
 _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$")
-_DF_DATA_RE = re.compile(r"pd\.DataFrame\(\s*(data(?:\[\s*(\d+)\s*\])?)\[1:\]\s*,\s*columns\s*=\s*(data(?:\[\s*(\d+)\s*\])?)\[0\]\s*\)", re.IGNORECASE)
-_TO_PANDAS_TRUE_RE = re.compile(r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*\)", re.IGNORECASE)
-_TO_PANDAS_FALSE_RE = re.compile(r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*header_row\s*=\s*None\s*\)", re.IGNORECASE)
-_OBJECT_SUPPRESS_RE = re.compile(r"\n?# excel_py: returnType=1 \(Object\).*?\nresult = None\s*$", re.DOTALL)
-# Runnable DAG form uses quoted tokens; Excel package uses bare %Pn%.
-_QUOTED_P_TOKEN_RE = re.compile(r"""xl\(\s*(['"])%P(\d+)%\1\s*(,\s*headers\s*=\s*(True|False))?\s*\)""", re.IGNORECASE)
-_HAS_XL_BINDING_RE = re.compile(r"""xl\s*\(\s*['"]?%P\d+%""", re.IGNORECASE)
 
 # (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
 DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 
 
+_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
+
+
 def _xml_text_escape(text: str) -> str:
-    """Escape &, <, > for XML text nodes (not an XML parser — no XXE surface)."""
-    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """Escape &, <, >, and CR for XML text nodes, rejecting characters outside XML 1.0."""
+    raw = text or ""
+    if _INVALID_XML_CHARS_RE.search(raw):
+        raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
+    escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return escaped.replace("\r", "&#13;")
 
 
 def _p_token(index: int) -> str:
@@ -80,27 +84,174 @@ def _omit_modes(n: int) -> list[HeaderMode]:
     return ["omit" for _unused in range(max(n, 0))]
 
 
-def _dag_xl_already_bound(code: str) -> bool:
-    """True when *code* already uses binding-style ``xl("%Pn%")`` / ``xl(%Pn%)``."""
-    return bool(_HAS_XL_BINDING_RE.search(code or ""))
+def _node_span(node: ast.AST, src: str, line_starts: list[int]) -> tuple[int, int]:
+    lineno = getattr(node, "lineno", None)
+    col = getattr(node, "col_offset", None)
+    end_lineno = getattr(node, "end_lineno", lineno)
+    end_col = getattr(node, "end_col_offset", col)
+    if lineno is None or col is None or end_lineno is None or end_col is None:
+        return -1, -1
+    start = ast_source_offset(src, lineno, col, line_starts=line_starts)
+    end = ast_source_offset(src, end_lineno, end_col, line_starts=line_starts)
+    return start, end
 
 
-def _unquote_xl_binding_tokens(code: str) -> str:
-    """``xl("%P2%",headers=True)`` → ``xl(%P2%,headers=True)`` for pythonScripts.xml."""
+def _collect_legacy_spans(
+    tree: ast.AST,
+    src: str,
+    line_starts: list[int],
+    deps: list[str],
+    modes: list[HeaderMode],
+) -> tuple[list[tuple[int, int, str]], list[str], bool]:
+    """Find legacy data / ranges / to_pandas / DataFrame AST nodes and their replacement spans."""
+    issues: list[str] = []
+    fatal = False
+    spans: list[tuple[int, int, str]] = []
+    handled: set[int] = set()
 
-    def repl(m: re.Match[str]) -> str:
-        p_num = m.group(2)
-        headers = m.group(3)
-        if headers:
-            # Normalize to MS sample style: no spaces around =.
-            flag = m.group(4)
-            return f"xl(%P{p_num}%,headers={flag})"
-        return f"xl(%P{p_num}%)"
+    for node in ast.walk(tree):
+        # 1. pd.DataFrame(data[1:], columns=data[0]) or data[i] form
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "pd"
+                and func.attr.lower() == "dataframe"
+                and len(node.args) == 1
+                and len(node.keywords) == 1
+            ):
+                arg0 = node.args[0]
+                if (
+                    isinstance(arg0, ast.Subscript)
+                    and isinstance(arg0.slice, ast.Slice)
+                    and isinstance(arg0.slice.lower, ast.Constant)
+                    and arg0.slice.lower.value == 1
+                    and arg0.slice.upper is None
+                    and arg0.slice.step is None
+                ):
+                    idx: int | None = None
+                    if isinstance(arg0.value, ast.Name) and arg0.value.id == "data":
+                        idx = 0
+                    elif (
+                        isinstance(arg0.value, ast.Subscript)
+                        and isinstance(arg0.value.value, ast.Name)
+                        and arg0.value.value.id == "data"
+                        and isinstance(arg0.value.slice, ast.Constant)
+                        and isinstance(arg0.value.slice.value, int)
+                    ):
+                        idx = arg0.value.slice.value
 
-    return _QUOTED_P_TOKEN_RE.sub(repl, code or "")
+                    kw = node.keywords[0]
+                    if (
+                        idx is not None
+                        and kw.arg == "columns"
+                        and isinstance(kw.value, ast.Subscript)
+                        and isinstance(kw.value.slice, ast.Constant)
+                        and kw.value.slice.value == 0
+                    ):
+                        cols_ok = False
+                        if idx == 0 and isinstance(kw.value.value, ast.Name) and kw.value.value.id == "data":
+                            cols_ok = True
+                        elif (
+                            idx != 0
+                            and isinstance(kw.value.value, ast.Subscript)
+                            and isinstance(kw.value.value.value, ast.Name)
+                            and kw.value.value.value.id == "data"
+                            and isinstance(kw.value.value.slice, ast.Constant)
+                            and kw.value.value.slice.value == idx
+                        ):
+                            cols_ok = True
+
+                        if cols_ok:
+                            for descendant in ast.walk(node):
+                                handled.add(id(descendant))
+                            if idx >= len(deps):
+                                issues.append(f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
+                                fatal = True
+                            else:
+                                start, end = _node_span(node, src, line_starts)
+                                if start >= 0 and end > start:
+                                    spans.append((start, end, _xl_expr(idx, "true")))
+                            continue
+
+            # 2. (ranges|data)(?:[i])?.to_pandas(...)
+            if isinstance(func, ast.Attribute) and func.attr.lower() == "to_pandas" and len(node.args) == 0:
+                header_mode: HeaderMode | None = None
+                if len(node.keywords) == 0:
+                    header_mode = "true"
+                elif len(node.keywords) == 1:
+                    kw = node.keywords[0]
+                    if kw.arg == "header_row" and isinstance(kw.value, ast.Constant) and kw.value.value is None:
+                        header_mode = "false"
+
+                if header_mode is not None:
+                    target = func.value
+                    tp_idx: int | None = None
+                    if isinstance(target, ast.Name) and target.id in ("data", "ranges"):
+                        tp_idx = 0
+                    elif (
+                        isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id in ("data", "ranges")
+                        and isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, int)
+                    ):
+                        tp_idx = target.slice.value
+
+                    if tp_idx is not None:
+                        for descendant in ast.walk(node):
+                            handled.add(id(descendant))
+                        if tp_idx >= len(deps):
+                            issues.append(f"to_pandas pattern references index {tp_idx} but only {len(deps)} deps")
+                            fatal = True
+                        else:
+                            start, end = _node_span(node, src, line_starts)
+                            if start >= 0 and end > start:
+                                spans.append((start, end, _xl_expr(tp_idx, header_mode)))
+                        continue
+
+    # 3. Subscripts data[i] / ranges[i] and bare data
+    for node in ast.walk(tree):
+        if id(node) in handled:
+            continue
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Name) and node.value.id in ("data", "ranges"):
+                if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
+                    sub_idx = node.slice.value
+                    handled.add(id(node))
+                    handled.add(id(node.value))
+                    if sub_idx >= len(deps):
+                        issues.append(f"{node.value.id}[{sub_idx}] with only {len(deps)} deps")
+                        fatal = True
+                    else:
+                        start, end = _node_span(node, src, line_starts)
+                        if start >= 0 and end > start:
+                            hm: HeaderMode = modes[sub_idx] if sub_idx < len(modes) else "omit"
+                            spans.append((start, end, _xl_expr(sub_idx, hm)))
+                    continue
+
+        if isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
+            if id(node) in handled:
+                continue
+            # Tip: bare ``data`` is a CalcRange only for a single formula arg; with several args it is the ranges list.
+            if len(deps) == 1:
+                handled.add(id(node))
+                start, end = _node_span(node, src, line_starts)
+                if start >= 0 and end > start:
+                    hm0: HeaderMode = modes[0] if modes else "omit"
+                    spans.append((start, end, _xl_expr(0, hm0)))
+
+    return spans, issues, fatal
 
 
-def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: list[HeaderMode] | None = None, strip_object_suppress: bool = True) -> tuple[str, list[str], list[str], bool]:
+def rewrite_dag_code_to_excel(
+    code: str,
+    data_args: list[str],
+    *,
+    header_modes: list[HeaderMode] | None = None,
+    strip_object_suppress: bool = True,
+) -> tuple[str, list[str], list[str], bool]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
     Returns ``(excel_code, deps, issues, fatal)``. Only *data* args are returned as deps
@@ -112,170 +263,64 @@ def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: 
     while len(modes) < len(deps):
         modes.append("omit")
     text = code or ""
-    if strip_object_suppress:
-        text = _OBJECT_SUPPRESS_RE.sub("", text)
+    if strip_object_suppress and text.endswith(_OBJECT_SUPPRESS):
+        text = text[:-len(_OBJECT_SUPPRESS)]
 
-    # New forward path keeps xl("%Pn%"); only unquote for the Excel package.
-    if _dag_xl_already_bound(text):
-        analysis = analyze_xl_calls(text, num_deps=len(deps))
-        issues.extend(analysis.issues)
-        if analysis.fatal:
-            return code, deps, issues, True
-        return _unquote_xl_binding_tokens(text), deps, issues, False
+    if not text.strip():
+        return text, deps, issues, False
 
-    fatal = False
-
-    def df_repl(m: re.Match[str]) -> str:
-        nonlocal fatal
-        left_idx = m.group(2)
-        if left_idx is not None:
-            idx = int(left_idx)
-        else:
-            idx = 0
-        if idx >= len(deps):
-            issues.append(f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
-            fatal = True
-            return m.group(0)
-        return _xl_expr(idx, "true")
-
-    def to_pandas_false_repl(m: re.Match[str]) -> str:
-        nonlocal fatal
-        idx_s = m.group(2)
-        idx = int(idx_s) if idx_s is not None else 0
-        if idx >= len(deps):
-            issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
-            fatal = True
-            return m.group(0)
-        return _xl_expr(idx, "false")
-
-    def to_pandas_true_repl(m: re.Match[str]) -> str:
-        nonlocal fatal
-        idx_s = m.group(2)
-        idx = int(idx_s) if idx_s is not None else 0
-        if idx >= len(deps):
-            issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
-            fatal = True
-            return m.group(0)
-        return _xl_expr(idx, "true")
-
-    # Newer CalcRange API first, then legacy DataFrame slicing, then bare data names.
-    text = _TO_PANDAS_FALSE_RE.sub(to_pandas_false_repl, text)
-    text = _TO_PANDAS_TRUE_RE.sub(to_pandas_true_repl, text)
-    text = _DF_DATA_RE.sub(df_repl, text)
-
-    # Token-position rewrite for data / data[i] / ranges[i] via AST when possible.
-    rewritten, ast_issues, ast_fatal = _rewrite_data_names_ast(text, deps, modes)
-    issues.extend(ast_issues)
-    if ast_fatal:
-        fatal = True
-    if rewritten is not None and not fatal:
-        return rewritten, deps, issues, False
-    if fatal:
-        return code, deps, issues, True
-
-    # Regex fallback (data[i] / ranges[i]).
-    def index_repl(m: re.Match[str]) -> str:
-        nonlocal fatal
-        idx = int(m.group(1))
-        if idx >= len(deps):
-            issues.append(f"index [{idx}] with only {len(deps)} deps")
-            fatal = True
-            return m.group(0)
-        hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
-        return _xl_expr(idx, hm)
-
-    text = re.sub(r"\b(?:ranges|data)\[\s*(\d+)\s*\]", index_repl, text)
-
-    # Bare ``data`` only when a single dep (multi-arg ``data`` is the ranges list).
-    if len(deps) == 1:
-
-        def bare_repl(_m: re.Match[str]) -> str:
-            hm: HeaderMode = modes[0] if modes else "omit"
-            return _xl_expr(0, hm)
-
-        text = re.sub(r"(?<![\w.])data(?!\w)", bare_repl, text)
-
-    if fatal:
-        return code, deps, issues, True
-    return text, deps, issues, False
-
-
-def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode]) -> tuple[str | None, list[str], bool]:
-    """Rewrite ``data`` / ``data[i]`` / ``ranges[i]`` Name/Subscript nodes."""
-    issues: list[str] = []
+    # Tip: the runnable DAG form quotes xl("%Pn%"); the Excel package uses bare %Pn%.
+    normalized = _normalize_excel_placeholders(text)
     try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return None, issues, False
+        tree = ast.parse(normalized)
+    except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
+        msg = getattr(exc, "msg", str(exc))
+        lineno = getattr(exc, "lineno", None)
+        offset = getattr(exc, "offset", None)
+        loc = f"line {lineno}" if lineno is not None else "unknown line"
+        if offset is not None:
+            loc = f"{loc}:{offset}"
+        issues.append(f"Python syntax error at {loc}: {msg}")
+        return code, deps, issues, True
 
-    class _Hit:
-        __slots__: ClassVar[tuple[str, ...]] = ("start", "end", "repl")
-        start: int
-        end: int
-        repl: str
+    line_starts = line_starts_exact(text)
+    all_spans: list[tuple[int, int, str]] = []
 
-        def __init__(self, start: int, end: int, repl: str) -> None:
-            self.start = start
-            self.end = end
-            self.repl = repl
+    analysis = analyze_xl_calls(text, num_deps=len(deps))
+    issues.extend(analysis.issues)
+    if analysis.fatal:
+        return code, deps, issues, True
 
-    hits: list[_Hit] = []
-    fatal = False
-    # Names that are already the target of ``data[...]`` / ``ranges[...]`` — skip bare rewrite.
-    subscripted_data_names: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
-            subscripted_data_names.add(id(node.value))
+    for call in analysis.calls:
+        if call.p_num is not None:
+            idx = call.p_num - 2
+            repl = _xl_expr(idx, _as_header_mode(call.header_mode))
+            all_spans.append((call.start, call.end, repl))
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in ("data", "ranges"):
-            sl = node.slice
-            idx = None
-            if isinstance(sl, ast.Constant) and isinstance(sl.value, int):
-                idx = sl.value
-            if idx is None:
-                continue
-            if idx >= len(deps):
-                issues.append(f"{node.value.id}[{idx}] with only {len(deps)} deps")
-                fatal = True
-                continue
-            start = ast_source_offset(code, node.lineno, node.col_offset)
-            end = ast_source_offset(code, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
-            if start < 0 or end < 0:
-                continue
-            hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
-            hits.append(_Hit(start, end, _xl_expr(idx, hm)))
-        elif isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
-            # Bare ``data`` is a CalcRange only for a single formula arg.
-            if len(deps) != 1:
-                continue
-            if id(node) in subscripted_data_names:
-                continue
-            start = ast_source_offset(code, node.lineno, node.col_offset)
-            end = ast_source_offset(code, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
-            if start < 0 or end < 0:
-                continue
-            hm0: HeaderMode = modes[0] if modes else "omit"
-            hits.append(_Hit(start, end, _xl_expr(0, hm0)))
+    legacy_spans, legacy_issues, legacy_fatal = _collect_legacy_spans(tree, text, line_starts, deps, modes)
+    issues.extend(legacy_issues)
+    if legacy_fatal:
+        return code, deps, issues, True
 
-    if not hits:
-        # If AST parsed but found no data names, return code unchanged.
-        return code, issues, fatal
+    all_spans.extend(legacy_spans)
+    if not all_spans:
+        return text, deps, issues, False
 
-    # Drop overlapping hits (prefer longer / outer) — simple: sort by start, skip overlaps
-    hits.sort(key=lambda h: (h.start, -(h.end - h.start)))
-    kept: list[_Hit] = []
+    # Apply spans from end of string to keep earlier offsets valid.
+    all_spans.sort(key=lambda s: (s[0], -(s[1] - s[0])))
+    kept_spans: list[tuple[int, int, str]] = []
     last_end = -1
-    for h in hits:
-        if h.start < last_end:
+    for s in all_spans:
+        if s[0] < last_end:
             continue
-        kept.append(h)
-        last_end = h.end
+        kept_spans.append(s)
+        last_end = s[1]
 
-    out = code
-    for h in sorted(kept, key=lambda x: x.start, reverse=True):
-        out = out[: h.start] + h.repl + out[h.end :]
-    return out, issues, fatal
+    out = text
+    for start, end, repl in sorted(kept_spans, key=lambda s: s[0], reverse=True):
+        out = out[:start] + repl + out[end:]
+
+    return out, deps, issues, False
 
 
 def excel_formulatext(code: str, return_type: int = 0) -> str:
