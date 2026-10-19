@@ -341,7 +341,11 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
     from plugin.main import _STATIC_MENU_TITLES
     from plugin.librepy.sidebar_menus import _librepy_hamburger_specs
 
-    addons_path = Path(__file__).resolve().parents[2] / "extension" / "Addons.xcu"
+    root_dir = Path(__file__).resolve().parents[2]
+    addons_path = root_dir / "extension" / "Addons.xcu"
+    if not addons_path.exists():
+        # The release_verify bundle flattens extension/ into the bundle root.
+        addons_path = root_dir / "Addons.xcu"
     tree = ET.parse(addons_path)
     root = tree.getroot()
     oor_name = "{http://openoffice.org/2001/registry}name"

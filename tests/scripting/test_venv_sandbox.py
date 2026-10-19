@@ -780,7 +780,8 @@ def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPa
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
-    import compute_service.worker_stdio as ws
+    # compute_service/ is not in the OXT bundle that release_verify tests.
+    ws = pytest.importorskip("compute_service.worker_stdio")
 
     exit_calls: list[int] = []
     monkeypatch.setattr(ws.os, "_exit", lambda code: exit_calls.append(code))
