@@ -263,7 +263,7 @@ def test_drain_executor_waits_for_in_flight_handler_released_mid_wait(caplog) ->
         waiting.set()
         return real_shutdown(*args, **kwargs)
 
-    server.executor.shutdown = _shutdown_spy  # type: ignore[method-assign]
+    setattr(server.executor, "shutdown", _shutdown_spy)
     drained = threading.Event()
 
     def _drain() -> None:
@@ -301,3 +301,53 @@ def test_drain_executor_abandons_after_timeout_and_warns(caplog) -> None:
     finally:
         release.set()
         server.server_close()
+
+
+def test_accept_queue_cap_closes_excess_socket() -> None:
+    ran: list[object] = []
+
+    class _Counting:
+        def __init__(self, request: object, client_address: object, server: object) -> None:
+            ran.append(request)
+
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Counting, max_threads=1, max_queued=1)
+    hold = threading.Event()
+    started = threading.Event()
+
+    def _occupy() -> None:
+        started.set()
+        hold.wait(timeout=5)
+
+    sock1 = MagicMock()
+    sock2 = MagicMock()
+    try:
+        server.executor.submit(_occupy)
+        assert started.wait(timeout=2)
+        # One request stays queued and its mock socket is not closed.
+        server.process_request(sock1, ("127.0.0.1", 1001))
+        sock1.close.assert_not_called()
+        assert server.executor._work_queue.qsize() == 1
+
+        # The next request closes the socket, does not run the handler,
+        # and leaves the queue depth unchanged.
+        server.process_request(sock2, ("127.0.0.1", 1002))
+        sock2.close.assert_called_once()
+        assert ran == []
+        assert server.executor._work_queue.qsize() == 1
+    finally:
+        hold.set()
+        server.server_close()
+
+
+def test_handle_error_connection_error_does_not_call_super() -> None:
+    from unittest.mock import patch
+
+    server = DualStackThreadPoolHTTPServer.__new__(DualStackThreadPoolHTTPServer)
+    for exc_type in (ConnectionResetError, BrokenPipeError):
+        try:
+            raise exc_type("client closed")
+        except ConnectionError:
+            with patch("socketserver.BaseServer.handle_error") as super_handle:
+                server.handle_error(None, ("127.0.0.1", 1))
+        super_handle.assert_not_called()
+
