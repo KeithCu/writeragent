@@ -663,7 +663,7 @@ PEER_OUTER_DELEGATE_HINT = (
     "to deliver via send_peer_result "
     "(one string: envelope uid or url, and the HTML or result — not a JSON array). "
     "Why: only that inner agent can deliver the peer result; finishing with only a local sidebar answer never reaches the asking peer.\n"
-    "When this turn is a [Peer result from: …] envelope: apply or insert locally and stop. Do not delegate an ack specialize. "
+    "When this turn is a [Peer result from: …] envelope: it is information for the requester. Use it to answer the user; insert it into the document only if the user asked for that. Then stop. Do not delegate an ack specialize. "
     "Why: this is the answer to your earlier work request, not a new work request."
 )
 

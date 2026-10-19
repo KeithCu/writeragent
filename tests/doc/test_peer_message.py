@@ -744,6 +744,9 @@ def test_prompts_outer_thin_inner_choice():
     assert "ranges, sheets, charts" in PEER_OUTER_DELEGATE_HINT
     assert "Do not delegate an ack specialize" in PEER_OUTER_DELEGATE_HINT
     assert "not a new work request" in PEER_OUTER_DELEGATE_HINT
+    assert "information for the requester" in PEER_OUTER_DELEGATE_HINT
+    assert "insert it into the document only if the user asked for that" in PEER_OUTER_DELEGATE_HINT
+    assert "apply or insert" not in PEER_OUTER_DELEGATE_HINT
     assert SendPeerWork.parameters["properties"]["message"]["type"] == "string"
 
     writer = MagicMock()
@@ -771,6 +774,9 @@ def test_prompts_outer_thin_inner_choice():
     assert "you MUST still Do" in outer and "document_research" in outer
     assert "local sidebar answer never reaches" in outer
     assert "Do not delegate an ack specialize" in outer
+    assert "information for the requester" in outer
+    assert "insert it into the document only if the user asked for that" in outer
+    assert "apply or insert" not in outer
     assert "[Peer work from:" in outer
     assert "[Peer result from:" in outer
     assert "send_peer_work" not in outer
