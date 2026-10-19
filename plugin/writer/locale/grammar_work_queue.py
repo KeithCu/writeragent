@@ -159,21 +159,21 @@ def should_replace_for_key(existing: GrammarWorkItem | None, incoming: GrammarWo
 def filter_stale_and_group(
     items: list[GrammarWorkItem],
     is_stale_fn: Any,
-) -> dict[tuple[str, str], list[GrammarWorkItem]]:
-    """Drop stale items and group the rest by ``(doc_id, grammar_bcp47)``.
+) -> dict[tuple[str, str, str, str], list[GrammarWorkItem]]:
+    """Drop stale items and group the rest by ``(doc_id, grammar_bcp47, provider, checker_identity)``.
 
     ``is_stale_fn`` is called with each item; items for which it returns True
     are skipped (with an obs log).  Returns a dict mapping
-    ``(doc_id, locale)`` to the non-stale items in that group.
+    ``(doc_id, locale, provider, checker_identity)`` to the non-stale items in that group.
     """
-    groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
+    groups: dict[tuple[str, str, str, str], list[GrammarWorkItem]] = defaultdict(list)
     stale_count = 0
     for item in items:
         if is_stale_fn(item):
             grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
             stale_count += 1
             continue
-        groups[(item.doc_id, item.grammar_bcp47)].append(item)
+        groups[(item.doc_id, item.grammar_bcp47, item.provider, item.checker_identity)].append(item)
     if stale_count > 0:
         grammar_obs("batch_stats", sentences_stale_skipped=stale_count, survivor_count=sum(len(v) for v in groups.values()))
     return dict(groups)
@@ -367,7 +367,7 @@ class GrammarWorkQueue:
                 seqs=tuple(x.enqueue_seq for x in batch),
             )
             groups = filter_stale_and_group(batch, self._is_stale)
-            for (doc_id, locale), group_items in groups.items():
+            for (doc_id, locale, _prov, _ident), group_items in groups.items():
                 grammar_obs(
                     "queue_execute_batch",
                     doc_id=doc_id,

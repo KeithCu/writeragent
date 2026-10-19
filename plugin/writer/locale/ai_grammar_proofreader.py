@@ -67,6 +67,7 @@ _GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
+from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
@@ -703,7 +704,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             get_kwargs: dict[str, Any] = {"ctx": self.ctx, "doc_id": a_doc_id}
             if checker_ident:
                 get_kwargs["checker_identity"] = checker_ident
-            cached = cache_get_sentence(loc_key, sent_text, **get_kwargs)
+            lookup_text = (
+                grammar_proofread_locale.checked_grammar_text(
+                    sent_text, grammar_proofread_locale.grammar_max_chars(self.ctx)
+                )
+                if (checker_ident or "").startswith("llm:")
+                else sent_text
+            )
+            cached = cache_get_sentence(loc_key, lookup_text, **get_kwargs)
             grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=slice_preview_debug(sent_text, 48))
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))

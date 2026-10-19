@@ -124,6 +124,8 @@ def grammar_batch_sentences(ctx: Any = None) -> int:
 def grammar_max_tokens(ctx: Any = None) -> int:
     """Return max output tokens for LLM grammar response, clamped to [256, 16384].
 
+    This is the per-request cap (used for both single-sentence and batch requests,
+    not multiplied by batch size).
     ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     """
     del ctx
@@ -139,6 +141,10 @@ def grammar_max_chars(ctx: Any = None) -> int:
     """Return max sentence character limit, clamped to [512, 65536].
 
     ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
+    For an LLM identity, characters past the cap are not checked; the cache identity
+    is the checked prefix; a tail-only edit does not miss that prefix and does not raise
+    a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are
+    rewritten under the prefix. No migration.
     """
     del ctx
     return _clamped_int_config(
@@ -147,6 +153,25 @@ def grammar_max_chars(ctx: Any = None) -> int:
         lo=512,
         hi=65536,
     )
+
+
+def checked_grammar_text(text: str, limit: int) -> str:
+    """Return text capped at limit for LLM grammar checks.
+
+    If len(text) <= limit, returns text. Otherwise cut at the last whitespace in the
+    first three quarters of the window, and hard-cut at limit when there is none.
+    """
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    cut = -1
+    for i in range(limit - 1, -1, -1):
+        if window[i].isspace():
+            cut = i
+            break
+    if cut >= (limit * 3) // 4:
+        return window[:cut]
+    return window
 
 
 # Maximum tokens requested for a single-sentence language detection LLM call.

@@ -181,15 +181,21 @@ class GrammarRegistry:
             dp._teardown()
 
     def get_cached_language(self, text: str) -> str | None:
+        from .grammar_proofread_cache import _normalize_for_sentence_cache
+
+        norm = _normalize_for_sentence_cache(text)
         with self.lock:
-            if text in self.lang_detect_cache:
-                self.lang_detect_cache.move_to_end(text)
-                return self.lang_detect_cache[text]
+            if norm in self.lang_detect_cache:
+                self.lang_detect_cache.move_to_end(norm)
+                return self.lang_detect_cache[norm]
         return None
 
     def put_cached_language(self, text: str, lang: str) -> None:
+        from .grammar_proofread_cache import _normalize_for_sentence_cache
+
+        norm = _normalize_for_sentence_cache(text)
         with self.lock:
-            self.lang_detect_cache[text] = lang
+            self.lang_detect_cache[norm] = lang
             if len(self.lang_detect_cache) > 1000:
                 self.lang_detect_cache.popitem(last=False)
 
