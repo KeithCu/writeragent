@@ -28,7 +28,9 @@ so they are not part of this path.
 ``apply_design`` always restyles the **open** Impress deck this way. A new
 window would spawn a second sidebar agent with empty chat context — do not
 reintroduce a model-facing create-from-template tool. Start from a blank
-deck or File→Templates, then ``list_designs`` → ``apply_design``.
+deck or File→Templates, then ``list_designs`` → ``apply_design``. The result
+includes ``source_master`` and ``selection``; a fallback warning names the
+master when several untitled masters tie.
 
 ``list_designs`` includes a short ``look`` string (mood / accent hues /
 illustrated vs graphic chrome) derived from the ``.otp`` ZIP — see
@@ -49,7 +51,7 @@ from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_di
 from plugin.draw.design_look import derive_otp_look
 from plugin.draw.otp_zip import extract_member, find_member, read_member
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import is_disposed_exception, is_real_disposal
+from plugin.framework.errors import is_real_disposal
 from plugin.framework.uno_context import get_service_manager, uno_same
 from plugin.framework.url_utils import path_to_file_url
 
@@ -68,6 +70,8 @@ class ClonedMaster(NamedTuple):
     graphic_shapes: int = 0
     graphic_reimports: int = 0
     warnings: tuple[str, ...] = ()
+    source_master: str = ""
+    selection: str = ""
 
 
 class DesignChromeMissingError(RuntimeError):
@@ -649,6 +653,7 @@ def _clone_one_shape(
     image_path: str | None = None,
     shape_index: int = 0,
     warnings: list[str] | None = None,
+    chrome: list[int] | None = None,
 ) -> tuple[str, bool | None]:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
@@ -711,6 +716,10 @@ def _clone_one_shape(
             clone,
             image_path=image_path,
         )
+        if chrome is not None:
+            chrome[0] += 1
+            if reimported is True:
+                chrome[1] += 1
         log.debug("clone_master graphic_reimport ok=%s type=%s", reimported, shape_type)
 
     if "GroupShape" in shape_type:
@@ -729,6 +738,7 @@ def _clone_one_shape(
                 uno_ctx,
                 shape_index=child_idx,
                 warnings=warnings,
+                chrome=chrome,
             )
         dest_child_count = 0
         try:
@@ -750,7 +760,7 @@ def _clone_one_shape(
 
 
 def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[str]) -> None:
-    """Reconstruct solid page background without assigning source Background object."""
+    """Reconstruct page background without assigning source Background object."""
     try:
         src_bg = getattr(src_master, "Background", None)
         if src_bg is None and hasattr(src_master, "getPropertyValue"):
@@ -772,42 +782,40 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
             raise
         fill_style = getattr(src_bg, "FillStyle", None)
     kind = _fill_style_kind(fill_style)
+    if kind == "none":
+        return
+
+    try:
+        dest_bg = getattr(dest_master, "Background", None)
+        if dest_bg is None and hasattr(dest_master, "getPropertyValue"):
+            dest_bg = dest_master.getPropertyValue("Background")
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        dest_bg = None
+
+    if dest_bg is None:
+        warnings.append(f"fill {kind} not copied on master")
+        return
+
     if kind == "solid":
-        try:
-            src_color = (
-                src_bg.getPropertyValue("FillColor")
-                if hasattr(src_bg, "getPropertyValue")
-                else getattr(src_bg, "FillColor", None)
-            )
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            src_color = getattr(src_bg, "FillColor", None)
-        try:
-            dest_bg = getattr(dest_master, "Background", None)
-            if dest_bg is None and hasattr(dest_master, "getPropertyValue"):
-                dest_bg = dest_master.getPropertyValue("Background")
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            dest_bg = None
-        if dest_bg is not None:
-            try:
-                dest_bg.setPropertyValue("FillStyle", fill_style)
-            except Exception:
-                try:
-                    dest_bg.FillStyle = fill_style
-                except Exception:
-                    pass
-            try:
-                dest_bg.setPropertyValue("FillColor", src_color)
-            except Exception:
-                try:
-                    dest_bg.FillColor = src_color
-                except Exception:
-                    pass
+        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
+        if _copy_uno_prop(dest_bg, src_bg, "FillColor") != "copied":
+            warnings.append("fill solid not copied on master")
+    elif kind == "gradient":
+        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
+        if _copy_uno_prop(dest_bg, src_bg, "FillGradient") != "copied":
+            warnings.append("fill gradient not copied on master")
+        else:
+            _copy_uno_prop(dest_bg, src_bg, "FillTransparenceGradient")
+    elif kind == "hatch":
+        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
+        if _copy_uno_prop(dest_bg, src_bg, "FillHatch") != "copied":
+            warnings.append("fill hatch not copied on master")
     elif kind == "bitmap":
         warnings.append("fill bitmap not copied on master")
+    else:
+        warnings.append(f"fill {kind} not copied on master")
 
 
 def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> ClonedMaster:
@@ -897,10 +905,18 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     pool = matching_candidates if matching_candidates else all_candidates
     _best_idx, best_master, best_diff = min(pool, key=lambda x: (x[2], x[0]))
     src_master = best_master
+    source_master_name = str(getattr(src_master, "Name", "") or "")
     aspect_mismatch = best_diff > 0.05
 
+    if matching_candidates:
+        selection = "name"
+    else:
+        min_diff = min(c[2] for c in all_candidates)
+        tied_count = sum(1 for c in all_candidates if abs(c[2] - min_diff) < 1e-6)
+        selection = "ratio" if tied_count == 1 else "fallback"
+
     if not design_name:
-        design_name = str(getattr(src_master, "Name", "") or "") or "Imported"
+        design_name = source_master_name or "Imported"
 
     dest_masters = dest_doc.getMasterPages()
     # Always insert a new master. Reusing a same-named master cleared its
@@ -908,16 +924,19 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     dest_master = dest_masters.insertNewByIndex(dest_masters.getCount())
     if dest_master is None:
         raise RuntimeError("Could not insert a destination master page.")
-    try:
-        dest_master.Name = design_name
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        log.debug("rename cloned master to %s failed", design_name, exc_info=True)
 
     tmp_dir = tempfile.mkdtemp(prefix="wa_otp_clone_")
     try:
+        try:
+            dest_master.Name = design_name
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            log.debug("rename cloned master to %s failed", design_name, exc_info=True)
+
         warnings: list[str] = []
+        if selection == "fallback":
+            warnings.append(f"no master name matched; used '{source_master_name}'")
         if aspect_mismatch:
             warnings.append("aspect mismatch")
         # Factory placeholders on the new master are not user content.
@@ -932,14 +951,14 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 dest_master.Width = int(dw)
                 dest_master.Height = int(dh)
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_real_disposal(exc):
                     raise
                 log.debug("set cloned master size to dest deck failed", exc_info=True)
         _clone_master_background(dest_master, src_master, warnings)
         try:
             src_count = int(src_master.getCount())
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_real_disposal(exc):
                 raise
             src_count = 0
 
@@ -970,8 +989,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 log.debug("reading otp zip failed for %s", otp_path, exc_info=True)
 
         cloned_types: list[str] = []
-        graphic_shapes = 0
-        graphic_reimports = 0
+        chrome: list[int] = [0, 0]
         graphic_index = 0
         for i in range(src_count):
             src_shape = src_master.getByIndex(i)
@@ -979,11 +997,10 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             log.debug("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
             image_path = None
             if "GraphicObject" in st:
-                graphic_shapes += 1
                 if graphic_index < len(extracted_image_paths):
                     image_path = extracted_image_paths[graphic_index]
                 graphic_index += 1
-            shape_type, reimported = _clone_one_shape(
+            shape_type, _reimported = _clone_one_shape(
                 dest_doc,
                 dest_master,
                 src_shape,
@@ -991,9 +1008,8 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 image_path=image_path,
                 shape_index=i,
                 warnings=warnings,
+                chrome=chrome,
             )
-            if reimported is True:
-                graphic_reimports += 1
             cloned_types.append(shape_type)
             log.debug("clone_master step=shape_done i=%s type=%s", i, shape_type)
 
@@ -1007,6 +1023,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         if shape_count < 1:
             raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
 
+        graphic_shapes, graphic_reimports = chrome[0], chrome[1]
         if graphic_shapes >= 1 and graphic_reimports == 0:
             raise DesignChromeMissingError(
                 "No chrome graphics could be imported for master '%s'." % dest_name,
@@ -1016,7 +1033,16 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             )
 
         log.debug("clone_master_into_doc name=%s shapes=%s types=%s warnings=%s", dest_name, shape_count, cloned_types, warnings)
-        return ClonedMaster(dest_master, dest_name, shape_count, graphic_shapes, graphic_reimports, tuple(warnings))
+        return ClonedMaster(
+            dest_master,
+            dest_name,
+            shape_count,
+            graphic_shapes,
+            graphic_reimports,
+            tuple(warnings),
+            source_master=source_master_name,
+            selection=selection,
+        )
     except Exception:
         try:
             dest_masters.remove(dest_master)
@@ -1038,7 +1064,7 @@ def assign_master_to_all_slides(doc: Any, master: Any) -> int:
             pages.getByIndex(i).MasterPage = master
             updated += 1
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_real_disposal(exc):
                 raise
             log.debug("assign_master_to_all_slides failed on page %s", i, exc_info=True)
     return updated
@@ -1123,6 +1149,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         }
     src = None
     master_name = ""
+    source_master = ""
+    selection = ""
     shape_count = 0
     graphic_shapes = 0
     graphic_reimports = 0
@@ -1136,6 +1164,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         cloned = clone_master_into_doc(dest_doc, src, design, uno_ctx)
         _master = cloned.master
         master_name = cloned.name
+        source_master = getattr(cloned, "source_master", "")
+        selection = getattr(cloned, "selection", "")
         shape_count = cloned.shape_count
         graphic_shapes = cloned.graphic_shapes
         graphic_reimports = cloned.graphic_reimports
@@ -1192,6 +1222,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 "message": "Rolled back after applying '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
                 "design": design,
                 "applied_master": master_name,
+                "source_master": source_master,
+                "selection": selection,
                 "applied_master_shape_count": shape_count,
                 "masters": _master_entries(dest_doc),
                 "slides_updated": slides_updated,
@@ -1241,6 +1273,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         "status": "ok",
         "design": design,
         "applied_master": master_name,
+        "source_master": source_master,
+        "selection": selection,
         "applied_master_shape_count": shape_count,
         "graphic_shapes": graphic_shapes,
         "graphic_reimports": graphic_reimports,
@@ -1321,6 +1355,8 @@ class ApplyDesign(ToolBase):
         "the hidden source pool and aborts LibreOffice). "
         "The result may include clone_warnings when a property is rejected, an aspect ratio "
         "mismatch occurs, or a bitmap fill was not reproduced. "
+        "The result includes source_master and selection; a fallback warning names the master "
+        "when several untitled masters tie. "
         "Existing placeholder text stays on its current styles. "
         "Applying the same design again replaces the previously imported master of that name. "
         "Call list_designs first. Draw documents return a not-Impress error."

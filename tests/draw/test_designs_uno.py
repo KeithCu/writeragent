@@ -296,3 +296,22 @@ def test_apply_design_aspect_ratio_selection(ctx, doc):
     if mw and mh:
         ratio = float(mw) / float(mh)
         assert abs(ratio - (4.0 / 3.0)) < 0.05, f"Expected 4:3 master ratio, got {mw}x{mh} ({ratio})"
+
+
+@native_test
+@with_native_doc("impress")
+def test_apply_design_growing_liberty_fallback(ctx, doc):
+    listed = _exec(doc, ctx, "list_designs", {})
+    available_ids = [d["id"] for d in (listed.get("designs") or [])]
+    target_id = next((i for i in available_ids if "growing" in i and "liberty" in i), None)
+    if not target_id:
+        return
+
+    out = _exec(doc, ctx, "apply_design", {"design": target_id})
+    assert out.get("status") == "ok", out
+    assert "Title" in str(out.get("source_master") or ""), out
+    assert out.get("selection") == "fallback", out
+    warnings = out.get("clone_warnings") or []
+    assert any("no master name matched" in str(w) for w in warnings), out
+    applied = str(out.get("applied_master") or "").lower()
+    assert "growing" in applied and "liberty" in applied, out

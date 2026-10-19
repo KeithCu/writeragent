@@ -1422,6 +1422,97 @@ def test_clone_master_solid_background():
     assert dest_master.Background is dest_bg
 
 
+def test_clone_master_gradient_background():
+    from plugin.draw.designs import _clone_master_background
+
+    dest_master = MagicMock()
+    dest_bg = MagicMock()
+    dest_master.Background = dest_bg
+
+    src_master = MagicMock()
+    src_bg = MagicMock()
+    grad_enum = MagicMock(value="GRADIENT")
+    grad_struct = MagicMock()
+    src_bg.getPropertyValue.side_effect = lambda n: grad_enum if n == "FillStyle" else (grad_struct if n == "FillGradient" else None)
+    src_master.Background = src_bg
+
+    warnings: list[str] = []
+    _clone_master_background(dest_master, src_master, warnings)
+
+    dest_bg.setPropertyValue.assert_any_call("FillGradient", grad_struct)
+    assert not any("fill gradient not copied" in w for w in warnings)
+
+
+def test_clone_master_hatch_background():
+    from plugin.draw.designs import _clone_master_background
+
+    dest_master = MagicMock()
+    dest_bg = MagicMock()
+    dest_master.Background = dest_bg
+
+    src_master = MagicMock()
+    src_bg = MagicMock()
+    hatch_enum = MagicMock(value="HATCH")
+    hatch_struct = MagicMock()
+    src_bg.getPropertyValue.side_effect = lambda n: hatch_enum if n == "FillStyle" else (hatch_struct if n == "FillHatch" else None)
+    src_master.Background = src_bg
+
+    warnings: list[str] = []
+    _clone_master_background(dest_master, src_master, warnings)
+
+    dest_bg.setPropertyValue.assert_any_call("FillHatch", hatch_struct)
+    assert not any("fill hatch not copied" in w for w in warnings)
+
+
+def test_clone_master_solid_background_failure_warns():
+    from plugin.draw.designs import _clone_master_background
+
+    class RejectSolidBg:
+        def getPropertyValue(self, name):
+            raise RuntimeError("no prop")
+
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("cannot set property")
+
+        def __setattr__(self, name, val):
+            if name == "FillColor":
+                raise RuntimeError("cannot set attr")
+            super().__setattr__(name, val)
+
+    dest_master = MagicMock()
+    dest_bg = RejectSolidBg()
+    dest_master.Background = dest_bg
+
+    src_master = MagicMock()
+    src_bg = MagicMock()
+    solid_enum = MagicMock(value="SOLID")
+    src_bg.getPropertyValue.side_effect = lambda n: solid_enum if n == "FillStyle" else (12345 if n == "FillColor" else None)
+    src_master.Background = src_bg
+
+    warnings: list[str] = []
+    _clone_master_background(dest_master, src_master, warnings)
+    assert "fill solid not copied on master" in warnings
+
+
+def test_clone_master_bitmap_background_warns_and_no_fill_bitmap():
+    from plugin.draw.designs import _clone_master_background
+
+    dest_master = MagicMock()
+    dest_bg = MagicMock()
+    dest_master.Background = dest_bg
+
+    src_master = MagicMock()
+    src_bg = MagicMock()
+    bitmap_enum = MagicMock(value="BITMAP")
+    src_bg.getPropertyValue.side_effect = lambda n: bitmap_enum if n == "FillStyle" else None
+    src_master.Background = src_bg
+
+    warnings: list[str] = []
+    _clone_master_background(dest_master, src_master, warnings)
+    assert "fill bitmap not copied on master" in warnings
+    assert not any(call.args[0] == "FillBitmap" for call in dest_bg.setPropertyValue.call_args_list)
+
+
 def test_clone_group_shape_zero_children_raises():
     from plugin.draw.designs import DesignChromeMissingError, _clone_one_shape
 
@@ -1487,6 +1578,8 @@ def test_clone_master_aspect_ratio_selection():
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned.warnings
     assert cloned.master == dest_master
+    assert cloned.selection == "name"
+    assert not any("no master name matched" in w for w in cloned.warnings)
     assert m4_3.getByIndex.called
     assert not m16_9.getByIndex.called
 
@@ -1571,7 +1664,11 @@ def test_clone_master_name_normalization_matches():
     assert cloned_grey.name == "Grey Elegant"
 
     m_title = MagicMock(Name="Title Slide", Width=28000, Height=15750)
+    m_title.getCount.return_value = 1
+    m_title.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
     m_sub = MagicMock(Name="Content Slide", Width=28000, Height=15750)
+    m_sub.getCount.return_value = 1
+    m_sub.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
     src_gl = MagicMock()
     gl_masters = [m_title, m_sub]
     src_gl.getMasterPages().getCount.side_effect = lambda: len(gl_masters)
@@ -1580,6 +1677,11 @@ def test_clone_master_name_normalization_matches():
     with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
         cloned_gl = clone_master_into_doc(dest_doc, src_gl, {"id": "growing_liberty", "name": "Growing Liberty"})
     assert cloned_gl.name == "Growing Liberty"
+    assert cloned_gl.source_master == "Title Slide"
+    assert cloned_gl.selection == "fallback"
+    assert "no master name matched; used 'Title Slide'" in cloned_gl.warnings
+    assert m_title.getByIndex.called
+    assert not m_sub.getByIndex.called
 
 
 def test_clone_master_aspect_mismatch_warning():
@@ -1619,5 +1721,228 @@ def test_match_listed_design_with_otp_extension():
     matched2 = _match_listed_design(designs, "metropolis.otp")
     assert matched2 is not None
     assert matched2["id"] == "metropolis"
+
+
+def test_clone_master_single_master_name_match_equal_ratio():
+    from plugin.draw.designs import clone_master_into_doc
+
+    dest_doc = MagicMock()
+    p0 = MagicMock(Width=28000, Height=15750)
+    dest_doc.getDrawPages().getCount.return_value = 1
+    dest_doc.getDrawPages().getByIndex.return_value = p0
+
+    dest_master = MagicMock()
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    m_solo = MagicMock(Name="SoloDesign", Width=28000, Height=15750)
+    m_solo.getCount.return_value = 1
+    m_solo.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    src_doc = MagicMock()
+    src_doc.getMasterPages().getCount.return_value = 1
+    src_doc.getMasterPages().getByIndex.return_value = m_solo
+
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "solodesign", "name": "SoloDesign"})
+    assert cloned.selection == "name"
+    assert cloned.source_master == "SoloDesign"
+    assert not any("no master name matched" in w for w in cloned.warnings)
+
+
+def test_clone_master_no_name_match_distinct_ratios_selects_ratio():
+    from plugin.draw.designs import clone_master_into_doc
+
+    dest_doc = MagicMock()
+    p0 = MagicMock(Width=28000, Height=15750)
+    dest_doc.getDrawPages().getCount.return_value = 1
+    dest_doc.getDrawPages().getByIndex.return_value = p0
+
+    dest_master = MagicMock()
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    m_fit = MagicMock(Name="Alpha 16:9", Width=28000, Height=15750)
+    m_fit.getCount.return_value = 1
+    m_fit.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    m_nofit = MagicMock(Name="Beta 4:3", Width=28000, Height=21000)
+    m_nofit.getCount.return_value = 1
+    m_nofit.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+
+    src_doc = MagicMock()
+    masters = [m_nofit, m_fit]
+    src_doc.getMasterPages().getCount.side_effect = lambda: len(masters)
+    src_doc.getMasterPages().getByIndex.side_effect = lambda i: masters[i]
+
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "gamma", "name": "Gamma"})
+    assert cloned.selection == "ratio"
+    assert cloned.source_master == "Alpha 16:9"
+    assert not any("no master name matched" in w for w in cloned.warnings)
+    assert m_fit.getByIndex.called
+    assert not m_nofit.getByIndex.called
+
+
+def test_clone_group_with_child_graphic_failure_and_success():
+    from plugin.draw.designs import DesignChromeMissingError, clone_master_into_doc
+
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 1
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    group_clone = MagicMock()
+    group_clone.getCount.return_value = 1
+    child_clone = MagicMock()
+    dest_doc.createInstance.side_effect = lambda t: group_clone if "GroupShape" in t else child_clone
+
+    src_doc = MagicMock()
+    src_master = MagicMock()
+    src_master.Name = "GroupGraphicMaster"
+
+    src_child = MagicMock()
+    src_child.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    src_group = MagicMock()
+    src_group.ShapeType = "com.sun.star.drawing.GroupShape"
+    src_group.getCount.return_value = 1
+    src_group.getByIndex.return_value = src_child
+
+    src_master.getCount.return_value = 1
+    src_master.getByIndex.return_value = src_group
+    src_masters = MagicMock()
+    src_masters.getCount.return_value = 1
+    src_masters.getByIndex.return_value = src_master
+    src_doc.getMasterPages.return_value = src_masters
+
+    # 1. Failure twin: reimport returns False -> DesignChromeMissingError with counts 1/0
+    with patch("plugin.draw.designs._reimport_graphic", return_value=False):
+        with pytest.raises(DesignChromeMissingError) as exc_info:
+            clone_master_into_doc(dest_doc, src_doc, {"id": "group_graphic", "name": "GroupGraphicMaster"})
+        assert exc_info.value.graphic_shapes == 1
+        assert exc_info.value.graphic_reimports == 0
+
+    # 2. Success twin: reimport returns True -> ClonedMaster with counts 1/1
+    dest_doc.createInstance.side_effect = lambda t: group_clone if "GroupShape" in t else child_clone
+    with patch("plugin.draw.designs._reimport_graphic", return_value=True):
+        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "group_graphic", "name": "GroupGraphicMaster"})
+        assert cloned.graphic_shapes == 1
+        assert cloned.graphic_reimports == 1
+
+
+def test_clone_master_runtime_exception_on_rename_succeeds():
+    from plugin.draw.designs import clone_master_into_doc
+
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 1
+    type(dest_master).Name = property(
+        lambda self: "Original",
+        lambda self, val: (_ for _ in ()).throw(RuntimeError("com.sun.star.uno.RuntimeException: rename failed")),
+    )
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    src_doc = MagicMock()
+    src_master = MagicMock(Name="SourceMaster")
+    src_master.getCount.return_value = 1
+    src_master.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    src_doc.getMasterPages().getCount.return_value = 1
+    src_doc.getMasterPages().getByIndex.return_value = src_master
+
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
+    assert cloned.name == "Original" or cloned.name == "SourceMaster"
+
+
+def test_clone_master_disposed_exception_on_rename_propagates():
+    from plugin.draw.designs import clone_master_into_doc
+
+    class DisposedException(Exception):
+        pass
+
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    type(dest_master).Name = property(
+        lambda self: "Original",
+        lambda self, val: (_ for _ in ()).throw(DisposedException("disposed")),
+    )
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    src_doc = MagicMock()
+    src_master = MagicMock(Name="SourceMaster")
+    src_doc.getMasterPages().getCount.return_value = 1
+    src_doc.getMasterPages().getByIndex.return_value = src_master
+
+    with pytest.raises(DisposedException):
+        clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
+    dest_masters.remove.assert_called_with(dest_master)
+
+
+def test_clone_master_runtime_exception_from_get_count_ends_as_no_shapes():
+    from plugin.draw.designs import clone_master_into_doc
+
+    dest_doc = MagicMock()
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 0
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
+    src_doc = MagicMock()
+    src_master = MagicMock(Name="SourceMaster")
+    src_master.getCount.side_effect = RuntimeError("com.sun.star.uno.RuntimeException: count failed")
+    src_doc.getMasterPages().getCount.return_value = 1
+    src_doc.getMasterPages().getByIndex.return_value = src_master
+
+    with pytest.raises(RuntimeError, match="has no shapes"):
+        clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
+
+
+def test_assign_master_runtime_exception_skips_and_rolls_back():
+    from plugin.draw.designs import assign_master_to_all_slides
+
+    doc = MagicMock()
+    p0 = MagicMock()
+    p1 = MagicMock()
+    type(p0).MasterPage = property(
+        lambda self: None,
+        lambda self, val: (_ for _ in ()).throw(RuntimeError("com.sun.star.uno.RuntimeException: cannot assign")),
+    )
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda i: p0 if i == 0 else p1
+    doc.getDrawPages.return_value = pages
+
+    master = MagicMock()
+    updated = assign_master_to_all_slides(doc, master)
+    assert updated == 1
+    assert p1.MasterPage == master
+
+
+def test_assign_master_disposed_exception_propagates():
+    from plugin.draw.designs import assign_master_to_all_slides
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    p0 = MagicMock()
+    type(p0).MasterPage = property(
+        lambda self: None,
+        lambda self, val: (_ for _ in ()).throw(DisposedException("disposed")),
+    )
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = p0
+    doc.getDrawPages.return_value = pages
+
+    with pytest.raises(DisposedException):
+        assign_master_to_all_slides(doc, MagicMock())
 
 
