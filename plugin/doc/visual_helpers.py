@@ -150,6 +150,34 @@ def mm_to_px(width_mm: int | float, height_mm: int | float, *, minimum: int = 1)
     return units_to_px(width_units, height_units, minimum=minimum)
 
 
+def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
+    """Read pixel dimensions from an XGraphic, falling back to a 96-DPI frame from Size100thMM."""
+    if graphic is None:
+        return None, None
+    try:
+        px = safe_get_property(graphic, "SizePixel")
+        if px is None and hasattr(graphic, "getPropertyValue"):
+            px = graphic.getPropertyValue("SizePixel")
+        if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+            return int(px.Width), int(px.Height)
+    except Exception as ex:
+        if is_real_disposal(ex):
+            raise
+    try:
+        hmm = safe_get_property(graphic, "Size100thMM")
+        if hmm is None and hasattr(graphic, "getPropertyValue"):
+            hmm = graphic.getPropertyValue("Size100thMM")
+        if hmm is not None and (getattr(hmm, "Width", 0) > 0 or getattr(hmm, "Height", 0) > 0):
+            # 1 px = 2540 / 96 (1/100 mm). Use round so 1000 1/100mm is 38 px.
+            w = max(1, round(float(hmm.Width) * 96 / 2540))
+            h = max(1, round(float(hmm.Height) * 96 / 2540))
+            return w, h
+    except Exception as ex:
+        if is_real_disposal(ex):
+            raise
+    return None, None
+
+
 def has_uno_property(obj: Any, name: str) -> bool:
     """True when *name* exists on the UNO PropertySet.
 
@@ -552,12 +580,64 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     return _writer_draw_page() if page is _FAILED else page
 
 
+class GraphicEntry(tuple[str, Any]):
+    """(name, graphic) pair preserving Calc sheet metadata when available."""
+
+    sheet_index: int | None = None
+    sheet_name: str | None = None
+
+
+class AmbiguousGraphicNameError(ValueError):
+    """Raised when looking up a graphic by name matches multiple objects across sheets."""
+
+    def __init__(self, message: str, sheet_indices: list[int] | None = None) -> None:
+        super().__init__(message)
+        self.sheet_indices: list[int] = sheet_indices or []
+
+
 def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[str, Any]]:
     """Return ``(name, object)`` pairs for document-level graphic objects."""
     inside = doc_type or get_visual_doc_type(doc)
     graphics: list[tuple[str, Any]] = []
 
     if inside == "calc":
+        get_sheets = getattr(doc, "getSheets", None)
+        if callable(get_sheets):
+            try:
+                sheets: Any = get_sheets()
+                count = sheets.getCount()
+                for sheet_idx in range(count):
+                    sheet = sheets.getByIndex(sheet_idx)
+                    dp = getattr(sheet, "getDrawPage", None)
+                    draw_page: Any = dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+                    if draw_page is None:
+                        continue
+                    sheet_name = getattr(sheet, "Name", None)
+                    if sheet_name is None and hasattr(sheet, "getName"):
+                        try:
+                            sheet_name = sheet.getName()
+                        except Exception:
+                            pass
+                    for i in range(draw_page.getCount()):
+                        shape = draw_page.getByIndex(i)
+                        if is_graphic_object(shape):
+                            name = shape.getName() if hasattr(shape, "getName") else ""
+                            item = GraphicEntry((name, shape))
+                            item.sheet_index = sheet_idx
+                            item.sheet_name = str(sheet_name) if sheet_name is not None else None
+                            try:
+                                shape._calc_sheet_index = sheet_idx
+                                if sheet_name is not None:
+                                    shape._calc_sheet_name = str(sheet_name)
+                            except (AttributeError, TypeError):
+                                pass
+                            graphics.append(item)
+                return graphics
+            except Exception as ex:
+                if is_real_disposal(ex):
+                    raise
+                log.debug("list_graphic_objects calc sheets failed: %s", ex)
+
         draw_page = get_active_draw_page(doc, inside)
         if draw_page is None:
             return graphics
@@ -565,7 +645,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
             for i in range(draw_page.getCount()):
                 shape = draw_page.getByIndex(i)
                 if is_graphic_object(shape):
-                    graphics.append((shape.getName(), shape))
+                    graphics.append((shape.getName() if hasattr(shape, "getName") else "", shape))
         except Exception as ex:
             if is_real_disposal(ex):
                 raise
@@ -618,26 +698,42 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         return False
     target_name = uno_read(lambda: str(graphic.getName() or "") if hasattr(graphic, "getName") else "", "")
 
-    try:
-        pages = doc.getDrawPages()
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        page = get_active_draw_page(doc)
-        if page is None:
-            return False
+    inside = get_visual_doc_type(doc)
+    pages_list: list[Any] = []
+    if inside == "calc":
+        get_sheets = getattr(doc, "getSheets", None)
+        if callable(get_sheets):
+            try:
+                sheets: Any = get_sheets()
+                for i in range(sheets.getCount()):
+                    sheet = sheets.getByIndex(i)
+                    dp = getattr(sheet, "getDrawPage", None)
+                    p: Any = dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+                    if p is not None:
+                        pages_list.append(p)
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
+                log.debug("remove_graphic_from_draw_pages getSheets failed: %s", exc)
+        if not pages_list:
+            active_p = get_active_draw_page(doc, inside)
+            if active_p is not None:
+                pages_list.append(active_p)
+    else:
         try:
-            page.remove(graphic)
-            return True
-        except Exception as p_exc:
-            if is_real_disposal(p_exc):
+            pages = doc.getDrawPages()
+            pages_list = [pages.getByIndex(i) for i in range(pages.getCount())]
+        except Exception as exc:
+            if is_real_disposal(exc):
                 raise
-            return False
+            page = get_active_draw_page(doc)
+            if page is None:
+                return False
+            pages_list = [page]
 
     name_hits: list[tuple[Any, Any]] = []
     try:
-        for i in range(pages.getCount()):
-            page = pages.getByIndex(i)
+        for page in pages_list:
             for j in range(page.getCount()):
                 shape = page.getByIndex(j)
                 if shape is graphic or shape == graphic:
@@ -668,12 +764,37 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     return False
 
 
-def get_graphic_object_by_name(doc: Any, image_name: str, doc_type: str | None = None) -> Any | None:
+def get_graphic_object_by_name(
+    doc: Any,
+    image_name: str,
+    doc_type: str | None = None,
+    sheet_index: int | None = None,
+) -> Any | None:
     if not image_name:
         return None
-    for name, graphic in list_graphic_objects(doc, doc_type=doc_type):
+    matches: list[tuple[Any, int | None]] = []
+    for item in list_graphic_objects(doc, doc_type=doc_type):
+        name = item[0]
+        graphic = item[1]
+        s_idx = getattr(item, "sheet_index", getattr(graphic, "_calc_sheet_index", None))
         if name == image_name:
-            return graphic
+            if sheet_index is not None:
+                if s_idx == sheet_index:
+                    return graphic
+            else:
+                matches.append((graphic, s_idx))
+    if sheet_index is not None:
+        return None
+    if len(matches) == 1:
+        return matches[0][0]
+    if len(matches) > 1:
+        sheet_indices = [idx for _g, idx in matches if idx is not None]
+        sheets_info = f" (sheets {sheet_indices})" if sheet_indices else ""
+        err = AmbiguousGraphicNameError(
+            f"Several shapes named '{image_name}'{sheets_info}; specify sheet_index.",
+            sheet_indices=sheet_indices,
+        )
+        raise err
     return None
 
 

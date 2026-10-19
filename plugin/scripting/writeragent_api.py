@@ -1188,7 +1188,7 @@ headers_footer = _HeadersFooterProxy()
 class _ImagesProxy:
     """Proxy for images tools."""
 
-    def crop_and_highlight(self, name: str, *, crop_box: list[Any] | None = None, highlights: list[Any] | None = None, units: str | None = None, width_mm: float | None = None) -> dict[str, Any]:
+    def crop_and_highlight(self, name: str, *, crop_box: list[Any] | None = None, highlights: list[Any] | None = None, units: str | None = None, width_mm: float | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, inside width_px x height_px from image_get_info. If you only see a scaled copy, pass units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use the same frame: the picture as it is now. The result is baked into the picture: the cut-away part is removed from the file and marks cannot drift. Afterwards the picture IS the region (new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the new shape. Check the result with get_image.
 
         Args:
@@ -1197,26 +1197,28 @@ class _ImagesProxy:
             highlights (optional): Marks to draw.
             units (optional): Units of every box (default px). One of: px, percent.
             width_mm (optional): Display width in millimetres (default: keep the current width).
+            sheet_index (optional): Optional 0-based sheet index on Calc.
         """
-        return _rpc_call("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm)
+        return _rpc_call("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm, sheet_index=sheet_index)
 
-    def delete(self, name: str) -> dict[str, Any]:
+    def delete(self, name: str, *, sheet_index: int | None = None) -> dict[str, Any]:
         """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object.
 
         Args:
             name (required): Name of the image to delete (from image_list).
+            sheet_index (optional): Optional 0-based sheet index on Calc.
         """
-        return _rpc_call("image_delete", name=name)
+        return _rpc_call("image_delete", name=name, sheet_index=sheet_index)
 
-    def download(self, url: str, *, verify_ssl: bool | None = None, force: bool | None = None) -> dict[str, Any]:
+    def download(self, url: str, *, force: bool | None = None, verify_ssl: str | None = None) -> dict[str, Any]:
         """Download an image from URL to local cache. Returns local path for image_insert/image_replace.
 
         Args:
             url (required): URL of the image to download.
-            verify_ssl (optional): Verify SSL certificates (default: true).
             force (optional): Force re-download even if cached (default: false).
+            verify_ssl (optional): Scripting-only parameter.
         """
-        return _rpc_call("image_download", url=url, verify_ssl=verify_ssl, force=force)
+        return _rpc_call("image_download", url=url, force=force, verify_ssl=verify_ssl)
 
     def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> dict[str, Any]:
         """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
@@ -1232,13 +1234,14 @@ class _ImagesProxy:
         """
         return _rpc_call("image_generate", prompt=prompt, source_image=source_image, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, image_model=image_model)
 
-    def get_info(self, name: str) -> dict[str, Any]:
+    def get_info(self, name: str, *, sheet_index: int | None = None) -> dict[str, Any]:
         """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index.
 
         Args:
             name (required): Name of the image (from image_list).
+            sheet_index (optional): Optional 0-based sheet index on Calc.
         """
-        return _rpc_call("image_get_info", name=name)
+        return _rpc_call("image_get_info", name=name, sheet_index=sheet_index)
 
     def insert(self, path: str, *, locator: str | None = None, paragraph: int | None = None, page: int | None = None, x_mm: float | None = None, y_mm: float | None = None, width_mm: float | None = None, height_mm: float | None = None, target: str | None = None, style: str | None = None, auto_height: bool | None = None) -> dict[str, Any]:
         """Insert an image from local path or URL into the document. URLs are auto-downloaded first. Omitted dimensions preserve aspect ratio with the longer edge sized to 80 mm; specifying one dimension scales the other proportionally; specifying both sets both. For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert into the page header/footer with auto-height so the logo does not overlap the body. A different-first-page letterhead logo needs first_is_shared=false on the page style (page_set_style_properties) so HeaderTextFirst is its own text object, then target='header_first' (or footer_first) — otherwise the image lands in the shared header and repeats on every page. On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. On Calc, page is a 0-based sheet index; x_mm and y_mm are ignored. Sizes and positions are millimetres (not 1/100 mm).
@@ -1270,7 +1273,7 @@ class _ImagesProxy:
         """
         return _rpc_call("image_list_nearby_files", filter=filter)
 
-    def replace(self, name: str, path: str, *, width_mm: float | None = None, height_mm: float | None = None) -> dict[str, Any]:
+    def replace(self, name: str, path: str, *, width_mm: float | None = None, height_mm: float | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Replace an image's source file, keeping the same object, position, and frame. The new file is embedded. If only width_mm or only height_mm is set, the other side scales to keep the current aspect ratio. Setting both uses both sizes.
 
         Args:
@@ -1278,10 +1281,11 @@ class _ImagesProxy:
             path (required): Local file path or URL of the replacement image.
             width_mm (optional): New width in millimetres. If height_mm is omitted, height scales to keep the current aspect ratio.
             height_mm (optional): New height in millimetres. If width_mm is omitted, width scales to keep the current aspect ratio.
+            sheet_index (optional): Optional 0-based sheet index on Calc.
         """
-        return _rpc_call("image_replace", name=name, path=path, width_mm=width_mm, height_mm=height_mm)
+        return _rpc_call("image_replace", name=name, path=path, width_mm=width_mm, height_mm=height_mm, sheet_index=sheet_index)
 
-    def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, title: str | None = None, description: str | None = None, anchor_type: int | None = None, hori_orient: str | None = None, vert_orient: str | None = None, crop_top_mm: float | None = None, crop_bottom_mm: float | None = None, crop_left_mm: float | None = None, crop_right_mm: float | None = None) -> dict[str, Any]:
+    def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, title: str | None = None, description: str | None = None, anchor_type: int | None = None, hori_orient: str | None = None, vert_orient: str | None = None, crop_top_mm: float | None = None, crop_bottom_mm: float | None = None, crop_left_mm: float | None = None, crop_right_mm: float | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change.
 
         Args:
@@ -1297,8 +1301,9 @@ class _ImagesProxy:
             crop_bottom_mm (optional): Millimetres to crop off the BOTTOM edge.
             crop_left_mm (optional): Millimetres to crop off the LEFT edge.
             crop_right_mm (optional): Millimetres to crop off the RIGHT edge.
+            sheet_index (optional): Optional 0-based sheet index on Calc.
         """
-        return _rpc_call("image_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, title=title, description=description, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient, crop_top_mm=crop_top_mm, crop_bottom_mm=crop_bottom_mm, crop_left_mm=crop_left_mm, crop_right_mm=crop_right_mm)
+        return _rpc_call("image_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, title=title, description=description, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient, crop_top_mm=crop_top_mm, crop_bottom_mm=crop_bottom_mm, crop_left_mm=crop_left_mm, crop_right_mm=crop_right_mm, sheet_index=sheet_index)
 
 images = _ImagesProxy()
 

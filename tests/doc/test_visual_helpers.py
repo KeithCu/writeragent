@@ -59,6 +59,9 @@ class FakeDrawPage:
     def getByIndex(self, index: int):
         return self._shapes[index]
 
+    def remove(self, shape: object):
+        self._shapes.remove(shape)
+
 
 class FakeSelection:
     def __init__(self, items: list[object]):
@@ -118,11 +121,23 @@ class FakeWriterDoc:
 
 
 class FakeSheet:
-    def __init__(self, draw_page: FakeDrawPage):
+    def __init__(self, draw_page: FakeDrawPage, name: str | None = None):
         self.DrawPage = draw_page
+        self.Name = name
 
     def getDrawPage(self):
         return self.DrawPage
+
+
+class FakeSheets:
+    def __init__(self, sheets: list[FakeSheet]):
+        self._sheets = sheets
+
+    def getCount(self) -> int:
+        return len(self._sheets)
+
+    def getByIndex(self, index: int) -> FakeSheet:
+        return self._sheets[index]
 
 
 class FakeCalcDoc:
@@ -326,6 +341,48 @@ def test_list_graphic_objects_reads_calc_draw_page_graphic_shapes():
     assert visual_helpers.get_visual_doc_type(doc) == "calc"
     assert visual_helpers.list_graphic_objects(doc) == [("Calc Image", graphic)]
     assert visual_helpers.get_graphic_object_by_name(doc, "Calc Image") is graphic
+
+
+def test_calc_multi_sheet_images():
+    sheet0_dp = FakeDrawPage([])
+    sheet0 = FakeSheet(sheet0_dp, name="Sheet1")
+    graphic1 = FakeGraphicShape("Logo")
+    sheet1_dp = FakeDrawPage([graphic1])
+    sheet1 = FakeSheet(sheet1_dp, name="Sheet2")
+
+    doc = FakeCalcDoc(FakeDrawPage([]))
+    active_sheet_before = doc.CurrentController.getActiveSheet()
+    doc.getSheets = lambda: FakeSheets([sheet0, sheet1])  # type: ignore[attr-defined]
+
+    # Two sheets, graphic only on sheet 1, list returns it, active sheet unchanged
+    items = visual_helpers.list_graphic_objects(doc)
+    assert len(items) == 1
+    assert items[0][0] == "Logo"
+    assert items[0][1] is graphic1
+    assert getattr(items[0], "sheet_index", None) == 1
+    assert getattr(items[0], "sheet_name", None) == "Sheet2"
+    assert doc.CurrentController.getActiveSheet() is active_sheet_before
+
+    # Graphic by name returns it when unique
+    assert visual_helpers.get_graphic_object_by_name(doc, "Logo") is graphic1
+    assert visual_helpers.get_graphic_object_by_name(doc, "Logo", sheet_index=1) is graphic1
+    assert visual_helpers.get_graphic_object_by_name(doc, "Logo", sheet_index=0) is None
+
+    # Duplicate names without sheet_index are ambiguous
+    graphic0 = FakeGraphicShape("Logo")
+    sheet0_dp._shapes.append(graphic0)
+    with pytest.raises(visual_helpers.AmbiguousGraphicNameError) as exc_info:
+        visual_helpers.get_graphic_object_by_name(doc, "Logo")
+    assert exc_info.value.sheet_indices == [0, 1]
+
+    # With sheet_index, the named sheet wins
+    assert visual_helpers.get_graphic_object_by_name(doc, "Logo", sheet_index=0) is graphic0
+    assert visual_helpers.get_graphic_object_by_name(doc, "Logo", sheet_index=1) is graphic1
+
+    # remove_graphic_from_draw_pages removes a shape that is not on the active sheet
+    assert graphic1 in sheet1_dp._shapes
+    assert visual_helpers.remove_graphic_from_draw_pages(doc, graphic1) is True
+    assert graphic1 not in sheet1_dp._shapes
 
 
 def test_get_visual_doc_type_web_before_writer():

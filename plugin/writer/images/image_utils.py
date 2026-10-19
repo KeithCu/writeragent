@@ -96,21 +96,31 @@ def resolve_generation_size(
         normalized = "1:1"
 
     num, den = map(int, normalized.split(":"))
-    if num > den:
-        calc_w = int(base_size * num / den)
-        calc_h = base_size
-    elif num < den:
-        calc_w = base_size
-        calc_h = int(base_size * den / num)
+
+    if width is not None and height is not None:
+        final_w = width
+        final_h = height
+    elif width is not None:
+        final_w = width
+        final_h = round(width * den / num)
+    elif height is not None:
+        final_w = round(height * num / den)
+        final_h = height
     else:
-        calc_w = base_size
-        calc_h = base_size
+        if num > den:
+            calc_w = int(base_size * num / den)
+            calc_h = base_size
+        elif num < den:
+            calc_w = base_size
+            calc_h = int(base_size * den / num)
+        else:
+            calc_w = base_size
+            calc_h = base_size
 
-    calc_w = (calc_w // 64) * 64
-    calc_h = (calc_h // 64) * 64
-
-    final_w = width if width is not None else calc_w
-    final_h = height if height is not None else calc_h
+        calc_w = (calc_w // 64) * 64 or 64
+        calc_h = (calc_h // 64) * 64 or 64
+        final_w = calc_w
+        final_h = calc_h
 
     wire_ratio = canonical_aspect_ratio(final_w, final_h)
     return final_w, final_h, wire_ratio
