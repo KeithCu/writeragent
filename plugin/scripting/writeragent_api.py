@@ -589,13 +589,14 @@ calc = _CalcProxy()
 class _ChartProxy:
     """Proxy for chart tools."""
 
-    def manage_charts(self, action: str, *, name: str | None = None, sheet: str | None = None, data_range: str | None = None, has_header: bool | None = None, headers: list[str] | None = None, rows: list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: list[str] | None = None) -> dict[str, Any]:
+    def manage_charts(self, action: str, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: list[str] | None = None, rows: list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: list[str] | None = None) -> dict[str, Any]:
         """Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide).
 
         Args:
             action (required): The action to perform on the charts. One of: list, get_info, create, edit, delete.
             name (optional): The name of the chart (required for get_info, edit, delete).
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
+            page (optional): Zero-based page/slide index (Draw/Impress only).
             data_range (optional): Cell range for chart data (Calc only, required for create, e.g. 'A1:B10').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
@@ -614,7 +615,7 @@ class _ChartProxy:
             bg_color (optional): Chart area background color (hex: #FF0000 or name: green).
             colors (optional): List of hex/named colors to apply to each data series.
         """
-        return _rpc_call("manage_charts", action=action, name=name, sheet=sheet, data_range=data_range, has_header=has_header, headers=headers, rows=rows, chart_type=chart_type, title=title, subtitle=subtitle, is_3d=is_3d, stacked=stacked, percent=percent, x_axis_title=x_axis_title, y_axis_title=y_axis_title, legend_position=legend_position, has_legend=has_legend, position=position, bg_color=bg_color, colors=colors)
+        return _rpc_call("manage_charts", action=action, name=name, sheet=sheet, page=page, data_range=data_range, has_header=has_header, headers=headers, rows=rows, chart_type=chart_type, title=title, subtitle=subtitle, is_3d=is_3d, stacked=stacked, percent=percent, x_axis_title=x_axis_title, y_axis_title=y_axis_title, legend_position=legend_position, has_legend=has_legend, position=position, bg_color=bg_color, colors=colors)
 
 chart = _ChartProxy()
 
