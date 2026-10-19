@@ -191,17 +191,40 @@ def _shape_text_string(shape: Any) -> str | None:
     return _cursor_string(shape)
 
 
-def _text_cursor_is_partial_selection(cursor: Any, shape: Any) -> bool:
-    """True when *cursor* covers a range shorter than the whole shape.
+def _text_cursor_is_partial_selection(cursor: Any, shape: Any) -> bool | None:
+    """True when *cursor* covers a range shorter than the whole shape, None if read raises.
 
     An empty ``createTextCursor()`` is not a range: ``.uno:Bold`` still
     formats the shape. ``SelectText: []`` covers the whole string, which
     is the same as selecting the shape.
     """
-    selected = _cursor_string(cursor)
+    if cursor is None:
+        return False
+    getter = getattr(cursor, "getString", None)
+    if callable(getter):
+        try:
+            selected = getter()
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            return None
+        if not isinstance(selected, str):
+            selected = None
+    elif hasattr(cursor, "String"):
+        val = getattr(cursor, "String", None)
+        selected = val if isinstance(val, str) else None
+    else:
+        selected = None
+
     if not selected:
         return False
-    full = _shape_text_string(shape)
+
+    try:
+        full = _shape_text_string(shape)
+    except Exception as e:
+        if is_disposed_exception(e):
+            raise
+        return None
     if full is not None and selected == full:
         return False
     return True
@@ -297,6 +320,42 @@ def _apply_cursor_uno_format(
     return applied_count > 0
 
 
+def _calculate_text_selection_span(text: str, int_spec: list[int]) -> tuple[int, int, str]:
+    """Calculate half-open character span (start, end, mode) from paragraph/char spec.
+
+    Tip: Impress shape text cursors can lack XParagraphCursor, so select by
+    character offsets with plain XTextCursor moves.
+    """
+    paras = text.replace("\r\n", "\n").split("\n")
+    num_paras = len(paras)
+
+    def _para_start(p_idx: int) -> int:
+        return sum(len(paras[i]) + 1 for i in range(p_idx))
+
+    n = len(int_spec)
+    if n == 1:
+        p = min(int_spec[0], num_paras - 1)
+        start = _para_start(p)
+        end = start + len(paras[p])
+        return start, end, "range"
+    elif n == 2:
+        p = min(int_spec[0], num_paras - 1)
+        start = _para_start(p) + int_spec[1]
+        return start, start, "caret"
+    elif n == 3:
+        p = min(int_spec[0], num_paras - 1)
+        ep = min(int_spec[2], num_paras - 1)
+        start = _para_start(p) + int_spec[1]
+        end = _para_start(ep) + len(paras[ep])
+        return start, end, "range"
+    else:
+        p = min(int_spec[0], num_paras - 1)
+        ep = min(int_spec[2], num_paras - 1)
+        start = _para_start(p) + int_spec[1]
+        end = _para_start(ep) + int_spec[3]
+        return start, end, "range"
+
+
 class SlideCommandEngine:
     """Execute SlideCommands array against a Draw/Impress document."""
 
@@ -327,7 +386,26 @@ class SlideCommandEngine:
         self.current_slide = max(0, min(raw_idx, count - 1)) if count > 0 else 0
         self.applied: list[str] = []
         self.warnings: list[str] = []
-        self._selection_mode: str = "none"
+
+    def _ok_result(self) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "current_slide": self.current_slide,
+            "applied": self.applied,
+            "warnings": self.warnings,
+        }
+
+    def _error_result(self, message: str, failed_at: int | None = None) -> dict[str, Any]:
+        res: dict[str, Any] = {
+            "status": "error",
+            "message": message,
+            "applied": self.applied,
+            "warnings": self.warnings,
+            "current_slide": self.current_slide,
+        }
+        if failed_at is not None:
+            res["failed_at"] = failed_at
+        return res
 
     def apply(self, transform_obj: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -336,7 +414,9 @@ class SlideCommandEngine:
                 top_uno = transform_obj.get("UnoCommand")
                 if top_uno is not None:
                     # Top-level UnoCommand runs before SlideCommands.
-                    self._apply_top_level_uno(top_uno)
+                    if not self._apply_top_level_uno(top_uno):
+                        msg = self.warnings[-1] if self.warnings else "UnoCommand failed"
+                        return self._error_result(message=msg)
                     # Only sync active page when controller has a current page (headless/hidden doc falls back to 0).
                     ctrl = getattr(self.doc, "getCurrentController", None)
                     controller = ctrl() if callable(ctrl) else None
@@ -345,35 +425,25 @@ class SlideCommandEngine:
                         self.current_slide = self.bridge.get_active_page_index()
                 cmds = get_slide_commands(transform_obj)
                 for idx, cmd in enumerate(cmds):
-                    if not self._apply_command(cmd):
+                    try:
+                        if not self._apply_command(cmd):
+                            self.bridge.set_current_page_index(self.current_slide)
+                            msg = self.warnings[-1] if self.warnings else "Command failed"
+                            return self._error_result(message=msg, failed_at=idx)
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            raise
+                        cmd_key = next(iter(cmd.keys())) if isinstance(cmd, dict) and cmd else "Command"
+                        self.warnings.append(f"{cmd_key} failed: {exc}")
                         self.bridge.set_current_page_index(self.current_slide)
-                        msg = self.warnings[-1] if self.warnings else "Command failed"
-                        return {
-                            "status": "error",
-                            "message": msg,
-                            "failed_at": idx,
-                            "applied": self.applied,
-                            "warnings": self.warnings,
-                            "current_slide": self.current_slide,
-                        }
+                        return self._error_result(message=self.warnings[-1], failed_at=idx)
                 self.bridge.set_current_page_index(self.current_slide)
-                return {
-                    "status": "ok",
-                    "current_slide": self.current_slide,
-                    "applied": self.applied,
-                    "warnings": self.warnings,
-                }
+                return self._ok_result()
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
             log.exception("SlideCommandEngine.apply failed")
-            return {
-                "status": "error",
-                "message": str(exc),
-                "applied": self.applied,
-                "warnings": self.warnings,
-                "current_slide": self.current_slide,
-            }
+            return self._error_result(message=str(exc))
 
     def _page_count(self) -> int:
         return self.pages.getCount()
@@ -607,23 +677,28 @@ class SlideCommandEngine:
             self.warnings.append("EditTextObject.%d: failed to create text cursor" % shape_index)
             return False
 
-        self._selection_mode = "none"
-        warnings_before = len(self.warnings)
-        success = True
+        selection_mode: str = "none"
         recognized_count = 0
 
         for sub in subcmds:
             if not isinstance(sub, dict):
                 self.warnings.append("EditTextObject.%d: sub-command must be an object: %r" % (shape_index, sub))
-                success = False
-                continue
+                return False
             for sk, sv in sub.items():
                 if sk == "SelectText":
                     recognized_count += 1
-                    cursor = self._select_text(xtext, cursor, sv)
+                    cursor, mode = self._select_text(xtext, cursor, sv)
+                    if mode is None:
+                        # Tip: Stop immediately on failed SelectText. Previously it left the old selection mode,
+                        # causing subsequent UnoCommands to format the previous range while still failing overall.
+                        return False
+                    selection_mode = mode
                 elif sk == "SelectParagraph":
                     recognized_count += 1
-                    cursor = self._select_paragraph(xtext, cursor, sv)
+                    cursor, mode = self._select_paragraph(xtext, cursor, sv)
+                    if mode is None:
+                        return False
+                    selection_mode = mode
                 elif sk == "InsertText":
                     recognized_count += 1
                     inserted = str(sv)
@@ -634,15 +709,14 @@ class SlideCommandEngine:
                         if is_disposed_exception(exc):
                             raise
                         self.warnings.append("InsertText failed: %s" % exc)
-                        success = False
-                        continue
+                        return False
                     # Upstream FuTransformDocumentStructure (drviews2.cxx) leaves inserted text selected.
                     if not inserted:
-                        self._selection_mode = "caret"
+                        selection_mode = "caret"
                     else:
                         cur_str = _cursor_string(cursor)
                         if cur_str == inserted:
-                            self._selection_mode = "range"
+                            selection_mode = "range"
                         elif cur_str == "":
                             go_left = getattr(cursor, "goLeft", None)
                             if callable(go_left):
@@ -652,149 +726,154 @@ class SlideCommandEngine:
                                     if is_disposed_exception(exc):
                                         raise
                             if _cursor_string(cursor) == inserted:
-                                self._selection_mode = "range"
+                                selection_mode = "range"
                             else:
                                 self.warnings.append("InsertText could not select inserted text")
-                                success = False
+                                return False
                         else:
                             self.warnings.append("InsertText could not select inserted text")
-                            success = False
+                            return False
                 elif sk == "UnoCommand":
                     recognized_count += 1
-                    if not self._dispatch_uno_string(sv, cursor=cursor, shape=shape, selection_mode=self._selection_mode):
-                        success = False
+                    if not self._dispatch_uno_string(sv, cursor=cursor, shape=shape, selection_mode=selection_mode):
+                        return False
                 else:
                     self.warnings.append("Unknown EditTextObject sub-command: %s" % sk)
-                    success = False
+                    return False
 
-        if success and len(self.warnings) == warnings_before and recognized_count > 0:
+        if recognized_count > 0:
             self.applied.append("EditTextObject.%d" % shape_index)
             return True
         return False
 
-    def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> Any:
+    def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> tuple[Any, str | None]:
         if cursor is None or xtext is None:
-            return cursor
+            return cursor, None
         if spec == [] or spec is None:
             cursor.gotoStart(False)
             cursor.gotoEnd(True)
-            self._selection_mode = "all"
-            return cursor
+            return cursor, "all"
         if not isinstance(spec, list):
             self.warnings.append("SelectText requires a list or empty array: %r" % spec)
-            return cursor
+            return cursor, None
         int_spec: list[int] = []
         for item in spec:
             if isinstance(item, bool):
                 self.warnings.append("Invalid non-int element in SelectText: %r" % item)
-                return cursor
+                return cursor, None
             try:
                 int_spec.append(int(item))
             except (TypeError, ValueError):
                 self.warnings.append("Invalid non-int element in SelectText: %r" % item)
-                return cursor
+                return cursor, None
 
         n = len(int_spec)
+        if n == 0:
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            return cursor, "all"
         if n == 1:
             para = int_spec[0]
             if para < 0:
                 self.warnings.append("SelectText: negative paragraph index %d" % para)
-                return cursor
-            if hasattr(cursor, "gotoStartOfParagraph") and hasattr(cursor, "gotoEndOfParagraph"):
-                cursor.gotoStart(False)
-                for _unused in range(para):
-                    if not cursor.gotoNextParagraph(False):
-                        break
-                cursor.gotoStartOfParagraph(False)
-                cursor.gotoEndOfParagraph(True)
-            else:
-                # Tip: Impress shape text cursors can lack XParagraphCursor (gotoStartOfParagraph
-                # raised on CI), so select by character offsets with plain XTextCursor moves.
-                paras = (xtext.getString() or "").replace("\r\n", "\n").split("\n")
-                para = min(para, len(paras) - 1)
-                offset = sum(len(p) + 1 for p in paras[:para])
-                cursor.gotoStart(False)
-                if offset:
-                    cursor.goRight(offset, False)
-                if paras[para]:
-                    cursor.goRight(len(paras[para]), True)
-            self._selection_mode = "range"
-            return cursor
+                return cursor, None
         elif n == 2:
             para, char = int_spec[0], int_spec[1]
             if para < 0 or char < 0:
                 self.warnings.append("SelectText: negative index [%d, %d]" % (para, char))
-                return cursor
-            cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(char, False)
-            self._selection_mode = "caret"
-            return cursor
+                return cursor, None
         elif n == 3:
             para, char, end_para = int_spec[0], int_spec[1], int_spec[2]
             if para < 0 or char < 0 or end_para < 0 or end_para < para:
                 self.warnings.append("SelectText: negative or invalid span [%d, %d, %d]" % (para, char, end_para))
-                return cursor
-            cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(char, False)
-            for _unused in range(end_para - para):
-                if not cursor.gotoNextParagraph(True):
-                    break
-            cursor.gotoEndOfParagraph(True)
-            self._selection_mode = "range"
-            return cursor
+                return cursor, None
         elif n >= 4:
             para, start, end_para, end_char = int_spec[0], int_spec[1], int_spec[2], int_spec[3]
             if para < 0 or start < 0 or end_para < 0 or end_char < 0:
                 self.warnings.append("SelectText: negative coordinates [%d, %d, %d, %d]" % (para, start, end_para, end_char))
-                return cursor
+                return cursor, None
             if end_para < para or (end_para == para and end_char < start):
                 self.warnings.append("SelectText: negative span [%d, %d] to [%d, %d]" % (para, start, end_para, end_char))
-                return cursor
-            cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(start, False)
-            if end_para == para:
-                span = end_char - start
-                cursor.goRight(span, True)
-            else:
-                for _unused in range(end_para - para):
-                    if not cursor.gotoNextParagraph(True):
-                        break
-                cursor.goRight(end_char, True)
-            self._selection_mode = "range"
-            return cursor
-        else:
-            self.warnings.append("Invalid SelectText specification: %r" % spec)
-            return cursor
+                return cursor, None
 
-    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: Any) -> Any:
+        raw_text = ""
+        getter = getattr(xtext, "getString", None)
+        if callable(getter):
+            try:
+                val = getter()
+                if isinstance(val, str):
+                    raw_text = val
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                raw_text = ""
+        elif hasattr(xtext, "String"):
+            val = getattr(xtext, "String", None)
+            if isinstance(val, str):
+                raw_text = val
+
+        start, end, mode = _calculate_text_selection_span(raw_text, int_spec)
+
+        cursor.gotoStart(False)
+        if start > 0:
+            cursor.goRight(start, False)
+        if mode == "range":
+            span = max(0, end - start)
+            cursor.goRight(span, True)
+        return cursor, mode
+
+    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: Any) -> tuple[Any, str | None]:
         if isinstance(para_index, bool):
             self.warnings.append("Invalid SelectParagraph index: %r" % para_index)
-            return cursor
+            return cursor, None
         try:
             val = int(para_index)
         except (TypeError, ValueError):
             self.warnings.append("Invalid SelectParagraph index: %r" % para_index)
-            return cursor
+            return cursor, None
         return self._select_text(xtext, cursor, [val])
 
-    def _apply_top_level_uno(self, uno_spec: Any) -> None:
+    def _apply_top_level_uno(self, uno_spec: Any) -> bool:
+        warnings_before = len(self.warnings)
+        success = False
+        name = ""
         if isinstance(uno_spec, dict):
-            name = uno_spec.get("name") or uno_spec.get("Name")
+            name = str(uno_spec.get("name") or uno_spec.get("Name") or "")
             args = uno_spec.get("arguments") or uno_spec.get("Arguments") or {}
-            if self._dispatch_uno_named(str(name), args):
+            if name and self._dispatch_uno_named(name, args):
                 self.applied.append("UnoCommand:%s" % name)
-        else:
+                success = True
+        elif isinstance(uno_spec, str):
+            name = uno_spec
             if self._dispatch_uno_string(uno_spec):
                 self.applied.append("UnoCommand")
+                success = True
+        else:
+            self.warnings.append("Invalid UnoCommand specification: %r" % uno_spec)
+            return False
+
+        if not success:
+            if len(self.warnings) == warnings_before:
+                self.warnings.append("UnoCommand %s failed" % name)
+            return False
+        return True
+
+    def _execute_uno(self, name: str, props: tuple[Any, ...]) -> bool:
+        try:
+            controller = self.doc.getCurrentController()
+            if controller is None:
+                self.warnings.append("UnoCommand %s failed: document has no active controller" % name)
+                return False
+            frame = controller.getFrame()
+            smgr = self.tctx.ctx.ServiceManager
+            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
+            dispatcher.executeDispatch(frame, name, "", 0, props)
+            return True
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            self.warnings.append("UnoCommand %s failed: %s" % (name, exc))
+            return False
 
     def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None, selection_mode: str = "none") -> bool:
         if not isinstance(cmd, str):
@@ -810,58 +889,46 @@ class SlideCommandEngine:
         if arg_json:
             from plugin.framework.json_utils import safe_json_loads
 
-            loaded = safe_json_loads(arg_json, default={})
-            if isinstance(loaded, dict):
-                parsed = loaded
+            loaded = safe_json_loads(arg_json, default=None)
+            if not isinstance(loaded, dict):
+                self.warnings.append("UnoCommand %s has invalid JSON arguments: %r" % (uno_name, arg_json))
+                return False
+            parsed = loaded
         if selection_mode == "caret":
             self.warnings.append("UnoCommand %s cannot be applied to a collapsed caret selection" % uno_name)
             return False
         # Range-scoped formatting must hit the SelectText cursor; selecting the
         # shape and dispatching would format every character.
-        if selection_mode == "range" or _text_cursor_is_partial_selection(cursor, shape):
+        if selection_mode == "range":
             if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
                 return True
             self.warnings.append("UnoCommand %s was not applied to the text selection" % uno_name)
             return False
-        props = self._uno_props_from_dict(parsed) if parsed else ()
-        try:
-            controller = self.doc.getCurrentController()
-            if controller is None:
+        if selection_mode == "none":
+            is_partial = _text_cursor_is_partial_selection(cursor, shape)
+            if is_partial is None:
+                self.warnings.append("UnoCommand %s failed to read text cursor" % uno_name)
                 return False
-            frame = controller.getFrame()
-            smgr = self.tctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
-            if cursor is not None and shape is not None:
-                try:
+            if is_partial:
+                if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
+                    return True
+                self.warnings.append("UnoCommand %s was not applied to the text selection" % uno_name)
+                return False
+        props = self._uno_props_from_dict(parsed) if parsed else ()
+        if cursor is not None and shape is not None:
+            try:
+                controller = self.doc.getCurrentController()
+                if controller is not None:
                     controller.select(shape)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    # no-op after the dispose re-raise; non-dispose falls through
-            dispatcher.executeDispatch(frame, uno_name, "", 0, props)
-            return True
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            self.warnings.append("UnoCommand %s failed: %s" % (uno_name, exc))
-            return False
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                # no-op after the dispose re-raise; non-dispose falls through
+        return self._execute_uno(uno_name, props)
 
     def _dispatch_uno_named(self, name: str, arguments: dict[str, Any]) -> bool:
-        props = self._uno_props_from_dict(arguments)
-        try:
-            controller = self.doc.getCurrentController()
-            if controller is None:
-                return False
-            frame = controller.getFrame()
-            smgr = self.tctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
-            dispatcher.executeDispatch(frame, name, "", 0, props)
-            return True
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            self.warnings.append("UnoCommand %s failed: %s" % (name, exc))
-            return False
+        props = self._uno_props_from_dict(arguments) if arguments else ()
+        return self._execute_uno(name, props)
 
     def _uno_props_from_dict(self, arguments: dict[str, Any]) -> tuple[Any, ...]:
         from com.sun.star.beans import PropertyValue

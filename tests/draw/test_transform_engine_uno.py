@@ -58,9 +58,52 @@ def test_select_text_same_paragraph_absolute_span(ctx, doc):
     eng = SlideCommandEngine(tctx)
     xtext = shape.getText()
     cursor = xtext.createTextCursor()
-    selected = eng._select_text(xtext, cursor, [0, 1, 0, 3])
+    selected, mode = eng._select_text(xtext, cursor, [0, 1, 0, 3])
     # Absolute span from index 1 to 3 covers 'el' (length 2), not 'ell' (length 3).
     assert selected.getString() == "el"
+    assert mode == "range"
+
+
+@native_test
+@with_native_doc("impress")
+def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
+    """All five SelectText forms select correct spans on an Impress text shape."""
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from plugin.framework.tool import ToolContext
+
+    page = doc.getDrawPages().getByIndex(0)
+    shape = doc.createInstance("com.sun.star.drawing.TextShape")
+    page.add(shape)
+    shape.setString("first paragraph\nsecond paragraph\nthird paragraph")
+
+    tctx = ToolContext(doc, ctx, "impress", None, "test")
+    eng = SlideCommandEngine(tctx)
+    xtext = shape.getText()
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [])
+    assert mode == "all"
+    assert selected.getString() == "first paragraph\nsecond paragraph\nthird paragraph"
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [1])
+    assert mode == "range"
+    assert selected.getString() == "second paragraph"
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [0, 6])
+    assert mode == "caret"
+    assert selected.getString() == ""
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [0, 6, 1])
+    assert mode == "range"
+    assert selected.getString() == "paragraph\nsecond paragraph"
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [0, 6, 1, 6])
+    assert mode == "range"
+    assert selected.getString() == "paragraph\nsecond"
 
 
 @native_test
