@@ -403,7 +403,7 @@ def test_apply_style_preserve_italic_char_posture_uno(ctx, doc):
 
     fmt = text.createTextCursorByRange(text.getStart())
     fmt.gotoEnd(True)
-    slant = uno.getConstantByName("com.sun.star.awt.FontSlant.ITALIC")
+    slant = uno.Enum("com.sun.star.awt.FontSlant", "ITALIC")
     fmt.setPropertyValue("CharPosture", slant)
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
