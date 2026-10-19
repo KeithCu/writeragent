@@ -2114,7 +2114,9 @@ def test_numpy_pickle_policy_enforcement(tmp_path):
 
     # If NumPy imports, numeric np.save succeeds and object-array save raises.
     try:
-        import numpy  # availability only; executor imports its own
+        import importlib.util
+        if importlib.util.find_spec("numpy") is None:
+            return
         executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
         executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
         real_code = """
