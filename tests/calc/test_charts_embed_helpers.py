@@ -21,6 +21,7 @@ from plugin.calc.charts import (
     CHART_CLSID_DRAW_OLE,
     DeleteChart,
     ListCharts,
+    UpsertChart,
     _apply_chart_styling,
     _await_writer_chart_document,
     _axis_title_shape_string,
@@ -122,6 +123,29 @@ class _OleShape:
 
     def getShapeType(self) -> str:
         return "com.sun.star.drawing.OLE2Shape"
+
+    @property
+    def Name(self) -> str:
+        if self._name_error is not None:
+            raise self._name_error
+        return self._name
+
+
+class _GroupShape:
+    def __init__(self, *children: Any, name: str = "", shape_type: str = "com.sun.star.drawing.GroupShape", name_error: BaseException | None = None) -> None:
+        self._children = list(children)
+        self._name = name
+        self._shape_type = shape_type
+        self._name_error = name_error
+
+    def getShapeType(self) -> str:
+        return self._shape_type
+
+    def getCount(self) -> int:
+        return len(self._children)
+
+    def getByIndex(self, idx: int) -> Any:
+        return self._children[idx]
 
     @property
     def Name(self) -> str:
@@ -720,4 +744,115 @@ def test_unique_chart_names_unit():
     assert _unique_chart_name({"Chart_1", "Formula_0"}) == "Chart_0"
     assert _unique_chart_name({"Chart_0", "Chart_1"}) == "Chart_2"
     assert _unique_chart_name({"Chart_2"}) == "Chart_0"
+
+
+def test_resolve_and_list_finds_chart_in_top_level_group_draw():
+    chart = _OleShape("Chart_G")
+    group = _GroupShape(chart, name="Group_1")
+    page = _page(group)
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        assert _resolve_chart(doc, "Chart_G") is chart
+        res = ListCharts().execute(ctx)
+    assert res["status"] == "ok"
+    assert [e["name"] for e in res["charts"]] == ["Chart_G"]
+
+
+def test_resolve_and_list_finds_chart_in_top_level_group_writer():
+    chart = _OleShape("Chart_W")
+    group = _GroupShape(chart, name="Group_W")
+    page = _page(group)
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    doc.getDrawPage.return_value = page
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        assert _resolve_chart(doc, "Chart_W") is chart
+        res = ListCharts().execute(ctx)
+    assert res["status"] == "ok"
+    assert [e["name"] for e in res["charts"]] == ["Chart_W"]
+
+
+def test_resolve_chart_finds_chart_nested_in_groups():
+    chart = _OleShape("Chart_Deep")
+    inner = _GroupShape(chart, name="InnerGroup")
+    outer = _GroupShape(inner, name="OuterGroup")
+    page = _page(outer)
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        assert _resolve_chart(doc, "Chart_Deep") is chart
+
+
+def test_resolve_chart_skips_disposed_child_in_live_group():
+    dead = MagicMock()
+    dead.getShapeType.side_effect = _DisposedException("child gone")
+    live = _OleShape("Chart_AfterDead")
+    group = _GroupShape(dead, live, name="Group")
+    page = _page(group)
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        assert _resolve_chart(doc, "Chart_AfterDead") is live
+
+
+def test_resolve_chart_value_error_in_group_aborts_resolve():
+    bad = MagicMock()
+    bad.getShapeType.side_effect = ValueError("corrupt child")
+    group = _GroupShape(bad, name="BadGroup")
+    page = _page(group)
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        with pytest.raises(ValueError, match="corrupt child"):
+            _resolve_chart(doc, "Chart_X")
+
+
+def test_draw_create_name_scan_treats_grouped_shape_name_as_taken():
+    child_shape = MagicMock()
+    child_shape.Name = "Chart_0"
+    child_shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+    group = _GroupShape(child_shape, name="Group_1")
+    page = _page(group)
+
+    new_shape = MagicMock()
+    doc = MagicMock()
+    doc.createInstance.return_value = new_shape
+    doc.getCurrentController.return_value.getCurrentPage.return_value = page
+
+    chart_doc = MagicMock()
+    ctx = MagicMock(doc=doc, ctx=MagicMock())
+    rect = MagicMock(Width=100, Height=100, X=0, Y=0)
+
+    with (
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._process_events"),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts.uno.createUnoStruct"),
+    ):
+        res = UpsertChart()._create_draw_chart(ctx, rect, "com.sun.star.chart.BarDiagram")
+
+    assert res["status"] == "ok"
+    assert res["name"] == "Chart_1"
+    assert new_shape.Name == "Chart_1"
 
