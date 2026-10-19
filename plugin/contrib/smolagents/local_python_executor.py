@@ -32,6 +32,7 @@ import _string
 import threading
 import functools
 import time
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -75,6 +76,7 @@ _OPS_KEY = object()
 _PRINT_OUTPUTS_KEY = object()
 _ACTIVE_EXCEPTIONS_KEY = object()
 _CLASS_CELL_KEY = object()
+_WRAPPED_TOOLS_KEY = object()
 
 # Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
 abandoned_timeout: bool = False
@@ -105,21 +107,50 @@ def print_outputs_from_state(state: dict[Any, Any] | None) -> str:
 
 
 class PrintContainer:
-    def __init__(self):
-        self.value = ""
+    def __init__(self, max_length: int = DEFAULT_MAX_LEN_OUTPUT):
+        self.max_length = max_length
+        self._head = ""
+        self._tail = ""
+        self._truncated = False
 
-    def __iadd__(self, other):
+    def append(self, text: str) -> None:
+        half = self.max_length // 2
+        if not self._truncated:
+            if len(self._head) + len(text) <= self.max_length:
+                self._head += text
+                return
+            self._truncated = True
+            combined = self._head + text
+            self._head = combined[:half]
+            self._tail = combined[-half:]
+        else:
+            self._tail = (self._tail + text)[-half:]
+
+    def __iadd__(self, other: Any) -> PrintContainer:
         """Implements the += operator"""
-        self.value += str(other)
+        self.append(str(other))
         return self
+
+    @property
+    def value(self) -> str:
+        return str(self)
+
+    @value.setter
+    def value(self, val: str) -> None:
+        self._head = val
+        self._tail = ""
+        self._truncated = False
 
     def __str__(self):
         """String representation"""
-        return self.value
+        if not self._truncated:
+            return self._head
+        marker = f"\n..._This content has been truncated to stay below {self.max_length} characters_...\n"
+        return self._head + marker + self._tail
 
     def __repr__(self):
         """Representation for debugging"""
-        return f"PrintContainer({self.value})"
+        return f"PrintContainer({str(self)!r})"
 
 
 _PRINT_STACK = threading.local()
@@ -149,7 +180,7 @@ def _sandboxed_print(*args: Any, **kwargs: Any) -> None:
     end = kwargs.get("end", "\n")
     if end is None:
         end = "\n"
-    container.value += sep.join(map(str, args)) + end
+    container.append(sep.join(map(str, args)) + end)
     return None
 
 
@@ -165,12 +196,137 @@ def is_forbidden_dunder_attribute(name: str) -> bool:
 _GETATTR_SENTINEL = object()
 
 
-def nodunder_getattr(obj, name, default=_GETATTR_SENTINEL):
+class _SafeFormatter(_stdlib_string.Formatter):
+    def get_field(self, field_name: str, args: Any, kwargs: Any) -> Any:
+        try:
+            first, rest = _string.formatter_field_name_split(field_name)
+        except ValueError:
+            return super().get_field(field_name, args, kwargs)
+        for is_attr, i in rest:
+            if is_attr and is_forbidden_dunder_attribute(str(i)):
+                raise InterpreterError(f"Forbidden access to dunder attribute: {i}")
+        return super().get_field(field_name, args, kwargs)
+
+
+_NUMPY_CALL_DENIED = ("numpy.ctypeslib", "numpy.f2py", "numpy.distutils", "numpy.testing")
+
+_NUMPY_PICKLE_RULES: dict[str, tuple[bool, int | None, bool]] = {
+    "save": (True, 2, True),
+    "savez": (True, None, True),
+    "savez_compressed": (True, None, True),
+    "write_array": (True, 3, True),
+    "load": (False, 2, False),
+    "read_array": (False, 1, False),
+}
+
+
+def _apply_pickle_policy(name: str, args: list[Any] | tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    rule = _NUMPY_PICKLE_RULES.get(name)
+    if rule is None:
+        return kwargs
+    _default_allow, pos_idx, force_false = rule
+    allow = kwargs.get("allow_pickle")
+    if allow is None and pos_idx is not None and len(args) > pos_idx:
+        allow = args[pos_idx]
+    if allow is True:
+        raise InterpreterError(f"numpy.{name}(allow_pickle=True) is not allowed")
+    if allow is None and force_false:
+        kwargs = dict(kwargs)
+        kwargs["allow_pickle"] = False
+    return kwargs
+
+
+_WRAPPED_CALLABLES_WEAK: weakref.WeakKeyDictionary[Any, Any] = weakref.WeakKeyDictionary()
+_WRAPPED_CALLABLES_BY_ID: dict[int, Any] = {}
+
+
+def _get_cached_wrapped_callable(func: Any) -> Any:
+    try:
+        return _WRAPPED_CALLABLES_WEAK.get(func)
+    except TypeError:
+        return _WRAPPED_CALLABLES_BY_ID.get(id(func))
+
+
+def _set_cached_wrapped_callable(func: Any, wrapped: Any) -> None:
+    try:
+        _WRAPPED_CALLABLES_WEAK[func] = wrapped
+    except TypeError:
+        _WRAPPED_CALLABLES_BY_ID[id(func)] = wrapped
+
+
+def _maybe_wrap_callable(val: Any) -> Any:
+    if not callable(val):
+        return val
+    module = getattr(val, "__module__", "") or ""
+    name = getattr(val, "__name__", "") or ""
+    needs_wrap = False
+    if module.startswith("numpy"):
+        if name == "load_library" or any(module.startswith(p) for p in _NUMPY_CALL_DENIED):
+            needs_wrap = True
+        elif name in _NUMPY_PICKLE_RULES:
+            needs_wrap = True
+    elif module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
+        needs_wrap = True
+
+    if not needs_wrap:
+        return val
+
+    cached = _get_cached_wrapped_callable(val)
+    if cached is not None:
+        return cached
+
+    @wraps(val)
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        if name == "load_library" or any(module.startswith(p) for p in _NUMPY_CALL_DENIED):
+            raise InterpreterError(f"Forbidden call to {module}.{name}")
+        if module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
+            raise InterpreterError(f"Forbidden call to {module}.{name}")
+        if name in _NUMPY_PICKLE_RULES:
+            kwargs = _apply_pickle_policy(name, args, kwargs)
+        return val(*args, **kwargs)
+
+    _set_cached_wrapped_callable(val, _wrapped)
+    return _wrapped
+
+
+def safe_getattr(obj: Any, name: str, default: Any = _GETATTR_SENTINEL) -> Any:
     if is_forbidden_dunder_attribute(name):
         raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
+
+    if name in ("format", "format_map"):
+        if isinstance(obj, str):
+            if name == "format":
+                def _str_format(*args: Any, **kwargs: Any) -> str:
+                    return _SafeFormatter().vformat(obj, args, kwargs)
+                return _str_format
+            else:
+                def _str_format_map(mapping: Any) -> str:
+                    return _SafeFormatter().vformat(obj, (), mapping)
+                return _str_format_map
+        elif isinstance(obj, type) and issubclass(obj, str):
+            if name == "format":
+                def _type_str_format(self: Any, *args: Any, **kwargs: Any) -> str:
+                    if not isinstance(self, str):
+                        raise TypeError(f"descriptor 'format' requires a 'str' object but received a '{type(self).__name__}'")
+                    return _SafeFormatter().vformat(self, args, kwargs)
+                return _type_str_format
+            else:
+                def _type_str_format_map(self: Any, mapping: Any) -> str:
+                    if not isinstance(self, str):
+                        raise TypeError(f"descriptor 'format_map' requires a 'str' object but received a '{type(self).__name__}'")
+                    return _SafeFormatter().vformat(self, (), mapping)
+                return _type_str_format_map
+
     if default is _GETATTR_SENTINEL:
-        return getattr(obj, name)
-    return getattr(obj, name, default)
+        val = getattr(obj, name)
+    else:
+        val = getattr(obj, name, default)
+
+    return _maybe_wrap_callable(val)
+
+
+def nodunder_getattr(obj, name, default=_GETATTR_SENTINEL):
+    return safe_getattr(obj, name, default)
 
 
 def _nodunder_hasattr(obj: Any, name: Any) -> bool:
@@ -201,6 +357,20 @@ def _guarded_setattr(obj: Any, name: str, value: Any) -> None:
     setattr(obj, name, value)
 
 
+def _reject_shared_object_deletion(obj: Any) -> None:
+    import types
+
+    if isinstance(obj, (types.ModuleType, type)):
+        raise InterpreterError("Cannot delete attributes on a module or a type")
+
+
+def _guarded_delattr(obj: Any, name: str) -> None:
+    if is_forbidden_dunder_attribute(name):
+        raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
+    _reject_shared_object_deletion(obj)
+    delattr(obj, name)
+
+
 def _safe_attrgetter(*attrs: Any, authorized_imports: list[str] | None = None) -> Any:
     # C operator.attrgetter walks past factory checks in one step; walk segments in Python and check each hop.
     if not attrs:
@@ -215,7 +385,7 @@ def _safe_attrgetter(*attrs: Any, authorized_imports: list[str] | None = None) -
     def _resolve(obj: Any, attr: str) -> Any:
         cur = obj
         for segment in attr.split("."):
-            cur = getattr(cur, segment)
+            cur = safe_getattr(cur, segment)
             _check_dangerous_value(cur, authorized_imports)
         return cur
 
@@ -225,26 +395,17 @@ def _safe_attrgetter(*attrs: Any, authorized_imports: list[str] | None = None) -
 
 
 def _safe_methodcaller(name: Any, *args: Any, **kwargs: Any) -> Any:
-    # The walker never saw the string, the C helper performed the getattr /
-    # call, and the factory checks the name before building the callable
-    # that higher-order tools (map, starmap, partial) will invoke.
+    # Use safe_getattr so methodcaller reaches the format wrapper and dunder checks.
     if not isinstance(name, str):
         raise InterpreterError("methodcaller method name must be a string")
     if is_forbidden_dunder_attribute(name):
         raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
-    return operator.methodcaller(name, *args, **kwargs)
 
+    def _caller(obj: Any) -> Any:
+        func = safe_getattr(obj, name)
+        return func(*args, **kwargs)
 
-class _SafeFormatter(_stdlib_string.Formatter):
-    def get_field(self, field_name: str, args: Any, kwargs: Any) -> Any:
-        try:
-            first, rest = _string.formatter_field_name_split(field_name)
-        except ValueError:
-            return super().get_field(field_name, args, kwargs)
-        for is_attr, i in rest:
-            if is_attr and is_forbidden_dunder_attribute(str(i)):
-                raise InterpreterError(f"Forbidden access to dunder attribute: {i}")
-        return super().get_field(field_name, args, kwargs)
+    return _caller
 
 
 
@@ -341,18 +502,31 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
                 raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
 
 
-def check_safer_result(result: Any, static_tools: dict[str, Callable] = None, authorized_imports: list[str] = None):
+_SAFE_RESULT_TYPES = frozenset({
+    type(None),
+    bool,
+    int,
+    float,
+    complex,
+    str,
+    bytes,
+    range,
+})
+
+
+def check_safer_result(result: Any, authorized_imports: list[str] | None = None) -> None:
     """
-    Checks if a result is safer according to authorized imports and static tools.
+    Checks if a result is safer according to authorized imports.
 
     Args:
         result (Any): The result to check.
-        static_tools (dict[str, Callable]): Dictionary of static tools.
         authorized_imports (list[str]): List of authorized imports.
 
     Raises:
         InterpreterError: If the result is not safe
     """
+    if type(result) in _SAFE_RESULT_TYPES:
+        return
     if result is operator.attrgetter or result is operator.methodcaller:
         raise InterpreterError(f"Forbidden access to operator dispatch type: {getattr(result, '__name__', '')}")
     if isinstance(result, (importlib.machinery.ModuleSpec, importlib.abc.Loader)):
@@ -382,7 +556,7 @@ def safer_eval(func: Callable):
         authorized_imports=BASE_BUILTIN_MODULES,
     ):
         result = func(expression, state, static_tools, custom_tools, authorized_imports=authorized_imports)
-        check_safer_result(result, static_tools, authorized_imports)
+        check_safer_result(result, authorized_imports)
         return result
 
     return _check_return
@@ -390,7 +564,6 @@ def safer_eval(func: Callable):
 
 def safer_func(
     func: Callable,
-    static_tools: dict[str, Callable] = BASE_PYTHON_TOOLS,
     authorized_imports: list[str] = BASE_BUILTIN_MODULES,
 ):
     """
@@ -398,7 +571,6 @@ def safer_func(
 
     Args:
         func (Callable): Function to be made safer.
-        static_tools (dict[str, Callable]): Dictionary of static tools.
         authorized_imports (list[str]): List of authorized imports.
 
     Returns:
@@ -411,7 +583,7 @@ def safer_func(
     @wraps(func)
     def _check_return(*args, **kwargs):
         result = func(*args, **kwargs)
-        check_safer_result(result, static_tools, authorized_imports)
+        check_safer_result(result, authorized_imports)
         return result
 
     return _check_return
@@ -536,10 +708,8 @@ def evaluate_attribute(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    if is_forbidden_dunder_attribute(expression.attr):
-        raise InterpreterError(f"Forbidden access to dunder attribute: {expression.attr}")
     value = evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
-    return getattr(value, expression.attr)
+    return safe_getattr(value, expression.attr)
 
 
 def evaluate_unaryop(
@@ -655,7 +825,9 @@ def evaluate_while(
             break
         iterations += 1
         if iterations > MAX_WHILE_ITERATIONS:
-            raise InterpreterError(f"Maximum number of {MAX_WHILE_ITERATIONS} iterations in While loop exceeded")
+            ops = state.get(_OPS_KEY)
+            if ops is None or ops.deadline is None:
+                raise InterpreterError(f"Maximum number of {MAX_WHILE_ITERATIONS} iterations in While loop exceeded")
     if not broke and while_loop.orelse:
         for node in while_loop.orelse:
             evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
@@ -694,6 +866,8 @@ def create_function(
             for stmt in func_def.body:
                 result = evaluate_ast(stmt, func_state, static_tools, custom_tools, authorized_imports)
         except ReturnException as e:
+            if func_def.name == "__init__" and e.value is not None:
+                raise TypeError(f"__init__() should return None, not '{type(e.value).__name__}'")
             result = e.value
 
         if func_def.name == "__init__":
@@ -1033,8 +1207,8 @@ def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) 
 
     NumPy is an allowed module, so ``_check_dangerous_value`` does not see
     ``np.load`` or ``numpy.ctypeslib.load_library``. Those denies run before
-    ``func(*args, **kwargs)``. Numeric ``np.load`` / ``np.save`` without an
-    explicit ``allow_pickle=True`` stay allowed.
+    ``func(*args, **kwargs)``. Numeric ``np.load`` / ``np.save`` run with
+    ``allow_pickle=False`` when omitted; explicit ``True`` is rejected.
     """
     module = getattr(func, "__module__", "") or ""
     name = getattr(func, "__name__", "") or ""
@@ -1045,14 +1219,9 @@ def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) 
     _NUMPY_CALL_DENIED = ("numpy.ctypeslib", "numpy.f2py", "numpy.distutils", "numpy.testing")
     if name == "load_library" or any(module.startswith(prefix) for prefix in _NUMPY_CALL_DENIED):
         raise InterpreterError(f"Forbidden call to {module}.{name}")
-    if name not in ("load", "save"):
-        return
-    allow = kwargs.get("allow_pickle", False)
-    # load(file, mmap_mode=None, allow_pickle=False); save(file, arr, allow_pickle=True)
-    if "allow_pickle" not in kwargs and len(args) >= 3:
-        allow = args[2]
-    if allow:
-        raise InterpreterError(f"numpy.{name}(allow_pickle=True) is not allowed")
+    if name in _NUMPY_PICKLE_RULES:
+        new_kw = _apply_pickle_policy(name, args, kwargs)
+        kwargs.update(new_kw)
 
 
 def _reject_pandas_pickle(func: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
@@ -1074,25 +1243,9 @@ def evaluate_call(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    if not isinstance(call.func, (ast.Call, ast.Lambda, ast.Attribute, ast.Name, ast.Subscript)):
-        raise InterpreterError(f"This is not a correct function: {call.func}).")
-
     func, func_name = None, None
 
-    if isinstance(call.func, ast.Call):
-        func = evaluate_ast(call.func, state, static_tools, custom_tools, authorized_imports)
-    elif isinstance(call.func, ast.Lambda):
-        func = evaluate_ast(call.func, state, static_tools, custom_tools, authorized_imports)
-    elif isinstance(call.func, ast.Attribute):
-        obj = evaluate_ast(call.func.value, state, static_tools, custom_tools, authorized_imports)
-        func_name = call.func.attr
-        if is_forbidden_dunder_attribute(func_name):
-            raise InterpreterError(f"Forbidden access to dunder attribute: {func_name}")
-        try:
-            func = getattr(obj, func_name)
-        except AttributeError:
-            raise InterpreterError(f"Object {obj} has no attribute {func_name}")
-    elif isinstance(call.func, ast.Name):
+    if isinstance(call.func, ast.Name):
         func_name = call.func.id
         if func_name in state:
             func = state[func_name]
@@ -1108,11 +1261,17 @@ def evaluate_call(
             raise InterpreterError(
                 f"Forbidden function evaluation: '{call.func.id}' is not among the explicitly allowed tools or defined/imported in the preceding code"
             )
-    elif isinstance(call.func, ast.Subscript):
+    elif isinstance(call.func, ast.Attribute):
+        obj = evaluate_ast(call.func.value, state, static_tools, custom_tools, authorized_imports)
+        func_name = call.func.attr
+        try:
+            func = safe_getattr(obj, func_name)
+        except AttributeError:
+            raise InterpreterError(f"Object {obj} has no attribute {func_name}")
+    else:
         func = evaluate_ast(call.func, state, static_tools, custom_tools, authorized_imports)
         if not callable(func):
             raise InterpreterError(f"This is not a correct function: {call.func}).")
-        func_name = None
 
     args = []
     for arg in call.args:
@@ -1153,7 +1312,7 @@ def evaluate_call(
     else:  # Assume it's a callable object
         if func is operator.attrgetter or func is operator.methodcaller:
             raise InterpreterError(f"Forbidden access to operator dispatch type: {getattr(func, '__name__', '')}")
-        if (inspect.getmodule(func) == builtins) and inspect.isbuiltin(func) and (func not in static_tools.values()):
+        if inspect.isbuiltin(func) and (getattr(func, "__module__", None) == "builtins") and (func not in static_tools.values()):
             raise InterpreterError(
                 f"Invoking a builtin function that has not been explicitly added as a tool is not allowed ({func_name})."
             )
@@ -1205,8 +1364,11 @@ def evaluate_name(
 ) -> Any:
     if name.id in state:
         return state[name.id]
+    wrapped_tools = state.get(_WRAPPED_TOOLS_KEY)
+    if wrapped_tools is not None and name.id in wrapped_tools:
+        return wrapped_tools[name.id]
     elif name.id in static_tools:
-        return safer_func(static_tools[name.id], static_tools=static_tools, authorized_imports=authorized_imports)
+        return safer_func(static_tools[name.id], authorized_imports=authorized_imports)
     elif name.id in custom_tools:
         return custom_tools[name.id]
     elif name.id in ERRORS:
@@ -1586,27 +1748,36 @@ def _dangerous_module_name(name: str) -> bool:
     return name in DANGEROUS_MODULES or root in DANGEROUS_MODULES
 
 
+_REAL_MODULES: dict[int, ModuleType] = {}
+
+
 class _DelegatingSafeModule(ModuleType):
     """ModuleType wrapper exposing safe overrides while delegating attributes without scanning dir()."""
 
-    def __init__(self, real_module: ModuleType):
+    def __init__(self, real_module: ModuleType, authorized_imports: list[str] | None = None):
         super().__init__(real_module.__name__, getattr(real_module, "__doc__", None))
-        self._real_module = real_module
-        self._authorized_imports: list[str] | None = None
+        _REAL_MODULES[id(self)] = real_module
         if real_module.__name__ == "operator":
-            self.attrgetter = self._operator_attrgetter
+            self.attrgetter = lambda *attrs: _safe_attrgetter(*attrs, authorized_imports=authorized_imports)
             self.methodcaller = _safe_methodcaller
         elif real_module.__name__ == "string":
             self.Formatter = _SafeFormatter
 
-    def _operator_attrgetter(self, *attrs: Any) -> Any:
-        return _safe_attrgetter(*attrs, authorized_imports=self._authorized_imports)
+    def __getattribute__(self, name: str) -> Any:
+        if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
+        return super().__getattribute__(name)
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._real_module, name)
+        if name.startswith("_"):
+            raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
+        real = _REAL_MODULES.get(id(self))
+        if real is None:
+            raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
+        return getattr(real, name)
 
 
-_SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
+_SAFE_MODULE_CACHE: dict[tuple[int, int | None], _DelegatingSafeModule] = {}
 
 
 def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None) -> Any:
@@ -1619,12 +1790,11 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
         return ModuleType(name)
 
     if name in ("operator", "string"):
-        mod_id = id(raw_module)
-        wrapper = _SAFE_MODULE_CACHE.get(mod_id)
+        cache_key = (id(raw_module), id(authorized_imports) if authorized_imports is not None else None)
+        wrapper = _SAFE_MODULE_CACHE.get(cache_key)
         if wrapper is None:
-            wrapper = _DelegatingSafeModule(raw_module)
-            _SAFE_MODULE_CACHE[mod_id] = wrapper
-        wrapper._authorized_imports = authorized_imports
+            wrapper = _DelegatingSafeModule(raw_module, authorized_imports=authorized_imports)
+            _SAFE_MODULE_CACHE[cache_key] = wrapper
         return wrapper
 
     return raw_module
@@ -1675,14 +1845,14 @@ def evaluate_import(
                         if name in tools:
                             # Silently skip names in static_tools (overridable or not)
                             continue
-                        state[name] = getattr(module, name)
+                        state[name] = safe_getattr(module, name)
                 else:  # If no __all__, import all public names (those not starting with '_')
                     for name in dir(module):
                         if not name.startswith("_"):
                             if name in tools:
                                 # Silently skip names in static_tools (overridable or not)
                                 continue
-                            state[name] = getattr(module, name)
+                            state[name] = safe_getattr(module, name)
             else:  # regular from imports
                 sentinel = object()
                 for alias in expression.names:
@@ -1749,6 +1919,9 @@ def evaluate_delete(
             obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
             index = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
             del obj[index]
+        elif isinstance(target, ast.Attribute):
+            obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
+            _guarded_delattr(obj, target.attr)
         else:
             raise InterpreterError(f"Deletion of {type(target).__name__} targets is not supported")
 
@@ -1809,9 +1982,9 @@ def _eval_formatted_value(expression, state, static_tools, custom_tools, authori
         value = repr(value)
     elif expression.conversion == 97:
         value = ascii(value)
-    if not expression.format_spec:
-        return value
-    format_spec = evaluate_ast(expression.format_spec, *common_params)
+    format_spec = ""
+    if expression.format_spec:
+        format_spec = evaluate_ast(expression.format_spec, *common_params)
     return format(value, format_spec)
 
 
@@ -2029,7 +2202,7 @@ def evaluate_python_code(
     static_tools = static_tools.copy() if static_tools is not None else {}
     custom_tools = custom_tools if custom_tools is not None else {}
     state[_OPS_KEY] = _Ops()
-    print_container = PrintContainer()
+    print_container = PrintContainer(max_length=max_print_outputs_length)
     state[_PRINT_OUTPUTS_KEY] = print_container
     state[_ACTIVE_EXCEPTIONS_KEY] = []
 
@@ -2042,6 +2215,11 @@ def evaluate_python_code(
             raise FinalAnswerException(previous_final_answer(*args, **kwargs))
 
         static_tools["final_answer"] = final_answer
+
+    state[_WRAPPED_TOOLS_KEY] = {
+        k: safer_func(v, authorized_imports=authorized_imports)
+        for k, v in static_tools.items()
+    }
 
     # Define the actual execution logic
     def _execute_code():
@@ -2154,9 +2332,9 @@ class LocalPythonExecutor(PythonExecutor):
         self.custom_tools = {}
         self.state = {"__name__": "__main__"}
         self.logs: str = ""
-        self.max_print_outputs_length = max_print_outputs_length
-        if max_print_outputs_length is None:
-            self.max_print_outputs_length = DEFAULT_MAX_LEN_OUTPUT
+        self.max_print_outputs_length: int = (
+            DEFAULT_MAX_LEN_OUTPUT if max_print_outputs_length is None else max_print_outputs_length
+        )
         self.additional_authorized_imports = additional_authorized_imports
         self.authorized_imports = list(set(BASE_BUILTIN_MODULES) | set(self.additional_authorized_imports))
         # WriterAgent vendored change (2026-05): upstream HuggingFace smolagents calls

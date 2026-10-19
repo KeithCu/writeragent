@@ -1931,6 +1931,346 @@ for i in range(10):
                 )
 
 
+def test_string_format_safe_formatter_and_wrapper_privates():
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator", "string", "itertools", "functools"])
+    executor.send_tools({})
+
+    # Dunder attribute access via format variations is rejected.
+    dunder_calls = [
+        '"{0.__class__}".format(5)',
+        '"{0.__class__}".format_map({0: 5})',
+        'type("").format("{0.__class__}", 5)',
+        'str.format("{0.__class__}", 5)',
+        'getattr("{0.__class__}", "format")(5)',
+        'import functools\nfunctools.partial(getattr("{0.__class__}", "format"), 5)()',
+        'import functools\nfunctools.partial(type("").format, "{0.__class__}")(5)',
+        'list(map(getattr("{0.__class__}", "format"), [5]))',
+        'import operator\noperator.attrgetter("format")("{0.__class__}")(5)',
+        'import operator\noperator.methodcaller("format", 5)("{0.__class__}")',
+    ]
+    for expr in dunder_calls:
+        with pytest.raises(InterpreterError) as exc:
+            executor(expr)
+        assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    # Wrapper private attributes are hidden.
+    for expr in [
+        "import operator\nx = operator._real_module",
+        "import string\nx = string._real_module",
+        "import string\nx = string._authorized_imports",
+        "import string, operator\nx = string.Formatter().get_field('0._real_module', [operator], {})",
+    ]:
+        with pytest.raises((InterpreterError, AttributeError)):
+            executor(expr)
+
+    # Formatting __globals__ on a function defined in the cell raises.
+    code_globals = """
+def my_func():
+    pass
+res = '{0.__globals__}'.format(my_func)
+"""
+    with pytest.raises(InterpreterError) as exc:
+        executor(code_globals)
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    # Standard format forms stay allowed.
+    allowed_code = """
+import operator, string
+
+class Item:
+    def __init__(self, name):
+        self.name = name
+
+item = Item("gadget")
+r1 = "{:03d}".format(5)
+r2 = "{0.real}".format(3+4j)
+r3 = string.Formatter().format("{0.real}", 3+4j)
+r4 = "{0.name}".format(item)
+r5 = operator.methodcaller("upper")("hello")
+"""
+    executor(allowed_code)
+    assert executor.state["r1"] == "005"
+    assert executor.state["r2"] == "3.0"
+    assert executor.state["r3"] == "3.0"
+    assert executor.state["r4"] == "gadget"
+    assert executor.state["r5"] == "HELLO"
+
+    # Module cache keys by allowlist object identity.
+    from plugin.contrib.smolagents.local_python_executor import get_safe_module
+    import operator
+    list_a = ["operator"]
+    list_b = ["operator"]
+    mod_a1 = get_safe_module(operator, list_a)
+    mod_a2 = get_safe_module(operator, list_a)
+    mod_b = get_safe_module(operator, list_b)
+    assert mod_a1 is mod_a2
+    assert mod_a1 is not mod_b
+
+
+def test_numpy_pickle_policy_enforcement(tmp_path):
+    executor = LocalPythonExecutor(additional_authorized_imports=["numpy", "pandas", "functools"])
+    executor.send_tools({})
+
+    calls_recorded: list[tuple[str, str, tuple[Any, ...], dict[str, Any]]] = []
+
+    def make_fake(mod: str, name: str):
+        def fake(*args: Any, **kwargs: Any) -> str:
+            calls_recorded.append((mod, name, args, kwargs))
+            return "ok"
+        fake.__module__ = mod
+        fake.__name__ = name
+        return fake
+
+    fake_save = make_fake("numpy", "save")
+    fake_savez = make_fake("numpy", "savez")
+    fake_write_array = make_fake("numpy", "write_array")
+    fake_load = make_fake("numpy", "load")
+    fake_read_array = make_fake("numpy", "read_array")
+
+    class FakeNp:
+        save = fake_save
+        savez = fake_savez
+        write_array = fake_write_array
+        load = fake_load
+        read_array = fake_read_array
+    FakeNp.__module__ = "numpy"
+
+    np_obj = FakeNp()
+    executor.send_variables({"np": np_obj})
+
+    # Omitted allow_pickle forces False on savers without raising.
+    calls_recorded.clear()
+    executor("np.save('file', [1, 2])")
+    assert calls_recorded[-1][3]["allow_pickle"] is False
+
+    calls_recorded.clear()
+    executor("np.savez('file', [1, 2])")
+    assert calls_recorded[-1][3]["allow_pickle"] is False
+
+    calls_recorded.clear()
+    executor("np.write_array('fp', [1, 2], 1)")
+    assert calls_recorded[-1][3]["allow_pickle"] is False
+
+    # Explicit True raises for savers and loaders.
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.save('file', [1, 2], True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.save('file', [1, 2], allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.savez('file', allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.write_array('fp', [1, 2], 1, True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.load('file', None, True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.load('file', allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.read_array('fp', True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("np.read_array('fp', allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    # functools.partial with wrapped fake cannot pass allow_pickle=True.
+    executor("import functools\np = functools.partial(np.save, 'file', [1, 2])")
+    with pytest.raises(InterpreterError) as exc:
+        executor("p(allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("p(True)")
+    assert "allow_pickle=True" in str(exc.value)
+
+    # from numpy import save as s with fake.
+    import sys
+    import types
+    orig_np = sys.modules.get("numpy")
+    fake_mod = types.ModuleType("numpy")
+    setattr(fake_mod, "save", fake_save)
+    sys.modules["numpy"] = fake_mod
+    try:
+        executor_import = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+        with pytest.raises(InterpreterError) as exc:
+            executor_import("from numpy import save as s\ns('file', [1, 2], allow_pickle=True)")
+        assert "allow_pickle=True" in str(exc.value)
+    finally:
+        if orig_np is not None:
+            sys.modules["numpy"] = orig_np
+        else:
+            sys.modules.pop("numpy", None)
+
+    # If NumPy imports, numeric np.save succeeds and object-array save raises.
+    try:
+        import numpy as np
+        executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+        executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
+        real_code = """
+import numpy as np
+arr_num = np.array([1, 2, 3])
+np.save(path_num, arr_num)
+"""
+        executor_real(real_code)
+
+        real_obj_code = """
+import numpy as np
+class Dummy:
+    pass
+arr_obj = np.array([Dummy()])
+np.save(path_obj, arr_obj)
+"""
+        with pytest.raises(InterpreterError) as exc:
+            executor_real(real_obj_code)
+        assert "cannot be saved when allow_pickle=False" in str(exc.value)
+    except ImportError:
+        pass
+
+
+def test_bounded_print_container_during_execution():
+    executor = LocalPythonExecutor(additional_authorized_imports=[], max_print_outputs_length=80)
+    executor.send_tools({})
+
+    code = """
+for i in range(100):
+    print(f"iter={i}")
+"""
+    executor(code)
+    assert len(executor.logs) < 200
+    assert "truncated to stay below 80 characters" in executor.logs
+    assert "iter=99" in executor.logs
+
+
+def test_cpython_divergences():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # 1. f-strings call __format__
+    code_fmt = """
+class Formatted:
+    def __str__(self):
+        return "STR"
+    def __format__(self, spec):
+        return f"FMT{spec}"
+
+obj = Formatted()
+width = "03d"
+res = f"{obj!s}|{obj:spec}|{obj}|{obj:{width}}"
+"""
+    executor(code_fmt)
+    assert executor.state["res"] == "STR|FMTspec|FMT|FMT03d"
+
+    code_bad_fmt = """
+class BadFmt:
+    def __format__(self, spec):
+        return 123
+
+f"{BadFmt()}"
+"""
+    with pytest.raises(InterpreterError) as exc:
+        executor(code_bad_fmt)
+    assert "TypeError" in str(exc.value)
+
+    # 2. __init__ may not return a value
+    code_init_return = """
+class BadInit:
+    def __init__(self):
+        return 5
+
+b = BadInit()
+"""
+    with pytest.raises(InterpreterError) as exc:
+        executor(code_init_return)
+    assert "TypeError" in str(exc.value)
+    assert "__init__() should return None" in str(exc.value)
+
+    code_init_trailing = """
+class GoodInit:
+    def __init__(self):
+        self.x = 42
+        1 + 1
+
+g = GoodInit()
+res_x = g.x
+"""
+    executor(code_init_trailing)
+    assert executor.state["res_x"] == 42
+
+    # 3. del obj.attr
+    code_del = """
+class Obj:
+    def __init__(self):
+        self.attr = "hello"
+
+o = Obj()
+del o.attr
+has_attr = hasattr(o, "attr")
+"""
+    executor(code_del)
+    assert executor.state["has_attr"] is False
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("o = Obj()\ndel o.__class__")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("class C: x = 1\ndel C.x")
+    assert "Cannot delete attributes on a module or a type" in str(exc.value)
+
+    # 4. Expression callees
+    code_expr_callee = """
+def add1(x): return x + 1
+def add2(x): return x + 2
+
+r1 = (add1 if True else add2)(10)
+r2 = (add1 if False else add2)(10)
+r3 = (add1 or add2)(20)
+"""
+    executor(code_expr_callee)
+    assert executor.state["r1"] == 11
+    assert executor.state["r2"] == 12
+    assert executor.state["r3"] == 21
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("(123 if True else 456)()")
+    assert "This is not a correct function" in str(exc.value)
+
+
+def test_stable_tool_wrappers_and_safety_checks():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # 1. (max is max) is True in cell
+    executor("same_max = (max is max)")
+    assert executor.state["same_max"] is True
+
+    # 2. Custom tool returning dangerous value is rejected
+    import os
+    def evil_tool():
+        return os
+
+    executor.send_tools({"get_evil": evil_tool})
+    with pytest.raises(InterpreterError) as exc:
+        executor("get_evil()")
+    assert "Forbidden access to module" in str(exc.value)
+
+    # 3. Comprehension results unchanged with fast path
+    executor("res_comp = [i * 2 for i in range(10)]")
+    assert executor.state["res_comp"] == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+
+
+
 
 
 
