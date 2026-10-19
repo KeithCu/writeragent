@@ -230,10 +230,12 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
     saved_enabled = setup_grammar_proof_tests(ctx)
     try:
         bi, loc = gt.get_break_iterator_and_locale(ctx, "en-US")
-        # Real BreakIterator.endOfSentence on "a👋b. c."
-        # Python end of "a👋b." is 4; UTF-16 end is 5.
-        raw_end = bi.endOfSentence("a👋b. c.", 0, loc)
-        assert raw_end == 5
+        # Real BreakIterator.endOfSentence on "a👋b. c." returns UTF-16 units.
+        # Tip: LO may include the trailing space (6) or not (5); slice in UTF-16 to check.
+        sample = "a👋b. c."
+        raw_end = bi.endOfSentence(sample, 0, loc)
+        assert raw_end in (5, 6)
+        assert sample.encode("utf-16le")[: raw_end * 2].decode("utf-16le").rstrip() == "a👋b."
 
         # split_into_sentences on "👋👋 Hi. Bye." returns "👋👋 Hi. " and "Bye."
         sents = gt.split_into_sentences(ctx, "en-US", "👋👋 Hi. Bye.")
