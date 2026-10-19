@@ -22,23 +22,6 @@ from scripts import release_verify
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_windows_fails_early_and_names_profile(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(sys, "platform", "win32")
-    mkdtemp_mock = MagicMock()
-    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp_mock)
-    subproc_mock = MagicMock()
-    monkeypatch.setattr(subprocess, "run", subproc_mock)
-
-    code = release_verify.main([])
-    assert code == 2
-    captured = capsys.readouterr()
-    assert r"%APPDATA%\LibreOffice\4" in captured.err
-    mkdtemp_mock.assert_not_called()
-    subproc_mock.assert_not_called()
-
-
 def test_missing_lo_python_exits_1(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -170,6 +153,42 @@ def test_macos_profile_and_env(
     assert uno_env["PYTHONPATH"] == os.pathsep.join([str(bundle_root), str(contents / "Resources"), str(contents / "Frameworks")])
     assert uno_env["UNO_PATH"] == str(contents / "MacOS")
     assert uno_env["URE_BOOTSTRAP"].startswith("vnd.sun.star.pathname:" + str(contents / "Resources"))
+
+
+def test_windows_profile_and_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    bundle_root = tmp_path / "bundle"
+    seed_root = tmp_path / "bundle.seed"
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda prefix: str(bundle_root))
+    monkeypatch.setattr(release_verify.lo_paths, "build_child_env", lambda lo_python: {})
+
+    run_calls: list[dict[str, Any]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        run_calls.append({"cmd": cmd, **kwargs})
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    seed_mock = MagicMock()
+    monkeypatch.setattr(release_verify.lo_profile, "seed", seed_mock)
+    monkeypatch.setattr(release_verify.lo_kill, "kill", MagicMock())
+    monkeypatch.setattr(release_verify.lo_kill, "office_pids", MagicMock(return_value=[]))
+    monkeypatch.setattr(release_verify.compileall, "compile_dir", MagicMock(return_value=True))
+    monkeypatch.setattr(shutil, "copy2", MagicMock())
+    monkeypatch.setattr(shutil, "rmtree", MagicMock())
+
+    code = release_verify.main(["--lo-python", r"C:\Program Files\LibreOffice\program\python.exe"])
+    assert code == 0
+
+    # Seed and the UNO run both use the scratch %APPDATA%, never the real profile.
+    home = seed_root / "home"
+    expected_profile = home / "AppData" / "Roaming" / "LibreOffice" / "4"
+    seed_mock.assert_called_once_with(seed_root / "WriterAgent.oxt", expected_profile)
+    uno_env = run_calls[-1]["env"]
+    assert uno_env["APPDATA"] == str(home / "AppData" / "Roaming")
+    assert uno_env["USERPROFILE"] == str(home)
 
 
 def test_execution_order_and_pytest_argv(

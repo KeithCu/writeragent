@@ -65,6 +65,11 @@ def _make_uno_env(
     if home is not None:
         env["HOME"] = str(home)
         env["XDG_CONFIG_HOME"] = str(home / ".config")
+        if sys.platform == "win32":
+            # Tip: Windows ignores HOME. testing_runner finds the user profile under
+            # %APPDATA%\LibreOffice\4, so point APPDATA at the scratch home too.
+            env["APPDATA"] = str(home / "AppData" / "Roaming")
+            env["USERPROFILE"] = str(home)
     env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
     if profile is not None:
         env["WRITERAGENT_UNO_SEED_PROFILE"] = str(profile)
@@ -72,14 +77,6 @@ def _make_uno_env(
 
 
 def main(argv: list[str]) -> int:
-    # Windows LibreOffice runner uses %APPDATA%\LibreOffice\4 and ignores HOME
-    if sys.platform == "win32":
-        sys.stderr.write(
-            "error: the runner uses %APPDATA%\\LibreOffice\\4 and Windows ignores HOME, "
-            "so this would write the real profile\n"
-        )
-        return 2
-
     parser = argparse.ArgumentParser(description="Verify release bundle in a clean temporary tree.")
     parser.add_argument(
         "--lo-python",
@@ -124,6 +121,8 @@ def main(argv: list[str]) -> int:
 
     if sys.platform == "darwin":
         profile = home / "Library" / "Application Support" / "LibreOffice" / "4"
+    elif sys.platform == "win32":
+        profile = home / "AppData" / "Roaming" / "LibreOffice" / "4"
     else:
         profile = home / ".config" / "libreoffice" / "4"
 
