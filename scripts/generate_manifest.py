@@ -249,8 +249,6 @@ from manifest_xdl import (
     update_dialog_xlb,
 )
 from manifest_registry import (
-    generate_addons_xcu,
-    generate_accelerators_xcu,
     generate_settings_dialog_tabs,
     generate_manifest_xml,
     patch_description_xml,
@@ -268,9 +266,6 @@ def main():
     parser.add_argument(
         "--skip-writeragent-extension", action="store_true",
         help="Do not update extension/ description.xml or META-INF")
-    parser.add_argument(
-        "--skip-addons", action="store_true",
-        help="Do not generate build/generated/Addons.xcu or Accelerators.xcu")
     args = parser.parse_args()
 
     modules_dir = os.path.join(PROJECT_ROOT, "plugin")
@@ -311,12 +306,6 @@ def main():
 
     build_dir = os.path.join(PROJECT_ROOT, "build", "generated")
 
-    # 1. Addons.xcu (menus) — run first to collect conditional menus
-    if not args.skip_addons:
-        addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
-        generate_addons_xcu(
-            sorted_modules, framework_manifest, addons_xcu_path)
-
     # 2. _manifest.py
     manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path, librepy_flavor=librepy_flavor)
@@ -327,11 +316,6 @@ def main():
     wa_dialogs_gen = os.path.join(build_dir, "Dialogs")
     update_dialog_xlb(wa_dialogs_ext, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
     update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
-
-    # 5. Accelerators.xcu (shortcuts)
-    if not args.skip_addons:
-        accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
-        generate_accelerators_xcu(sorted_modules, accel_xcu_path)
 
     # 6. META-INF/manifest.xml
     if not args.skip_writeragent_extension:

@@ -205,7 +205,6 @@ def librepy_manifest_cmd(base_dir: str) -> list[str]:
         "--manifest-output",
         manifest_out,
         "--skip-writeragent-extension",
-        "--skip-addons",
     ]
 
 
