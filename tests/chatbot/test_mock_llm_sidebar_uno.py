@@ -347,6 +347,21 @@ def _start_until_stop_enabled(text: str, *, delay_ms: int = 40, timeout: float =
     return before
 
 
+def _wait_new_chat_post(n_before: int, timeout: float = 10.0) -> None:
+    """Wait until the mock has the chat POST for this send.
+
+    Tip: Stop is enabled while _do_send is still setting up. A Stop that lands
+    before the turn starts aborts it with no You: row and no banner, so tests
+    that mean "stop mid-stream" or "stop before the first token" wait here first.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        if any(c.get("path") == "/v1/chat/completions" for c in _captures()[n_before:]):
+            return
+        time.sleep(0.05)
+    raise AssertionError("send never reached the mock: %r" % _captures()[-3:])
+
+
 def _stop_and_wait_idle(before: str, timeout: float = 25.0) -> None:
     _press_stop()
     _wait_idle_after_send(before, timeout=timeout)
@@ -879,8 +894,10 @@ def test_f18_event_ping_then_hello(ctx):
 @native_test
 def test_b1a_stop_ramble_then_hello(ctx):
     _reset_mock_runtime()
+    n_posts = len(_captures())
     before = _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
+        _wait_new_chat_post(n_posts)
         _stop_and_wait_idle(before)
         _assert_stopped_banner(before)
     finally:
@@ -898,8 +915,10 @@ def test_b1b_stop_mouse_skipped(ctx):
 @native_test
 def test_b1c_no_html_rerender_after_stop(ctx):
     _reset_mock_runtime()
+    n_posts = len(_captures())
     before = _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
+        _wait_new_chat_post(n_posts)
         _stop_and_wait_idle(before)
         _assert_stopped_banner(before)
         suffix = _transcript()
@@ -923,10 +942,13 @@ def test_b1d_stop_before_first_token(ctx):
     _reset_mock_runtime()
     query = "question before first token"
     try:
+        n_posts = len(_captures())
         try:
             before = _start_until_stop_enabled(query, delay_ms=2000, timeout=8.0)
         except AssertionError:
             raise unittest.SkipTest("Stop never enabled before the first chunk")
+        # Chunks are 2s apart, so the POST lands well before the first token.
+        _wait_new_chat_post(n_posts)
         _stop_and_wait_idle(before)
         _assert_stopped_banner(before)
         text = _transcript()
@@ -942,8 +964,10 @@ def test_b1d_stop_before_first_token(ctx):
 @native_test
 def test_b2_stop_then_immediate_hello(ctx):
     _reset_mock_runtime()
+    n_posts = len(_captures())
     before = _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
+        _wait_new_chat_post(n_posts)
         _stop_and_wait_idle(before)
     finally:
         _reset_mock_runtime()
@@ -953,8 +977,10 @@ def test_b2_stop_then_immediate_hello(ctx):
 @native_test
 def test_b3_double_stop_then_hello(ctx):
     _reset_mock_runtime()
+    n_posts = len(_captures())
     before = _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
+        _wait_new_chat_post(n_posts)
         _press_stop()
         _press_stop()
         _wait_idle_after_send(before, timeout=25.0)
