@@ -385,6 +385,7 @@ def _calculate_text_selection_span(text: str, int_spec: list[int]) -> tuple[int,
     return "SelectText: empty specification"
 
 
+
 class SlideCommandEngine:
     """Execute SlideCommands array against a Draw/Impress document."""
 
@@ -906,6 +907,17 @@ class SlideCommandEngine:
         if mode == "range":
             span = max(0, end - start)
             cursor.goRight(span, True)
+            return cursor, mode
+        if mode == "caret":
+            # Impress TextCursor.getString() can still return the whole shape for a
+            # collapsed caret; collapse explicitly so formatting paths see a caret.
+            collapse = getattr(cursor, "collapseToStart", None) or getattr(cursor, "collapseToEnd", None)
+            if callable(collapse):
+                try:
+                    collapse()
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        raise
         return cursor, mode
 
     def _select_paragraph(self, xtext: Any, cursor: Any, para_index: Any) -> tuple[Any, str | None]:

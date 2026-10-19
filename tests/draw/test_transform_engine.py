@@ -395,8 +395,8 @@ def test_select_text_forms_and_caret_bold() -> None:
 
     # [para, char] moves to caret and selects nothing
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6])
-    assert cursor.getString() == ""
+    selected, mode = eng._select_text(xtext, cursor, [0, 6])
+    assert selected.getString() == ""
     assert mode == "caret"
 
     # [para, char, endPara] selects from [para, char] through end of endPara
@@ -427,6 +427,37 @@ def test_select_text_forms_and_caret_bold() -> None:
     assert controller.selected == []
     assert "CharWeight" not in cursor.props
     assert any("caret" in w for w in eng.warnings)
+
+
+def test_select_text_caret_form_collapses_on_impress_quirk() -> None:
+    """SelectText [para, char] collapses even when getString still reports full text."""
+    eng, _calls, _controller = _dispatch_engine()
+    paragraphs = ["first paragraph", "second paragraph", "third paragraph"]
+    full_text = "\n".join(paragraphs)
+    xtext = SimpleNamespace(getString=lambda: full_text)
+
+    class _ImpressQuirkCursor(_OffsetCursor):
+        """Simulate Impress where a collapsed cursor reports full text from getString()."""
+
+        def getString(self) -> str:
+            if self.pos == self.anchor:
+                return self.text
+            return super().getString()
+
+        def isCollapsed(self) -> bool:
+            return self.pos == self.anchor
+
+        def collapseToStart(self) -> None:
+            self.anchor = self.pos
+
+    raw_cursor = _ImpressQuirkCursor(full_text)
+    selected, mode = eng._select_text(xtext, raw_cursor, [0, 6])
+    assert mode == "caret"
+    assert selected.isCollapsed()
+    # getString may still be the full shape on Impress; range form still works.
+    range_selected, range_mode = eng._select_text(xtext, selected, [1])
+    assert range_mode == "range"
+    assert range_selected.getString() == "second paragraph"
 
 
 def test_failed_insert_master_stops_sequence() -> None:

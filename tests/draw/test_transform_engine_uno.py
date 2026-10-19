@@ -98,9 +98,14 @@ def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
     cursor = xtext.createTextCursor()
     selected, mode = eng._select_text(xtext, cursor, [0, 6])
     assert mode == "caret", f"expected mode 'caret', got {mode!r}"
-    assert normalize_linebreaks(selected.getString()) == "", (
-        f"unexpected selection: {selected.getString()!r}"
-    )
+    # Impress may report full shape text from getString() on a collapsed caret.
+    is_collapsed = getattr(selected, "isCollapsed", None)
+    if callable(is_collapsed):
+        assert is_collapsed(), f"expected collapsed caret, getString={selected.getString()!r}"
+    else:
+        assert normalize_linebreaks(selected.getString()) == "", (
+            f"unexpected selection: {selected.getString()!r}"
+        )
 
     cursor = xtext.createTextCursor()
     selected, mode = eng._select_text(xtext, cursor, [0, 6, 1])
