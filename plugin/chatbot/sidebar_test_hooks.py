@@ -266,6 +266,22 @@ def _read_json_dict(path: str, *, retry: bool = False) -> dict[str, Any]:
     return {}
 
 
+def _replace_state_file(tmp_path: str, path: str) -> None:
+    """os.replace that rides out a reader holding *path* open.
+
+    Tip: on Windows, replace fails with WinError 5 while another thread or the
+    URP side has the old file open in _read_json_dict. Retry briefly.
+    """
+    for attempt in range(20):
+        try:
+            os.replace(tmp_path, path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.01)
+
+
 def _remove_quiet(path: str) -> None:
     with contextlib.suppress(OSError):
         os.remove(path)
@@ -291,7 +307,7 @@ def _fake_stt_refresh_locked() -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(_FAKE_STT_STATE, handle)
         handle.flush()
-    os.replace(tmp_path, path)
+    _replace_state_file(tmp_path, path)
 
 def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> None:
     _FAKE_STT_STATE["spawn_count"] = _FAKE_STT_STATE.get("spawn_count", 0) + 1
@@ -654,7 +670,7 @@ def _fake_tts_refresh_locked() -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(_FAKE_TTS_STATE, handle)
         handle.flush()
-    os.replace(tmp_path, path)
+    _replace_state_file(tmp_path, path)
 
 
 def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any]) -> None:
@@ -2998,7 +3014,7 @@ def _write_fake_vision_state() -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(_FAKE_VISION_STATE, f)
-    os.replace(tmp, path)
+    _replace_state_file(tmp, path)
 
 
 def fake_ocr_text(image_name: str) -> str:

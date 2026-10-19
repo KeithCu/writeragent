@@ -51,6 +51,8 @@ DESELECTED_K = (
     "test_best_effort_logs_and_swallows_everything",
     # Same: its DEBUG half expects a stripped log.debug payload.
     "test_styling_logging_counts_not_payloads",
+    # --strip drops grammar_obs calls, so this grammar_obs assert has nothing to see.
+    "test_locale_mismatch_proceeds_and_double_caches",
 )
 
 
