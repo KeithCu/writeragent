@@ -8,7 +8,7 @@ from __future__ import annotations
 
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from plugin.writer.math.latex_dialog import insert_latex_math_dialog
 from plugin.framework.config import get_config
@@ -56,11 +56,8 @@ def _first_math_formula(doc: Any) -> str:
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_success(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
-
     latex_input = r"a^2 + b^2 = c^2"
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=(latex_input, True)):
         # Call the dialog insertion entry point
@@ -85,11 +82,8 @@ def test_insert_latex_math_dialog_success(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_cancelled(ctx: Any, doc: Any) -> None:
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
-
     initial_count = _embed_count(doc)
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=None):
         insert_latex_math_dialog(ctx)
@@ -100,11 +94,8 @@ def test_insert_latex_math_dialog_cancelled(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_non_writer_fails(ctx: Any, doc: Any) -> None:
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
-
     # Patch is_writer to return False, simulating a spreadsheet or drawing document
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.is_writer", return_value=False), \
          patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox:
 
@@ -120,13 +111,10 @@ def test_insert_latex_math_dialog_non_writer_fails(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
-
     mock_exe = "mock_python"
     latex_input = r"E = m c^2"
 
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(mock_exe, True)), \
          patch("plugin.writer.math.latex_dialog.launch_monaco_editor") as mock_launch, \
          patch("plugin.writer.math.latex_dialog.set_config") as mock_set_config:
@@ -161,10 +149,8 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_multi_select_refuses(ctx: Any, doc: Any) -> None:
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
     initial_count = _embed_count(doc)
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[object(), object()]), \
          patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox, \
          patch("plugin.writer.math.latex_dialog.show_latex_input_dialog") as mock_dlg, \
@@ -209,10 +195,8 @@ def test_insert_latex_dialog_update_path_does_not_add_embed(ctx: Any, doc: Any) 
     name = str(eo.getElementNames()[0])
     embed = eo.getByName(name)
 
-    mock_desktop = MagicMock()
-    mock_desktop.getCurrentComponent.return_value = doc
     latex_input = r"x + y"
-    with patch("plugin.writer.math.latex_dialog.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
          patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=(latex_input, False)):
@@ -221,4 +205,62 @@ def test_insert_latex_dialog_update_path_does_not_add_embed(ctx: Any, doc: Any) 
     assert _embed_count(doc) == 1
     formula = _first_math_formula(doc)
     assert "x" in formula and "y" in formula
+
+
+@native_test
+@with_native_doc("writer")
+def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
+    from plugin.writer.math.math_mml_convert import insert_writer_math_formula
+    from plugin.writer.math.math_mml_export import MathExportResult
+    from plugin.framework.config import set_config
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    insert_writer_math_formula(doc, cur, "original_formula", display_block=False)
+    eo = doc.getEmbeddedObjects()
+    name = str(eo.getElementNames()[0])
+    embed = eo.getByName(name)
+
+    set_config("last_latex_input", "previous_session_latex")
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
+         patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
+         patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
+         patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
+         patch("plugin.writer.math.latex_dialog.msgbox"), \
+         patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=None) as mock_dlg:
+        insert_latex_math_dialog(ctx)
+        mock_dlg.assert_called_once_with(ctx, initial_text="", initial_display=False, update=True)
+
+    assert _embed_count(doc) == 1
+    assert "original_formula" in _first_math_formula(doc)
+
+
+@native_test
+@with_native_doc("writer")
+def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
+    from plugin.writer.math.math_mml_convert import insert_writer_math_formula
+    from plugin.framework.config import get_config, set_config
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    insert_writer_math_formula(doc, cur, "a + b", display_block=False)
+    eo = doc.getEmbeddedObjects()
+    name = str(eo.getElementNames()[0])
+    embed = eo.getByName(name)
+
+    set_config("last_latex_display_block", False)
+    with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
+         patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
+         patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
+         patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=(r"x + y", True)):
+        insert_latex_math_dialog(ctx)
+
+    assert _embed_count(doc) == 1
+    formula = _first_math_formula(doc)
+    assert "x" in formula and "y" in formula
+    assert get_config("last_latex_display_block") is False
 
