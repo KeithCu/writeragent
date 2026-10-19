@@ -216,7 +216,7 @@ def describe_data(
         )
 
     cols = list(df.columns)[:max_cols_val]
-    limited = df[cols]
+    limited = df[cols].copy()
     column_summaries: list[dict[str, Any]] = []
     flags: list[str] = []
     profile_messages: list[Any] = []

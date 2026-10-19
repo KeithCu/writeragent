@@ -143,9 +143,22 @@ def test_describe_data_empty_and_bad_max_cols():
     assert res_bad4["code"] == "INVALID_PARAM"
 
 
-def test_describe_data_flags_column_cap():
+def test_describe_data_flags_column_cap(monkeypatch):
     if not _has_working_data_profiling():
         pytest.skip("fg-data-profiling not usable on this platform")
+
+    # Tip: stub ProfileReport to verify column capping without heavy profiling crashing xdist workers.
+    class _StubReport:
+        def __init__(self, df, *args, **kwargs):
+            self._cols = list(df.columns)
+
+        def to_json(self):
+            import json
+
+            vars_dict = {col: {"type": "Categorical", "p_missing": 0.0, "n_unique": 1} for col in self._cols}
+            return json.dumps({"variables": vars_dict})
+
+    monkeypatch.setattr("data_profiling.ProfileReport", _StubReport)
     res = analysis.describe_data(SALES_GRID, max_cols=1)
     assert res["status"] == "ok"
     assert res["metrics"]["cols_analyzed"] == 1
