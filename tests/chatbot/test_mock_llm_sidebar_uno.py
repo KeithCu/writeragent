@@ -1719,6 +1719,12 @@ def _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener
         wait_for_chat_dialog_controls,
     )
 
+    if calc is not None:
+        # Let the new Calc window finish building its view and deck before closing it.
+        # E23 closed it about a second after open and LibreOffice crashed in an idle
+        # task on the half-built window (Window::GetCursor, ScTabViewShell::Deactivate).
+        wait_for_chat_dialog_controls(ctx, timeout=10.0, doc=calc)
+        time.sleep(0.5)
     close_component(calc)
     # Wait for the Calc window to finish closing before focusing Writer. Focusing
     # right away crashed LibreOffice once (Calc's half-closed view got the
