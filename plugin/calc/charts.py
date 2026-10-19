@@ -372,7 +372,6 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
     not run). Callers must stop instead of spinning on the UI thread.
     """
     import os
-    import time
 
     if deadline is not None and time.monotonic() >= deadline:
         return False
@@ -394,6 +393,7 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
         return bool(process_events_to_idle(uctx))
     except Exception:
         # Avoid letting UI event processing crash the tool
+        log.debug("chart event pump failed", exc_info=True)
         return False
 
 
@@ -411,8 +411,6 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
     keeps calling ``_process_events``, and ``processEventsToIdle`` does
     not return when idle never arrives, which freezes the UI thread.
     """
-    import time
-
     deadline = time.monotonic() + max(0.0, float(timeout))
     chart_doc = _chart_document_from_host(chart_obj)
     if chart_doc is not None:
@@ -597,17 +595,31 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
         _chart_step(warnings, "legend visibility", _set_legend_vis)
 
     legend_pos = kwargs.get("legend_position")
-    if legend_pos and getattr(chart_doc, "HasLegend", False):
-        def _set_legend_pos() -> None:
-            if legend_pos == "none":
+    if legend_pos:
+        if legend_pos == "none":
+            def _hide_legend() -> None:
                 chart_doc.HasLegend = False
                 log.debug("Set legend position: none")
-            elif legend_pos in _LEGEND_POSITION_MEMBER:
-                member = _LEGEND_POSITION_MEMBER[legend_pos]
-                # Tip: Alignment takes ChartLegendPosition; ChartLegendAlignment is not in the API.
-                chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
-                log.debug("Set legend position: %s", legend_pos)
-        _chart_step(warnings, "legend position", _set_legend_pos)
+            _chart_step(warnings, "legend position", _hide_legend)
+        elif legend_pos in _LEGEND_POSITION_MEMBER:
+            if has_legend is False:
+                msg = f"legend_position '{legend_pos}' ignored because has_legend is false"
+                warnings.append(msg)
+                log.warning("%s", msg)
+            else:
+                def _set_legend_pos() -> None:
+                    # Setting legend_position enables the legend like title setters enable titles;
+                    # previously a False HasLegend silently skipped placement.
+                    chart_doc.HasLegend = True
+                    member = _LEGEND_POSITION_MEMBER[legend_pos]
+                    # Tip: Alignment takes ChartLegendPosition; ChartLegendAlignment is not in the API.
+                    chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
+                    log.debug("Set legend position: %s", legend_pos)
+                _chart_step(warnings, "legend position", _set_legend_pos)
+        else:
+            msg = f"Invalid legend_position: '{legend_pos}'"
+            warnings.append(msg)
+            log.warning("%s", msg)
 
     # 6. Background Color
     bg_color = kwargs.get("bg_color")
@@ -642,11 +654,15 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 if diag:
                     coords = diag.getCoordinateSystems()
                     series_count = 0
+                    # Counter spans all chart types; the old enumerate restarted per type repeating colors[0].
+                    series_idx = 0
                     for coord in coords:
                         ctypes = coord.getChartTypes()
                         for ctype in ctypes:
                             series_list = ctype.getDataSeries()
-                            for idx, s in enumerate(series_list):
+                            for s in series_list:
+                                idx = series_idx
+                                series_idx += 1
                                 color_val = parsed_colors[idx % len(parsed_colors)]
                                 try:
                                     prop_info = s.getPropertySetInfo()
@@ -861,24 +877,19 @@ def _lookup_chart(
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
-        try:
-            page_obj = doc.getDrawPage()
-            for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
-                if isinstance(shape_type, Exception):
-                    raise shape_type
-                try:
-                    if shape_type != "com.sun.star.drawing.OLE2Shape":
-                        continue
-                    if (shape.Name or "") == name and _is_chart_host(shape, is_embed=False):
-                        return ChartLookup(ref=ChartRef(shape, parent, "writer_draw_page", None))
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        continue
-                    raise
-        except Exception as exc:
-            if is_real_disposal(exc):
+        page_obj = doc.getDrawPage()
+        for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
+            if isinstance(shape_type, Exception):
+                raise shape_type
+            try:
+                if shape_type != "com.sun.star.drawing.OLE2Shape":
+                    continue
+                if (shape.Name or "") == name and _is_chart_host(shape, is_embed=False):
+                    return ChartLookup(ref=ChartRef(shape, parent, "writer_draw_page", None))
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    continue
                 raise
-            raise
         return ChartLookup()
     elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
         draw_pages = doc.getDrawPages()
@@ -1443,21 +1454,16 @@ class UpsertChart(ToolBaseDummy):
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
-        try:
-            page = doc.getDrawPage()
-            for s, _p, _st in _iter_page_shapes(page, doc):
-                try:
-                    nm = getattr(s, "Name", None)
-                    if nm:
-                        existing_names.add(nm)
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        continue
-                    raise
-        except Exception as exc:
-            if is_real_disposal(exc):
+        page = doc.getDrawPage()
+        for s, _p, _st in _iter_page_shapes(page, doc):
+            try:
+                nm = getattr(s, "Name", None)
+                if nm:
+                    existing_names.add(nm)
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    continue
                 raise
-            raise
         name = _unique_chart_name(existing_names)
 
         # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
@@ -1742,13 +1748,15 @@ class ManageCharts(ToolCalcChartBase):
         if not ok:
             return False, err or "invalid parameters"
         action = kwargs.get("action")
+        if action in ("get_info", "delete") and "name" not in kwargs:
+            return False, f"Parameter 'name' is required when action is '{action}'"
         if action in ("create", "edit"):
             return _validate_chart_action(kwargs, doc_type)
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # action (required + enum), create chart_type, and edit name are
-        # rejected by validate() before execute. get_info/delete name are not.
+        # action (required + enum), create chart_type, and edit/get_info/delete name are
+        # rejected by validate() before execute. Direct execute checks remain below.
         action = kwargs.get("action")
 
         if action == "list":

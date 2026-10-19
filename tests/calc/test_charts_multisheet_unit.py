@@ -238,6 +238,41 @@ def test_legend_position_uses_chart_legend_position_enum():
     charts.removeByName.assert_not_called()
 
 
+def test_legend_position_enables_legend_when_initially_false():
+    from plugin.calc.charts import _CHART_LEGEND_POSITION_ENUM, _apply_chart_styling
+
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = False
+    with patch("plugin.calc.charts.uno.Enum", return_value="legend-bottom") as enum:
+        warnings = _apply_chart_styling(chart_doc, legend_position="bottom")
+    assert chart_doc.HasLegend is True
+    enum.assert_called_once_with(_CHART_LEGEND_POSITION_ENUM, "BOTTOM")
+    assert warnings == []
+
+
+def test_legend_position_ignored_when_has_legend_is_false():
+    from plugin.calc.charts import _apply_chart_styling
+
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = False
+    with patch("plugin.calc.charts.uno.Enum") as enum:
+        warnings = _apply_chart_styling(chart_doc, has_legend=False, legend_position="bottom")
+    assert chart_doc.HasLegend is False
+    enum.assert_not_called()
+    assert any("legend_position" in w and "has_legend" in w for w in warnings)
+
+
+def test_legend_position_none_with_has_legend_false_stays_false():
+    from plugin.calc.charts import _apply_chart_styling
+
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = False
+    with patch("plugin.calc.charts.uno.Enum") as enum:
+        warnings = _apply_chart_styling(chart_doc, legend_position="none")
+    assert chart_doc.HasLegend is False
+    enum.assert_not_called()
+
+
 def test_legend_runtime_exception_removes_inserted_calc_chart():
     """A legend RuntimeException produces a warning and keeps the chart."""
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
@@ -421,6 +456,22 @@ def test_manage_charts_validate_create_requires_data_or_arrays():
     ok, err = mc.validate(doc_type="writer", action="create", chart_type="column", headers=["Category", "A"], rows=[["x", 1]])
     assert ok is True
 
+
+def test_manage_charts_validate_name_required_for_get_info_and_delete():
+    from plugin.calc.charts import ManageCharts
+
+    mc = ManageCharts()
+    for act in ("get_info", "delete"):
+        ok, err = mc.validate(doc_type="calc", action=act)
+        assert ok is False
+        assert err is not None
+        assert "name" in err
+
+        ok, err = mc.validate(doc_type="calc", action=act, name="Chart_0")
+        assert (ok, err) == (True, None)
+
+    ok, err = mc.validate(doc_type="calc", action="list")
+    assert (ok, err) == (True, None)
 
 
 def test_find_calc_chart_honors_sheet_name():

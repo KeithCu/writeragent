@@ -351,6 +351,42 @@ def test_series_color_still_stops_on_other_errors():
     live.setPropertyValue.assert_not_called()
 
 
+def test_series_colors_continue_across_chart_types():
+    series_a = MagicMock()
+    series_a.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+    series_b = MagicMock()
+    series_b.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+    series_c = MagicMock()
+    series_c.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+
+    type1 = MagicMock(getDataSeries=MagicMock(return_value=[series_a, series_b]))
+    type2 = MagicMock(getDataSeries=MagicMock(return_value=[series_c]))
+
+    coord = MagicMock()
+    coord.getChartTypes.return_value = [type1, type2]
+    diag = MagicMock()
+    diag.getCoordinateSystems.return_value = [coord]
+    chart_doc = MagicMock()
+    chart_doc.getFirstDiagram.return_value = diag
+
+    _apply_chart_styling(chart_doc, colors=["#FF0000", "#00FF00", "#0000FF"])
+    assert series_a.setPropertyValue.call_args_list == [
+        call("Color", 0xFF0000),
+        call("FillColor", 0xFF0000),
+        call("LineColor", 0xFF0000),
+    ]
+    assert series_b.setPropertyValue.call_args_list == [
+        call("Color", 0x00FF00),
+        call("FillColor", 0x00FF00),
+        call("LineColor", 0x00FF00),
+    ]
+    assert series_c.setPropertyValue.call_args_list == [
+        call("Color", 0x0000FF),
+        call("FillColor", 0x0000FF),
+        call("LineColor", 0x0000FF),
+    ]
+
+
 def test_await_writer_chart_stops_when_idle_never_arrives(monkeypatch):
     clock = _Clock()
     pumps: list[float | None] = []
