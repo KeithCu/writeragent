@@ -132,6 +132,8 @@ jobs:
         run: |
           choco install libreoffice-fresh gettext make -y || true
           echo "C:\\Program Files\\LibreOffice\\program" >> $GITHUB_PATH
+          # choco gettext does not add itself to PATH; extract_strings.py needs xgettext/msgmerge.
+          echo "C:\\Program Files\\gettext-iconv\\bin" >> $GITHUB_PATH
           # typecheck runs opengrep-lint; Linux/macOS install this, Windows did not.
           powershell -NoProfile -ExecutionPolicy Bypass -Command \
             "irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex" || true
