@@ -72,6 +72,7 @@ rules:
           - pattern: get_document_end(...)
           - pattern: get_document_length(...)
           - pattern: get_text_cursor_at_range(...)
+          - pattern: get_text_cursor_at_range_reached(...)
           - pattern: get_selection_range(...)
           - pattern: get_paragraph_ranges(...)
           - pattern: build_heading_tree(...)

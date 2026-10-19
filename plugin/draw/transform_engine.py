@@ -13,9 +13,15 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.writer.edit_review import WriterCompoundUndo
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.transform_schema import get_slide_commands, is_deferred_command_key, resolve_layout_id
+from plugin.draw.transform_schema import (
+    AUTOLAYOUT_ID,
+    get_slide_commands,
+    is_deferred_command_key,
+    resolve_layout_id,
+)
+from plugin.framework.errors import is_disposed_exception
+from plugin.writer.edit_review import WriterCompoundUndo
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -25,30 +31,51 @@ log = logging.getLogger(__name__)
 _SET_TEXT_RE = re.compile(r"^SetText\.(\d+)$", re.I)
 _EDIT_TEXT_RE = re.compile(r"^EditTextObject\.(\d+)$", re.I)
 _MOVE_SLIDE_RE = re.compile(r"^MoveSlide\.(\d+)$", re.I)
+_VALID_LAYOUT_IDS = frozenset(AUTOLAYOUT_ID.values())
 
 
-def _text_shapes(page: Any) -> list[Any]:
-    shapes = []
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if hasattr(shape, "getString") or hasattr(shape, "getText"):
-            shapes.append(shape)
-    return shapes
-
-
-def _set_shape_text(shape: Any, text: str) -> None:
-    if hasattr(shape, "getText"):
+def _set_shape_text(shape: Any, text: str) -> bool:
+    if hasattr(shape, "getText") and callable(getattr(shape, "getText", None)):
         try:
             xtext = shape.getText()
-            xtext.setString(text)
-            return
+            if xtext is not None and hasattr(xtext, "setString") and callable(getattr(xtext, "setString", None)):
+                xtext.setString(text)
+                # Ensure \n creates paragraph breaks if setString left a single paragraph.
+                if "\n" in text and hasattr(xtext, "createEnumeration") and callable(getattr(xtext, "createEnumeration", None)):
+                    enum = xtext.createEnumeration()
+                    para_count = 0
+                    while enum.hasMoreElements():
+                        enum.nextElement()
+                        para_count += 1
+                    if para_count <= 1:
+                        lines = text.split("\n")
+                        xtext.setString(lines[0])
+                        cursor = xtext.createTextCursor()
+                        cursor.gotoEnd(False)
+                        for line in lines[1:]:
+                            try:
+                                from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+                            except Exception:
+                                PARAGRAPH_BREAK = 0
+                            try:
+                                xtext.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                            except Exception:
+                                pass
+                            cursor.setString(line)
+                            cursor.gotoEnd(False)
+                return True
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
-            # no-op after the dispose re-raise; non-dispose falls through
-    if hasattr(shape, "setString"):
-        shape.setString(text)
+            # non-dispose falls through
+    if hasattr(shape, "setString") and callable(getattr(shape, "setString", None)):
+        try:
+            shape.setString(text)
+            return True
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+    return False
 
 
 def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool = True) -> int | None:
@@ -57,6 +84,8 @@ def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool =
     clamp=False rejects an out-of-range number. DeleteSlide and DuplicateSlide
     use that: clamping made {"DeleteSlide": 99} delete the last slide.
     """
+    if isinstance(val, bool):
+        return None
     if val == "" or val is None:
         return current
     if isinstance(val, str) and val.strip().lower() == "last":
@@ -123,7 +152,6 @@ def _cursor_string(obj: Any) -> str | None:
         try:
             val = getter()
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
             return None
@@ -143,7 +171,6 @@ def _shape_text_string(shape: Any) -> str | None:
         try:
             text = getter()
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
             text = None
@@ -216,14 +243,12 @@ def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
             setter(name, value)
             return True
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
             log.debug("cursor setPropertyValue %s failed", name, exc_info=True)
     try:
         setattr(cursor, name, value)
     except Exception as e:
-        from plugin.framework.errors import is_disposed_exception
         if is_disposed_exception(e):
             raise
         log.debug("cursor attribute %s failed", name, exc_info=True)
@@ -231,7 +256,12 @@ def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
     return True
 
 
-def _apply_cursor_uno_format(cursor: Any, uno_name: str, arguments: dict[str, Any]) -> bool:
+def _apply_cursor_uno_format(
+    cursor: Any,
+    uno_name: str,
+    arguments: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> bool:
     """Write a formatting ``.uno`` command onto *cursor*'s selection.
 
     Moving an independent ``XTextCursor`` and then only ``select``ing
@@ -245,13 +275,15 @@ def _apply_cursor_uno_format(cursor: Any, uno_name: str, arguments: dict[str, An
     pairs = _cursor_format_pairs(uno_name, arguments)
     if not pairs:
         return False
-    applied = False
+    applied_count = 0
     for name, value in pairs:
         if _set_text_prop(cursor, name, value):
-            applied = True
+            applied_count += 1
         else:
+            if applied_count > 0 and warnings is not None:
+                warnings.append("Property %s failed after partial format application" % name)
             return False
-    return applied
+    return applied_count > 0
 
 
 class SlideCommandEngine:
@@ -268,26 +300,64 @@ class SlideCommandEngine:
         self.doc = tctx.doc
         self.bridge = DrawBridge(self.doc)
         self.pages = self.bridge.get_pages()
-        self.current_slide = tctx.active_page_index if tctx.active_page_index is not None else self.bridge.get_active_page_index()
+        raw_current = (
+            tctx.active_page_index
+            if getattr(tctx, "active_page_index", None) is not None
+            else self.bridge.get_active_page_index()
+        )
+        try:
+            count = int(self._page_count())
+        except (TypeError, ValueError):
+            count = 0
+        try:
+            raw_idx = int(raw_current) if raw_current is not None else 0
+        except (TypeError, ValueError):
+            raw_idx = 0
+        self.current_slide = max(0, min(raw_idx, count - 1)) if count > 0 else 0
         self.applied: list[str] = []
         self.warnings: list[str] = []
+        self._selection_mode: str = "none"
 
     def apply(self, transform_obj: dict[str, Any]) -> dict[str, Any]:
         try:
+            # Compound undo groups transform operations without rollback.
             with WriterCompoundUndo(self.doc, "WriterAgent: Transform document structure"):
                 top_uno = transform_obj.get("UnoCommand")
                 if top_uno is not None:
+                    # Top-level UnoCommand runs before SlideCommands.
                     self._apply_top_level_uno(top_uno)
-                for cmd in get_slide_commands(transform_obj):
-                    self._apply_command(cmd)
+                    self.current_slide = self.bridge.get_active_page_index()
+                cmds = get_slide_commands(transform_obj)
+                for idx, cmd in enumerate(cmds):
+                    if not self._apply_command(cmd):
+                        self.bridge.set_current_page_index(self.current_slide)
+                        msg = self.warnings[-1] if self.warnings else "Command failed"
+                        return {
+                            "status": "error",
+                            "message": msg,
+                            "failed_at": idx,
+                            "applied": self.applied,
+                            "warnings": self.warnings,
+                            "current_slide": self.current_slide,
+                        }
                 self.bridge.set_current_page_index(self.current_slide)
-                return {"status": "ok", "current_slide": self.current_slide, "applied": self.applied, "warnings": self.warnings}
+                return {
+                    "status": "ok",
+                    "current_slide": self.current_slide,
+                    "applied": self.applied,
+                    "warnings": self.warnings,
+                }
         except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(exc):
                 raise
             log.exception("SlideCommandEngine.apply failed")
-            return {"status": "error", "message": str(exc), "applied": self.applied, "warnings": self.warnings}
+            return {
+                "status": "error",
+                "message": str(exc),
+                "applied": self.applied,
+                "warnings": self.warnings,
+                "current_slide": self.current_slide,
+            }
 
     def _page_count(self) -> int:
         return self.pages.getCount()
@@ -295,7 +365,7 @@ class SlideCommandEngine:
     def _current_page(self) -> Any:
         return self.pages.getByIndex(self.current_slide)
 
-    def _apply_command(self, cmd: dict[str, Any]) -> None:
+    def _apply_command(self, cmd: dict[str, Any]) -> bool:
         for key, value in cmd.items():
             if is_deferred_command_key(key):
                 self.warnings.append("%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key)
@@ -311,25 +381,44 @@ class SlideCommandEngine:
                 found = self._jump_to_name(str(value))
                 if found is None:
                     self.warnings.append("JumpToSlideByName: slide not found: %r" % value)
+                    return False
             elif key == "InsertMasterSlide":
-                self._insert_master(master_index=int(value))
+                if isinstance(value, bool):
+                    self.warnings.append("Invalid InsertMasterSlide index: %r" % value)
+                    return False
+                try:
+                    master_idx = int(value)
+                except (TypeError, ValueError):
+                    self.warnings.append("Invalid InsertMasterSlide index: %r" % value)
+                    return False
+                if not self._insert_master(master_index=master_idx):
+                    return False
             elif key == "InsertMasterSlideByName":
-                self._insert_master(master_name=str(value))
+                if not self._insert_master(master_name=str(value)):
+                    return False
             elif key == "DeleteSlide":
                 self._delete_slide(value)
             elif key == "DuplicateSlide":
                 self._duplicate_slide(value)
             elif key == "MoveSlide":
-                self._move_slide(self.current_slide, int(value))
+                if isinstance(value, bool):
+                    self.warnings.append("Invalid MoveSlide index: %r" % value)
+                    return False
+                try:
+                    to_idx = int(value)
+                except (TypeError, ValueError):
+                    self.warnings.append("Invalid MoveSlide index: %r" % value)
+                    return False
+                if not self._move_slide(self.current_slide, to_idx):
+                    return False
             elif key == "RenameSlide":
                 if self.bridge.rename_slide(self.current_slide, str(value)):
                     self.applied.append("RenameSlide:%s" % value)
                 else:
                     self.warnings.append("RenameSlide failed")
-            elif key == "ChangeLayoutByName":
-                self._set_layout(resolve_layout_id(value), key)
-            elif key == "ChangeLayout":
-                self._set_layout(resolve_layout_id(value), key)
+            elif key in ("ChangeLayout", "ChangeLayoutByName"):
+                if not self._set_layout(resolve_layout_id(value), key):
+                    return False
             elif key == "UnoCommand":
                 self._dispatch_uno_string(value)
                 self.applied.append("UnoCommand:%s" % value)
@@ -347,9 +436,20 @@ class SlideCommandEngine:
                     continue
                 m = _MOVE_SLIDE_RE.match(key)
                 if m:
-                    self._move_slide(int(m.group(1)), int(value))
+                    from_idx = int(m.group(1))
+                    if isinstance(value, bool):
+                        self.warnings.append("Invalid MoveSlide index: %r" % value)
+                        return False
+                    try:
+                        to_idx = int(value)
+                    except (TypeError, ValueError):
+                        self.warnings.append("Invalid MoveSlide index: %r" % value)
+                        return False
+                    if not self._move_slide(from_idx, to_idx):
+                        return False
                     continue
                 self.warnings.append("Unknown or unsupported command key: %s" % key)
+        return True
 
     def _jump_to_name(self, name: str) -> int | None:
         for i in range(self._page_count()):
@@ -360,23 +460,28 @@ class SlideCommandEngine:
                     self.applied.append("JumpToSlideByName:%s" % name)
                     return i
             except Exception as e:
-                from plugin.framework.errors import is_disposed_exception
                 if is_disposed_exception(e):
                     raise
                 # no-op after the dispose re-raise; non-dispose falls through
         return None
 
-    def _insert_master(self, master_index: int | None = None, master_name: str | None = None) -> None:
+    def _insert_master(self, master_index: int | None = None, master_name: str | None = None) -> bool:
         try:
-            _unused, new_idx = self.bridge.insert_slide_from_master(master_index=master_index, master_name=master_name, after_index=self.current_slide, switch=True)
+            _unused, new_idx = self.bridge.insert_slide_from_master(
+                master_index=master_index,
+                master_name=master_name,
+                after_index=self.current_slide,
+                switch=True,
+            )
             self.current_slide = new_idx
             self.pages = self.bridge.get_pages()
             self.applied.append("InsertMasterSlide:%d" % new_idx)
+            return True
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
             self.warnings.append(f"InsertMasterSlide: {e}")
+            return False
 
     def _delete_slide(self, val: Any) -> None:
         idx = _parse_slide_index(val, self.current_slide, self._page_count(), clamp=False)
@@ -401,103 +506,204 @@ class SlideCommandEngine:
         self.current_slide = min(idx + 1, self._page_count() - 1)
         self.applied.append("DuplicateSlide:%d" % idx)
 
-    def _move_slide(self, from_idx: int, to_idx: int) -> None:
+    def _move_slide(self, from_idx: int, to_idx: int) -> bool:
         if self.bridge.move_slide(from_idx, to_idx):
             self.pages = self.bridge.get_pages()
             self.current_slide = _current_after_move(self.current_slide, from_idx, to_idx)
             self.applied.append("MoveSlide:%d->%d" % (from_idx, to_idx))
+            return True
         else:
             self.warnings.append("MoveSlide failed %d -> %d" % (from_idx, to_idx))
+            return False
 
-    def _set_layout(self, layout_id: int | None, key: str) -> None:
-        if layout_id is None:
+    def _set_layout(self, layout_id: int | None, key: str) -> bool:
+        if layout_id is None or layout_id not in _VALID_LAYOUT_IDS:
             self.warnings.append("Unknown layout in %s" % key)
-            return
+            return False
         page = self._current_page()
         page.Layout = layout_id
         self.applied.append("%s:%d" % (key, layout_id))
+        return True
 
     def _set_text_index(self, shape_index: int, text: str) -> None:
-        shapes = _text_shapes(self._current_page())
-        if shape_index < 0 or shape_index >= len(shapes):
-            self.warnings.append("SetText.%d: shape index out of range (have %d text shapes)" % (shape_index, len(shapes)))
+        page = self._current_page()
+        count = page.getCount() if hasattr(page, "getCount") and callable(getattr(page, "getCount", None)) else 0
+        if shape_index < 0 or shape_index >= count:
+            self.warnings.append("SetText.%d: shape index out of range (have %d shapes)" % (shape_index, count))
             return
-        _set_shape_text(shapes[shape_index], text)
-        self.applied.append("SetText.%d" % shape_index)
+        shape = page.getByIndex(shape_index)
+        if not hasattr(shape, "getText") or not callable(getattr(shape, "getText", None)):
+            self.warnings.append("SetText.%d: shape has no callable getText" % shape_index)
+            return
+        if _set_shape_text(shape, text):
+            self.applied.append("SetText.%d" % shape_index)
+        else:
+            self.warnings.append("SetText.%d: failed to set text" % shape_index)
 
     def _edit_text_object(self, shape_index: int, subcmds: list[Any]) -> None:
-        shapes = _text_shapes(self._current_page())
-        if shape_index < 0 or shape_index >= len(shapes):
+        page = self._current_page()
+        count = page.getCount() if hasattr(page, "getCount") and callable(getattr(page, "getCount", None)) else 0
+        if shape_index < 0 or shape_index >= count:
             self.warnings.append("EditTextObject.%d: shape index out of range" % shape_index)
             return
-        shape = shapes[shape_index]
+        shape = page.getByIndex(shape_index)
+        if not hasattr(shape, "getText") or not callable(getattr(shape, "getText", None)):
+            self.warnings.append("EditTextObject.%d: shape has no callable getText" % shape_index)
+            return
         cursor = None
         xtext = None
-        if hasattr(shape, "getText"):
-            try:
-                xtext = shape.getText()
+        try:
+            xtext = shape.getText()
+            if xtext is not None and hasattr(xtext, "createTextCursor") and callable(getattr(xtext, "createTextCursor", None)):
                 cursor = xtext.createTextCursor()
-            except Exception as exc:
-                from plugin.framework.errors import is_disposed_exception
-                if is_disposed_exception(exc):
-                    raise
-                self.warnings.append("EditTextObject.%d: no text: %s" % (shape_index, exc))
-                return
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            self.warnings.append("EditTextObject.%d: no text: %s" % (shape_index, exc))
+            return
+        if cursor is None or xtext is None:
+            self.warnings.append("EditTextObject.%d: failed to create text cursor" % shape_index)
+            return
+
+        self._selection_mode = "none"
+        warnings_before = len(self.warnings)
+        success = True
+        recognized_count = 0
+
         for sub in subcmds:
             if not isinstance(sub, dict):
+                self.warnings.append("EditTextObject.%d: sub-command must be an object: %r" % (shape_index, sub))
+                success = False
                 continue
             for sk, sv in sub.items():
                 if sk == "SelectText":
+                    recognized_count += 1
                     cursor = self._select_text(xtext, cursor, sv)
                 elif sk == "SelectParagraph":
-                    cursor = self._select_paragraph(xtext, cursor, int(sv))
+                    recognized_count += 1
+                    cursor = self._select_paragraph(xtext, cursor, sv)
                 elif sk == "InsertText":
-                    if cursor is not None and xtext is not None:
+                    recognized_count += 1
+                    try:
                         cursor.setString(str(sv))
-                    elif hasattr(shape, "setString"):
-                        shape.setString(str(sv))
+                        self._selection_mode = "caret"
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            raise
+                        self.warnings.append("InsertText failed: %s" % exc)
+                        success = False
                 elif sk == "UnoCommand":
-                    self._dispatch_uno_string(sv, cursor=cursor, shape=shape)
-        self.applied.append("EditTextObject.%d" % shape_index)
+                    recognized_count += 1
+                    if not self._dispatch_uno_string(sv, cursor=cursor, shape=shape, selection_mode=self._selection_mode):
+                        success = False
+                else:
+                    self.warnings.append("Unknown EditTextObject sub-command: %s" % sk)
+                    success = False
+
+        if success and len(self.warnings) == warnings_before and recognized_count > 0:
+            self.applied.append("EditTextObject.%d" % shape_index)
 
     def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> Any:
         if cursor is None or xtext is None:
             return cursor
-        cursor.gotoStart(False)
         if spec == [] or spec is None:
+            cursor.gotoStart(False)
             cursor.gotoEnd(True)
+            self._selection_mode = "all"
             return cursor
-        if isinstance(spec, list) and len(spec) == 1:
-            cursor.gotoStartOfParagraph(False)
-            for _unused in range(int(spec[0])):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.gotoEndOfParagraph(True)
+        if not isinstance(spec, list):
+            self.warnings.append("SelectText requires a list or empty array: %r" % spec)
             return cursor
-        if isinstance(spec, list) and len(spec) >= 4:
-            para, start, end_para, end_char = int(spec[0]), int(spec[1]), int(spec[2]), int(spec[3])
+        int_spec: list[int] = []
+        for item in spec:
+            if isinstance(item, bool):
+                self.warnings.append("Invalid non-int element in SelectText: %r" % item)
+                return cursor
+            try:
+                int_spec.append(int(item))
+            except (TypeError, ValueError):
+                self.warnings.append("Invalid non-int element in SelectText: %r" % item)
+                return cursor
+
+        n = len(int_spec)
+        if n == 1:
+            para = int_spec[0]
+            if para < 0:
+                self.warnings.append("SelectText: negative paragraph index %d" % para)
+                return cursor
             cursor.gotoStart(False)
             for _unused in range(para):
                 if not cursor.gotoNextParagraph(False):
                     break
-            cursor.goRight(start, False)
-            for _unused in range(end_para - para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(end_char, True)
+            cursor.gotoStartOfParagraph(False)
+            cursor.gotoEndOfParagraph(True)
+            self._selection_mode = "range"
             return cursor
-        if isinstance(spec, list) and len(spec) == 2:
-            para, char = int(spec[0]), int(spec[1])
+        elif n == 2:
+            para, char = int_spec[0], int_spec[1]
+            if para < 0 or char < 0:
+                self.warnings.append("SelectText: negative index [%d, %d]" % (para, char))
+                return cursor
             cursor.gotoStart(False)
             for _unused in range(para):
                 if not cursor.gotoNextParagraph(False):
                     break
             cursor.goRight(char, False)
+            self._selection_mode = "caret"
             return cursor
-        return cursor
+        elif n == 3:
+            para, char, end_para = int_spec[0], int_spec[1], int_spec[2]
+            if para < 0 or char < 0 or end_para < 0 or end_para < para:
+                self.warnings.append("SelectText: negative or invalid span [%d, %d, %d]" % (para, char, end_para))
+                return cursor
+            cursor.gotoStart(False)
+            for _unused in range(para):
+                if not cursor.gotoNextParagraph(False):
+                    break
+            cursor.goRight(char, False)
+            for _unused in range(end_para - para):
+                if not cursor.gotoNextParagraph(True):
+                    break
+            cursor.gotoEndOfParagraph(True)
+            self._selection_mode = "range"
+            return cursor
+        elif n >= 4:
+            para, start, end_para, end_char = int_spec[0], int_spec[1], int_spec[2], int_spec[3]
+            if para < 0 or start < 0 or end_para < 0 or end_char < 0:
+                self.warnings.append("SelectText: negative coordinates [%d, %d, %d, %d]" % (para, start, end_para, end_char))
+                return cursor
+            if end_para < para or (end_para == para and end_char < start):
+                self.warnings.append("SelectText: negative span [%d, %d] to [%d, %d]" % (para, start, end_para, end_char))
+                return cursor
+            cursor.gotoStart(False)
+            for _unused in range(para):
+                if not cursor.gotoNextParagraph(False):
+                    break
+            cursor.goRight(start, False)
+            if end_para == para:
+                span = end_char - start
+                cursor.goRight(span, True)
+            else:
+                for _unused in range(end_para - para):
+                    if not cursor.gotoNextParagraph(True):
+                        break
+                cursor.goRight(end_char, True)
+            self._selection_mode = "range"
+            return cursor
+        else:
+            self.warnings.append("Invalid SelectText specification: %r" % spec)
+            return cursor
 
-    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: int) -> Any:
-        return self._select_text(xtext, cursor, [para_index])
+    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: Any) -> Any:
+        if isinstance(para_index, bool):
+            self.warnings.append("Invalid SelectParagraph index: %r" % para_index)
+            return cursor
+        try:
+            val = int(para_index)
+        except (TypeError, ValueError):
+            self.warnings.append("Invalid SelectParagraph index: %r" % para_index)
+            return cursor
+        return self._select_text(xtext, cursor, [val])
 
     def _apply_top_level_uno(self, uno_spec: Any) -> None:
         if isinstance(uno_spec, dict):
@@ -509,7 +715,7 @@ class SlideCommandEngine:
             if self._dispatch_uno_string(uno_spec):
                 self.applied.append("UnoCommand")
 
-    def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None) -> bool:
+    def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None, selection_mode: str = "none") -> bool:
         if not isinstance(cmd, str):
             return False
         cmd = cmd.strip()
@@ -526,10 +732,13 @@ class SlideCommandEngine:
             loaded = safe_json_loads(arg_json, default={})
             if isinstance(loaded, dict):
                 parsed = loaded
-        # Range-scoped Bold/Italic must hit the cursor from SelectText.
-        # Selecting the shape and dispatching formats every character.
-        if _text_cursor_is_partial_selection(cursor, shape):
-            if _apply_cursor_uno_format(cursor, uno_name, parsed):
+        if selection_mode == "caret":
+            self.warnings.append("UnoCommand %s cannot be applied to a collapsed caret selection" % uno_name)
+            return False
+        # Range-scoped formatting must hit the SelectText cursor; selecting the
+        # shape and dispatching would format every character.
+        if selection_mode == "range" or _text_cursor_is_partial_selection(cursor, shape):
+            if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
                 return True
             self.warnings.append("UnoCommand %s was not applied to the text selection" % uno_name)
             return False
@@ -545,14 +754,12 @@ class SlideCommandEngine:
                 try:
                     controller.select(shape)
                 except Exception as e:
-                    from plugin.framework.errors import is_disposed_exception
                     if is_disposed_exception(e):
                         raise
                     # no-op after the dispose re-raise; non-dispose falls through
             dispatcher.executeDispatch(frame, uno_name, "", 0, props)
             return True
         except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(exc):
                 raise
             self.warnings.append("UnoCommand %s failed: %s" % (uno_name, exc))
@@ -570,7 +777,6 @@ class SlideCommandEngine:
             dispatcher.executeDispatch(frame, name, "", 0, props)
             return True
         except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(exc):
                 raise
             self.warnings.append("UnoCommand %s failed: %s" % (name, exc))

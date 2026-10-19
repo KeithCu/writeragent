@@ -713,3 +713,17 @@ def test_candidate_sentence_spans_merges_dialogue() -> None:
     assert spans[0][2] == '"Fire! Fire!" he yelled. '
     assert spans[1][2] == "Next sentence."
 
+
+def test_slice_preview_debug_long_word_run_ellipsis() -> None:
+    text = "a" * 100
+    preview = gt.slice_preview_debug(text, max_len=10)
+    assert preview == "a" * 10 + "\u2026"
+    assert len(preview) == 11
+
+
+def test_slice_preview_debug_leading_whitespace_run() -> None:
+    text = "   \t\n   " * 10 + "hello world"
+    preview = gt.slice_preview_debug(text, max_len=20)
+    assert preview == "hello world"
+
+

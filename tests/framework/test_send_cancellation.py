@@ -268,12 +268,8 @@ def test_agent_session_success_does_not_cancel():
         assert not item.cancelled
         assert is_agent_active() is False
     finally:
-        # What was wrong: this item stayed on the process-wide work queue after
-        # a passing test. The next test on the same xdist worker saw qsize() != 0.
-        # How it happened: the assertion only checks that success does not cancel;
-        # nothing dequeued the item.
-        # Why this change: put back only items this test did not add, or
-        # wait_while_pumping skips its off-main post for the whole timeout.
+        # Put back only items this test did not add so leftover items from this test
+        # do not pollute subsequent tests on the same worker.
         leftover: list[object] = []
         while True:
             try:

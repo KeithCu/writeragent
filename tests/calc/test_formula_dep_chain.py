@@ -252,3 +252,71 @@ def test_precedents_via_formula_query_small_range_is_not_truncated(monkeypatch):
     assert result["truncated"] is False
     assert len(result["precedents"]) == 5
     assert calls == [(0, 0), (1, 0), (0, 1), (1, 1), (3, 0)]
+
+
+def test_cell_snapshot_formula_text_and_error(monkeypatch):
+    star = sys.modules.get("com.sun.star")
+    if star is None:
+        star = ModuleType("com.sun.star")
+        star.__path__ = []
+        monkeypatch.setitem(sys.modules, "com.sun.star", star)
+    table_mod = sys.modules.get("com.sun.star.table")
+    if table_mod is None:
+        table_mod = ModuleType("com.sun.star.table")
+
+        class CellContentType:
+            EMPTY = 0
+            VALUE = 1
+            TEXT = 2
+            FORMULA = 3
+
+        table_mod.CellContentType = CellContentType
+        monkeypatch.setitem(sys.modules, "com.sun.star.table", table_mod)
+        monkeypatch.setattr(star, "table", table_mod, raising=False)
+
+    from plugin.calc.formula_dep_chain import _cell_snapshot
+
+    class _FormulaCell:
+        def __init__(self, val: float, text: str, err: int = 0) -> None:
+            self._val = val
+            self._text = text
+            self._err = err
+
+        def getType(self) -> int:
+            return 3  # FORMULA
+
+        def getError(self) -> int:
+            return self._err
+
+        def getFormula(self) -> str:
+            return '="hello"' if self._err == 0 else "=1/0"
+
+        def getValue(self) -> float:
+            return self._val
+
+        def getString(self) -> str:
+            return self._text
+
+    class _Sheet:
+        def __init__(self, cell: _FormulaCell) -> None:
+            self._cell = cell
+
+        def getName(self) -> str:
+            return "Sheet1"
+
+        def getCellByPosition(self, col: int, row: int) -> _FormulaCell:
+            return self._cell
+
+    # Formula cell with getValue() == 0.0 and getString() == "hello" expects "hello"
+    text_cell = _FormulaCell(0.0, "hello")
+    snap_text = _cell_snapshot(_Sheet(text_cell), 0, 0)
+    assert snap_text["formula"] == '="hello"'
+    assert snap_text["value"] == "hello"
+
+    # Error cell expects display string plus error_code
+    err_cell = _FormulaCell(0.0, "#DIV/0!", err=532)
+    snap_err = _cell_snapshot(_Sheet(err_cell), 0, 0)
+    assert snap_err["error_code"] == 532
+    assert snap_err["formula"] == "=1/0"
+    assert snap_err["value"] == "#DIV/0!"
+

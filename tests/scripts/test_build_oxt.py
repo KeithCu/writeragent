@@ -13,11 +13,16 @@ from scripts.build_oxt import (
     GENERATED_INCLUDES,
     assemble_bundle,
     main,
+    preflight_writeragent,
     remap_path,
+    resolve_archive_sources,
     resolve_bundle_path,
     resolve_output_path,
     should_exclude,
+    strip_debug_menu_xml,
     sync_vendor_into_lib,
+    verify_bundle_manifest,
+    write_oxt_zip,
 )
 import pytest
 
@@ -93,6 +98,8 @@ def test_generated_includes_single_dialogs_tree():
     """Lowercase dialogs/ must not be packaged — it collides with Dialogs/ on Windows."""
     assert "build/generated/Dialogs/" in GENERATED_INCLUDES
     assert "build/generated/dialogs/" not in GENERATED_INCLUDES
+    assert "build/generated/Addons.xcu" not in GENERATED_INCLUDES
+    assert "build/generated/Accelerators.xcu" not in GENERATED_INCLUDES
     lower = [p for p in GENERATED_INCLUDES if p.replace("\\", "/").rstrip("/").endswith("dialogs")]
     assert lower == [], "GENERATED_INCLUDES must not list a lowercase dialogs/ path: %s" % lower
 
@@ -115,12 +122,20 @@ def test_sync_vendor_into_lib_copies_isodate(tmp_path):
     (vendor / "isodate" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
     (vendor / "isodate-0.7.2.dist-info").mkdir()
     (vendor / ".cache").mkdir()
+    (vendor / "bin").mkdir()
+    (vendor / "bin" / "l2m").write_text("#!/bin/sh\n", encoding="utf-8")
     lib = tmp_path / "plugin" / "lib"
+    (lib / "stale_pkg").mkdir(parents=True)
+    (lib / "stale_pkg" / "old.py").write_text("old\n", encoding="utf-8")
+
     n = sync_vendor_into_lib(str(vendor), str(lib), prune_websockets=False)
     assert n == 1
     assert (lib / "isodate" / "__init__.py").is_file()
     assert not (lib / "isodate-0.7.2.dist-info").exists()
     assert not (lib / ".cache").exists()
+    assert not (lib / "bin").exists()
+    assert not (lib / "stale_pkg").exists()
+
     # Replace existing tree on re-sync
     (lib / "isodate" / "stale.py").write_text("stale\n", encoding="utf-8")
     sync_vendor_into_lib(str(vendor), str(lib), prune_websockets=False)
@@ -164,12 +179,14 @@ def test_assemble_bundle_writes_to_absolute_bundle_dir(tmp_path):
     assemble_bundle(str(src), modules=[], with_tests=True, strip=False, bundle_dir=str(dest))
     assert (dest / "plugin" / "main.py").is_file()
     assert (dest / "plugin" / "main.py").read_text(encoding="utf-8") == "x = 1\n"
+    assert not (src / "plugin" / "lib").exists()
+    assert not (dest / "plugin" / "lib").exists()
 
 
 def test_skip_zip_does_not_call_zip_bundle(monkeypatch, tmp_path):
     assembled: dict[str, object] = {}
 
-    def fake_assemble(base_dir, modules, **kwargs):
+    def fake_assemble(base_dir, modules=None, **kwargs):
         assembled["bundle_dir"] = kwargs.get("bundle_dir")
         return 1
 
@@ -179,6 +196,8 @@ def test_skip_zip_does_not_call_zip_bundle(monkeypatch, tmp_path):
         zipped.append(output)
         return 0
 
+    monkeypatch.setattr("scripts.build_oxt.preflight_writeragent", lambda base_dir: None)
+    monkeypatch.setattr("scripts.build_oxt.verify_bundle_manifest", lambda *a, **k: None)
     monkeypatch.setattr("scripts.build_oxt.assemble_bundle", fake_assemble)
     monkeypatch.setattr("scripts.build_oxt.zip_bundle", fake_zip)
     monkeypatch.setattr(
@@ -200,3 +219,104 @@ def test_debug_menu_strip_marker_matches_addons_xcu():
     window = text[marker_at : marker_at + 400]
     assert "Debug" in window
     assert "M16a" not in DEBUG_MENU_NODE_MARKER
+
+
+def test_strip_debug_menu_xml_on_real_addons_xcu():
+    import xml.etree.ElementTree as ET
+    addons = os.path.join(PROJECT_ROOT, "extension", "Addons.xcu")
+    with open(addons, encoding="utf-8") as handle:
+        original = handle.read()
+    assert DEBUG_MENU_NODE_MARKER in original
+    stripped = strip_debug_menu_xml(original)
+    assert DEBUG_MENU_NODE_MARKER not in stripped
+    assert 'oor:name="M16"' in stripped
+    assert 'oor:name="M18"' in stripped
+    assert "OfficeToolBar" in stripped
+    root = ET.fromstring(stripped)
+    assert root is not None
+
+
+def test_preflight_writeragent_missing_inputs(tmp_path):
+    with pytest.raises(RuntimeError) as exc_info:
+        preflight_writeragent(str(tmp_path))
+    assert "make manifest" in str(exc_info.value)
+
+
+def test_main_preflight_fails_and_names_make_target(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("scripts.build_oxt.PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["build_oxt.py"])
+    rc = main()
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "make manifest" in err
+
+
+def test_verify_bundle_manifest_missing_file(tmp_path):
+    meta_inf = tmp_path / "META-INF"
+    meta_inf.mkdir(parents=True)
+    manifest = meta_inf / "manifest.xml"
+    manifest.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest">\n'
+        '  <manifest:file-entry manifest:media-type="application/vnd.sun.star.configuration-data" manifest:full-path="nonexistent.xcu" />\n'
+        '</manifest:manifest>\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "plugin").mkdir(parents=True)
+    (tmp_path / "plugin" / "_manifest.py").write_text("#\n", encoding="utf-8")
+    (tmp_path / "Addons.xcu").write_text("<xml/>\n", encoding="utf-8")
+    with pytest.raises(RuntimeError) as exc_info:
+        verify_bundle_manifest(str(tmp_path))
+    assert "nonexistent.xcu" in str(exc_info.value)
+
+
+def test_resolve_archive_sources_collisions_and_collapse(tmp_path):
+    f1 = tmp_path / "a.txt"
+    f2 = tmp_path / "b.txt"
+    f3 = tmp_path / "c.txt"
+    f1.write_text("same", encoding="utf-8")
+    f2.write_text("same", encoding="utf-8")
+    f3.write_text("different", encoding="utf-8")
+
+    # Identical collapse
+    sources = resolve_archive_sources(str(tmp_path), ["a.txt", "b.txt"], remap_fn=lambda _: "target.txt")
+    assert len(sources) == 1
+
+    # Differing doubles fail
+    with pytest.raises(SystemExit):
+        resolve_archive_sources(str(tmp_path), ["a.txt", "c.txt"], remap_fn=lambda _: "target.txt")
+
+
+def test_write_oxt_zip_deterministic_and_atomic(tmp_path, monkeypatch):
+    import zipfile
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "b.txt").write_text("hello b", encoding="utf-8")
+    (bundle / "a.txt").write_text("hello a", encoding="utf-8")
+
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    out1 = tmp_path / "out1.oxt"
+    out2 = tmp_path / "out2.oxt"
+
+    count1 = write_oxt_zip(str(bundle), str(out1))
+    count2 = write_oxt_zip(str(bundle), str(out2))
+    assert count1 == 2
+    assert count2 == 2
+
+    with zipfile.ZipFile(out1) as z1, zipfile.ZipFile(out2) as z2:
+        assert z1.namelist() == ["a.txt", "b.txt"]
+        assert z1.namelist() == z2.namelist()
+        for name in z1.namelist():
+            assert z1.getinfo(name).date_time == z2.getinfo(name).date_time
+
+    # Atomic write leaves existing output intact on error
+    prev_bytes = out1.read_bytes()
+
+    def fail_writestr(*args, **kwargs):
+        raise OSError("disk full simulated")
+
+    monkeypatch.setattr("zipfile.ZipFile.writestr", fail_writestr)
+    with pytest.raises(OSError):
+        write_oxt_zip(str(bundle), str(out1))
+    assert out1.read_bytes() == prev_bytes
+

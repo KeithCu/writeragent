@@ -14,7 +14,7 @@ from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import FLAT_FILE_EXTS, unsupported_flat_type_message
@@ -134,6 +134,8 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     parsed = parse_table_source_spec(spec, default_headers=headers)
                     grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
                     preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
+                except CalcError as exc:
+                    return self._tool_error(str(exc), code="DUCKDB_SQL_ERROR")
                 except ToolExecutionError as exc:
                     return self._tool_error(f"Failed to read table '{tbl_name}': {exc}", code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
 

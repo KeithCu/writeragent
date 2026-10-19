@@ -377,7 +377,7 @@ def test_librepy_staged_bundle_imports_without_writeragent(tmp_path: Path):
         str(vendor_dir),
         str(lib_dir),
         prune_websockets=False,
-        packages=LIBREPY_VENDOR_PACKAGES,
+        only=LIBREPY_VENDOR_PACKAGES,
     )
 
     # Isolate subprocess to staged tree without editable finder hooks

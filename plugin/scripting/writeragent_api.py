@@ -823,7 +823,7 @@ class _DrawProxy:
         return _rpc_call("add_slide", page=page, activate=activate, layout=layout)
 
     def apply_design(self, design: str) -> dict[str, Any]:
-        """Restyle the OPEN Impress deck from a listed .otp: Hidden-load the template, clone its master shapes and reimported graphics into this document, and assign that master to every slide. Does not copy style families (that shares the hidden source item pool and aborts LibreOffice). Does not use the system clipboard and does not open a new presentation. Existing title/body text stays. Call list_designs first. Draw documents return a not-Impress error.
+        """Restyle the OPEN Impress deck from a listed .otp: Hidden-load the template, clone its master shapes and reimported graphics into this document, and assign that master to every slide. Does not use the system clipboard and does not open a new presentation. One master is cloned and assigned to every slide; other layout masters in the .otp are not imported. Solid fill, line, and character properties, geometry, and pictures are cloned. Gradients, bitmap fills, and presentation style families are not (copying those families shares the hidden source pool and aborts LibreOffice). Existing placeholder text stays on its current styles. Applying the same design again replaces the previously imported master of that name. Call list_designs first. Draw documents return a not-Impress error.
 
         Args:
             design (required): Design id, name, path, or url from list_designs (e.g. Metropolis).
@@ -874,7 +874,7 @@ class _DrawProxy:
         return _rpc_call("list_designs")
 
     def list_pages(self) -> dict[str, Any]:
-        """Lists all pages (slides) in the document."""
+        """Lists all pages (slides). Each entry is that page's Name, or "Page N" when Name is missing or blank. The list position is the 0-based page index."""
         return _rpc_call("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
@@ -1092,7 +1092,7 @@ class _FormsProxy:
         """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets.
 
         Args:
-            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox.
+            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox, button.
             name (required): Internal name/key for the control.
             label (optional): Label text for the control (e.g. 'I agree').
             group_name (optional): Group name for radio buttons (mutually exclusive in the same group).
@@ -1200,14 +1200,13 @@ class _ImagesProxy:
         """
         return _rpc_call("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm)
 
-    def delete(self, name: str, *, remove_frame: bool | None = None) -> dict[str, Any]:
-        """Delete an image from the document.
+    def delete(self, name: str) -> dict[str, Any]:
+        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object.
 
         Args:
             name (required): Name of the image to delete (from image_list).
-            remove_frame (optional): Also remove the containing frame (default: true).
         """
-        return _rpc_call("image_delete", name=name, remove_frame=remove_frame)
+        return _rpc_call("image_delete", name=name)
 
     def download(self, url: str, *, verify_ssl: bool | None = None, force: bool | None = None) -> dict[str, Any]:
         """Download an image from URL to local cache. Returns local path for image_insert/image_replace.
@@ -1219,21 +1218,19 @@ class _ImagesProxy:
         """
         return _rpc_call("image_download", url=url, verify_ssl=verify_ssl, force=force)
 
-    def generate(self, prompt: str, *, source_image: str | None = None, strength: float = 0.75, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, provider: str | None = None, image_model: str | None = None) -> dict[str, Any]:
-        """Generate an image from a text prompt and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
+    def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> dict[str, Any]:
+        """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
 
         Args:
             prompt (required): Descriptive prompt for image generation or editing.
             source_image (optional): Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit while a graphic is selected to edit in place; omit with no selection to create a new image.
-            strength (optional): For editing: how much to change the image (0.0-1.0). Ignored when generating new.
             aspect_ratio (optional): One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
             base_size (optional): Generate resolution in pixels (default 1024). On-page display is capped independently (~135mm longer edge).
             width (optional): Override calculated width.
             height (optional): Override calculated height.
-            provider (optional): Override default provider.
             image_model (optional): Override Settings image model for this request (endpoint / OpenRouter).
         """
-        return _rpc_call("image_generate", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
+        return _rpc_call("image_generate", prompt=prompt, source_image=source_image, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, image_model=image_model)
 
     def get_info(self, name: str) -> dict[str, Any]:
         """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index.
@@ -1293,7 +1290,7 @@ class _ImagesProxy:
             height_mm (optional): New height in millimetres.
             title (optional): Image title (tooltip text).
             description (optional): Image alternative text (alt-text).
-            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
+            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER. One of: 0, 1, 2, 3, 4.
             hori_orient (optional): Horizontal position: 'left', 'center', or 'right'. (A raw UNO HoriOrientation integer is also accepted.).
             vert_orient (optional): Vertical position: 'top', 'center', or 'bottom'. (A raw UNO VertOrientation integer is also accepted.).
             crop_top_mm (optional): Millimetres to crop off the TOP edge (0 = no crop). Only edges you pass change.
@@ -2208,7 +2205,7 @@ class _TableProxy:
         return _rpc_call("table_delete", name=name, page=page, index=index)
 
     def get_cells(self, *, name: str | None = None, cell: str | None = None, page: int | None = None, index: int | None = None) -> dict[str, Any]:
-        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
+        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. A failed Draw/Impress cell read is an error, not an empty string. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
 
         Args:
             name (optional): Table name from table_list.
@@ -2439,7 +2436,7 @@ class _WriterProxy:
         return _rpc_call("search_in_document", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets)
 
     def set_selection(self, *, search_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> dict[str, Any]:
-        """Select a passage in the document (highlights it for the user and lets a following apply_document_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Returns the selected text and its character range.
+        """Select a passage in the document (highlights it for the user and lets a following apply_document_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Character offsets are returned only for a fully applied char range. The search path returns selected_text and length.
 
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).

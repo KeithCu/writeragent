@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -100,6 +102,38 @@ def _default_smoke_text() -> str:
     return f"MCP smoke test — {ts} — if you see this, apply_document_content works."
 
 
+def _debug_token_path() -> Path:
+    candidates = []
+    if sys.platform == "darwin":
+        candidates.append(Path("~/Library/Application Support/LibreOffice/4/user/config").expanduser())
+    elif os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "LibreOffice" / "4" / "user" / "config")
+    else:
+        candidates.extend([
+            Path("~/.config/libreoffice/4/user/config").expanduser(),
+            Path("~/.config/libreoffice/24/user/config").expanduser(),
+        ])
+    for d in candidates:
+        p = d / "writeragent_mcp_debug_token"
+        if p.is_file():
+            return p
+    return candidates[0] / "writeragent_mcp_debug_token" if candidates else Path("writeragent_mcp_debug_token")
+
+
+def _read_debug_token() -> str:
+    path = _debug_token_path()
+    if not path.is_file():
+        print(f"Debug token file not found at {path}.", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        print(f"Failed to read debug token file at {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def run_smoke(
     host: str,
     port: int,
@@ -165,11 +199,15 @@ def run_smoke(
     print("Watch the Writer window (and chat sidebar [MCP Result] if open).")
 
     if use_debug:
+        debug_token = _read_debug_token()
+        extra_headers = {"X-WriterAgent-Debug-Token": debug_token}
+        if document_url:
+            extra_headers["X-Document-URL"] = document_url
         status, data = _request(
             "POST",
             debug_url,
             body={"action": "call_tool", "tool": "apply_document_content", "args": args},
-            extra_headers={"X-Document-URL": document_url} if document_url else None,
+            extra_headers=extra_headers,
             timeout=timeout,
         )
         print(f"HTTP {status}")

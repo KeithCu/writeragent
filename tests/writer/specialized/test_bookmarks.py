@@ -375,8 +375,10 @@ def test_ensure_keeps_demoted_bookmark_during_save_hook(monkeypatch):
             "_mcp_old": _Mark("_mcp_old", para=2),
         },
     )
-    with _in_save_hook():
-        result = BookmarkService().ensure_heading_bookmarks(doc)
+    svc = BookmarkService()
+    doc_key = svc._doc_key(doc)
+    with _in_save_hook(doc_key):
+        result = svc.ensure_heading_bookmarks(doc)
     assert result[1] == "_mcp_keep"
     assert "_mcp_old" in doc.bookmarks
 
@@ -396,3 +398,142 @@ def test_bookmark_resolve_rejects_unplaced_anchor():
     result = BookmarkResolve().execute(ctx, name="_mcp_stale")
     assert result["status"] == "error"
     assert "anchor is not in the document" in result["message"]
+
+
+def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {"_mcp_existing": _Mark("_mcp_existing", para=0)},
+    )
+    svc = BookmarkService()
+
+    def raise_map(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
+    result = svc.ensure_heading_bookmarks(doc)
+    assert result == {}
+    assert "_mcp_existing" in doc.bookmarks
+
+
+def test_strip_for_save_raising_map_read(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService, _PENDING_STRIPS
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {"_mcp_existing": _Mark("_mcp_existing", para=0)},
+    )
+    svc = BookmarkService()
+
+    def raise_map(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    doc_key = "test_strip_key"
+    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
+    monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
+    svc.strip_for_save(doc)
+    assert "_mcp_existing" in doc.bookmarks
+    assert doc_key not in _PENDING_STRIPS
+
+
+def test_restore_after_save_failure_leaves_pending(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService, _PendingStrip, _PENDING_STRIPS
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {},
+    )
+    svc = BookmarkService()
+    doc_key = "test_restore_key"
+    monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
+    _PENDING_STRIPS[doc_key] = _PendingStrip({0: "_mcp_saved"}, False, doc)
+
+    def raise_reinsert(*args, **kwargs):
+        raise RuntimeError("reinsert error")
+
+    monkeypatch.setattr(svc, "_reinsert_named", raise_reinsert)
+    svc.restore_after_save(doc, saved=True)
+    assert doc_key in _PENDING_STRIPS
+
+    called_restore = []
+
+    def fake_reinsert(target, names):
+        called_restore.append(dict(names))
+        return {}
+
+    monkeypatch.setattr(svc, "_reinsert_named", fake_reinsert)
+    svc.ensure_heading_bookmarks(doc)
+    assert doc_key not in _PENDING_STRIPS
+    assert called_restore == [{0: "_mcp_saved"}]
+
+
+def test_bookmark_create_and_rename_reject_mcp(mock_ctx):
+    create_tool = BookmarkCreate()
+    res = create_tool.execute(mock_ctx, name="_mcp_custom")
+    assert res["status"] == "error"
+    assert "bookmark_cleanup" in res["message"]
+
+    rename_tool = BookmarkRename()
+    res2 = rename_tool.execute(mock_ctx, old_name="regular", new_name="_mcp_renamed")
+    assert res2["status"] == "error"
+    assert "bookmark_cleanup" in res2["message"]
+
+
+def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {},
+    )
+    svc = BookmarkService()
+    calls = []
+
+    def counting_has_by_name(name):
+        calls.append(name)
+        if len(calls) < 4:
+            return True  # 3 collisions
+        return False
+
+    doc.getBookmarks().hasByName = counting_has_by_name
+    result = svc.ensure_heading_bookmarks(doc)
+    assert 0 in result
+    # 4 calls in the retry loop (3 collisions + 1 success) + 1 call in _insert_named_bookmark
+    assert len(calls) == 5
+    assert calls[3] == calls[4]
+
+
+def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
+    from plugin.writer.specialized.bookmarks import _in_save_hook, _PENDING_STRIPS, _PendingStrip
+
+    def fake_find(anchor, _ranges, _text=None):
+        return anchor.para
+
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
+
+    doc_a = _HeadingDoc(
+        [_Para("Title A", 1), _Para("Demoted A", 0)],
+        {"_mcp_a_keep": _Mark("_mcp_a_keep", para=0), "_mcp_a_old": _Mark("_mcp_a_old", para=1)},
+    )
+    doc_b = _HeadingDoc(
+        [_Para("Title B", 1), _Para("Demoted B", 0)],
+        {"_mcp_b_keep": _Mark("_mcp_b_keep", para=0), "_mcp_b_old": _Mark("_mcp_b_old", para=1)},
+    )
+    svc = BookmarkService()
+    key_a = "doc_key_a"
+    key_b = "doc_key_b"
+    monkeypatch.setattr(svc, "_doc_key", lambda d: key_a if d is doc_a else key_b)
+
+    # Put an abandoned pending strip on doc_b
+    _PENDING_STRIPS[key_b] = _PendingStrip({0: "_mcp_b_restored"}, False, doc_b)
+
+    with _in_save_hook(key_a):
+        # Doc A is in save hook: demoted is NOT pruned
+        svc.ensure_heading_bookmarks(doc_a)
+        assert "_mcp_a_old" in doc_a.bookmarks
+
+        # Doc B is NOT in save hook: abandoned is restored and demoted IS pruned
+        svc.ensure_heading_bookmarks(doc_b)
+        assert key_b not in _PENDING_STRIPS
+        assert "_mcp_b_old" not in doc_b.bookmarks
+

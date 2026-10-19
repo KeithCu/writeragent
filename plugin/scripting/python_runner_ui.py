@@ -25,7 +25,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 import unohelper
-from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
+from com.sun.star.awt import XActionListener, XItemListener
+from plugin.framework.uno_listeners import BaseTopWindowListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent
@@ -397,30 +398,9 @@ class NativePythonScriptDialog:
             if self._modeless:
                 owner = self
 
-                class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                    def windowClosing(self, e: Any) -> None:
+                class _TopWindowListener(BaseTopWindowListener):
+                    def on_window_closing(self, rEvent: Any) -> None:
                         owner.close(toolkit_teardown=True)
-
-                    def windowClosed(self, e: Any) -> None:
-                        pass
-
-                    def windowOpened(self, e: Any) -> None:
-                        pass
-
-                    def windowMinimized(self, e: Any) -> None:
-                        pass
-
-                    def windowNormalized(self, e: Any) -> None:
-                        pass
-
-                    def windowActivated(self, e: Any) -> None:
-                        pass
-
-                    def windowDeactivated(self, e: Any) -> None:
-                        pass
-
-                    def disposing(self, Source: EventObject) -> None:
-                        pass
 
                 self._top_listener = _TopWindowListener()
                 dlg.addTopWindowListener(self._top_listener)

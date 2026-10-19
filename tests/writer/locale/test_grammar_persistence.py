@@ -5,6 +5,8 @@
 import json
 import shutil
 import tempfile
+import threading
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.locale.grammar_persistence import GRAMMAR_CACHE_VERSION
@@ -177,7 +179,7 @@ class TestGrammarPersistence:
         assert (dp.get("fp_x")) is None
 
     def test_document_event_on_unload_clears_locales_cache(self) -> None:
-        """teardown must clear the document from doc_locales_cache."""
+        """teardown must clear the document from doc_locales."""
         from plugin.writer.locale import grammar_persistence as gp
 
         ctx = MagicMock()
@@ -185,7 +187,7 @@ class TestGrammarPersistence:
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence(ctx, "doc-locales", model=model)
 
-        gp.grammar_registry.doc_locales_cache["doc-locales"] = (123.0, ["en-US"])
+        gp.grammar_registry.record_enqueued_locale("doc-locales", "en-US")
         gp.grammar_registry.doc_persistence_instances["doc-locales"] = dp
 
         listener = gp._GrammarDocumentEventListener(dp)
@@ -193,8 +195,8 @@ class TestGrammarPersistence:
         unload_event.EventName = "OnUnload"
         listener.documentEventOccured(unload_event)
 
-        assert (dp._teardown_done)
-        assert gp.grammar_registry.doc_locales_cache.get("doc-locales") is None
+        assert dp._teardown_done
+        assert "doc-locales" not in gp.grammar_registry.doc_locales
 
     def test_document_event_listener_disposing_triggers_teardown(self) -> None:
         """The single combined listener also handles broadcaster ``disposing``."""
@@ -481,7 +483,7 @@ class TestGrammarPersistence:
             gp.grammar_registry.doc_persistence_instances.pop("test-doc-zero", None)
 
     def test_apply_language_change_zero_offset_skips_caret_search_on_mismatch(self) -> None:
-        """A miss at paragraph start must not retag whatever follows the caret."""
+        """A miss calls neither findFirst nor findNext and writes nothing."""
         from plugin.writer.locale import grammar_persistence as gp
 
         ctx = MagicMock()
@@ -489,7 +491,6 @@ class TestGrammarPersistence:
         ctrl = MagicMock()
         view_cursor = MagicMock()
         view_start = MagicMock(name="view_start")
-        doc_start = MagicMock(name="doc_start")
         text_obj = MagicMock()
         doc_cursor = MagicMock()
 
@@ -499,19 +500,106 @@ class TestGrammarPersistence:
             ctrl.getViewCursor.return_value = view_cursor
             view_cursor.getStart.return_value = view_start
             model.getText.return_value = text_obj
-            text_obj.getStart.return_value = doc_start
             text_obj.createTextCursorByRange.return_value = doc_cursor
             doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
             doc_cursor.goRight = MagicMock(return_value=True)
             doc_cursor.getString.return_value = "Other."
+            model.findAll.return_value = None
 
-            gp.apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
+            res = gp.apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
 
-            searched_from = [call.args[0] for call in model.findNext.call_args_list if call.args]
-            assert view_start not in searched_from
+            assert res is False
+            model.findNext.assert_not_called()
+            model.findFirst.assert_not_called()
             doc_cursor.setPropertyValue.assert_not_called()
         finally:
             gp.grammar_registry.doc_persistence_instances.pop("test-doc-miss", None)
+
+    def test_apply_language_change_two_findall_hits_same_paragraph_writes_nothing(self) -> None:
+        """Two findAll hits with the same paragraph text write nothing and return False."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        ctrl = MagicMock()
+        view_cursor = MagicMock()
+        text_obj = MagicMock()
+        doc_cursor = MagicMock()
+
+        gp.grammar_registry.doc_persistence_instances["test-doc-ambig"] = gp.DocumentPersistence(ctx, "test-doc-ambig", model=model)
+        try:
+            model.getCurrentController.return_value = ctrl
+            ctrl.getViewCursor.return_value = view_cursor
+            model.getText.return_value = text_obj
+            text_obj.createTextCursorByRange.return_value = doc_cursor
+            doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
+            doc_cursor.goRight = MagicMock(return_value=True)
+            doc_cursor.getString.return_value = "Mismatched."
+
+            hit1 = MagicMock()
+            hit2 = MagicMock()
+            hit1.getText.return_value = text_obj
+            hit2.getText.return_value = text_obj
+            matches = MagicMock()
+            matches.getCount.return_value = 2
+            matches.getByIndex.side_effect = [hit1, hit2]
+            model.findAll.return_value = matches
+
+            para_cursor = MagicMock()
+            para_cursor.getString.return_value = "Target paragraph."
+            text_obj.createTextCursorByRange.side_effect = [doc_cursor, para_cursor, para_cursor]
+
+            res = gp.apply_language_change(ctx, "test-doc-ambig", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            assert res is False
+            hit1.setPropertyValue.assert_not_called()
+            hit2.setPropertyValue.assert_not_called()
+        finally:
+            gp.grammar_registry.doc_persistence_instances.pop("test-doc-ambig", None)
+
+    def test_apply_language_change_one_findall_hit_matching_paragraph_writes_range(self) -> None:
+        """One findAll hit whose paragraph equals paragraph_text writes that range."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        ctrl = MagicMock()
+        view_cursor = MagicMock()
+        text_obj = MagicMock()
+        doc_cursor = MagicMock()
+
+        gp.grammar_registry.doc_persistence_instances["test-doc-one"] = gp.DocumentPersistence(ctx, "test-doc-one", model=model)
+        try:
+            model.getCurrentController.return_value = ctrl
+            ctrl.getViewCursor.return_value = view_cursor
+            model.getText.return_value = text_obj
+            text_obj.createTextCursorByRange.return_value = doc_cursor
+            doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
+            doc_cursor.goRight = MagicMock(return_value=True)
+            doc_cursor.getString.return_value = "Mismatched."
+
+            hit1 = MagicMock()
+            hit2 = MagicMock()
+            hit1.getText.return_value = text_obj
+            hit2.getText.return_value = text_obj
+            matches = MagicMock()
+            matches.getCount.return_value = 2
+            matches.getByIndex.side_effect = [hit1, hit2]
+            model.findAll.return_value = matches
+
+            tc1 = MagicMock()
+            tc1.getString.return_value = "Target paragraph."
+            tc2 = MagicMock()
+            tc2.getString.return_value = "Other paragraph."
+
+            text_obj.createTextCursorByRange.side_effect = [doc_cursor, tc1, tc2]
+
+            res = gp.apply_language_change(ctx, "test-doc-one", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            assert res is True
+            hit1.setPropertyValue.assert_called_once()
+            assert hit1.setPropertyValue.call_args[0][0] == "CharLocale"
+            hit2.setPropertyValue.assert_not_called()
+        finally:
+            gp.grammar_registry.doc_persistence_instances.pop("test-doc-one", None)
 
     def test_second_bind_does_not_replace_model_or_reload(self) -> None:
         """A later model= must not swap the Writer or read udprops over live edits."""
@@ -562,5 +650,224 @@ class TestGrammarPersistence:
             assert (dp_bad._ignored_rules) == (set())
         finally:
             gp.clear_all_document_persistence(ctx)
+
+    def test_concurrent_get_persistence_single_instance_and_listener(self) -> None:
+        """Two threads calling get_persistence concurrently produce one instance and listener."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        listeners: list[object] = []
+        model.addDocumentEventListener.side_effect = listeners.append
+        barrier = threading.Barrier(2)
+
+        orig_load = gp.DocumentPersistence._load_from_udprops
+
+        def _slow_load(self_dp: Any) -> None:
+            try:
+                barrier.wait(timeout=2.0)
+            except threading.BrokenBarrierError:
+                pass
+            orig_load(self_dp)  # pyright: ignore[reportCallIssue,reportArgumentType]
+
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            results: list[object] = []
+
+            def _thread_worker(with_model: bool) -> None:
+                m = model if with_model else None
+                dp = gp.get_persistence(ctx, "doc-race", model=m)
+                results.append(dp)
+
+            with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True), \
+                 patch.object(gp.DocumentPersistence, "_load_from_udprops", _slow_load):
+                t1 = threading.Thread(target=_thread_worker, args=(True,))
+                t2 = threading.Thread(target=_thread_worker, args=(True,))
+                t1.start()
+                t2.start()
+                t1.join(timeout=3.0)
+                t2.join(timeout=3.0)
+
+            assert len(gp.grammar_registry.doc_persistence_instances) == 1
+            assert len(results) == 2
+            assert results[0] is results[1]
+            assert len(listeners) == 1
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_teardown_orphan_does_not_remove_winner(self) -> None:
+        """An orphan persistence instance calling _teardown does not remove the winning instance."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True):
+                winner = gp.get_persistence(ctx, "doc-orphan", model=model)
+                assert winner is not None
+                assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
+
+                orphan = gp.DocumentPersistence(ctx, "doc-orphan")
+                orphan._teardown()
+
+                assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
+                assert not winner._teardown_done
+                assert winner._doc_listener is not None
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_late_bind_preserves_live_session_rows(self) -> None:
+        """A late bind merges missing blob rows without overwriting live session rows."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            dp = gp.DocumentPersistence(ctx, "doc-late")
+            dp.put("fp_live", "en-US", [])
+
+            blob = {
+                "version": 4,
+                "model": "test-checker",
+                "locales": {"en-US": {"good": ["fp_blob"], "bad": {}}},
+            }
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(blob)), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp._bind_model(model)
+
+            assert dp.get("fp_live", "en-US") == []
+            assert dp.get("fp_blob", "en-US") == []
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_save_compresses_only_accessed_rows(self) -> None:
+        """Save must compress only session-accessed rows outside the lock."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            dp = gp.DocumentPersistence(ctx, "doc-compress", model=model)
+            dp._entries["fp_unaccessed"] = {"en-US": [{"s": 0, "l": 2, "g": ["a"]}]}
+            dp.put("fp_accessed", "en-US", [{"s": 3, "l": 4, "g": ["b"]}])
+
+            with patch("plugin.writer.locale.grammar_proofread_json.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
+                 patch("plugin.doc.udprops.set_document_property") as mock_set, \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp._persist_to_udprops()
+
+            assert mock_set.called
+            assert mock_compress.call_count == 1
+            assert mock_compress.call_args[0][0] == {"s": 3, "l": 4, "g": ["b"]}
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_load_drops_malformed_rows_and_later_valid_load_replaces(self) -> None:
+        """Malformed good, bad, and ignored_rules entries are dropped without raising."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            malformed_blob = {
+                "version": 4,
+                "model": "test-checker",
+                "locales": {
+                    "en-US": {
+                        "good": [1],
+                        "bad": {1: []},
+                    }
+                },
+                "ignored_rules": [{}],
+            }
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(malformed_blob)), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp = gp.DocumentPersistence(ctx, "doc-malformed", model=model)
+
+            assert len(dp._entries) == 0
+            assert len(dp._ignored_rules) == 0
+
+            valid_blob = {
+                "version": 4,
+                "model": "test-checker",
+                "locales": {
+                    "en-US": {
+                        "good": ["fp_valid"],
+                        "bad": {},
+                    }
+                },
+                "ignored_rules": ["valid_rule"],
+            }
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(valid_blob)), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp._load_from_udprops()
+
+            assert "fp_valid" in dp._entries
+            assert "valid_rule" in dp._ignored_rules
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_cache_max_chars_bound_on_load_and_save(self) -> None:
+        """Raw property over GRAMMAR_CACHE_MAX_CHARS is not loaded; save skips if over."""
+        from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_CACHE_MAX_CHARS
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            oversize_raw = " " * (GRAMMAR_CACHE_MAX_CHARS + 1)
+            with patch("plugin.doc.udprops.get_document_property", return_value=oversize_raw), \
+                 patch("json.loads") as mock_loads:
+                dp = gp.DocumentPersistence(ctx, "doc-oversize", model=model)
+                mock_loads.assert_not_called()
+                assert len(dp._entries) == 0
+
+            with patch("plugin.doc.udprops.set_document_property") as mock_set, \
+                 patch("json.dumps", return_value="x" * GRAMMAR_CACHE_MAX_CHARS), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test"):
+                dp.put("fp1", "en-US", [])
+                dp._persist_to_udprops()
+                assert mock_set.called
+
+            with patch("plugin.doc.udprops.set_document_property") as mock_set, \
+                 patch("json.dumps", return_value="x" * (GRAMMAR_CACHE_MAX_CHARS + 1)), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test"):
+                dp._persist_to_udprops()
+                mock_set.assert_not_called()
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+    def test_unadopted_v3_legacy_row_omitted_from_save(self) -> None:
+        """A v3 legacy row that was never adopted is absent from the saved locales map."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            v3_blob = {
+                "version": 3,
+                "model": "test-checker",
+                "good": ["fp_unadopted"],
+                "bad": {},
+            }
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(v3_blob)), \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp = gp.DocumentPersistence(ctx, "doc-v3", model=model)
+
+            with patch("plugin.doc.udprops.set_document_property") as mock_set, \
+                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                dp._persist_to_udprops()
+
+            assert mock_set.called
+            saved_payload = json.loads(mock_set.call_args[0][2])
+            assert saved_payload["locales"] == {}
+        finally:
+            gp.grammar_registry.clear_all(ctx)
 
 

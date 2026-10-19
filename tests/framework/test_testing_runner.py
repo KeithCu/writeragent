@@ -589,3 +589,18 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     out = capsys.readouterr().out
     assert "Skipping" not in out
 
+
+
+def test_mark_urp_dead_prints_office_log_tail(monkeypatch, tmp_path):
+    cfg = tmp_path / "user" / "config"
+    cfg.mkdir(parents=True)
+    (cfg / "writeragent_debug.log").write_text("\n".join("line %d" % i for i in range(50)) + "\n", encoding="utf-8")
+    seen: list[str] = []
+    monkeypatch.setattr(tr, "_throwaway_profile_dir", tmp_path)
+    monkeypatch.setattr(tr, "_progress", seen.append)
+    monkeypatch.setattr(tr, "_urp_bridge_dead", False)
+    tr._mark_urp_dead(RuntimeError("gone"), "t")
+    tail = [s for s in seen if s.startswith("OFFICE LOG | ")]
+    assert tail[0] == "OFFICE LOG | line 10"
+    assert tail[-1] == "OFFICE LOG | line 49"
+    assert len(tail) == 40

@@ -26,6 +26,29 @@ def test_show_latex_input_dialog_sets_update_label(update, expected) -> None:
         show_latex_input_dialog(object(), update=update)
     assert btn.getModel().Label == expected
 
+
+def test_selection_latex_prefill_failed_export_returns_empty() -> None:
+    from plugin.writer.math.latex_dialog import _selection_latex_prefill
+    from plugin.writer.math.math_mml_export import MathExportResult
+
+    embed = MagicMock()
+    embed.getEmbeddedObject.return_value.Formula = "bad starmath"
+    doc = MagicMock()
+    ctx = MagicMock()
+
+    with patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
+         patch("plugin.writer.math.math_mml_export.resolve_math_embed_name", return_value="Object1"), \
+         patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
+         patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox:
+        name, latex, display, abort = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
+
+    assert name == "Object1"
+    assert latex == ""
+    assert display is True
+    assert abort is False
+    mock_msgbox.assert_called_once()
+
+
 def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
     """GHA 34675151298: leftover writer reuse then Hidden _blank .mml hung 30s."""
     src = Path(__file__).with_name("test_latex_dialog_uno.py").read_text(encoding="utf-8")

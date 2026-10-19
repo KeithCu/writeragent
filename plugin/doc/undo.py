@@ -24,6 +24,85 @@ def _get_undo_manager(doc: Any) -> Any:
     raise RuntimeError("Document does not support undo.")
 
 
+class UndoUnavailable(RuntimeError):
+    """Raised when an undo manager cannot be entered or is locked."""
+
+
+class RollbackFailed(RuntimeError):
+    """Raised when rollback undo() itself fails."""
+
+
+def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
+    """Run mutate inside an undo context with title.
+
+    Missing or locked undo manager raises UndoUnavailable.
+    Rolls back on error dict or exception from mutate, and re-raises real disposal.
+    """
+    from plugin.framework.errors import reraise_if_disposed
+
+    try:
+        mgr = _get_undo_manager(doc)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise UndoUnavailable("Document does not support undo.") from exc
+
+    if mgr is None:
+        raise UndoUnavailable("Undo manager is missing.")
+
+    try:
+        if mgr.isLocked():
+            raise UndoUnavailable("Undo manager is locked.")
+        mgr.enterUndoContext(title)
+    except UndoUnavailable:
+        raise
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise UndoUnavailable(f"Failed to enter undo context: {exc}") from exc
+
+    applied = False
+    error: dict[str, Any] | None = None
+    exc_cause: Exception | None = None
+    try:
+        res = mutate()
+        if isinstance(res, dict):
+            error = res
+        else:
+            applied = True
+            return None
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        exc_cause = exc
+    finally:
+        left = False
+        try:
+            mgr.leaveUndoContext()
+            left = True
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            applied = False
+        if not applied and left:
+            try:
+                titles = mgr.getAllUndoActionTitles()
+                if titles and titles[0] == title:
+                    mgr.undo()
+            except Exception as rollback_exc:
+                reraise_if_disposed(rollback_exc)
+                # Keep the original cause and use a code distinct from a clean rollback.
+                cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
+                error = {
+                    "status": "error",
+                    "code": "ROLLBACK_FAILED",
+                    "message": f"Rollback failed; the document may be only partly edited ({rollback_exc}). Cause: {cause}",
+                }
+                exc_cause = None
+
+    if error is not None:
+        return error
+    if exc_cause is not None:
+        raise exc_cause
+    return None
+
+
 class Undo(ToolBase):
     """Undo the last action."""
 

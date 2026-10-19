@@ -274,16 +274,16 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
         if isinstance(opts, list):
             val = stored_select_value(val, opts)
 
-        if key in ("audio__stt_provider", "audio.stt_provider"):
+        if save_key == "audio.stt_provider":
             from plugin.audio.stt_service import normalize_stt_provider
             val = normalize_stt_provider(val)
-        elif key in ("audio__stt_local_model", "audio.stt_local_model"):
+        elif save_key == "audio.stt_local_model":
             from plugin.audio.stt_service import normalize_stt_local_model
             val = normalize_stt_local_model(val)
-        elif key in ("audio__tts_provider", "audio.tts_provider"):
+        elif save_key == "audio.tts_provider":
             from plugin.audio.tts_voices import clean_provider_name
             val = clean_provider_name(str(val))
-        elif key in ("audio__tts_voice", "audio.tts_voice"):
+        elif save_key == "audio.tts_voice":
             from plugin.audio.tts_voices import (
                 clean_provider_name,
                 clean_voice_name,
@@ -296,8 +296,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             # the dialog opened. Read the combo text and this result's provider.
             # set_scoped_tts_voice writes both voice keys via set_config; stage
             # them in this batch instead.
-            prov = result.get("audio__tts_provider") or result.get("audio.tts_provider") or ""
-            model = result.get("audio__tts_model") or result.get("tts_model") or ""
+            prov = result.get("audio__tts_provider") or ""
+            model = result.get("audio__tts_model") or ""
             options = voice_options_for_provider(str(prov), str(model))
             val = voice_choice_to_id(str(result.get(key) or ""), options)
             clean_v = clean_voice_name(val)
@@ -310,7 +310,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             else:
                 pending["audio.tts_voice"] = val
             continue
-        elif key in ("audio__tts_speed", "audio.tts_speed"):
+        elif save_key == "audio.tts_speed":
             from plugin.audio.tts_voices import parse_tts_speed
             spd = parse_tts_speed(val)
             # Why-comment: :g turns the untouched presets 1.0 and 2.0 into "1x" / "2x",
@@ -394,10 +394,10 @@ def _stage_settings_lru(
         _stage_lru(changed, text_model_lru, "model_lru", current_endpoint)
     if image_model_lru and "image_model" in changed:
         _stage_lru(changed, image_model_lru, "image_model_lru", current_endpoint)
-    for key, val, save_key in ordinary_lru:
+    for _key, val, save_key in ordinary_lru:
         if save_key not in changed:
             continue
-        for item, lru_key, endpoint in _lru_rows_for_key(key, val, current_endpoint):
+        for item, lru_key, endpoint in _lru_rows_for_key(save_key, val, current_endpoint):
             _stage_lru(changed, item, lru_key, endpoint)
 
 
@@ -427,9 +427,9 @@ def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[A
     """
     if not val:
         return []
-    if key in ("audio__stt_model", "stt_model", "audio.stt_model"):
+    if key == "audio.stt_model":
         return [(val, "audio_model_lru", current_endpoint)]
-    if key in ("audio__tts_model", "tts_model", "audio.tts_model"):
+    if key == "audio.tts_model":
         return [(val, "tts_model_lru", current_endpoint)]
     if key == "image_model":
         from plugin.framework.client.model_fetcher import _sanitize_stored_model_value

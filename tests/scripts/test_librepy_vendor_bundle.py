@@ -71,7 +71,7 @@ def test_filtered_sync_vendor_into_lib_copies_metadata_and_omits_excluded(tmp_pa
         str(temp_vendor),
         str(temp_lib),
         prune_websockets=False,
-        packages=LIBREPY_VENDOR_PACKAGES,
+        only=LIBREPY_VENDOR_PACKAGES,
     )
     assert count == 2
     assert (temp_lib / "latex2mathml" / "__init__.py").is_file()
@@ -92,7 +92,7 @@ def test_librepy_vendor_imports_in_isolated_process(vendor_dir: str, tmp_path: P
         vendor_dir,
         str(lib_dir),
         prune_websockets=False,
-        packages=LIBREPY_VENDOR_PACKAGES,
+        only=LIBREPY_VENDOR_PACKAGES,
     )
 
     script = """

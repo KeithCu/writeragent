@@ -1655,12 +1655,11 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
 
 def _format_error_for_display(exc: BaseException) -> str:
     """Cell-safe error text without importing ``plugin.framework.client.llm_client``."""
-    err: Exception = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
     # Bugfix (#402): A TimeoutError during add-in execution is an internal host marshal or
     # synchronization timeout, NOT a user venv execution timeout or HTTP request timeout.
     if isinstance(exc, TimeoutError):
         return _("Error: Main-thread execution timed out ({0})").format(str(exc))
-    msg = format_error_message(err)
+    msg = format_error_message(exc)
     if msg.startswith("Error:") or msg.startswith("#"):
         return msg
     return _format_python_addin_worker_error(msg)

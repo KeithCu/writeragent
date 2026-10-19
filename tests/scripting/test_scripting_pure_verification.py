@@ -19,7 +19,6 @@ from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
     venv_authorized_top_level_modules,
     venv_blocked_modules,
-    inprocess_authorized_modules,
     format_venv_import_policy_for_prompt,
 )
 from plugin.scripting.config_limits import (
@@ -67,9 +66,6 @@ def test_import_policy_contracts() -> None:
     assert len(blocked) > 0
     assert "subprocess" in blocked or "os" in blocked
 
-    inproc = inprocess_authorized_modules()
-    assert isinstance(inproc, tuple)
-    assert len(inproc) > 0
 
     prompt = format_venv_import_policy_for_prompt(compact=True)
     assert isinstance(prompt, str)

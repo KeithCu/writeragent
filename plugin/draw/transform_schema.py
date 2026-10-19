@@ -130,7 +130,7 @@ Available layouts (use ChangeLayoutByName with these names):
 - AUTOLAYOUT_TITLE_2VTEXT (id=30)
 
 Text content:
-- {"SetText.N": "text"} - set text of placeholder N on current slide (0=title, 1=first content, ...). Use \n for paragraph breaks.
+- {"SetText.N": "text"} - set text of shape object index N on current slide (a stock title layout has the title at 0 only because it is object 0). Use \n for paragraph breaks.
 
 Rich text editing:
 - {"EditTextObject.N": [...]} - edit text object N with sub-commands (SelectText, SelectParagraph, InsertText, UnoCommand).

@@ -40,3 +40,24 @@ def test_range_bold_does_not_format_the_rest_of_the_shape(ctx, doc):
     # PyUNO exposes the enum name. 2 is FontSlant.ITALIC; the bold range stays upright.
     assert str(rest.CharPosture.value) == "ITALIC"
     assert str(bold.CharPosture.value) != "ITALIC"
+
+
+@native_test
+@with_native_doc("draw")
+def test_select_text_same_paragraph_absolute_span(ctx, doc):
+    """[0, 1, 0, 3] selects absolute span [1, 3] (length 2), not start + end."""
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from plugin.framework.tool import ToolContext
+
+    page = doc.getDrawPages().getByIndex(0)
+    shape = doc.createInstance("com.sun.star.drawing.TextShape")
+    page.add(shape)
+    shape.setString("Hello world")
+
+    tctx = ToolContext(doc, ctx, "draw", None, "test")
+    eng = SlideCommandEngine(tctx)
+    xtext = shape.getText()
+    cursor = xtext.createTextCursor()
+    selected = eng._select_text(xtext, cursor, [0, 1, 0, 3])
+    # Absolute span from index 1 to 3 covers 'el' (length 2), not 'ell' (length 3).
+    assert selected.getString() == "el"

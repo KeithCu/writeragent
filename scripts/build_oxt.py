@@ -11,7 +11,6 @@ Default bundle is build/bundle/ (tweak files there and re-zip with --repack).
 Usage:
     python3 scripts/build_oxt.py                    # full build
     python3 scripts/build_oxt.py --repack           # re-zip bundle only
-    python3 scripts/build_oxt.py --modules core mcp
     python3 scripts/build_oxt.py --strip --bundle-dir /tmp/wa --skip-zip
 """
 
@@ -27,6 +26,10 @@ if PROJECT_ROOT not in sys.path:
 
 from scripts.strip_code import strip_production_code
 from scripts.prune_vendored_websockets import prune_vendored_websockets
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Files/dirs always included from extension/
 ALWAYS_INCLUDE_EXTENSION = [
@@ -54,12 +57,12 @@ ALWAYS_INCLUDE_PLUGIN_FILES = [
 
 
 def get_always_include_plugin(base_dir):
-    """Dynamically discover all subdirectories under plugin/ except tests and cache."""
+    """Dynamically discover all subdirectories under plugin/ except tests, cache, and lib."""
     plugin_dir = os.path.join(base_dir, "plugin")
     includes = list(ALWAYS_INCLUDE_PLUGIN_FILES)
     if os.path.isdir(plugin_dir):
         for entry in sorted(os.listdir(plugin_dir)):
-            if entry in ("tests", "__pycache__") or entry.startswith("."):
+            if entry in ("tests", "__pycache__", "lib") or entry.startswith("."):
                 continue
             entry_path = os.path.join(plugin_dir, entry)
             if os.path.isdir(entry_path):
@@ -77,26 +80,12 @@ ALWAYS_INCLUDE_ROOT = [
     "locales/",
 ]
 
-# Auto-discover all top-level module directories
-def _discover_modules(base_dir):
-    """Return sorted list of top-level module directory names."""
-    modules_dir = os.path.join(base_dir, "plugin", "modules")
-    if not os.path.isdir(modules_dir):
-        return []
-    return sorted(
-        d for d in os.listdir(modules_dir)
-        if os.path.isdir(os.path.join(modules_dir, d))
-        and not d.startswith(("_", "."))
-    )
-
 
 # Generated files (XCS/XCU, XDL dialogs). One Dialogs/ tree only — a separate
 # lowercase dialogs/ collides with Dialogs/ on Windows case-insensitive FS and
 # wiped ChatPanelDialog.xdl during hot-deploy (empty sidebar).
 GENERATED_INCLUDES = [
     "build/generated/Dialogs/",
-    "build/generated/Addons.xcu",
-    "build/generated/Accelerators.xcu",
 ]
 
 BUNDLE_DIR = "build/bundle"
@@ -135,7 +124,7 @@ def sync_vendor_into_lib(
     lib_dir: str,
     *,
     prune_websockets: bool = True,
-    packages: frozenset[str] | None = None,
+    only: set[str] | frozenset[str] | None = None,
 ) -> int:
     """Copy ``vendor/`` package trees into a ``plugin/lib/`` directory.
 
@@ -146,31 +135,27 @@ def sync_vendor_into_lib(
     """
     if not os.path.isdir(vendor_dir):
         return 0
+
+    entries = sorted(os.listdir(vendor_dir))
+    packages_to_copy: list[str] = []
+    for entry in entries:
+        if entry.startswith(("_", ".")) or entry == "bin" or entry.endswith(".dist-info"):
+            continue
+        if only is not None and entry not in only:
+            continue
+        packages_to_copy.append(entry)
+
+    if not packages_to_copy and not os.path.isdir(lib_dir):
+        return 0
+
     os.makedirs(lib_dir, exist_ok=True)
     vendor_count = 0
-    pkg_filter = {p.replace("-", "_").lower() for p in packages} if packages is not None else None
-    for entry in sorted(os.listdir(vendor_dir)):
-        if entry.startswith(("_", ".")):
-            continue
+    written: set[str] = set()
+    copied_pkgs: set[str] = set()
+
+    for entry in packages_to_copy:
         src_path = os.path.join(vendor_dir, entry)
         dst_path = os.path.join(lib_dir, entry)
-        if entry.endswith(".dist-info"):
-            # Keep only METADATA: latex2mathml reads its own version through
-            # importlib.metadata at import time and fails without it.
-            if pkg_filter is not None:
-                dist_stem = entry[: -len(".dist-info")]
-                dist_pkg = dist_stem.split("-")[0].replace("-", "_").lower()
-                if dist_pkg not in pkg_filter:
-                    continue
-            meta_src = os.path.join(src_path, "METADATA")
-            if os.path.isfile(meta_src):
-                if os.path.exists(dst_path):
-                    shutil.rmtree(dst_path)
-                os.makedirs(dst_path)
-                shutil.copy2(meta_src, os.path.join(dst_path, "METADATA"))
-            continue
-        if packages is not None and entry not in packages:
-            continue
         if os.path.isdir(src_path):
             if os.path.exists(dst_path):
                 shutil.rmtree(dst_path)
@@ -179,11 +164,40 @@ def sync_vendor_into_lib(
                 pruned = prune_vendored_websockets(dst_path)
                 if pruned:
                     print("  Pruned websockets for CDP client (%d paths)" % len(pruned))
-            vendor_count += 1
         elif os.path.isfile(src_path):
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
-            vendor_count += 1
+        vendor_count += 1
+        written.add(entry)
+        copied_pkgs.add(entry)
+
+    # Copy METADATA-only *.dist-info: latex2mathml reads its version via importlib.metadata at import.
+    for entry in entries:
+        if not entry.endswith(".dist-info") or entry.startswith(("_", ".")):
+            continue
+        stem = entry[:-len(".dist-info")].split("-")[0]
+        if stem in copied_pkgs or stem.replace("-", "_") in copied_pkgs:
+            src_path = os.path.join(vendor_dir, entry)
+            dst_path = os.path.join(lib_dir, entry)
+            meta_src = os.path.join(src_path, "METADATA")
+            if os.path.isfile(meta_src):
+                if os.path.exists(dst_path):
+                    shutil.rmtree(dst_path)
+                os.makedirs(dst_path)
+                shutil.copy2(meta_src, os.path.join(dst_path, "METADATA"))
+                written.add(entry)
+
+    # Prune stale packages so deleted vendor dependencies don't survive in lib_dir:
+    # Windows cache copy has no vendor overlay and Linux overlay skips *.dist-info.
+    if os.path.isdir(lib_dir):
+        for existing in os.listdir(lib_dir):
+            if existing not in written:
+                existing_path = os.path.join(lib_dir, existing)
+                if os.path.isdir(existing_path):
+                    shutil.rmtree(existing_path)
+                else:
+                    os.remove(existing_path)
+
     return vendor_count
 
 
@@ -265,7 +279,223 @@ def remap_path(f):
     return f
 
 
-def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry_run_strip=False, strip=False, bundle_dir=BUNDLE_DIR):
+def resolve_archive_sources(
+    base_dir: str,
+    files: list[str],
+    remap_fn: "Callable[[str], str]" = remap_path,
+) -> list[tuple[str, str]]:
+    """Map source files to archive paths, collapsing identical duplicates and exiting on differing collisions."""
+    resolved: dict[str, str] = {}
+    for rel in files:
+        arcname = remap_fn(rel)
+        if arcname in resolved:
+            prev_rel = resolved[arcname]
+            if prev_rel == rel:
+                continue
+            src_prev = prev_rel if os.path.isabs(prev_rel) else os.path.join(base_dir, prev_rel)
+            src_curr = rel if os.path.isabs(rel) else os.path.join(base_dir, rel)
+            if os.path.isfile(src_prev) and os.path.isfile(src_curr):
+                with open(src_prev, "rb") as f1, open(src_curr, "rb") as f2:
+                    if f1.read() == f2.read():
+                        continue
+            elif rel.endswith("/") and prev_rel.endswith("/"):
+                continue
+            print(
+                f"ERROR: Archive collision on '{arcname}': '{prev_rel}' and '{rel}' differ in content",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        resolved[arcname] = rel
+    return [(src_rel, arcname) for arcname, src_rel in resolved.items()]
+
+
+def strip_debug_menu_xml(content: str) -> str:
+    """Remove the M17 Debug submenu node and its children from Addons.xcu content."""
+    start = content.find(DEBUG_MENU_NODE_MARKER)
+    if start != -1:
+        tag_start = content.rfind("<node ", 0, start)
+        if tag_start != -1:
+            depth = 1
+            pos = content.find(">", start) + 1
+            while depth > 0 and pos < len(content):
+                next_open = content.find("<node ", pos)
+                if next_open == -1:
+                    next_open = content.find("<node>", pos)
+                next_close = content.find("</node>", pos)
+                if next_close == -1:
+                    break
+                use_open = next_open != -1 and (next_open < next_close)
+                if use_open:
+                    depth += 1
+                    pos = content.find(">", next_open) + 1
+                else:
+                    depth -= 1
+                    if depth == 0:
+                        end_pos = next_close + len("</node>")
+                        content = content[:tag_start] + content[end_pos:].lstrip("\r\n")
+                        break
+                    pos = next_close + len("</node>")
+    return content
+
+
+def preflight_writeragent(base_dir: str) -> None:
+    # Fail fast when required inputs or generated files are missing.
+    # Hot-deploy depends on these: Windows cache copy has no vendor overlay and Linux overlay skips *.dist-info.
+    manifest_files = [
+        "plugin/_manifest.py",
+        "plugin/main.py",
+        "extension/META-INF/manifest.xml",
+        "extension/description.xml",
+        "extension/Addons.xcu",
+        "extension/Accelerators.xcu",
+        "extension/Jobs.xcu",
+        "extension/ProtocolHandler.xcu",
+        "extension/XPythonFunction.rdb",
+        "extension/XPromptFunction.rdb",
+        "build/generated/Dialogs/SettingsDialog.xdl",
+    ]
+    for rel in manifest_files:
+        full = os.path.join(base_dir, rel)
+        if not os.path.isfile(full):
+            raise RuntimeError(f"Missing required input '{rel}'. Run: make manifest")
+
+    locales_dir = os.path.join(base_dir, "locales")
+    has_mo = False
+    if os.path.isdir(locales_dir):
+        for root, _, filenames in os.walk(locales_dir):
+            if any(f.endswith(".mo") for f in filenames):
+                has_mo = True
+                break
+    if not has_mo:
+        raise RuntimeError("Missing compiled translations (locales/*/*.mo). Run: make compile-translations")
+
+    vendor_dir = os.path.join(base_dir, "vendor")
+    required_vendor_pkgs = [
+        "isodate",
+        "json_repair",
+        "latex2mathml",
+        "mathml_to_latex",
+        "snowballstemmer",
+        "websockets",
+        "defusedxml",
+    ]
+    for pkg in required_vendor_pkgs:
+        full = os.path.join(vendor_dir, pkg)
+        if not os.path.isdir(full):
+            raise RuntimeError(f"Missing vendor package directory '{pkg}'. Run: make vendor")
+
+    has_l2m_meta = False
+    if os.path.isdir(vendor_dir):
+        for entry in os.listdir(vendor_dir):
+            if entry.startswith("latex2mathml-") and entry.endswith(".dist-info"):
+                if os.path.isfile(os.path.join(vendor_dir, entry, "METADATA")):
+                    has_l2m_meta = True
+                    break
+    if not has_l2m_meta:
+        raise RuntimeError("Missing latex2mathml-*.dist-info/METADATA. Run: make vendor")
+
+
+def verify_bundle_manifest(bundle_path: str, *, require_addons: bool = True) -> None:
+    """Verify that all files declared in META-INF/manifest.xml exist in bundle_path."""
+    manifest_xml = os.path.join(bundle_path, "META-INF", "manifest.xml")
+    if not os.path.isfile(manifest_xml):
+        raise RuntimeError(f"Missing META-INF/manifest.xml in {bundle_path}")
+
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(manifest_xml)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to parse {manifest_xml}: {exc}") from exc
+
+    root = tree.getroot()
+    ns = {"manifest": "http://openoffice.org/2001/manifest"}
+    for elem in root.findall(".//manifest:file-entry", ns):
+        full_path = elem.attrib.get(f"{{{ns['manifest']}}}full-path")
+        if not full_path:
+            full_path = elem.attrib.get("manifest:full-path") or elem.attrib.get("full-path")
+        if not full_path or full_path in ("/", ""):
+            continue
+        entry_file = os.path.join(bundle_path, full_path.replace("/", os.sep))
+        if not os.path.exists(entry_file):
+            raise RuntimeError(f"Bundle manifest points at missing file: {full_path}")
+
+    manifest_py = os.path.join(bundle_path, "plugin", "_manifest.py")
+    if not os.path.isfile(manifest_py):
+        raise RuntimeError(f"Bundle missing required plugin/_manifest.py: {bundle_path}")
+
+    if require_addons:
+        addons_xcu = os.path.join(bundle_path, "Addons.xcu")
+        if not os.path.isfile(addons_xcu):
+            raise RuntimeError(f"Bundle missing required Addons.xcu: {bundle_path}")
+
+
+def _get_source_date_epoch_dt() -> tuple[int, int, int, int, int, int]:
+    epoch_str = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch_str:
+        try:
+            import datetime
+            dt = datetime.datetime.fromtimestamp(int(epoch_str), tz=datetime.timezone.utc)
+            if dt.year >= 1980:
+                return (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+        except (ValueError, OverflowError, OSError):
+            pass
+    return (1980, 1, 1, 0, 0, 0)
+
+
+def write_oxt_zip(bundle_path: str, output_path: str) -> int:
+    """Write an .oxt zip archive atomically with deterministic entry order and timestamps."""
+    if not os.path.isdir(bundle_path):
+        raise RuntimeError(f"Bundle directory not found: {bundle_path}")
+
+    entries: list[tuple[str, str]] = []
+    for root, dirs, filenames in os.walk(bundle_path):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for fn in filenames:
+            if fn.endswith((".pyc", ".pyo")):
+                continue
+            filepath = os.path.join(root, fn)
+            arcname = os.path.relpath(filepath, bundle_path).replace(os.sep, "/")
+            entries.append((arcname, filepath))
+
+    entries.sort(key=lambda item: item[0])
+    fixed_dt = _get_source_date_epoch_dt()
+
+    out_dir = os.path.dirname(output_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    tmp_path = f"{output_path}.{os.getpid()}.tmp"
+
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for arcname, filepath in entries:
+                with open(filepath, "rb") as fh:
+                    data = fh.read()
+                zinfo = zipfile.ZipInfo(filename=arcname, date_time=fixed_dt)
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
+                st = os.stat(filepath)
+                zinfo.external_attr = (st.st_mode & 0xFFFF) << 16
+                zf.writestr(zinfo, data)
+        os.replace(tmp_path, output_path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    return len(entries)
+
+
+def assemble_bundle(
+    base_dir,
+    modules=None,
+    no_recording=False,
+    with_tests=False,
+    dry_run_strip=False,
+    strip=False,
+    bundle_dir=BUNDLE_DIR,
+):
     """Copy all files into the bundle dir with final archive paths."""
     bundle_path = resolve_bundle_path(base_dir, bundle_dir)
 
@@ -286,16 +516,6 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
         include.extend(RELEASE_INCLUDE_PLUGIN)
         print("  Dev build: including plugin/tests/ and testing_runner.py")
     include.extend(ALWAYS_INCLUDE_ROOT)
-
-    for mod in modules:
-        mod_dir = "plugin/%s/" % mod
-        mod_path = os.path.join(base_dir, mod_dir)
-        if os.path.isdir(mod_path):
-            include.append(mod_dir)
-        else:
-            print("  WARNING: module '%s' not found at %s" % (mod, mod_dir),
-                  file=sys.stderr)
-
     include.extend(GENERATED_INCLUDES)
     files = collect_files(base_dir, include, with_tests=with_tests)
 
@@ -309,10 +529,10 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
         files = [f for f in files if f not in _recording_prefixes]
         print("  No-recording build: excluded sidebar voice recording modules")
 
+    sources = resolve_archive_sources(base_dir, files, remap_path)
     count = 0
-    for f in files:
-        src = os.path.join(base_dir, f)
-        arcname = remap_path(f)
+    for f, arcname in sources:
+        src = f if os.path.isabs(f) else os.path.join(base_dir, f)
         dst = os.path.join(bundle_path, arcname)
         if f.endswith("/"):
             os.makedirs(dst, exist_ok=True)
@@ -331,34 +551,11 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
         src_addons = os.path.join(base_dir, "extension", "Addons.xcu")
         dst_addons = os.path.join(bundle_path, "Addons.xcu")
         if os.path.isfile(src_addons):
-            with open(src_addons, "r", encoding="utf-8") as f:
-                content = f.read()
-            start = content.find(DEBUG_MENU_NODE_MARKER)
-            if start != -1:
-                tag_start = content.rfind("<node ", 0, start)
-                if tag_start != -1:
-                    depth = 1
-                    pos = content.find(">", start) + 1
-                    while depth > 0 and pos < len(content):
-                        next_open = content.find("<node ", pos)
-                        if next_open == -1:
-                            next_open = content.find("<node>", pos)
-                        next_close = content.find("</node>", pos)
-                        if next_close == -1:
-                            break
-                        use_open = next_open != -1 and (next_open < next_close)
-                        if use_open:
-                            depth += 1
-                            pos = content.find(">", next_open) + 1
-                        else:
-                            depth -= 1
-                            if depth == 0:
-                                end_pos = next_close + len("</node>")
-                                content = content[:tag_start] + content[end_pos:].lstrip("\r\n")
-                                break
-                            pos = next_close + len("</node>")
-            with open(dst_addons, "w", encoding="utf-8") as f:
-                f.write(content)
+            with open(src_addons, "r", encoding="utf-8") as fh:
+                content = fh.read()
+            stripped_content = strip_debug_menu_xml(content)
+            with open(dst_addons, "w", encoding="utf-8") as fh:
+                fh.write(stripped_content)
             print("  Release build: stripped Debug menu from Addons.xcu")
 
     if strip or not with_tests or dry_run_strip:
@@ -366,9 +563,6 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
 
     print("Assembled %d files in %s" % (count, bundle_path))
     return count
-
-
-# strip_production_code moved to scripts/strip_code.py
 
 
 def zip_bundle(base_dir, output, bundle_dir=BUNDLE_DIR):
@@ -379,27 +573,18 @@ def zip_bundle(base_dir, output, bundle_dir=BUNDLE_DIR):
               file=sys.stderr)
         return 1
 
-    output_path = resolve_output_path(base_dir, output)
-    out_dir = os.path.dirname(output_path)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-    if os.path.exists(output_path):
-        os.remove(output_path)
+    try:
+        verify_bundle_manifest(bundle_path, require_addons=True)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
 
-    count = 0
-    # strict_timestamps=False: freshly vendored wheels and reused Cloud Agent
-    # snapshot checkouts can carry pre-1980 (epoch-0) mtimes, which the default
-    # rejects with "ZIP does not support timestamps before 1980" and aborts the
-    # build. False clamps such entries to 1980-01-01 instead of failing.
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
-        for root, dirs, filenames in os.walk(bundle_path):
-            dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
-            for fn in filenames:
-                filepath = os.path.join(root, fn)
-                arcname = os.path.relpath(filepath, bundle_path)
-                if not should_exclude(arcname, with_tests=True):
-                    zf.write(filepath, arcname)
-                    count += 1
+    output_path = resolve_output_path(base_dir, output)
+    try:
+        count = write_oxt_zip(bundle_path, output_path)
+    except RuntimeError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
 
     print("Created %s with %d files" % (output, count))
     return 0
@@ -408,11 +593,8 @@ def zip_bundle(base_dir, output, bundle_dir=BUNDLE_DIR):
 def main():
     parser = argparse.ArgumentParser(description="Build WriterAgent .oxt extension")
     parser.add_argument(
-        "--modules", nargs="+", default=None,
-        help="Modules to include (default: auto-discover all)")
-    parser.add_argument(
         "--output", default="build/WriterAgent.oxt",
-        help="Output file (default: build/writeragent.oxt)")
+        help="Output file (default: build/WriterAgent.oxt)")
     parser.add_argument(
         "--repack", action="store_true",
         help="Only re-zip the bundle dir (skip assembly; see --bundle-dir)")
@@ -436,16 +618,28 @@ def main():
         help="Assemble the bundle only; do not write an .oxt")
     args = parser.parse_args()
 
+    bundle_path = resolve_bundle_path(PROJECT_ROOT, args.bundle_dir)
+
     if not args.repack:
-        modules = args.modules or _discover_modules(PROJECT_ROOT)
+        try:
+            preflight_writeragent(PROJECT_ROOT)
+        except RuntimeError as err:
+            print(f"ERROR: {err}", file=sys.stderr)
+            return 1
+
         assemble_bundle(
-            PROJECT_ROOT, modules,
+            PROJECT_ROOT,
             no_recording=args.no_recording,
             with_tests=not args.no_tests,
             dry_run_strip=args.dry_run_strip,
             strip=args.strip,
             bundle_dir=args.bundle_dir,
         )
+        try:
+            verify_bundle_manifest(bundle_path, require_addons=True)
+        except RuntimeError as err:
+            print(f"ERROR: {err}", file=sys.stderr)
+            return 1
 
     if args.skip_zip:
         return 0

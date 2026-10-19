@@ -52,12 +52,23 @@ _XContainerListener: Any = None
 _XMouseListener: Any = None
 _XFocusListener: Any = None
 _XMouseClickHandler: Any = None
+_XTopWindowListener: Any = None
 _HAVE_UNO = False
 
 try:
     import unohelper as _unohelper_impl
     from com.sun.star.lang import XEventListener as _XEventListener_impl
-    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl, XMouseListener as _XMouseListener_impl, XFocusListener as _XFocusListener_impl, XMouseClickHandler as _XMouseClickHandler_impl
+    from com.sun.star.awt import (
+        XActionListener as _XActionListener_impl,
+        XItemListener as _XItemListener_impl,
+        XTextListener as _XTextListener_impl,
+        XKeyListener as _XKeyListener_impl,
+        XWindowListener as _XWindowListener_impl,
+        XMouseListener as _XMouseListener_impl,
+        XFocusListener as _XFocusListener_impl,
+        XMouseClickHandler as _XMouseClickHandler_impl,
+        XTopWindowListener as _XTopWindowListener_impl,
+    )
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
@@ -75,6 +86,7 @@ try:
     _XMouseListener = _XMouseListener_impl
     _XFocusListener = _XFocusListener_impl
     _XMouseClickHandler = _XMouseClickHandler_impl
+    _XTopWindowListener = _XTopWindowListener_impl
     _HAVE_UNO = True
 except ImportError:
     pass
@@ -120,6 +132,9 @@ if TYPE_CHECKING:
 
     class _XMouseClickHandlerParent:
         pass
+
+    class _XTopWindowListenerParent:
+        pass
 else:
 
     class _DummyBase:
@@ -161,6 +176,9 @@ else:
     class _DummyMouseClickHandler:
         pass
 
+    class _DummyTopWindowListener:
+        pass
+
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
     _XActionListenerParent = _XActionListener if _HAVE_UNO else _DummyActionListener
@@ -174,6 +192,7 @@ else:
     _XMouseListenerParent = _XMouseListener if _HAVE_UNO else _DummyMouseListener
     _XFocusListenerParent = _XFocusListener if _HAVE_UNO else _DummyFocusListener
     _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
+    _XTopWindowListenerParent = _XTopWindowListener if _HAVE_UNO else _DummyTopWindowListener
 
 
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
@@ -462,6 +481,57 @@ class BaseWindowListener(BaseListener, _XWindowListenerParent):
         pass
 
     def on_window_hidden(self, rEvent: Any) -> None:
+        pass
+
+
+class BaseTopWindowListener(BaseListener, _XTopWindowListenerParent):
+    @_catch_and_log
+    def windowOpened(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_opened(e)
+
+    @_catch_and_log
+    def windowClosing(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_closing(e)
+
+    @_catch_and_log
+    def windowClosed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_closed(e)
+
+    @_catch_and_log
+    def windowMinimized(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_minimized(e)
+
+    @_catch_and_log
+    def windowNormalized(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_normalized(e)
+
+    @_catch_and_log
+    def windowActivated(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_activated(e)
+
+    @_catch_and_log
+    def windowDeactivated(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_window_deactivated(e)
+
+    def on_window_opened(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_closing(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_closed(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_minimized(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_normalized(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_activated(self, rEvent: Any) -> None:
+        pass
+
+    def on_window_deactivated(self, rEvent: Any) -> None:
         pass
 
 

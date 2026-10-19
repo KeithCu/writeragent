@@ -45,7 +45,7 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.ipc import (
     IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_pickle_frame_with_timeout,
+    read_pickle_frame,
     write_packed_frame_with_timeout,
 )
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env
@@ -129,7 +129,7 @@ class _KokoroWorker:
             return
 
         try:
-            ready_data = read_pickle_frame_with_timeout(
+            ready_data = read_pickle_frame(
                 stdout,
                 self._ready_timeout_sec,
                 is_alive=self.is_alive,
@@ -189,7 +189,7 @@ class _KokoroWorker:
             return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
 
         try:
-            resp = read_pickle_frame_with_timeout(stdout, remaining, is_alive=self.is_alive, require_dict=True)
+            resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, require_dict=True)
             if not isinstance(resp, dict):
                 self.kill()
                 msg = "No response returned from Kokoro."

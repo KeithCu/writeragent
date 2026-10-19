@@ -2,90 +2,47 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Public table inspection, nesting, and manipulation helpers for Writer text tables."""
+"""Shared cell text writer helpers for Writer and Draw text tables.
 
-from plugin.writer.specialized.tables import (
-    _EMPTY_ROW_ANCHOR,
-    _cell_hosted_table_names,
-    _cell_matrix_text,
-    _cell_plain_siblings,
-    _cells_sample,
-    _container_xtext,
-    _dims,
-    _empty_replacement_clears_table,
-    _get_table,
-    _hosted_in_band,
-    _is_draw_doc,
-    _is_text_table,
-    _is_wrong_start_node,
-    _iter_direct_children,
-    _iter_text_frames_in_para,
-    _match_is_whole_cell,
-    _nesting_for,
-    _not_nested,
-    _range_in_cell,
-    _recording_changes,
-    _remove_writer_table,
-    _resolve_cell_name,
-    _resolve_uno_context,
-    _safe_enumerate,
-    _service_named,
-    _set_cell_string,
-    _set_host_paragraphs,
-    _table_from_range,
-    _tables,
-    _unknown_cell_message,
-    _walk_xtext_siblings,
-    _writer_cell_position,
-    _writer_named_cells,
-    _writer_nesting,
-    delete_writer_table,
-    fill_table_cells,
-    raise_if_range_hosts_nested_table,
-    range_hosted_nested_tables,
-    range_table_name,
-    writer_tables_emptied_by_matches,
-)
+Public surface:
+- ``_set_cell_string``: Set string on a cell (via getText() or setString).
+- ``fill_table_cells``: Write a 2D grid into a table by column and row coordinates.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from plugin.framework.errors import uno_probe
 
 __all__ = [
-    "_EMPTY_ROW_ANCHOR",
-    "_cell_hosted_table_names",
-    "_cell_matrix_text",
-    "_cell_plain_siblings",
-    "_cells_sample",
-    "_container_xtext",
-    "_dims",
-    "_empty_replacement_clears_table",
-    "_get_table",
-    "_hosted_in_band",
-    "_is_draw_doc",
-    "_is_text_table",
-    "_is_wrong_start_node",
-    "_iter_direct_children",
-    "_iter_text_frames_in_para",
-    "_match_is_whole_cell",
-    "_nesting_for",
-    "_not_nested",
-    "_range_in_cell",
-    "_recording_changes",
-    "_remove_writer_table",
-    "_resolve_cell_name",
-    "_resolve_uno_context",
-    "_safe_enumerate",
-    "_service_named",
     "_set_cell_string",
-    "_set_host_paragraphs",
-    "_table_from_range",
-    "_tables",
-    "_unknown_cell_message",
-    "_walk_xtext_siblings",
-    "_writer_cell_position",
-    "_writer_named_cells",
-    "_writer_nesting",
-    "delete_writer_table",
     "fill_table_cells",
-    "raise_if_range_hosts_nested_table",
-    "range_hosted_nested_tables",
-    "range_table_name",
-    "writer_tables_emptied_by_matches",
 ]
+
+
+def _set_cell_string(cell: Any, text: str) -> None:
+    """Set text on a Writer or Draw cell."""
+
+    def via_text() -> bool:
+        cell.getText().setString(text)
+        return True
+
+    if hasattr(cell, "getText") and uno_probe(via_text, False):
+        return
+    if hasattr(cell, "setString"):
+        cell.setString(text)
+
+
+def fill_table_cells(table: Any, data: Any) -> int:
+    """Write a 2D string grid into ``table.getCellByPosition(col, row)``. Returns cells written."""
+    written = 0
+    for r_idx, row in enumerate(data):
+        if not isinstance(row, (list, tuple)):
+            continue
+        for c_idx, val in enumerate(row):
+            cell = table.getCellByPosition(c_idx, r_idx)
+            text = "" if val is None else str(val)
+            _set_cell_string(cell, text)
+            written += 1
+    return written

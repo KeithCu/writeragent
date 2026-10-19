@@ -390,3 +390,28 @@ def test_apply_style_search_miss_reports_not_matched_uno(ctx, doc):
     assert res.get("status") == "error", res
     assert res.get("matched") is False, res
     assert res.get("applied") is not True, res
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_style_preserve_italic_char_posture_uno(ctx, doc):
+    """Direct italic (FontSlant enum) preserved with clear_direct='none', reported as int 2."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Italic contract clause.", False)
+
+    fmt = text.createTextCursorByRange(text.getStart())
+    fmt.gotoEnd(True)
+    slant = uno.Enum("com.sun.star.awt.FontSlant", "ITALIC")
+    fmt.setPropertyValue("CharPosture", slant)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyStyle().execute(
+        tool_ctx, style="Standard", family="ParagraphStyles",
+        target="search", old_content="Italic contract clause.",
+        clear_direct="none",
+    )
+    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("preserved_char_overrides", {}).get("CharPosture") == 2
+

@@ -14,7 +14,7 @@ def test_empty_batch_returns_400():
 
     handler._send_json.assert_called_with(mock_handler, 400, {"jsonrpc": "2.0", "id": None, "error": {"code": INVALID_REQUEST, "message": "Empty batch"}})
 
-def test_batch_initialize_mints_session_id():
+def test_batch_initialize_rejected():
     services = MagicMock()
     handler = MCPProtocolHandler(services)
     mock_handler = MagicMock()
@@ -24,10 +24,22 @@ def test_batch_initialize_mints_session_id():
 
     with patch.object(proto, "_mint_session_id_once") as mock_mint:
         handler._send_json = MagicMock()
-        # mock _process_jsonrpc to return 200
-        handler._process_jsonrpc = MagicMock(return_value=(200, {"jsonrpc": "2.0", "id": 1, "result": {}}))
+        handler._process_jsonrpc = MagicMock()
 
         handler._handle_mcp(msg, mock_handler)
 
-        mock_mint.assert_called_once()
-        handler._send_json.assert_called_with(mock_handler, 200, [{"jsonrpc": "2.0", "id": 1, "result": {}}])
+        mock_mint.assert_not_called()
+        handler._process_jsonrpc.assert_not_called()
+        handler._send_json.assert_called_with(
+            mock_handler,
+            400,
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": INVALID_REQUEST,
+                    "message": "initialize must not be part of a JSON-RPC batch",
+                },
+            },
+        )
+
