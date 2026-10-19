@@ -124,6 +124,7 @@ def _coerce_notebook_text(value: Any) -> str:
 
 
 def _prepare_display_text(text: str) -> tuple[str, bool]:
+    """Display text only (markdown, raw, output), not code form fields."""
     display = text or ""
     if len(display) <= _MAX_IMPORT_TEXT_CHARS:
         return display, False
