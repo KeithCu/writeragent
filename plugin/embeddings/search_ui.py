@@ -12,12 +12,14 @@ from plugin.framework.queue_executor import execute_on_main_thread
 from typing import Any
 
 import unohelper
-from com.sun.star.awt import XActionListener, XTopWindowListener
+from com.sun.star.awt import XActionListener
 
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
+from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
+from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
-from plugin.framework.uno_listeners import BaseKeyListener
+from plugin.framework.uno_listeners import BaseKeyListener, BaseTopWindowListener
 from plugin.framework.worker_pool import run_in_background
 import plugin.embeddings.embeddings_service as embeddings_service
 
@@ -96,10 +98,11 @@ class SearchDialog:
         self._open()
 
     @classmethod
+    @main_thread_only
     def show(cls, ctx: Any) -> None:
         cls(ctx)
 
-    def close(self) -> None:
+    def close(self, *, toolkit_teardown: bool = False) -> None:
         if self._closed:
             return
         self._closed = True
@@ -107,14 +110,22 @@ class SearchDialog:
         self._dlg = None
         if dlg is None:
             return
-        dlg.setVisible(False)
-        dlg.dispose()
+        if toolkit_teardown:
+            with suppress_disposed("search: hide after windowClosing", logger=log):
+                dlg.setVisible(False)
+            return
+        with suppress_disposed("search: hide before dispose", logger=log):
+            dlg.setVisible(False)
+        with suppress_disposed("search: dispose", logger=log):
+            dlg.dispose()
 
     def _open(self) -> None:
         ctx = self._ctx
         try:
-            dlg = load_writeragent_dialog("SearchDialog", ctx)
+            dlg, load_detail = load_writeragent_dialog_detail("SearchDialog", ctx)
             if dlg is None:
+                fail_text = _("Failed to open search dialog.") + (f"\n\n{load_detail}" if load_detail else "")
+                msgbox(ctx, _("Search Nearby Files"), fail_text, box_type=3)
                 self.close()
                 return
 
@@ -129,30 +140,9 @@ class SearchDialog:
 
             owner = self
 
-            class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: Any) -> None:
-                    owner.close()
-
-                def windowClosed(self, e: Any) -> None:
-                    pass
-
-                def windowOpened(self, e: Any) -> None:
-                    pass
-
-                def windowMinimized(self, e: Any) -> None:
-                    pass
-
-                def windowNormalized(self, e: Any) -> None:
-                    pass
-
-                def windowActivated(self, e: Any) -> None:
-                    pass
-
-                def windowDeactivated(self, e: Any) -> None:
-                    pass
-
-                def disposing(self, Source: Any) -> None:
-                    pass
+            class _TopWindowListener(BaseTopWindowListener):
+                def on_window_closing(self, rEvent: Any) -> None:
+                    owner.close(toolkit_teardown=True)
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)

@@ -36,7 +36,6 @@ _list_prefix_for_paragraph.
 
 from __future__ import annotations
 
-import html
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -50,6 +49,7 @@ from plugin.chatbot.rich_text import (
     ChatTheme,
     configure_hidden_writer_for_chat,
     _HTML_TAG_RE,
+    _role_prefix,
     append_rich_text,
     contains_html_tag,
     render_messages_to_hidden_doc,
@@ -87,23 +87,8 @@ log = logging.getLogger(__name__)
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
 
 
-def build_message_html(text: str, role: str = "assistant") -> str:
-    """Wrap chat message body as HTML with a bold role prefix."""
-    if not text or not text.strip():
-        return ""
-    from plugin.calc.navigation import render_calc_cell_refs
-
-    text = render_calc_cell_refs(text)
-    label = "You:" if role == "user" else _("Assistant:")
-    if _HTML_TAG_RE.search(text):
-        body = text
-    else:
-        body = "<p>%s</p>" % html.escape(text)
-    return "<p><strong>%s</strong></p>%s" % (label, body)
-
-
 def create_hidden_html_writer(ctx: Any) -> Any | None:
-    """Load a hidden Writer document for HTML import + clipboard copy."""
+    """Load a hidden Writer document for HTML import + direct copy."""
     try:
         from plugin.framework.uno_context import new_blank_writer
 
@@ -133,7 +118,7 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     return rows
 
 
-def _flatten_text_table_rows(table: Any) -> list[str]:  # pyright: ignore[reportUnusedFunction]  # test helper for text table row flattening
+def _flatten_text_table_rows(table: Any) -> list[str]:
     """Cell strings as tab-separated rows. EditEngine cannot host a Writer table."""
     return ["\t".join(row) for row in _text_table_cell_rows(table)]
 
@@ -171,15 +156,6 @@ def _cell_width_em(text: str, *, bold: bool = False) -> float:
     if bold:
         adv *= _BOLD_EM
     return adv
-
-
-def _max_column_chars(rows: list[list[str]]) -> list[int]:  # pyright: ignore[reportUnusedFunction]  # test helper for column char widths
-    n_cols = max((len(row) for row in rows), default=0)
-    widths = [0] * n_cols
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(cell or ""))
-    return widths
 
 
 def _max_column_ems(rows: list[list[str]]) -> list[float]:
@@ -283,18 +259,6 @@ def _normalize_portion_font(portion: Any) -> None:
 
 
 
-def _is_ordered_numbering_type(num_type: Any) -> bool:
-    """True when Writer numbering is numeric/alpha, not a bullet glyph."""
-    if num_type is None:
-        return False
-    try:
-        # com.sun.star.style.NumberingType — ARABIC=4, ROMAN=2/3, CHARS=0/1; BULLET=6
-        n = int(num_type)
-        return n in (0, 1, 2, 3, 4, 5)
-    except (TypeError, ValueError):
-        return False
-
-
 def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
     """Bullet or number prefix for a Writer list paragraph.
 
@@ -316,6 +280,14 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     key = (list_id, level)
     indent = "  " * max(0, level)
 
+    # Writer's own label honors <ol start="11"> and letter/roman types.
+    try:
+        label = para.getPropertyValue("ListLabelString")
+    except Exception:
+        label = None
+    if isinstance(label, str) and label.strip():
+        return "%s%s " % (indent, label.strip())
+
     bullet_char = "\u2022"
     num_type = None
     rules = para.getPropertyValue("NumberingRules")
@@ -328,19 +300,20 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
             if p.Name == "NumberingType":
                 num_type = p.Value
 
-    if _is_ordered_numbering_type(num_type):
-        order_counters[key] = order_counters.get(key, 0) + 1
-        # Writer's own label honors <ol start="11"> and letter/roman types;
-        # the counter always started at 1.
-        label = para.getPropertyValue("ListLabelString")
-        if isinstance(label, str) and label.strip():
-            return "%s%s " % (indent, label.strip())
-        return "%s%d. " % (indent, order_counters[key])
+    try:
+        n_type = int(num_type) if num_type is not None else None
+    except (TypeError, ValueError):
+        n_type = None
 
-    ch = (bullet_char or "\u2022").strip()
-    if ch and not ch.endswith(" "):
-        ch = ch + " "
-    return indent + ch
+    # com.sun.star.style.NumberingType: BULLET=6, BITMAP=8.
+    if n_type in (6, 8) or n_type is None:
+        ch = (bullet_char or "\u2022").strip()
+        if ch and not ch.endswith(" "):
+            ch = ch + " "
+        return indent + ch
+
+    order_counters[key] = order_counters.get(key, 0) + 1
+    return "%s%d. " % (indent, order_counters[key])
 
 
 def _rich_control_bg_color(model: Any, style_window: Any = None) -> int:
@@ -470,7 +443,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         role = msg.get("role", "")
         content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
         if role == "user":
-            text += "\nUser: %s\n" % content
+            text += "\nYou: %s\n" % content
         elif role == "assistant":
             if content:
                 text += "\n%s %s" % (_("Assistant:"), content)
@@ -616,7 +589,7 @@ def paint_message_items(
             links.extend(extract_cell_links_from_html(rendered or ""))
         # Replace, do not append. A previous splice is not part of this paint.
         clear_control(control)
-        if _append_hidden_doc_to_control(
+        res = _append_hidden_doc_to_control(
             doc,
             control,
             ctx,
@@ -625,7 +598,9 @@ def paint_message_items(
             cell_link_targets=links,
             restore=restore,
             restore_focus=restore_focus,
-        ):
+        )
+        ok, copy_reason = res if isinstance(res, tuple) else (bool(res), None)
+        if ok:
             if rows[-1][0] == "user":
                 with focus_preserved(ctx, restore, restore_focus=restore_focus):
                     _ensure_trailing_line_break(control)
@@ -633,7 +608,7 @@ def paint_message_items(
             _force_rich_full_reformat(control)
             _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             return True
-        log.warning("paint_message_items: formatted copy failed; plain paint")
+        log.warning("paint_message_items: formatted copy failed reason=%s; plain paint", copy_reason)
         _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
         return True
     except Exception:
@@ -697,6 +672,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             pending_links = list(cell_link_targets or [])
             while para_enum.hasMoreElements():
                 para = para_enum.nextElement()
+                element_inserted = False
                 try:
                     if not first_para:
                         _insert_string_at_rich_cursor(model, dest_cursor, "\n")
@@ -737,6 +713,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             )
                             dest_cursor.gotoEnd(False)
                             inserted = True
+                            element_inserted = True
                         continue
 
                     line_prefix = _list_prefix_for_paragraph(para, order_counters)
@@ -755,23 +732,27 @@ def _copy_formatted_from_hidden_doc_to_control(
                             )
                             dest_cursor.gotoEnd(False)
                             prefix_inserted = True
+                            element_inserted = True
                         portion_color = _resolve_portion_char_color(
                             portion, txt, theme.user_color, theme.assistant_color, role
                         )
-                        _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
                         _normalize_portion_font(portion)
                         _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
-                        before_len = get_control_text_length(control)
-                        _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
-                        after_len = get_control_text_length(control)
                         href = portion_cell_href(portion)
-                        addr = normalize_cell_address(href) if href else None
-                        if not addr and pending_links and pending_links[0][0] == txt:
-                            addr = pending_links.pop(0)[1]
-                        elif not addr and portion_looks_like_cell_link(portion, txt):
-                            addr = normalize_cell_address(txt.strip())
-                        if addr and isinstance(before_len, int) and isinstance(after_len, int):
-                            register_cell_link_span(control, before_len, after_len, addr)
+                        is_pending = bool(pending_links and pending_links[0][0] == txt)
+                        maybe_link = bool(href or is_pending or portion_looks_like_cell_link(portion, txt))
+                        before_len = get_control_text_length(control) if maybe_link else None
+                        _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
+                        element_inserted = True
+                        if maybe_link:
+                            after_len = get_control_text_length(control)
+                            addr = normalize_cell_address(href) if href else None
+                            if not addr and is_pending:
+                                addr = pending_links.pop(0)[1]
+                            elif not addr and portion_looks_like_cell_link(portion, txt):
+                                addr = normalize_cell_address(txt.strip())
+                            if addr and isinstance(before_len, int) and isinstance(after_len, int):
+                                register_cell_link_span(control, before_len, after_len, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:
@@ -779,24 +760,44 @@ def _copy_formatted_from_hidden_doc_to_control(
                             model, dest_cursor, line_prefix, default_color, bold=False, underline=False
                         )
                         inserted = True
-                except Exception:
-                    # Skipping this element used to leave `inserted` true from
-                    # an earlier paragraph, so the copy reported success and
-                    # rerender threw away the plain tail. A skipped element
-                    # means the formatted copy is not complete.
-                    element_skipped = True
-                    log.exception(
-                        "_copy_formatted_from_hidden_doc_to_control: skip element role=%s",
-                        role,
-                    )
+                        element_inserted = True
+                except Exception as exc:
+                    if element_inserted:
+                        # A partly copied element means the formatted copy is not
+                        # complete; reporting success would make rerender drop the plain tail.
+                        element_skipped = True
+                        log.exception(
+                            "_copy_formatted_from_hidden_doc_to_control: skip element role=%s",
+                            role,
+                        )
+                    else:
+                        log.warning(
+                            "_copy_formatted_from_hidden_doc_to_control: element failed before insert, trying visible text role=%s: %s",
+                            role,
+                            exc,
+                        )
+                        try:
+                            if _is_writer_text_table(para):
+                                fallback_text = "\n".join(_flatten_text_table_rows(para))
+                            else:
+                                fallback_text = para.getString()
+                            if fallback_text:
+                                _insert_string_at_rich_cursor(model, dest_cursor, fallback_text, default_color)
+                                dest_cursor.gotoEnd(False)
+                                inserted = True
+                        except Exception:
+                            element_skipped = True
+                            log.exception(
+                                "_copy_formatted_from_hidden_doc_to_control: fallback element string failed role=%s",
+                                role,
+                            )
 
             if inserted and not element_skipped:
                 if auto_scroll:
                     _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
-                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%s role=%s",
-                    get_control_text_length(control),
+                    "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
                     role,
                 )
         except Exception:
@@ -848,9 +849,20 @@ def _rollback_rich_insert(control: Any, before: int | None) -> None:
 
 def _plain_role_prefix(role: str) -> str:
     """Same ``You:`` / ``Assistant:`` label ``append_rich_text`` writes on the formatted path."""
-    if role == "user":
-        return "You: "
-    return _("Assistant:") + " "
+    return _role_prefix(role)
+
+
+def _append_separator(control: Any) -> None:
+    def _do_separate() -> None:
+        model = control.getModel() if control else None
+        if model is None or not hasattr(model, "createTextCursor"):
+            return
+        cursor = model.createTextCursor()
+        cursor.gotoEnd(False)
+        _insert_string_at_rich_cursor(model, cursor, "\n\n")
+        log_rich_scroll("separator", control=control)
+
+    best_effort(_do_separate, "_append_separator")
 
 
 def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
@@ -862,28 +874,49 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
     """
     wrote = False
     theme = ChatTheme.resolve(style_window=style_window)
+    model = control.getModel() if control else None
+    existing_text = (model.Text or "") if model is not None else ""
+    needs_sep = bool(existing_text.strip() and not existing_text.endswith("\n\n"))
+
     for role, content in batch:
         plain = _plain_fallback_text(content or "")
         if not plain.strip():
             continue
-        _ensure_message_separator(control)
+        if needs_sep:
+            _append_separator(control)
         color = theme.user_color if role == "user" else theme.assistant_color
+        chunk = _plain_role_prefix(role) + plain
         append_text_chunk(
             control,
-            _plain_role_prefix(role) + plain,
-            auto_scroll=auto_scroll,
+            chunk,
+            auto_scroll=False,
             style_window=style_window,
             ctx=ctx,
             char_color=color,
             restore_focus=restore_focus,
         )
         wrote = True
+        needs_sep = not chunk.endswith("\n\n")
+
+    if wrote and auto_scroll:
+        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+        process_events_to_idle(ctx)
     return wrote
 
 
-def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None, *, restore: Any = None, restore_focus: Any = None) -> bool:
+def _append_hidden_doc_to_control(
+    doc: Any,
+    control: Any,
+    ctx: Any,
+    style_window: Any = None,
+    auto_scroll: bool = True,
+    cell_link_targets: Any = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
+) -> tuple[bool, str | None]:
     """Copy hidden Writer content into the sidebar control via direct copy."""
-    ok, _unused = _copy_formatted_from_hidden_doc_to_control(
+    return _copy_formatted_from_hidden_doc_to_control(
         doc,
         control,
         ctx,
@@ -894,10 +927,6 @@ def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window
         restore=restore,
         restore_focus=restore_focus,
     )
-    return ok
-
-
-
 
 
 def append_rich_messages_via_clipboard(
@@ -933,26 +962,26 @@ def append_rich_messages_via_clipboard(
                 continue
             configure_hidden_writer_for_chat(doc)
             batch_links: list[tuple[str, str]] = []
-            html_ok = True
-            for role, content in batch:
+            for _role, content in batch:
                 from plugin.calc.navigation import extract_cell_links_from_html, render_calc_cell_refs
 
                 rendered = render_calc_cell_refs(content) if content else content
                 batch_links.extend(extract_cell_links_from_html(rendered or ""))
-                # False means the filter failed and the raw tags were not written.
-                # Copying the hidden doc would report success with only the prefix.
-                if append_rich_text(doc, content, role=role, style_window=style_window) is False:
-                    html_ok = False
-                    break
+
+            render_messages_to_hidden_doc(doc, batch, style_window=style_window)
             log.debug(
                 "append_rich_messages_via_clipboard: hidden doc ready messages=%d total_chars=%d",
                 len(batch),
                 sum(len(c or "") for _unused, c in batch),
             )
-            if html_ok and _append_hidden_doc_to_control(
+            doc_text = doc.getText().getString() or ""
+            html_ok = not contains_html_tag(doc_text)
+            res = _append_hidden_doc_to_control(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
                 restore=restore, restore_focus=restore_focus,
-            ):
+            )
+            ok, copy_reason = res if isinstance(res, tuple) else (bool(res), None)
+            if html_ok and ok:
                 inserted = True
                 any_inserted = True
                 _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
@@ -961,8 +990,9 @@ def append_rich_messages_via_clipboard(
                 # removes it, and history has no second copy, so up to
                 # HISTORY_RENDER_BATCH_CHARS of messages would disappear.
                 log.warning(
-                    "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
+                    "append_rich_messages_via_clipboard: batch insert into control failed messages=%d reason=%s",
                     len(batch),
+                    copy_reason if not ok else "contains_html_tag",
                 )
                 _rollback_rich_insert(control, before)
                 if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
@@ -1094,8 +1124,7 @@ def append_rich_text_via_clipboard(
         if ok:
             inserted = True
             log.info(
-                "append_rich_text_via_clipboard: insert ok via=direct_copy control_len=%s role=%s",
-                get_control_text_length(control),
+                "append_rich_text_via_clipboard: insert ok via=direct_copy role=%s",
                 role,
             )
         else:

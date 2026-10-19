@@ -39,6 +39,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
     InterpreterError,
     LocalPythonExecutor,
+    print_outputs_from_state,
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
@@ -1095,7 +1096,11 @@ def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
     return {
         key: value
         for key, value in executor.state.items()
-        if key not in _INIT_STATE_SKIP_KEYS and not (isinstance(key, str) and key.startswith("_"))
+        if (
+            isinstance(key, str)
+            and key not in _INIT_STATE_SKIP_KEYS
+            and not key.startswith("_")
+        )
     }
 
 
@@ -1347,7 +1352,7 @@ def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
     ``def session_duckdb`` must not be seeded into the next cell.
     """
     for key, value in executor.state.items():
-        if key in _INIT_STATE_SKIP_KEYS or (isinstance(key, str) and key.startswith("_")):
+        if not isinstance(key, str) or key in _INIT_STATE_SKIP_KEYS or key.startswith("_"):
             continue
         if callable(value) and key not in executor.custom_tools:
             executor.custom_tools[key] = value
@@ -1548,14 +1553,14 @@ def _run_on_executor(
             executor,
             prior_result,
             str(e),
-            stdout=str(executor.state.get("_print_outputs", "")),
+            stdout=print_outputs_from_state(executor.state),
         )
     except InterpreterError as e:
         return _fail_cell(
             executor,
             prior_result,
             str(e),
-            stdout=str(executor.state.get("_print_outputs", "")),
+            stdout=print_outputs_from_state(executor.state),
         )
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
@@ -1564,7 +1569,7 @@ def _run_on_executor(
             executor,
             prior_result,
             str(e),
-            stdout=str(executor.state.get("_print_outputs", "")),
+            stdout=print_outputs_from_state(executor.state),
             include_traceback=True,
         )
     except BaseException as e:
@@ -1584,7 +1589,7 @@ def _run_on_executor(
         # which is what copies prints, but the text is already in _print_outputs.
         return _error_result(
             str(e),
-            stdout=str(executor.state.get("_print_outputs", "")),
+            stdout=print_outputs_from_state(executor.state),
             include_traceback=True,
         )
 

@@ -50,8 +50,8 @@ from plugin.framework.constants import (
     get_plugin_dir,
 )
 from plugin.framework.errors import (
-    DocumentDisposedError,
-    is_real_disposal,
+    _uno_disposal_message,
+    reraise_if_disposed,
     safe_call,
     suppress_disposed,
 )
@@ -342,20 +342,6 @@ def get_desktop(ctx: Any | None = None) -> Any:
     return _guard_returned_uno(desktop)
 
 
-def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
-    """Re-raise real UNO disposal. Other exceptions stay with the caller.
-
-    Only real disposal (not a bare RuntimeException) becomes
-    DocumentDisposedError. Catching Exception and treating a disposed
-    document as empty or not open swallows DisposedException.
-    """
-    if not is_real_disposal(exc):
-        return
-    if isinstance(exc, DocumentDisposedError):
-        raise exc
-    raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
-
-
 @main_thread_only
 def get_active_document(ctx: Any | None = None) -> Any:
     """Return the currently active document model."""
@@ -369,7 +355,7 @@ def get_active_document(ctx: Any | None = None) -> Any:
         # DisposedException from get_desktop() is a plain Exception, so a
         # dying desktop looks like nothing open. safe_call already re-raises
         # disposal from getCurrentComponent.
-        _reraise_document_disposed(e, "Desktop")
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("get_active_document unexpected exception")
         return None
 
@@ -698,7 +684,7 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
                 log.debug("iter_open_models element error: %s", type(e).__name__)
                 continue
     except Exception as e:
-        _reraise_document_disposed(e, "Desktop")
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         return
 
 
@@ -734,7 +720,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
     except Exception as e:
-        _reraise_document_disposed(e, "Desktop")
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("resolve_document_by_url enumeration error")
     return (None, None)
 

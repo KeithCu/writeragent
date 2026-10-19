@@ -5,21 +5,30 @@ from __future__ import annotations
 
 import ast
 import io
+import threading
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 
 from plugin.calc.excel_py_convert.convert import convert_to_excel, write_dag_formulas_xlsx, write_excel_python_xlsx
-from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
+from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport, ExcelPyCell, ExcelWorkbookModel, SheetInfo
+from plugin.calc.excel_py_convert.ooxml_util import xml_namespace_lock
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     has_excel_python_xlsx,
     load_excel_model,
     parse_xlws_py_formula,
+    shift_xlws_py_dep,
     split_top_level_args,
 )
 from plugin.calc.excel_py_convert.resolve_refs import resolve_dep
-from plugin.calc.excel_py_convert.script_bank import iter_a1_span
+from plugin.calc.excel_py_convert.script_bank import (
+    a1_span_bounds,
+    formula_for_converted_cell,
+    iter_a1_span,
+    write_script_bank_openpyxl,
+)
 from plugin.calc.excel_py_convert.to_dag import (
     _prefer_excel_dep_token,
     _skip_string,
@@ -1140,10 +1149,15 @@ def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
         '<sheetData><row r="1"><c r="A1"><f>PY("x = 1")</f></c></row></sheetData>'
         '</worksheet>'
     )
+    from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_NOTE
     ws2 = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData><row r="1"><c r="A1"><is><t>x = 1</t></is></c></row></sheetData>'
+        '<sheetData>'
+        '<row r="1"><c r="A1"><is><t>x = 1</t></is></c><c r="ZZ1"><is><t>'
+        + CODE_SHEET_NOTE
+        + '</t></is></c></row>'
+        '</sheetData>'
         '</worksheet>'
     )
 
@@ -1486,11 +1500,13 @@ def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
     with zipfile.ZipFile(out, "r") as zf:
         ws_xml = zf.read("xl/worksheets/sheet1.xml")
         ws_root = ET.fromstring(ws_xml)
-        formulas = {
-            c.attrib.get("r"): "".join(c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f").itertext())
-            for c in ws_root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
-            if c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f") is not None
-        }
+        formulas: dict[str, str] = {}
+        for c in ws_root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"):
+            f_node = c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+            if f_node is not None:
+                r_key = c.attrib.get("r")
+                if r_key:
+                    formulas[r_key] = "".join(f_node.itertext())
         assert "_xlws.PY(0" in formulas.get("A1", "")
         assert "_xlws.PY(1" in formulas.get("A2", "")
 
@@ -1848,5 +1864,555 @@ def test_skip_string_escaped_quote_in_triple_quotes():
     res = rewrite_excel_code(code, num_deps=1)
     assert not res.fatal
     assert 'x = xl("%P2%")' in res.code
+
+
+def test_shift_xlws_py_dep_variants():
+    """Shifting handles relative/absolute coords, structured refs, and external sheets."""
+    assert shift_xlws_py_dep("B1", 1, 0) == "B2"
+    assert shift_xlws_py_dep("B1", 0, 1) == "C1"
+    assert shift_xlws_py_dep("$B$1", 2, 2) == "$B$1"
+    assert shift_xlws_py_dep("B$1", 2, 1) == "C$1"
+    assert shift_xlws_py_dep("$B1", 2, 1) == "$B3"
+    assert shift_xlws_py_dep("Table1[Col]", 1, 0) == "Table1[Col]"
+    assert shift_xlws_py_dep("Sheet1!B1", 1, 0) == "Sheet1!B2"
+    assert shift_xlws_py_dep("'Data Sheet'!$B1", 2, 0) == "'Data Sheet'!$B3"
+    assert shift_xlws_py_dep("_xlfn.ANCHORARRAY(B1)", 1, 0) == "_xlfn.ANCHORARRAY(B2)"
+    assert shift_xlws_py_dep("B1+C1", 1, 0) is None
+    assert shift_xlws_py_dep("MyNamedRange", 1, 0) == "MyNamedRange"
+
+
+def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
+    """Shared formula dependents must have their dependencies shifted from master."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1"><f t="shared" ref="A1:A3" si="0">_xlfn._xlws.PY(0,0,B1,$B$1,B$1,Table1[Col],Sheet1!B1)</f></c>
+    </row>
+    <row r="2">
+      <c r="A2"><f t="shared" si="0"/></c>
+    </row>
+    <row r="3">
+      <c r="A3"><f t="shared" si="0"/></c>
+    </row>
+  </sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    scripts_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>x = xl(%P2%)</code></pythonScript>
+</pythonScripts>"""
+    src = tmp_path / "shared_py.xlsx"
+    src.write_bytes(_minimal_xlsx_bytes(
+        sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
+    ))
+
+    model = load_excel_model(src, prefer_openpyxl_anchors=False)
+    assert len(model.cells) == 3
+    c1, c2, c3 = model.cells
+    assert c1.cell == "A1"
+    assert c1.deps == ["B1", "$B$1", "B$1", "Table1[Col]", "Sheet1!B1"]
+    assert c2.cell == "A2"
+    assert c2.deps == ["B2", "$B$1", "B$1", "Table1[Col]", "Sheet1!B2"]
+    assert c3.cell == "A3"
+    assert c3.deps == ["B3", "$B$1", "B$1", "Table1[Col]", "Sheet1!B3"]
+
+
+def test_shared_xlws_py_group_invalid_dep_refused(tmp_path: Path):
+    """Unrecognized dep expressions in shared formula emit conversion issues and skip copy."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1"><f t="shared" ref="A1:A2" si="0">_xlfn._xlws.PY(0,0,B1+C1)</f></c></row>
+    <row r="2"><c r="A2"><f t="shared" si="0"/></c></row>
+  </sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    scripts_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>x = 1</code></pythonScript>
+</pythonScripts>"""
+    src = tmp_path / "invalid_shared_py.xlsx"
+    src.write_bytes(_minimal_xlsx_bytes(
+        sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
+    ))
+
+    model = load_excel_model(src, prefer_openpyxl_anchors=False)
+    assert any("si=0" in i and "A2" in i for i in model.issues)
+    assert len(model.cells) == 0
+    dag_rep = convert_model_to_dag(model)
+    assert not dag_rep.ok
+
+
+def test_write_excel_python_xlsx_unshares_and_preserves_non_py_sibling(tmp_path: Path):
+    """Export must unshare shared groups and write explicit formulas for non-PY siblings."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1"><f t="shared" ref="A1:A2" si="0">B1</f></c></row>
+    <row r="2"><c r="A2"><f t="shared" si="0"/></c></row>
+  </sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    src = tmp_path / "shared_sibling.xlsx"
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="excel",
+        original_code="",
+        converted_code="x = 42",
+        data_args=[],
+        converted=True,
+        script_index=0,
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "unshared_out.xlsx"
+    write_excel_python_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        ws_xml = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert 'si="0"' not in ws_xml
+        assert 't="shared"' not in ws_xml
+        ws_root = ET.fromstring(ws_xml)
+        cells = {
+            c.attrib.get("r"): c
+            for c in ws_root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
+        }
+        a1_f = cells["A1"].find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+        a2_f = cells["A2"].find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f")
+        assert a1_f is not None and "_xlws.PY" in (a1_f.text or "")
+        assert a2_f is not None and (a2_f.text or "") == "B2"
+
+
+def test_shared_formula_roundtrip_deps_match(tmp_path: Path):
+    """Importing shared formulas then exporting and reimporting retains shifted deps."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1"><f t="shared" ref="A1:A2" si="0">_xlfn._xlws.PY(0,0,B1)</f></c></row>
+    <row r="2"><c r="A2"><f t="shared" si="0"/></c></row>
+  </sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    scripts_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>y = xl(%P2%)</code></pythonScript>
+</pythonScripts>"""
+    src = tmp_path / "roundtrip_shared.xlsx"
+    src.write_bytes(_minimal_xlsx_bytes(
+        sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
+    ))
+
+    model1 = load_excel_model(src, prefer_openpyxl_anchors=False)
+    dag_rep = convert_model_to_dag(model1)
+    assert dag_rep.ok
+
+    excel_cells = [
+        ConvertedCell(
+            sheet=c.sheet,
+            cell=c.cell,
+            direction="excel",
+            original_code=c.converted_code,
+            converted_code=c.converted_code,
+            data_args=c.data_args,
+            converted=True,
+            script_index=0,
+        )
+        for c in dag_rep.cells
+    ]
+    excel_rep = ConversionReport(direction="excel", cells=excel_cells)
+    out = tmp_path / "roundtrip_out.xlsx"
+    write_excel_python_xlsx(src, excel_rep, out)
+
+    model2 = load_excel_model(out, prefer_openpyxl_anchors=False)
+    deps_by_cell = {c.cell: c.deps for c in model2.cells}
+    assert deps_by_cell["A1"] == ["B1"]
+    assert deps_by_cell["A2"] == ["B2"]
+
+
+def test_write_excel_python_xlsx_package_guards_calc_chain_and_drawing(tmp_path: Path):
+    """calcChain is dropped, workbook python relationship added, unrelated drawing preserved."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData><row r="1"><c r="A1"><f>PY("x = 1")</f></c></row></sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    wb_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/>
+</Relationships>"""
+    ct_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/calcChain.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml"/>
+</Types>"""
+
+    src = tmp_path / "with_calc_chain.xlsx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("[Content_Types].xml", ct_xml)
+        zf.writestr("_rels/.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        zf.writestr("xl/calcChain.xml", "<calcChain xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><c r='A1'/></calcChain>")
+        zf.writestr("xl/drawings/drawing1.xml", "<xdr:wsDr xmlns:xdr='http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing'/>")
+
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="A1", direction="excel", original_code="", converted_code="x = 1", data_args=[], converted=True, script_index=0
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "cleared_chain.xlsx"
+    write_excel_python_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        names = zf.namelist()
+        assert "xl/calcChain.xml" not in names
+        assert "xl/drawings/drawing1.xml" in names
+        assert "xl/pythonScripts.xml" in names
+
+        ct = zf.read("[Content_Types].xml").decode("utf-8")
+        assert "calcChain" not in ct
+        assert "/xl/pythonScripts.xml" in ct
+
+        rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+        assert "calcChain" not in rels
+        assert "pythonScripts.xml" in rels
+        assert "relationships/pythonScript" in rels
+
+
+def test_write_excel_python_xlsx_unwritten_xlws_raises(tmp_path: Path):
+    """Extra _xlws.PY cell not in report's write set raises ValueError without modifying out."""
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1"><f>_xlfn._xlws.PY(0,0)</f></c>
+      <c r="B1"><f>_xlfn._xlws.PY(0,0)</f></c>
+    </row>
+  </sheetData>
+</worksheet>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+    scripts_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>x = 1</code></pythonScript>
+</pythonScripts>"""
+    src = tmp_path / "extra_py.xlsx"
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="A1", direction="excel", original_code="", converted_code="x = 1", data_args=[], converted=True, script_index=0
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "never_written.xlsx"
+    out.write_text("sentinel")
+
+    with pytest.raises(ValueError, match=r"(?s)not in conversion report write set.*Sheet1!B1"):
+        write_excel_python_xlsx(src, report, out)
+
+    assert out.read_text() == "sentinel"
+
+
+def test_write_excel_python_xlsx_unmarked_py_code_sheet_survives(tmp_path: Path):
+    """A user sheet named py_code_Notes without defined name or ZZ1 note must not be dropped."""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+    <sheet name="py_code_Notes" sheetId="2" r:id="rId2"/>
+  </sheets>
+</workbook>"""
+    wb_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>"""
+    ws1 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData><row r="1"><c r="A1"><f>PY("x = 1")</f></c></row></sheetData>
+</worksheet>"""
+    ws2 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData><row r="1"><c r="A1"><v>user data</v></c></row></sheetData>
+</worksheet>"""
+    ct_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>"""
+    src = tmp_path / "user_notes.xlsx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("[Content_Types].xml", ct_xml)
+        zf.writestr("_rels/.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", ws1)
+        zf.writestr("xl/worksheets/sheet2.xml", ws2)
+
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="A1", direction="excel", original_code="", converted_code="x = 1", data_args=[], converted=True, script_index=0
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "user_notes_out.xlsx"
+    write_excel_python_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        wb_out = zf.read("xl/workbook.xml").decode("utf-8")
+        assert "py_code_Notes" in wb_out
+        assert "xl/worksheets/sheet2.xml" in zf.namelist()
+
+
+def test_write_script_bank_openpyxl_name_collision():
+    """Colliding with existing unmanaged sheet raises ValueError without overwriting."""
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws_notes = wb.create_sheet("py_code_Sheet1")
+    ws_notes["A1"] = "Keep this content"
+
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="A1", direction="dag", original_code="", converted_code="a" * 1200, data_args=[], converted=True
+    )
+    with pytest.raises(ValueError, match="Bank sheet collision"):
+        write_script_bank_openpyxl(wb, {"py_code_Sheet1": {"A1": cell.converted_code}})
+
+
+def test_formula_for_converted_cell_over_1000_chars_refuses_inline():
+    """Script over 1000 characters cannot compile inline and must raise ValueError."""
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="invalid_cell", direction="dag", original_code="", converted_code="x = " + "1" * 1050, data_args=[], converted=True
+    )
+    with pytest.raises(ValueError, match="script too long"):
+        formula_for_converted_cell(cell)
+
+
+def test_write_dag_formulas_atomic_save_failure_leaves_dest(tmp_path: Path):
+    """Failure during workbook save leaves the existing destination file untouched."""
+    openpyxl = pytest.importorskip("openpyxl")
+    src = tmp_path / "src.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+    out = tmp_path / "atomic_target.xlsx"
+    out.write_text("original content")
+
+    cell = ConvertedCell(
+        sheet="Sheet1", cell="A1", direction="dag", original_code="", converted_code="x = 1", data_args=[], converted=True
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+
+    from unittest.mock import patch
+    with patch.object(openpyxl.Workbook, "save", side_effect=IOError("disk full")):
+        with pytest.raises(IOError, match="disk full"):
+            write_dag_formulas_xlsx(src, report, out)
+
+    assert out.read_text() == "original content"
+
+
+def test_a1_span_bounds_allocates_nothing_large():
+    """a1_span_bounds returns bounding box without instantiating coordinate lists."""
+    assert a1_span_bounds("A1:A100000") == ((1, 1), (1, 100000))
+    assert a1_span_bounds("Sheet1!$B$2:$D$10") == ((2, 2), (4, 10))
+    assert a1_span_bounds("A:A") is None
+    assert a1_span_bounds("invalid") is None
+
+
+def test_clear_spill_uno_single_range_clear():
+    """Spill clear calls getCellRangeByName on the bounding box once, not per cell."""
+    from unittest.mock import MagicMock
+    from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
+
+    doc = MagicMock()
+    sheet = MagicMock()
+    doc.getSheets().getByName.return_value = sheet
+    doc.getSheets().hasByName.return_value = True
+
+    spill_range = MagicMock()
+    anchor_cell = MagicMock()
+    anchor_cell.getFormula.return_value = ""
+
+    def get_range(name: str):
+        if name == "C1:D2":
+            return spill_range
+        if name == "C1":
+            return anchor_cell
+        return MagicMock()
+
+    sheet.getCellRangeByName.side_effect = get_range
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+        array_ref="C1:D2",
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert errors == []
+    spill_range.clearContents.assert_called_once()
+    assert anchor_cell.setFormula.call_args[0][0] == '=PY("x = 1")'
+
+
+def test_worksheet_cell_index_sparse_order():
+    """Sparse inserts maintain ascending numerical row order and alphabetical column order."""
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
+
+    root = ET.Element("worksheet")
+    ET.SubElement(root, "sheetData")
+    idx = _WorksheetCellIndex(root)
+
+    coords = ["Z100", "A2", "C10", "B5", "AA50", "B2", "A1"]
+    for c in coords:
+        el = idx.ensure_cell(c)
+        el.text = c
+
+    sd = root.find("sheetData")
+    assert sd is not None
+    rows = list(sd)
+    row_nums = [int(r.attrib["r"]) for r in rows]
+    assert row_nums == sorted(row_nums)
+
+    for r in rows:
+        cells = list(r)
+        cell_rs = [c.attrib.get("r", "") for c in cells]
+        assert cell_rs == sorted(cell_rs, key=lambda a1: (len(a1), a1))
+
+
+def test_worksheet_cell_index_no_r_attribute():
+    """Rows and cells lacking explicit r attributes are tracked and updated in place."""
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
+
+    xml = """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row>
+      <c><v>1</v></c>
+      <c><v>2</v></c>
+    </row>
+  </sheetData>
+</worksheet>"""
+    root = ET.fromstring(xml)
+    idx = _WorksheetCellIndex(root)
+    c1 = idx.ensure_cell("A1")
+    v = c1.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
+    if v is None:
+        v = c1.find("v")
+    assert v is not None and v.text == "1"
+    sd = root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheetData")
+    if sd is None:
+        sd = root.find("sheetData")
+    assert sd is not None
+    assert len(list(sd[0])) == 2
+
+
+def test_bad_package_xml_raises_value_error():
+    """Malformed [Content_Types].xml or .rels raises ValueError with part name."""
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_content_types_python, _strip_rels_python
+
+    with pytest.raises(ValueError, match=r"\[Content_Types\]\.xml"):
+        _strip_content_types_python(b"<malformed XML")
+    with pytest.raises(ValueError, match=r"\.rels"):
+        _strip_rels_python(b"<malformed XML")
+
+
+def test_strip_rels_preserves_python_notes():
+    """Relationships targeting python_notes.xml or non-pythonScripts must not be stripped."""
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom" Target="python_notes.xml"/>
+</Relationships>"""
+    res = _strip_rels_python(xml.encode("utf-8")).decode("utf-8")
+    assert "rId1" in res
+    assert "rId2" not in res
+    assert "rId3" in res
+    assert "python_notes.xml" in res
+
+
+def test_xml_namespace_lock_thread_safety():
+    """Concurrent serialization with different namespaces does not cross-pollute declarations."""
+    errors: list[str] = []
+
+    def run_serialization(prefix: str, uri: str):
+        try:
+            for _ in range(50):
+                with xml_namespace_lock():
+                    ET.register_namespace(prefix, uri)
+                    el = ET.Element(f"{{{uri}}}root")
+                    _ = ET.SubElement(el, f"{{{uri}}}item")
+                    out = ET.tostring(el, encoding="utf-8").decode("utf-8")
+                    if f"xmlns:{prefix}" not in out and "xmlns=" not in out:
+                        errors.append(f"Missing xmlns in: {out}")
+        except Exception as e:
+            errors.append(str(e))
+
+    threads = [
+        threading.Thread(target=run_serialization, args=("nsA", "http://example.com/nsA")),
+        threading.Thread(target=run_serialization, args=("nsB", "http://example.com/nsB")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+
+
 
 

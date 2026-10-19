@@ -457,11 +457,10 @@ These share the venv worker or trusted RPC with core but **must not ship** in a 
 | Surface | Entry | Uses venv? | Inserts? |
 |---------|--------|------------|---------|
 | **Chat `run_venv_python_script`** | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Yes | No — JSON to agent |
-| **Chat `execute_python_script`** | [`plugin/calc/python/executor.py`](../../plugin/calc/python/executor.py) | No (embedded LO Python) | Optional `target_range` |
 
 Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/framework/tool.py`, full `plugin/chatbot/*` tool loop.
 
-**Tests:** [`tests/calc/python/test_venv.py`](../../tests/calc/python/test_venv.py), [`tests/calc/python/test_executor.py`](../../tests/calc/python/test_executor.py)
+**Tests:** [`tests/calc/python/test_venv.py`](../../tests/calc/python/test_venv.py)
 
 ### Chat tools (domain helpers)
 
@@ -793,7 +792,7 @@ Makefile
 | WriterAgent (KeithCu / John Balis modifications) | GPL-3.0+ |
 | Vendored `plugin/contrib/smolagents/` (Hugging Face) | Apache-2.0 — retain notices in core OXT |
 | Vendored `vendor/latex2mathml/` | Per upstream license in vendor tree |
-| In-process Calc sandbox lineage | Apache-2.0 note in [`executor.py`](../../plugin/calc/python/executor.py) (**WriterAgent only**; core uses venv path) |
+
 
 ---
 

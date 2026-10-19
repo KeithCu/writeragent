@@ -63,16 +63,52 @@ def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
 
 def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[str, str]]:
     """Map A1 → (formula_or_empty, string_value)."""
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import (
+        _col_row,
+        _shared_formula_map,
+        shift_xlws_py_dep,
+        shift_xlws_py_formula,
+    )
+    from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
+
+    masters = _shared_formula_map(ws_root)
     out: dict[str, tuple[str, str]] = {}
     for c in find_all(ws_root, "c"):
         a1 = (c.attrib.get("r") or "").replace("$", "")
         if not a1:
             continue
         f = find_child(c, "f")
-        # ElementTree already decodes entities. A second _unescape_xml
-        # corrupts Python that contains a literal &lt; or &amp;. Use
-        # itertext() as decoded.
+        t_attr = (f.attrib.get("t") or "") if f is not None else ""
+        si = (f.attrib.get("si") or "") if f is not None else ""
+        # ElementTree already decodes entities; a second unescape corrupts Python with a literal &lt;.
         formula = "".join(f.itertext()).strip() if f is not None else ""
+
+        if f is not None and t_attr == "shared" and not formula and si in masters:
+            master_body, master_a1 = masters[si]
+            m_r, m_c = _col_row(master_a1)
+            c_r, c_c = _col_row(a1)
+            delta_r, delta_c = c_r - m_r, c_c - m_c
+            if "_xlws.py" in master_body.lower():
+                shifted = shift_xlws_py_formula(master_body, delta_r, delta_c)
+                formula = shifted[0] if shifted else ""
+            else:
+                parts = parse_python_formula(master_body)
+                if parts is not None:
+                    shifted_args: list[str] = []
+                    ok = True
+                    for arg in parts.data_args:
+                        s_arg = shift_xlws_py_dep(arg, delta_r, delta_c)
+                        if s_arg is None:
+                            ok = False
+                            break
+                        shifted_args.append(s_arg)
+                    if ok:
+                        formula = rebuild_python_formula_with_data(parts.code, shifted_args, parts=parts)
+                else:
+                    s_ref = shift_xlws_py_dep(master_body.lstrip("="), delta_r, delta_c)
+                    if s_ref is not None:
+                        formula = "=" + s_ref
+
         if formula and not formula.startswith("="):
             formula = "=" + formula
         out[a1] = (formula, _cell_string_value(c, shared))

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import types
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -48,7 +49,7 @@ setattr(
 
 # Mock uno module. Distinct structs per call so multi-error aErrors can be
 uno_mod = _ensure_module("uno")
-uno_mod.createUnoStruct = MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace())
+setattr(uno_mod, "createUnoStruct", MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace()))
 _orig_getConstantByName = getattr(uno_mod, "getConstantByName", None)
 
 
@@ -65,8 +66,8 @@ def _safe_get_constant(name: str) -> Any:
     return 1
 
 
-uno_mod.getConstantByName = MagicMock(side_effect=_safe_get_constant)
-uno_mod.getComponentContext = MagicMock()
+setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
+setattr(uno_mod, "getComponentContext", MagicMock())
 
 class FakeBI:
     def getWordBoundary(self, text, pos, locale, wordType, bDirection):
@@ -92,6 +93,14 @@ class FakeBI:
 def mock_bi():
     with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
         yield
+
+@pytest.fixture(autouse=True)
+def _ensure_grammar_debug_logging():
+    import logging
+    old_level = proofreader.log.level
+    proofreader.log.setLevel(logging.DEBUG)
+    yield
+    proofreader.log.setLevel(old_level)
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
@@ -516,11 +525,12 @@ class TestTypingIntegration:
 
     def test_enqueue_misses_persists_identity(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()
-        pr._enqueue_misses("test-doc", "Some text.", "en-US", [(0, 10, "Some text.")], "custom-ident")
+        pr._enqueue_misses("test-doc", "en-US", [(0, 10, "Some text.")], "custom-prov", "custom-ident")
 
         mock_queue_fixture.enqueue.assert_called_once()
         item = mock_queue_fixture.enqueue.call_args[0][0]
-        assert item.provider == "custom-ident"
+        assert item.provider == "custom-prov"
+        assert item.checker_identity == "custom-ident"
 
     def test_paragraph_edit_middle_miss(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()
@@ -846,7 +856,62 @@ class TestTypingIntegration:
     def test_do_proofreading_marshals_persistence_bind_off_main_thread(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
-        """LO linguistic workers call doProofreading off the UI thread; UNO bind must marshal."""
+        """First off-thread call hops once to bind; second call uses fast path without hop."""
+        pr = _make_proofreader()
+        mock_model = MagicMock()
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch(
+                "plugin.framework.queue_executor.execute_on_main_thread",
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ) as mock_exec,
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=mock_model) as mock_bind,
+            patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-1"),
+        ):
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
+            assert pr._doc_id_for_ignore["rt-1"] == "test-doc"
+
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
+
+    def test_do_proofreading_marshals_runtime_uid_off_main_thread(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """First call hops once and records uid; second call does not execute on main thread."""
+        pr = _make_proofreader()
+        model = MagicMock()
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch(
+                "plugin.framework.queue_executor.execute_on_main_thread",
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ) as mock_exec,
+            patch(
+                "plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound",
+                return_value=model,
+            ) as mock_bind,
+            patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-1"),
+            patch(
+                "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
+                return_value=[],
+            ),
+        ):
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert pr._doc_id_for_ignore["rt-1"] == "test-doc"
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
+
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
+
+    def test_do_proofreading_failed_bind_backoff(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Failed bind sets a 1.5s backoff; calls inside TTL do not hop, call after deadline does."""
         pr = _make_proofreader()
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
@@ -854,42 +919,26 @@ class TestTypingIntegration:
                 "plugin.framework.queue_executor.execute_on_main_thread",
                 side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound") as mock_bind,
-        ):
-            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
-        mock_exec.assert_called_once()
-        assert mock_exec.call_args[0][1:] == (pr.ctx, "test-doc")
-        mock_bind.assert_called_once_with(pr.ctx, "test-doc")
-
-    def test_do_proofreading_marshals_runtime_uid_off_main_thread(
-        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
-    ) -> None:
-        """Linguistic workers must hop get_runtime_uid; the ignore map still fills."""
-        pr = _make_proofreader()
-        model = object()
-        seen: list[tuple[Any, tuple[Any, ...]]] = []
-
-        def fake_exec(fn: Any, *args: Any, **kwargs: Any) -> Any:
-            seen.append((fn, args))
-            return fn(*args, **kwargs)
-
-        with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_exec),
-            patch(
-                "plugin.writer.locale.grammar_persistence.get_document_model_for_id",
-                return_value=model,
-            ),
-            patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-1") as mock_uid,
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=None) as mock_bind,
             patch(
                 "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
                 return_value=[],
             ),
         ):
             pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
 
-        assert (mock_uid, (model,)) in seen
-        assert pr._doc_id_for_ignore["rt-1"] == "test-doc"
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 1
+            assert mock_bind.call_count == 1
+
+            pr._failed_bind_deadlines["test-doc"] = time.monotonic() - 1.0
+
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+            assert mock_exec.call_count == 2
+            assert mock_bind.call_count == 2
 
 
 def _writer_model() -> MagicMock:
@@ -1254,3 +1303,243 @@ def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixtu
     mock_queue_fixture.enqueue.assert_called_once()
     item = mock_queue_fixture.enqueue.call_args[0][0]
     assert item.provider == "languagetool"
+    assert item.checker_identity == "languagetool"
+
+
+def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
+    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+) -> None:
+    """LLM results cached with checker_identity avoid identity-switch clearing of L2 and ignores."""
+    from plugin.writer.locale import grammar_persistence as gp
+    from plugin.writer.locale.grammar_worker import process_grammar_results
+
+    pr = _make_proofreader()
+    s1 = "This are wrong."
+    s2 = "They is wrong."
+
+    with (
+        patch("plugin.framework.config.grammar_checker_identity", return_value="llm:gpt-test"),
+        patch.object(pr, "_active_grammar_provider", return_value="llm"),
+    ):
+        pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
+        assert mock_queue_fixture.enqueue.call_count == 1
+        item1 = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item1.provider == "llm"
+        assert item1.checker_identity == "llm:gpt-test"
+
+        ec = MagicMock()
+        ec.ctx = pr.ctx
+        ec.gq = None
+        ec.model = "gpt-test"
+        err1 = {
+            "wrong": "are",
+            "correct": "is",
+            "n_error_start": 5,
+            "n_error_length": 3,
+            "rule_identifier": "grammar||Agreement",
+            "suggestions": ["is"],
+            "reason": "grammar",
+            "type": "grammar",
+        }
+        process_grammar_results([(item1, s1)], [[err1]], "en-US", "", 10, ec)
+
+        mock_queue_fixture.enqueue.reset_mock()
+        res1 = pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
+        assert len(res1.aErrors) == 1
+        assert res1.aErrors[0].aRuleIdentifier == "grammar||Agreement"
+        mock_queue_fixture.enqueue.assert_not_called()
+
+        p = gp.get_persistence(pr.ctx, "test-doc")
+        assert p is not None
+        p._ignored_rules.add("some-ignored-rule")
+
+        pr.doProofreading("test-doc", s2, mock_locale_fixture, 0, len(s2), ())
+        assert mock_queue_fixture.enqueue.call_count == 1
+        item2 = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item2.provider == "llm"
+        assert item2.checker_identity == "llm:gpt-test"
+
+        err2 = {
+            "wrong": "is",
+            "correct": "are",
+            "n_error_start": 5,
+            "n_error_length": 2,
+            "rule_identifier": "grammar||Agreement2",
+            "suggestions": ["are"],
+            "reason": "grammar",
+            "type": "grammar",
+        }
+        process_grammar_results([(item2, s2)], [[err2]], "en-US", "", 10, ec)
+
+        mock_queue_fixture.enqueue.reset_mock()
+        combined_text = f"{s1} {s2}"
+        with patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split:
+            mock_split.return_value = [(0, s1), (len(s1) + 1, s2)]
+            res_both = pr.doProofreading("test-doc", combined_text, mock_locale_fixture, 0, len(combined_text), ())
+
+        assert len(res_both.aErrors) == 2
+        mock_queue_fixture.enqueue.assert_not_called()
+        assert len(p._entries) == 2
+        assert "some-ignored-rule" in p._ignored_rules
+
+
+def test_local_provider_checker_identity_and_persistence(
+    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+) -> None:
+    """Local providers (LanguageTool, Harper) use provider as checker_identity and keep cache rows."""
+    from plugin.writer.locale import grammar_persistence as gp
+    from plugin.writer.locale.grammar_worker import process_grammar_results
+
+    pr = _make_proofreader()
+    s1 = "This are wrong."
+    s2 = "They is wrong."
+
+    with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
+        pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
+        assert mock_queue_fixture.enqueue.call_count == 1
+        item1 = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item1.provider == "languagetool"
+        assert item1.checker_identity == "languagetool"
+
+        ec = MagicMock()
+        ec.ctx = pr.ctx
+        ec.gq = None
+        err1 = {
+            "wrong": "are",
+            "correct": "is",
+            "n_error_start": 5,
+            "n_error_length": 3,
+            "rule_identifier": "lt||Agreement",
+            "suggestions": ["is"],
+            "reason": "grammar",
+            "type": "grammar",
+        }
+        process_grammar_results([(item1, s1)], [[err1]], "en-US", "", 10, ec)
+
+        mock_queue_fixture.enqueue.reset_mock()
+        pr.doProofreading("test-doc", s2, mock_locale_fixture, 0, len(s2), ())
+        assert mock_queue_fixture.enqueue.call_count == 1
+        item2 = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item2.provider == "languagetool"
+        assert item2.checker_identity == "languagetool"
+
+        err2 = {
+            "wrong": "is",
+            "correct": "are",
+            "n_error_start": 5,
+            "n_error_length": 2,
+            "rule_identifier": "lt||Agreement2",
+            "suggestions": ["are"],
+            "reason": "grammar",
+            "type": "grammar",
+        }
+        process_grammar_results([(item2, s2)], [[err2]], "en-US", "", 10, ec)
+
+        p = gp.get_persistence(pr.ctx, "test-doc")
+        assert p is not None
+        assert len(p._entries) == 2
+
+
+def test_harper_partial_hit_converts_uno_tuple_once(
+    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+) -> None:
+    """Partial hit (one cached, one Harper fast path) converts UNO errors exactly once."""
+    pr = _make_proofreader()
+    pr._provider = "harper"
+    pr._checker_identity = "harper"
+
+    s1 = "This are wrong."
+    s2 = "They is wrong."
+    paragraph = f"{s1} {s2}"
+    off2 = len(s1) + 1
+
+    gc.cache_put_sentence(
+        "en-US",
+        s1,
+        [{"n_error_start": 5, "n_error_length": 3, "rule_identifier": "r1"}],
+        ctx=pr.ctx,
+        doc_id="test-doc",
+    )
+
+    lint_error = {
+        "wrong": "is",
+        "correct": "are",
+        "n_error_start": 5,
+        "n_error_length": 2,
+        "rule_identifier": "harper||s2",
+        "suggestions": ["are"],
+        "reason": "grammar",
+        "type": "grammar",
+    }
+
+    with (
+        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": [lint_error]}),
+        patch.object(proofreader, "_cached_errors_to_uno_tuple", wraps=proofreader._cached_errors_to_uno_tuple) as mock_convert,
+    ):
+        mock_split.return_value = [(0, s1), (off2, s2)]
+        res = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, 0, len(paragraph), ())
+
+    assert len(res.aErrors) == 2
+    assert mock_convert.call_count == 1
+
+
+def test_get_constant_by_name_runs_once_per_conversion() -> None:
+    """Markup type constant is cached at module level and looked up at most once per conversion."""
+    norms = [
+        proofreader.NormalizedProofError(0, 1, (), "", "", "r1"),
+        proofreader.NormalizedProofError(2, 3, (), "", "", "r2"),
+        proofreader.NormalizedProofError(4, 5, (), "", "", "r3"),
+    ]
+    fake_uno = MagicMock()
+    mock_get_const = fake_uno.getConstantByName
+    mock_get_const.return_value = 1
+    with patch.object(proofreader, "uno_mod", fake_uno):
+        proofreader._PROOFREADING_MARKUP_TYPE = None
+        res = proofreader._errors_to_uno_tuple(norms)
+        assert len(res) == 3
+        assert mock_get_const.call_count == 1
+        proofreader._errors_to_uno_tuple(norms)
+        assert mock_get_const.call_count == 1
+
+
+def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
+    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+) -> None:
+    """doc_ignored_rules is snapshotted once per batch in Harper fast path, not per sentence."""
+    pr = _make_proofreader()
+    pr._provider = "harper"
+    pr._checker_identity = "harper"
+    work_spans = [
+        (0, 10, "Sentence 1."),
+        (11, 10, "Sentence 2."),
+        (22, 10, "Sentence 3."),
+    ]
+    combined: list[Any] = []
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
+        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
+        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status"),
+    ):
+        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined) is True
+        assert mock_doc_ignored.call_count == 1
+
+
+def test_ignore_rule_resolves_doc_id_from_map(mock_config_fixture, mock_locale_fixture) -> None:
+    """ignoreRule resolves doc_id from _doc_id_for_ignore map when RuntimeUID matches."""
+    pr = _make_proofreader()
+    pr._doc_id_for_ignore["rt-42"] = "doc-42"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-42"),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore,
+    ):
+        pr.ignoreRule("test-rule", mock_locale_fixture)
+        mock_ignore.assert_called_once_with(pr.ctx, "doc-42", "test-rule")

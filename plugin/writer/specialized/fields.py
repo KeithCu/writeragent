@@ -17,6 +17,26 @@ from ..specialized_base import ToolWriterFieldBase
 from ..target_resolver import resolve_target_cursor
 
 
+KNOWN_PROPERTIES = (
+    "NumberingType", "IsDate", "SubType", "Format", "IsFixed", "DateTimeValue",
+    "Content", "Author", "Level", "Offset", "Condition",
+    "Placeholder", "Hint", "VariableName", "Value", "SequenceValue", "URL",
+    "TargetFrame", "Name", "Representation", "Formula", "NumberFormat",
+    "IsVisible", "Title", "Subject", "Initials", "SourceName",
+    "ReferenceFieldPart", "ChapterFormat", "UserDataType",
+    "DataBaseName", "DataTableName", "DataColumnName",
+)
+
+
+def _is_annotation(field: Any) -> bool:
+    try:
+        return field.supportsService("com.sun.star.text.textfield.Annotation") is True
+    except Exception as e:
+        if is_real_disposal(e):
+            raise
+        return False
+
+
 class FieldsUpdateAll(ToolWriterFieldBase):
     name: str | None = "fields_update_all"
     intent: str | None = "navigate"
@@ -59,6 +79,8 @@ class FieldsList(ToolWriterFieldBase):
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
+            if _is_annotation(field):
+                continue
             count += 1
 
             # Use getPresentation to get human-readable info
@@ -72,27 +94,13 @@ class FieldsList(ToolWriterFieldBase):
             except Exception:
                 content = ""
 
-            # Try to get the specific field type by checking supported services
-            # since we know fields start with com.sun.star.text.textfield.
-            # However, LibreOffice API does not have an easy introspection for this.
-            # Getting the PropertySetInfo is the best way to extract properties.
             props = {}
             if hasattr(field, "getPropertySetInfo"):
                 try:
                     info = field.getPropertySetInfo()
-                    KNOWN_PROPERTIES = (
-                        "NumberingType", "IsDate", "SubType", "Format", "IsFixed", "DateTimeValue",
-                        "Content", "Author", "Level", "Offset", "Condition",
-                        "Placeholder", "Hint", "VariableName", "Value", "SequenceValue", "URL",
-                        "TargetFrame", "Name", "Representation", "Formula", "NumberFormat",
-                        "IsVisible", "Title", "Subject", "Initials", "SourceName",
-                        "ReferenceFieldPart", "ChapterFormat", "UserDataType",
-                        "DataBaseName", "DataTableName", "DataColumnName"
-                    )
                     for prop_name in KNOWN_PROPERTIES:
                         try:
                             if info.hasPropertyByName(prop_name):
-                                # Avoid extracting complex types
                                 val = field.getPropertyValue(prop_name)
                                 if isinstance(val, (int, float, str, bool)):
                                     props[prop_name] = val
@@ -123,47 +131,80 @@ class FieldsDelete(ToolWriterFieldBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        ids = kwargs.get("ids")
-        doc = ctx.doc
+        raw_ids = kwargs.get("ids")
+        if not isinstance(raw_ids, list):
+            return self._tool_error("Parameter 'ids' must be a list of integers.")
 
+        cleaned_ids: list[int] = []
+        seen = set()
+        for item in raw_ids:
+            if isinstance(item, bool) or not isinstance(item, int):
+                return self._tool_error("Parameter 'ids' must contain only integers (no booleans).")
+            if item not in seen:
+                seen.add(item)
+                cleaned_ids.append(item)
+
+        requested_count = len(cleaned_ids)
+        if requested_count == 0:
+            return self._tool_error("No field IDs provided.", requested_count=0, missing_ids=[])
+
+        doc = ctx.doc
         from ..search import describe_match_location  # deferred, see FieldsList.execute
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
-        fields_to_delete = []
+        fields_to_delete: list[tuple[int, Any]] = []
         hf_labels: dict[int, str] = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
+            if _is_annotation(field):
+                continue
             count += 1
-            if ids and count in ids:
-                fields_to_delete.append(field)
+            if count in seen:
+                fields_to_delete.append((count, field))
+
+        found_ids = {c for c, _ in fields_to_delete}
+        missing_ids = [fid for fid in cleaned_ids if fid not in found_ids]
 
         if not fields_to_delete:
-            return {"status": "ok", "deleted_count": 0, "message": "No matching fields found to delete."}
+            return {
+                "status": "error",
+                "code": "FIELD_NOT_FOUND",
+                "message": f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
+                "deleted_count": 0,
+                "requested_count": requested_count,
+                "missing_ids": missing_ids,
+            }
 
         deleted_count = 0
         deleted = []
-        for field in fields_to_delete:
-            # Text fields can be deleted by removing their anchor content
+        for _cid, field in fields_to_delete:
             anchor = field.getAnchor()
-            # Report the region before the anchor is emptied: a page number removed from a
-            # footer and one removed from the body read identically afterwards.
             try:
+                # Report the region before the anchor is emptied: a page number removed from a
+                # footer and one removed from the body read identically afterwards.
                 where = describe_match_location(anchor, doc, hf_labels)
             except Exception:
                 where = "unknown"
             try:
-                what = field.getPresentation(True)  # the field's identity, not its rendering
+                what = field.getPresentation(True)
             except Exception:
                 what = ""
+            # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
             anchor.setString("")
             deleted_count += 1
             deleted.append({"content": what, "location": where})
 
-        return {"status": "ok", "message": f"Successfully deleted {deleted_count} field(s).",
-                "deleted_count": deleted_count, "deleted": deleted}
+        return {
+            "status": "ok",
+            "message": f"Successfully deleted {deleted_count} field(s).",
+            "deleted_count": deleted_count,
+            "requested_count": requested_count,
+            "missing_ids": missing_ids,
+            "deleted": deleted,
+        }
 
 
 class FieldsInsert(ToolWriterFieldBase):
@@ -226,11 +267,40 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        if target == "search" and old_content:
-            cursor.setString("")
-
         # Insert at resolved cursor
-        text = cursor.getText()
-        text.insertTextContent(cursor, field, False)
+        if target == "search" and old_content:
+            from ..edit_review import next_agent_edit_undo_title
+            from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
+            undo_title = next_agent_edit_undo_title()
+
+            def mutate() -> dict[str, Any] | None:
+                cursor.setString("")
+                text = cursor.getText()
+                text.insertTextContent(cursor, field, False)
+                return None
+
+            try:
+                error = commit_or_rollback(doc, undo_title, mutate)
+                if error is not None:
+                    return error
+            except UndoUnavailable:
+                return self._tool_error(
+                    "Cannot replace the matched text atomically (no usable undo context).",
+                    code="UNDO_UNAVAILABLE",
+                )
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Failed to insert field; the change was rolled back ({e}).")
+        else:
+            try:
+                text = cursor.getText()
+                text.insertTextContent(cursor, field, False)
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Failed to insert field: {e}")
 
         return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}
+

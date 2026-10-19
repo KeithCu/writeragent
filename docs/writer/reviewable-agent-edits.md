@@ -182,12 +182,11 @@ Delete and Insert as two independent rows. WriterAgent adds:
 2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
    **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Menu actions `review_prev` /
-   `review_next` call `goto_adjacent_agent_change`. Its per-document modify listener never
-   recounts inside the notification: counting reads each change's text with
-   `XTextCursor.getString`, which forces a synchronous repaint, and a modify fired from inside the
-   comment editor (AutoCorrect, or macOS committing a dead-key character such as "ç") repainted the
-   half-updated comment box and crashed LibreOffice. The listener queues one recount per burst with
-   `post_to_main_thread`, which runs on a later main-loop turn.
+   `review_next` call `goto_adjacent_agent_change`. Counting follows the count-without-previews rule:
+   `pending_agent_change_count` scans distinct agent tokens from a `RedlineView` without reading
+   text previews with `XTextCursor.getString()`. Its per-document modify listener queues recount
+   per burst with `post_to_main_thread`, which runs on a later main-loop turn so it does not walk
+   redlines inside the modify notification.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.
 
@@ -197,6 +196,13 @@ On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bound
 `.uno:AcceptTrackedChange` / `.uno:RejectTrackedChange` resolves **only that change**. Several
 agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
 checks refuse when a **user** redline or another **agent** change overlaps the exact span.
+
+Single-change resolve returns an honest `ResolveStatus`:
+* `RESOLVED`: Success message ("Change accepted." / "Change rejected.").
+* `REFUSED_SIBLING`: Attempts to resolve overlapping agent changes together as a group.
+* `REFUSED_FOREIGN`, `NOT_ELIGIBLE`, `NO_OP`: Refusal hint directing to *Edit ▸ Track Changes ▸ Manage*.
+* `UNRELIABLE`: Reports unreadability and that nothing changed.
+* `PARTIAL`: Reported with `ok=False` ("Started resolving changes but couldn't confirm the result -- some may have been resolved. Please review remaining changes in Edit > Track Changes > Manage."). The document is left in its partially resolved state rather than attempting undo.
 
 When the only thing in the way is other **agent** changes (e.g. the agent deleted a word from a
 sentence it had inserted earlier, stacking a Delete on its own Insert), the click resolves that

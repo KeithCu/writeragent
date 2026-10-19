@@ -281,3 +281,52 @@ def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():
     assert posix[0].endswith("assets/python_32.png")
     assert "extension/assets" not in posix[0]
     assert posix[1].endswith("extension/assets/python_32.png")
+
+
+def test_load_menu_graphic_caching_and_reset():
+    from plugin.librepy.sidebar_menus import load_menu_graphic, reset_menu_graphic_cache
+
+    reset_menu_graphic_cache()
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    gp = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = gp
+
+    mock_graphic = MagicMock()
+    gp.queryGraphic.return_value = mock_graphic
+
+    with (
+        patch("plugin.framework.uno_context.get_extension_url", return_value="vnd.sun.star.extension://test"),
+        patch("plugin.framework.uno_context.menu_icon_asset_url", return_value="vnd.sun.star.extension://test/assets/gear_16.png"),
+    ):
+        # 1. First call loads and caches
+        res1 = load_menu_graphic(ctx, "gear_16.png")
+        assert res1 is mock_graphic
+        assert smgr.createInstanceWithContext.call_count == 1
+
+        # 2. Second call returns cached graphic without createInstanceWithContext
+        res2 = load_menu_graphic(ctx, "gear_16.png")
+        assert res2 is mock_graphic
+        assert smgr.createInstanceWithContext.call_count == 1
+
+        # 3. After reset, it calls createInstanceWithContext again
+        reset_menu_graphic_cache()
+        res3 = load_menu_graphic(ctx, "gear_16.png")
+        assert res3 is mock_graphic
+        assert smgr.createInstanceWithContext.call_count == 2
+
+        # 4. None result is not reused/cached
+        reset_menu_graphic_cache()
+        gp.queryGraphic.return_value = None
+        with patch("os.path.isfile", return_value=False):
+            res_none = load_menu_graphic(ctx, "missing_16.png")
+            assert res_none is None
+            assert smgr.createInstanceWithContext.call_count == 3
+
+            # Second call for missing_16.png should still call createInstanceWithContext because None was not cached
+            res_none2 = load_menu_graphic(ctx, "missing_16.png")
+            assert res_none2 is None
+            assert smgr.createInstanceWithContext.call_count == 4
+

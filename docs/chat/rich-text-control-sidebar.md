@@ -230,6 +230,8 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
+The stream appends the new suffix of an open row without stripping the row again. A batch render isolates one bad message into plain text while keeping formatted rendering for the rest of the batch. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
+
 Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `_HTML_TAG_RE`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
@@ -353,7 +355,6 @@ default-template letterhead (table or logo) is not pasted into the cell.
 
 ### Smaller cleanups
 
-- `build_message_html` — test-only today ([`test_rich_text_paste.py`](../../tests/chatbot/test_rich_text_paste.py)); remove or make private if dead.
 - List prefix reconstruction (`_list_prefix_for_paragraph`) — comment why direct copy beats clipboard paste for `NumberingRules`.
 - Peer creation fallbacks (`_create_rich_control_peer`) — comment why multiple creation attempts exist.
 

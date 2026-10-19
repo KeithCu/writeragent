@@ -731,7 +731,7 @@ class ToolLoopEffectInterpreter:
         host = self.host
         if effect.kind == "append":
             host._append_response(effect.text)
-            if effect.text.startswith("\n[Debug: round="):
+            if effect.is_empty_model_debug:
                 log.warning("Tool loop: no assistant text from model: %s", effect.text.strip())
         elif effect.kind == "status":
             host._set_status(effect.text)

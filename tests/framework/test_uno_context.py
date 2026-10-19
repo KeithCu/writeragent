@@ -1060,7 +1060,6 @@ def test_new_blank_writer_returns_none_and_closes_when_body_unreadable():
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
-        patch("plugin.framework.uno_context._reraise_document_disposed"),
     ):
         assert new_blank_writer(MagicMock()) is None
         doc.close.assert_called_once_with(True)

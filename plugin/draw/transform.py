@@ -42,5 +42,11 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
         engine = SlideCommandEngine(ctx)
         result = engine.apply(transform_obj)
         if result.get("status") == "error":
-            return self._tool_error(result.get("message", "Transform failed"), applied=result.get("applied"), warnings=result.get("warnings"))
+            return self._tool_error(
+                result.get("message", "Transform failed"),
+                applied=result.get("applied"),
+                warnings=result.get("warnings"),
+                failed_at=result.get("failed_at"),
+                current_slide=result.get("current_slide"),
+            )
         return result

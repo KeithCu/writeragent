@@ -81,3 +81,31 @@ def test_collabora_five_slide_documentation_example(ctx, doc):
 
 def count_applied_prefix(applied: list[str], prefix: str) -> int:
     return sum(1 for entry in applied if prefix in entry)
+
+
+@native_test
+@with_native_doc("impress")
+def test_transform_set_text_newlines_and_bullet(ctx, doc):
+    """SetText of a\\nb plus DefaultBullet yields two paragraphs and bullet applies to each."""
+    transform = json.dumps(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"ChangeLayoutByName": "AUTOLAYOUT_TITLE"},
+                    {"SetText.0": "a\nb"},
+                    {"EditTextObject.0": [{"UnoCommand": ".uno:DefaultBullet"}]},
+                ]
+            }
+        }
+    )
+    result = _exec_transform(doc, ctx, transform=transform)
+    data = json.loads(result)
+    assert data.get("status") == "ok", result
+    page = doc.getDrawPages().getByIndex(0)
+    shape = page.getByIndex(0)
+    xtext = shape.getText()
+    enum = xtext.createEnumeration()
+    paragraphs = []
+    while enum.hasMoreElements():
+        paragraphs.append(enum.nextElement())
+    assert len(paragraphs) == 2, f"expected 2 paragraphs, got {len(paragraphs)}"

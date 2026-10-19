@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import pytest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -49,6 +50,15 @@ def _item(
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_grammar_client_cache():
+    from plugin.writer.locale.grammar_worker import reset_grammar_llm_client_cache
+
+    reset_grammar_llm_client_cache()
+    yield
+    reset_grammar_llm_client_cache()
+
+
 def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> MagicMock:
     ec = MagicMock()
     ec.ctx = MagicMock()
@@ -60,45 +70,49 @@ def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> Ma
     return ec
 
 
-def test_worker_build_chunks_truncates_batch_and_single() -> None:
+def test_worker_build_chunks_batch_and_single_preserves_text() -> None:
     long_a = "A" * 100
     long_b = "B" * 80
     batch_items = [
         (_item(long_a, seq=1, inflight_key="a"), long_a),
         (_item(long_b, seq=2, inflight_key="b"), long_b),
     ]
-    chunks, _instr = _worker_build_chunks(
-        batch_items, MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
+    plain_chunks, detect_chunks, _instr = _worker_build_chunks(
+        batch_items, MagicMock(), batch_size=8, detect_lang_enabled=False
     )
-    assert len(chunks) == 1 and len(chunks[0]) == 2
-    assert chunks[0][0][1] == "A" * 100
-    assert chunks[0][1][1] == "B" * 80
+    assert len(plain_chunks) == 1 and len(plain_chunks[0]) == 2
+    assert plain_chunks[0][0][1] == "A" * 100
+    assert plain_chunks[0][1][1] == "B" * 80
+    assert detect_chunks == []
 
-    single_chunks, _instr = _worker_build_chunks(
-        [(_item(long_a), long_a)], MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
+    single_plain, single_detect, _instr = _worker_build_chunks(
+        [(_item(long_a), long_a)], MagicMock(), batch_size=8, detect_lang_enabled=False
     )
-    assert len(single_chunks) == 1
-    assert single_chunks[0][0][1] == "A" * 100
+    assert len(single_plain) == 1
+    assert single_plain[0][0][1] == "A" * 100
+    assert single_detect == []
 
     short = "Hi."
-    short_chunks, _instr = _worker_build_chunks(
+    short_plain, short_detect, _instr = _worker_build_chunks(
         [(_item(short), short), (_item("Bye.", inflight_key="k2"), "Bye.")],
         MagicMock(),
         batch_size=8,
-        max_chars=50,
         detect_lang_enabled=False,
     )
-    assert short_chunks[0][0][1] == "Hi."
-    assert short_chunks[0][1][1] == "Bye."
+    assert short_plain[0][0][1] == "Hi."
+    assert short_plain[0][1][1] == "Bye."
+    assert short_detect == []
 
 
 def test_worker_build_chunks_detect_prefilter_before_truncate() -> None:
     long_partial = "x" * 100
     items = [(_item(long_partial, partial_sentence=True), long_partial)]
-    chunks, instr = _worker_build_chunks(
-        items, MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=True
+    plain_chunks, detect_chunks, instr = _worker_build_chunks(
+        items, MagicMock(), batch_size=8, detect_lang_enabled=True
     )
-    assert chunks == []
+    assert len(plain_chunks) == 1 and len(plain_chunks[0]) == 1
+    assert plain_chunks[0][0][1] == long_partial
+    assert detect_chunks == []
     assert instr == ""
 
 
@@ -107,8 +121,8 @@ def test_worker_build_chunks_detect_prompt_recorded_locales() -> None:
     grammar_registry.record_enqueued_locale("doc-prompt", "de-DE")
     try:
         item = _item("Bonjour le monde.", doc_id="doc-prompt", grammar_bcp47="fr-FR")
-        chunks, instr = _worker_build_chunks(
-            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, max_chars=1000, detect_lang_enabled=True
+        _plain, _detect, instr = _worker_build_chunks(
+            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, detect_lang_enabled=True
         )
         assert "de-DE" in instr
         assert "fr-FR" in instr
@@ -122,8 +136,8 @@ def test_worker_build_chunks_french_only_no_en_us() -> None:
     grammar_registry.clear_for_doc("doc-fr")
     try:
         item = _item("Bonjour le monde.", doc_id="doc-fr", grammar_bcp47="fr-FR")
-        chunks, instr = _worker_build_chunks(
-            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, max_chars=1000, detect_lang_enabled=True
+        _plain, _detect, instr = _worker_build_chunks(
+            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, detect_lang_enabled=True
         )
         assert "fr-FR" in instr
         assert "en-US" not in instr
@@ -260,12 +274,25 @@ def test_decide_language_validation_all_match() -> None:
     assert decision.requeues == ()
 
 
-def test_decide_language_validation_multi_none_drops_from_result_chunk() -> None:
-    """Multi-batch None detect drops items silently (observe-only; single-item falls back to target)."""
+def test_decide_language_validation_multi_none_keeps_in_result_chunk() -> None:
+    """Multi-batch None detect keeps items in result_chunk under target locale (fails open)."""
     a, b = _phase_item("k1"), _phase_item("k2")
     decision = decide_language_validation([(a, a.text), (b, b.text)], "en-US", [None, None])
-    assert decision.result_chunk == []
+    assert decision.result_chunk == [(a, a.text), (b, b.text)]
     assert decision.requeues == ()
+    assert decision.target_bcp47 == "en-US"
+
+
+def test_decide_language_validation_mixed_match_none_mismatch() -> None:
+    a, b, c = _phase_item("k1"), _phase_item("k2"), _phase_item("k3")
+    decision = decide_language_validation(
+        [(a, a.text), (b, b.text), (c, c.text)],
+        "en-US",
+        ["en-US", None, "fr-FR"],
+    )
+    assert decision.result_chunk == [(a, a.text), (b, b.text)]
+    assert len(decision.requeues) == 1
+    assert decision.requeues[0] == LangRequeueAction(c, c.text, "fr-FR", "en-US")
     assert decision.target_bcp47 == "en-US"
 
 
@@ -1003,4 +1030,104 @@ def test_grammar_check_routes_to_harper() -> None:
 
         mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp", bcp47="en-AU")
         mock_process.assert_called_once()
+
+
+def test_thread_llm_client_cached_across_batches() -> None:
+    from plugin.writer.locale.grammar_worker import _get_or_create_thread_llm_client
+
+    ctx = MagicMock()
+    api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
+    with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
+        mock_instance = MagicMock()
+        mock_instance._stopped = False
+        mock_cls.return_value = mock_instance
+
+        c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
+        c2 = _get_or_create_thread_llm_client(api_cfg, ctx)
+
+        assert c1 is c2
+        assert mock_cls.call_count == 1
+        assert mock_cls.call_args[1].get("register_with_send") is False
+
+
+def test_thread_llm_client_rebuilds_on_endpoint_change() -> None:
+    from plugin.writer.locale.grammar_worker import _get_or_create_thread_llm_client
+
+    ctx = MagicMock()
+    cfg1 = {"endpoint": "https://api1.example.com", "api_key": "k1", "request_timeout": 30}
+    cfg2 = {"endpoint": "https://api2.example.com", "api_key": "k1", "request_timeout": 30}
+    with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
+        inst1 = MagicMock()
+        inst1._stopped = False
+        inst2 = MagicMock()
+        inst2._stopped = False
+        mock_cls.side_effect = [inst1, inst2]
+
+        c1 = _get_or_create_thread_llm_client(cfg1, ctx)
+        c2 = _get_or_create_thread_llm_client(cfg2, ctx)
+
+        assert c1 is inst1
+        assert c2 is inst2
+        inst1.stop.assert_called_once()
+        assert mock_cls.call_count == 2
+
+
+def test_thread_llm_client_separate_per_thread() -> None:
+    import threading
+    from plugin.writer.locale.grammar_worker import _get_or_create_thread_llm_client
+
+    ctx = MagicMock()
+    api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
+    results: list[Any] = []
+
+    with patch("plugin.framework.client.llm_client.LlmClient", side_effect=lambda *args, **kwargs: MagicMock(_stopped=False)):
+        def worker():
+            results.append(_get_or_create_thread_llm_client(api_cfg, ctx))
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+    assert len(results) == 2
+    assert results[0] is not results[1]
+
+
+def test_thread_llm_client_not_reused_when_stopped() -> None:
+    from plugin.writer.locale.grammar_worker import _get_or_create_thread_llm_client
+
+    ctx = MagicMock()
+    api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
+    with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
+        inst1 = MagicMock()
+        inst1._stopped = False
+        inst2 = MagicMock()
+        inst2._stopped = False
+        mock_cls.side_effect = [inst1, inst2]
+
+        c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
+        assert c1 is inst1
+
+        inst1._stopped = True
+
+        c2 = _get_or_create_thread_llm_client(api_cfg, ctx)
+        assert c2 is inst2
+        assert mock_cls.call_count == 2
+
+
+def test_worker_process_chunk_fails_open_when_language_detection_raises() -> None:
+    from plugin.writer.locale.grammar_worker import _worker_process_chunk
+
+    item = _item("Hello world.")
+    ec = _ec(detect_lang_mode="langdetect")
+    with (
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=RuntimeError("Venv missing")),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_grammar,
+    ):
+        _worker_process_chunk([(item, item.text)], ec, "en-US", True, "")
+    mock_grammar.assert_called_once()
+    assert mock_grammar.call_args[0][0] == [(item, item.text)]
+    assert mock_grammar.call_args[0][1] == "en-US"
 

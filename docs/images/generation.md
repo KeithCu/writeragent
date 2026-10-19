@@ -21,8 +21,11 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 [`plugin/writer/images/images.py`](../../plugin/writer/images/images.py) — `image_generate` tool (also via `delegate_to_specialized_*_toolset(domain="images")`):
 
-- Text-to-image from a prompt.
-- Img2img when `source_image='selection'` and an image is selected in the document. Omitting `source_image` while a graphic is selected also edits in place (parent/specialist often drop the argument after rewriting an edit into a generate-new prompt).
+- Text-to-image from a prompt using the configured Settings endpoint.
+- Img2img when `source_image='selection'` and an image is selected in the document. Omitting `source_image` while a graphic is selected also edits in place (parent/specialist often drop the argument after rewriting an edit into a generate-new prompt). Passing any other `source_image` (e.g. file path or URL) returns `INVALID_PARAMETER`.
+- Sizing on create uses `resolve_generation_size`: an omitted aspect ratio uses the Settings label (`image_default_aspect`) via `canonical_aspect_ratio`. `4:3` and `3:4` are calculated with their own ratios (not 3:2 or 2:3). Short side is `base_size`, long side scales by the ratio, then each side floors to a multiple of 64px. Explicit `width`/`height` win without re-flooring, and the returned wire ratio follows the final pixels.
+- On edit, generation keeps the selection's native pixel dimensions and the on-page display size.
+- Generated temp images (`wa-img-*` under `tempfile.gettempdir()`) are cleaned up immediately after document embedding or on insert failure.
 
 **Sidebar Image mode** (`chat_mode = Image`, not Chat/specialist) calls `image_generate` directly — no chat LLM. With a document graphic selected, the send path passes `source_image='selection'` so the same img2img + in-place replace runs. With nothing selected, it generates and inserts a new graphic. The `[image_generate: …]` note is stored as the assistant history row on success and on a tool `status=error`.
 
@@ -32,10 +35,11 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 
 [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py):
 
-- **`image_insert`**: inserts into Writer, Calc, Draw, and Impress; stable paths are linked, temp/cache paths are embedded; fractional millimetres round to the nearest 1/100 mm. Writer letterheads use `target=header`/`footer`; a different-first-page logo needs `first_is_shared=false` then `target=header_first`/`footer_first` (same `AS_CHARACTER` + `auto_height` path). Draw/Impress take millimetres (`page`, `x_mm`, `y_mm`; omitted x/y centers on the page). Calc `page` is a sheet index; `x_mm`/`y_mm` are ignored on Calc.
+- **`image_insert`**: inserts into Writer, Calc, Draw, and Impress; stable paths are linked, temp/cache paths are embedded; fractional millimetres round to the nearest 1/100 mm. Writer letterheads use `target=header`/`footer`; a different-first-page logo needs `first_is_shared=false` then `target=header_first`/`footer_first` (same `AS_CHARACTER` + `auto_height` path). Draw/Impress take millimetres (`page`, `x_mm`, `y_mm`; omitted x/y centers on the page). Calc `page` is a sheet index; `x_mm`/`y_mm` are ignored on Calc. Locator and paragraph targets are rejected on non-Writer documents with `UNSUPPORTED_DOC_TYPE`.
+- **`image_delete`**: removes the graphic object from the document; any enclosing frame created by `image_insert_frame` is a separate object.
 - **`replace_graphic_source` / `image_replace`**: replace sets `GraphicURL` / `Graphic` on the existing object and does not dispatch `.uno:InsertGraphic`. A user-file link is insert-only. `image_replace` with only one of `width_mm` / `height_mm` scales the other side from the current size.
 
-`image_download`, and the URL paths of `image_insert` and `image_replace`, fetch on the tool worker (`is_async`). LibreOffice document changes still go through `_run_on_main`. `urlopen` uses Settings `request_timeout` and stops past 32 MiB. The cache file is `os.replace` of a temp file in the cache directory, so a failed or partial body is not a later cache hit.
+`image_download`, and the URL paths of `image_insert` and `image_replace`, fetch on the tool worker (`is_async`). LibreOffice document changes still go through `_run_on_main`. `urlopen` enforces `http` and `https` schemes only (rejecting `file:`, `ftp:`, and `data:` URLs), checks against HTML/text content-types, uses Settings `request_timeout`, and stops past 32 MiB. Only bodies with recognized image magic bytes are replaced into the cache directory; failed, partial, or non-image bodies are unlinked.
 - **Writer body cursor**: `_cursor_for_writer_view` clones via `vc.getStart()` on the host XText. Passing the ViewCursor itself to `createTextCursorByRange` (the #796 `clone_text_range(vc)` path) raises a bare `RuntimeException` on a plain Writer body. Nested table/frame XText still clones on `vc.getText()`, not `model.getText()`.
 - **Compound undo**: `insert_image`, `insert_image_at_locator`, `insert_image_into_header_footer`, and `replace_graphic_source` wrap document mutations in `WriterCompoundUndo` so one Ctrl+Z reverts the whole insert or edit (gallery writes stay outside the group).
 - **`get_selected_image_base64`**: extracts selected image for img2img.
@@ -92,7 +96,7 @@ Single `generate_image(prompt, source_image=...)` API. Per-dropdown wire format,
 | **Together / Grok / Google Gemini image / Ollama** | Same `image_completion` / `build_image_request` path as create, with per-shim edit fields (table below). |
 | **Other dropdown / custom OpenAI-compat** | Same path. Today we still send top-level `image_url`; research says **omit** it unless that server documents an edit field (see Remaining). |
 
-Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) is accepted by the tool but **not sent on the wire**. If `source_image` is omitted and a graphic is selected, `image_generate` treats that as an in-place edit. Clear the selection to create a new image.
+Tool usage: pass `source_image='selection'` with an image selected in the document. If `source_image` is omitted and a graphic is selected, `image_generate` treats that as an in-place edit. Clear the selection to create a new image. Passing any other value returns `INVALID_PARAMETER`. Generation uses the configured Settings endpoint (knobs such as `provider` and `strength` are not part of the tool schema).
 
 The **parent** main agent is steered in `SPECIALIZED_TASK_RULES` and `DELEGATE_SPECIALIZED_TASK_PARAM_HINT`: when the user wants to edit/change/restyle an existing or selected image, the `delegate_to_specialized_*` `task` must instruct `image_generate(source_image='selection')` and keep the user's wording. A generate-new paraphrase (“Generate an image of … dressed as a wizard”) is what the specialist then executes as create-new.
 

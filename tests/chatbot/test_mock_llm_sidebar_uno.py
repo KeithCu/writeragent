@@ -328,6 +328,15 @@ def _start_until_stop_enabled(text: str, *, delay_ms: int = 40, timeout: float =
         send_deadline = time.monotonic() + 5.0
         while time.monotonic() <= send_deadline and _send_enabled() is False:
             time.sleep(0.05)
+        if _send_enabled() is False:
+            # The text update can miss the deck; set it again rather than click a
+            # button that still reads Record (that starts a take, not a send).
+            set_query_text_via_controls(controls, text)
+            send_deadline = time.monotonic() + 5.0
+            while time.monotonic() <= send_deadline and _send_enabled() is False:
+                time.sleep(0.05)
+        label = getattr(controls["send"].getModel(), "Label", None)
+        assert label == "Send", "Send button never armed for %r (label %r)" % (text, label)
         uno_click(controls["send"])
     else:
         sl = getattr(_session, "listener", None)
@@ -1712,13 +1721,27 @@ def _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener
     """
     from plugin.chatbot.sidebar_test_hooks import (
         adopt_runtime_send_listeners,
-        close_component,
+        close_calc_document,
         current_component,
         desktop_from_ctx,
+        find_calc_component,
         wait_for_chat_dialog_controls,
     )
 
-    close_component(calc)
+    if calc is not None:
+        # Let the new Calc window finish building its view and deck before closing it.
+        # E23 closed it about a second after open and LibreOffice crashed in an idle
+        # task on the half-built window (Window::GetCursor, ScTabViewShell::Deactivate).
+        wait_for_chat_dialog_controls(ctx, timeout=10.0, doc=calc)
+        time.sleep(0.5)
+    close_calc_document(ctx, calc)
+    # Wait for the Calc window to finish closing before focusing Writer. Focusing
+    # right away crashed LibreOffice once (Calc's half-closed view got the
+    # deactivate call, TabBar::GetPageCount in the E23 stack).
+    deadline = time.monotonic() + 10.0
+    while calc is not None and time.monotonic() < deadline and find_calc_component(ctx) is not None:
+        time.sleep(0.1)
+    time.sleep(0.3)
     if writer is not None:
         try:
             frame = writer.getCurrentController().getFrame()
@@ -3448,7 +3471,7 @@ def _m_ramble_in_calc_then_close(ctx, case: str, before_close: Callable[[], None
 
     Calc is used so the Writer session the other cases share survives the close.
     """
-    from plugin.chatbot.sidebar_test_hooks import close_component, current_component, open_calc_document
+    from plugin.chatbot.sidebar_test_hooks import close_calc_document, current_component, open_calc_document
 
     _reset_mock_runtime()
     assert _session is not None
@@ -3466,7 +3489,7 @@ def _m_ramble_in_calc_then_close(ctx, case: str, before_close: Callable[[], None
         calc_transcript = _transcript()
         if before_close is not None:
             before_close()
-        close_component(calc)
+        close_calc_document(ctx, calc)
         calc = None
         # The mock only stops writing when the client hangs up, so 0 here means the stream was cancelled.
         assert _m_wait_open_streams(lambda n: n == 0, timeout=8.0), (
@@ -3570,7 +3593,7 @@ def _r_pump_undo(ctx, frame) -> None:
 def test_r1_adjacent_agent_edits(ctx):
     """Accepting one of two adjacent agent edits leaves the other pending and intact (#1666)."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3580,7 +3603,7 @@ def test_r1_adjacent_agent_edits(ctx):
         before = agent_changes(doc)
         assert len(before) == 2, f"R1 expected 2 pending agent edits, got {before}"
 
-        assert resolve_agent_change(doc, ctx, before[0]["token"], True), (
+        assert resolve_agent_change(doc, ctx, before[0]["token"], True)[0].status == ResolveStatus.RESOLVED, (
             f"R1 accepting the first adjacent agent edit was refused: {before}"
         )
         after = agent_changes(doc)
@@ -3594,7 +3617,7 @@ def test_r1_adjacent_agent_edits(ctx):
 def test_r2_user_redline_overlap(ctx):
     """An agent change overlapped by the user's own redline is refused; both stay put."""
     from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3608,7 +3631,7 @@ def test_r2_user_redline_overlap(ctx):
         assert idx >= 0, f"R2 agent filler not in body: {body!r}"
         insert_user_redline(doc, ctx, "UserEdit", idx, idx + len("soak"))
 
-        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True)[0].status == ResolveStatus.REFUSED_FOREIGN, (
             "R2 must refuse to resolve an agent change overlapped by the user's redline"
         )
         user = [r for r in list_redlines(doc) if r.get("RedlineAuthor") == "Test User"]
@@ -3697,7 +3720,7 @@ def test_r4_stop_mid_stream(ctx):
 def test_r5_close_doc_pending_tool(ctx):
     """Closing the document while its chat turn is in flight settles cleanly; Writer chat still works."""
     from plugin.chatbot.sidebar_test_hooks import (
-        close_component,
+        close_calc_document,
         current_component,
         open_calc_document,
         set_query_text_via_controls,
@@ -3720,7 +3743,7 @@ def test_r5_close_doc_pending_tool(ctx):
         uno_click(controls["send"])
         assert _wait_stop_enabled(timeout=8.0), "R5 Calc turn never started"
         calc_transcript = _transcript()
-        close_component(calc)
+        close_calc_document(ctx, calc)
         calc = None
         time.sleep(2.0)
         assert "traceback" not in calc_transcript.lower(), f"R5 traceback in transcript: {calc_transcript[-400:]}"
@@ -3734,7 +3757,7 @@ def test_r5_close_doc_pending_tool(ctx):
 def test_r6_undo_then_accept(ctx):
     """Accepting a change whose edit was undone fails cleanly and changes nothing."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3747,7 +3770,7 @@ def test_r6_undo_then_accept(ctx):
         _r_pump_undo(ctx, frame)
         assert agent_changes(doc) == [], "R6 undo should remove the pending change"
 
-        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True)[0].status == ResolveStatus.NOT_ELIGIBLE, (
             "R6 accepting a stale token must fail"
         )
         assert doc.getText().getString() == WELCOME_BODY, "R6 stale accept changed the body"
@@ -4247,10 +4270,10 @@ def test_i2_image_generation_calc(ctx):
     try:
         calc = open_calc_document(ctx)
         _adopt_calc_sidebar(ctx, calc)
-        before = get_draw_graphics_count(ctx=ctx)
+        before = get_draw_graphics_count(ctx=ctx, doc=calc)
         _send_and_wait("generate an image", timeout=60.0)
         assert _image_posts() == 1, f"I2 expected one image POST from Calc, captures={_captures()[-4:]}"
-        after = get_draw_graphics_count(ctx=ctx)
+        after = get_draw_graphics_count(ctx=ctx, doc=calc)
         assert after == before + 1, f"I2 expected exactly 1 image inserted into Calc, got {after - before}"
         _hello_ok()
     finally:

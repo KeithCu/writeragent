@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from plugin.notebook.form_lookup import (
+    control_lookup_scope,
     find_control_shape_by_name,
     find_form_control_model_by_name,
     index_form_control_models,
@@ -136,3 +137,61 @@ def _enum_of(items):
     enum.hasMoreElements.side_effect = [True] * len(items) + [False]
     enum.nextElement.side_effect = items
     return enum
+
+
+def test_control_lookup_scope_reuses_single_draw_page_walk():
+    run_model = MagicMock()
+    run_model.Name = "nb_run_abc"
+    code_model = MagicMock()
+    code_model.Name = "nb_cell_1_code"
+    code_model.Text = "x = 42"
+
+    run_shape = MagicMock()
+    run_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    run_shape.Control = run_model
+
+    code_shape = MagicMock()
+    code_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    code_shape.Control = code_model
+
+    dp = MagicMock()
+    dp.getCount.return_value = 2
+    dp.getByIndex.side_effect = [run_shape, code_shape]
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = dp
+
+    with control_lookup_scope(doc):
+        # First lookup uses the index built on entering scope
+        assert find_form_control_model_by_name(doc, "nb_cell_1_code") is code_model
+        assert find_control_shape_by_name(doc, "nb_run_abc") is run_shape
+        assert read_code_from_field(doc, "nb_cell_1_code") == "x = 42"
+        # Nested scope reuses outer index without rebuilding
+        with control_lookup_scope(doc):
+            assert find_form_control_model_by_name(doc, "nb_run_abc") is run_model
+
+    # Exactly 2 calls to getByIndex: 1 pass across all shapes
+    assert dp.getByIndex.call_count == 2
+
+
+def test_missing_field_name_in_scope_returns_none_without_second_walk():
+    code_model = MagicMock()
+    code_model.Name = "nb_cell_1_code"
+    code_shape = MagicMock()
+    code_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    code_shape.Control = code_model
+
+    dp = MagicMock()
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = code_shape
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = dp
+
+    with control_lookup_scope(doc):
+        assert read_code_from_field(doc, "nb_cell_missing") is None
+        assert find_control_shape_by_name(doc, "nb_cell_missing") is None
+        assert find_form_control_model_by_name(doc, "nb_cell_missing") is None
+
+    # Only 1 call to getByIndex during the initial build
+    assert dp.getByIndex.call_count == 1

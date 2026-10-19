@@ -322,3 +322,33 @@ def test_metropolis_look_from_shipped_template_if_present():
     assert "dark background" in look
     assert "blue" in look
     assert "graphic chrome" in look
+
+
+def test_derive_otp_look_caches_and_invalidates_on_mtime(tmp_path):
+    from unittest.mock import patch
+    import os
+
+    pix = [(20, 40, 120)] * (8 * 8)
+    path = _write_otp(
+        tmp_path,
+        name="Cached.otp",
+        thumb=_rgb_png(pix, 8, 8),
+    )
+    look1 = derive_otp_look(path)
+    assert "dark background" in look1
+
+    orig_zip = zipfile.ZipFile
+    with patch("zipfile.ZipFile", wraps=orig_zip) as mock_zip:
+        look2 = derive_otp_look(path)
+        assert look2 == look1
+        mock_zip.assert_not_called()
+
+    st = os.stat(path)
+    new_mtime = st.st_mtime + 5
+    os.utime(path, (new_mtime, new_mtime))
+
+    with patch("zipfile.ZipFile", wraps=orig_zip) as mock_zip:
+        look3 = derive_otp_look(path)
+        assert look3 == look1
+        mock_zip.assert_called_once()
+

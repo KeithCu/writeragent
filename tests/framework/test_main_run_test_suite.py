@@ -95,6 +95,7 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
     assert main_mod.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
     assert main_mod.get_menu_text("main.NoOp") == "デバッグ"
     assert main_mod.get_menu_text("main.settings") == "Settings"
+    assert main_mod.get_menu_text("writer.insert_latex_dialog") == "Insert LaTeX Math..."
 
 
 def test_run_test_suite_unavailable_does_not_print() -> None:

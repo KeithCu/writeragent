@@ -15,6 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Tests for Writer form tools, running inside LibreOffice."""
 
+import uno  # noqa: F401
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -259,3 +261,93 @@ def test_delete_form_control(ctx, doc):
     # 4. Verify it is gone
     list_res2 = list_tool.execute(mock_ctx)
     assert list_res2["count"] == 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_forms_radios_addressing(ctx, doc):
+    _clear_doc(doc)
+    from plugin.main import get_tools
+    registry = get_tools()
+    mock_ctx = MockCtx(doc)
+
+    create_tool = registry.get("form_create_control")
+    list_tool = registry.get("form_list_controls")
+    edit_tool = registry.get("form_edit_control")
+    delete_tool = registry.get("form_delete_control")
+
+    # 1. Two radios in one group
+    r1 = create_tool.execute(mock_ctx, control="radio", name="rad_male", group_name="gender", label="Male")
+    assert r1["status"] == "ok"
+    assert r1["control_name"] == "rad_male"
+    assert r1["group_name"] == "gender"
+
+    r2 = create_tool.execute(mock_ctx, control="radio", name="rad_female", group_name="gender", label="Female")
+    assert r2["status"] == "ok"
+    assert r2["control_name"] == "rad_female"
+    assert r2["group_name"] == "gender"
+
+    listed = list_tool.execute(mock_ctx)
+    assert listed["count"] == 2
+    names = {c["name"] for c in listed["controls"]}
+    assert names == {"rad_male", "rad_female"}
+    # Both share model name "gender", reported as group_name
+    for c in listed["controls"]:
+        assert c["group_name"] == "gender"
+
+    # 2. Edit by shape name (addresses unique shape even though model name is shared)
+    edit_res = edit_tool.execute(mock_ctx, name="rad_male", label="Male Option")
+    assert edit_res["status"] == "ok"
+
+    # 3. Delete by shape name
+    del_res = delete_tool.execute(mock_ctx, name="rad_female")
+    assert del_res["status"] == "ok"
+    after_del = list_tool.execute(mock_ctx)
+    assert after_del["count"] == 1
+    assert after_del["controls"][0]["name"] == "rad_male"
+    assert after_del["controls"][0]["label"] == "Male Option"
+
+
+@native_test
+@with_native_doc("writer")
+def test_forms_button(ctx, doc):
+    _clear_doc(doc)
+    from plugin.main import get_tools
+    registry = get_tools()
+    mock_ctx = MockCtx(doc)
+    create_tool = registry.get("form_create_control")
+
+    btn_res = create_tool.execute(mock_ctx, control="button", name="btn_submit", label="Submit")
+    assert btn_res["status"] == "ok"
+    assert btn_res["control_name"] == "btn_submit"
+
+
+@native_test
+@with_native_doc("writer")
+def test_forms_date(ctx, doc):
+    _clear_doc(doc)
+    from plugin.main import get_tools
+    registry = get_tools()
+    mock_ctx = MockCtx(doc)
+    create_tool = registry.get("form_create_control")
+
+    dt_res = create_tool.execute(mock_ctx, control="date", name="dt_test", default_value="15.08.2026")
+    assert dt_res["status"] == "ok"
+
+    dp = doc.getDrawPage()
+    date_model = None
+    for i in range(dp.getCount()):
+        s = dp.getByIndex(i)
+        if getattr(s, "Name", "") == "dt_test":
+            date_model = s.Control
+            break
+    assert date_model is not None, "Date control not found"
+    if hasattr(date_model.Date, "Year"):
+        assert date_model.Date.Year == 2026 and date_model.Date.Month == 8 and date_model.Date.Day == 15
+        assert date_model.DefaultDate.Year == 2026 and date_model.DefaultDate.Month == 8 and date_model.DefaultDate.Day == 15
+    else:
+        assert date_model.Date == 20260815
+        assert date_model.DefaultDate == 20260815
+
+
+

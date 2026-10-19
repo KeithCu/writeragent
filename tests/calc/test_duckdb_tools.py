@@ -1036,3 +1036,16 @@ def test_apostrophe_sheet_name_round_trips_qualified_a1():
     assert _sheet_qualified_a1("Actuals", "A1:B2") == "Actuals.A1:B2"
     assert _sheet_qualified_a1("Q1 Sales", "A1") == "'Q1 Sales'.A1"
     assert _sheet_qualified_a1("Q1.Sales", "A1") == "'Q1.Sales'.A1"
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.resolve_table_source_a1", return_value="Sales.A1:B2")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_read_range_calc_error_reports_maximum_is(mock_resolve, mock_a1, mock_read_range):
+    from plugin.framework.errors import CalcError
+
+    del mock_resolve, mock_a1
+    mock_read_range.side_effect = CalcError("Data range has 500000 cells; maximum is 250000.")
+    res = QueryFolderSqlTool().execute(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    assert res["status"] == "error"
+    assert "maximum is" in res.get("message", "")

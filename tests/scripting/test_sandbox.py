@@ -120,6 +120,8 @@ def test_resolve_venv_python_accepts_uppercase_file_url(tmp_path):
 def test_path_from_file_url_scheme_case_and_unc(monkeypatch):
     from plugin.scripting.sandbox import _path_from_file_url
 
+    # Check the POSIX rules first, even on Windows; the nt rules (UNC paths) are below.
+    monkeypatch.setattr("plugin.scripting.sandbox.os.name", "posix")
     assert _path_from_file_url("FILE:///tmp/x") == "/tmp/x"
     assert _path_from_file_url("File:/tmp/x") == "/tmp/x"
     assert _path_from_file_url("file://localhost/tmp/x") == "/tmp/x"

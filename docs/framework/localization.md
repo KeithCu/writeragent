@@ -13,33 +13,37 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 
 ## How strings get into the template
 
+String extraction and catalog updates are driven by [`scripts/extract_strings.py`](../../scripts/extract_strings.py).
+
 1. **Python**: User-visible literals should use `_('...')` (or the same pattern with format strings). After `init_i18n()`, `_()` delegates to gettext.
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, helpers, `button_text`, options) into the same POT, deduplicated by `msgid`. `button_text` is the button caption (`dlg:value` → `Label`); `translate_dialog` already calls `_()` on it, so a missing catalog entry stays English. Requires `polib` and PyYAML.
+3. **Input list & xgettext**: Python files are collected depth-first and written to a temporary list file passed to `xgettext` via `-f`. `--keyword=N_` is passed on `extract-strings` (`refresh-pot` omits it).
 
-4. **Dialogs at runtime**: [`translate_dialog` in `plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()`: empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`tests/framework/test_i18n.py`](../tests/framework/test_i18n.py).
+4. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, helpers, `button_text`, options) into the same POT, deduplicated by `msgid`. `button_text` is the button caption (`dlg:value` → `Label`); `translate_dialog` already calls `_()` on it, so a missing catalog entry stays English. Requires `polib` and PyYAML.
+
+5. **Dialogs at runtime**: [`translate_dialog` in `plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()`: empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`tests/framework/test_i18n.py`](../tests/framework/test_i18n.py).
 
    Combos rebuilt in Python after `translate_dialog` (sidebar image aspect) must pass display strings through `_("Square")`-style literals. Stored `image_default_aspect` stays the English label; [`canonical_aspect_label`](../../plugin/chatbot/settings_dialog.py) maps the visible text back before the image-tool enum. The chat role prefix is `_("Assistant:")` in [`append_rich_text`](../../plugin/chatbot/rich_text.py), not a bare literal.
 
-5. **Monaco editor (pywebview)**: User-visible strings live in Python only — [`plugin/scripting/editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py). [`launch_monaco_editor()`](../plugin/scripting/editor_host.py) enriches every IPC `load` message with a pre-translated `ui` dict; [`editor.js`](../plugin/contrib/scripting/assets/editor/editor.js) applies it in `applyLoadMessage()`. Add new shell strings in Python `_()`, run `make extract-strings`, then read the key from `load.ui` in JS. See [scripting/monaco-editor-dev-plan.md § Localization](../scripting/monaco-editor-dev-plan.md#localization).
+6. **Monaco editor (pywebview)**: User-visible strings live in Python only — [`plugin/scripting/editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py). [`launch_monaco_editor()`](../plugin/scripting/editor_host.py) enriches every IPC `load` message with a pre-translated `ui` dict; [`editor.js`](../plugin/contrib/scripting/assets/editor/editor.js) applies it in `applyLoadMessage()`. Add new shell strings in Python `_()`, run `make extract-strings`, then read the key from `load.ui` in JS. See [scripting/monaco-editor-dev-plan.md § Localization](../scripting/monaco-editor-dev-plan.md#localization).
 
 ## Build and maintenance commands
 
 | Target | Role |
 |--------|------|
-| `make extract-strings` | Full pipeline: XDL stub → `xgettext` → YAML merge → **delete stub** → **`merge-translations`** on every `writeragent.po`. Use when sources change and you want POT and all POs updated. |
-| `make refresh-pot` | Regenerates `writeragent.pot` only (same extraction steps) **without** merging into `.po` files. |
+| `make extract-strings` | Full pipeline via `scripts/extract_strings.py`: XDL stub → `xgettext` (`-f`, `--keyword=N_`) → YAML merge → **delete stub** → **`merge-translations`** on every `writeragent.po`. Use when sources change and you want POT and all POs updated. |
+| `make refresh-pot` | `scripts/extract_strings.py --pot-only`: regenerates `writeragent.pot` only (no `--keyword=N_`) **without** merging into `.po` files. |
 | `make preview-translations` | `refresh-pot` then `scripts/translate_missing.py --preview` (status table of completion vs POT). Used by normal `make build`. |
-| `make merge-translations` | For each `writeragent.po`: `msgmerge --update` from `writeragent.pot`, then `msgattrib --no-obsolete` so removed strings do not linger as obsolete entries. |
+| `make merge-translations` | `scripts/extract_strings.py --merge-only`: for each `writeragent.po`, `msgmerge --update` from `writeragent.pot`, then `msgattrib --no-obsolete` so removed strings do not linger as obsolete entries. |
 | `make compile-translations` | Compile every `.po` to `.mo` via [`scripts/compile_translations.py`](../scripts/compile_translations.py) (`polib.save_as_mofile`; no GNU `msgfmt` / `find`). Required for LibreOffice and for unit tests that load catalogs. |
 | `make compile-translations-core` | LibrePy only: build `build/generated/librepy.pot` from bundled sources (`_()` via ast, no GNU `xgettext`), filter each `writeragent.po` to those msgids, compile slim `.mo` with polib (no `msgfmt`) under `build/generated/locales/` (part of `make build-core`). Windows CI does not have gettext on PATH (GHA 33780509372). |
 | `make add-language LANG=xx` | Creates `locales/xx/LC_MESSAGES/writeragent.po` from the POT and compiles an initial `.mo`. |
 
 **Note:** `make build` runs `preview-translations` (refresh POT + preview), not necessarily the full `extract-strings` + merge. Run **`make extract-strings`** when you add or change marked strings and need all locale files updated from the new template.
 
-**Release / AI assist:** `make release-build` uses `auto-translate`, which regenerates strings with `extract-strings`, previews, then (if `OPENROUTER_API_KEY` is set) runs `translate_missing.py --execute` to fill gaps. Manual runs: `make translate-missing` or `python scripts/translate_missing.py --execute`.
+**Release / AI assist:** `make release-build` uses `auto-translate` (`scripts/extract_strings.py --auto-translate`), which regenerates strings with `extract-strings`, previews, then (if `OPENROUTER_API_KEY` is set) runs `translate_missing.py --execute` to fill gaps. Manual runs: `make translate-missing` or `python scripts/translate_missing.py --execute`.
 
 ## AI-assisted gap filling (`scripts/translate_missing.py`)
 

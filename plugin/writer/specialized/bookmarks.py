@@ -25,17 +25,19 @@ from typing import Any, ClassVar, Iterator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
 
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
 
+
 # In-flight strip records keyed by DocumentService.doc_key (uid: survives Save As).
 _PENDING_STRIPS: dict[str, _PendingStrip] = {}
 _SAVE_LISTENERS: dict[str, _BookmarkSaveListener] = {}
-# True while a save-hook strip/restore runs so ensure does not restore mid-write.
-_SAVE_HOOK_DEPTH = 0
+# Doc keys with a save-hook strip/restore running, so ensure does not restore mid-write.
+_ACTIVE_SAVE_HOOK_KEYS: set[str] = set()
 
 
 class _PendingStrip:
@@ -51,13 +53,12 @@ class _PendingStrip:
 
 
 @contextlib.contextmanager
-def _in_save_hook() -> Iterator[None]:
-    global _SAVE_HOOK_DEPTH
-    _SAVE_HOOK_DEPTH += 1
+def _in_save_hook(doc_key: str) -> Iterator[None]:
+    _ACTIVE_SAVE_HOOK_KEYS.add(doc_key)
     try:
         yield
     finally:
-        _SAVE_HOOK_DEPTH -= 1
+        _ACTIVE_SAVE_HOOK_KEYS.discard(doc_key)
 
 
 class _BookmarkSaveListener(BaseDocumentEventListener):
@@ -86,13 +87,13 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
         # storeToURL ("Save a Copy") is OnCopyTo / OnCopyToDone, not OnSaveTo.
         # UI Save a Copy may still emit OnSaveTo; handle both.
         if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"):
-            with _in_save_hook():
+            with _in_save_hook(self._doc_key):
                 self._svc.strip_for_save(source)
         elif name in ("OnSaveDone", "OnSaveAsDone"):
-            with _in_save_hook():
+            with _in_save_hook(self._doc_key):
                 self._svc.restore_after_save(source, saved=True)
         elif name in ("OnSaveToDone", "OnCopyToDone"):
-            with _in_save_hook():
+            with _in_save_hook(self._doc_key):
                 self._svc.restore_after_save(source, saved=False)
         elif name == "OnUnload":
             self._svc._teardown_save_listener(self._doc_key, source)
@@ -164,8 +165,12 @@ class BookmarkService(ServiceBase):
             except Exception:
                 log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
-    def get_mcp_bookmark_map(self, doc: Any) -> dict[int, str]:
-        """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""
+    def get_mcp_bookmark_map(self, doc: Any, strict: bool = False) -> dict[int, str]:
+        """Return {para_index: bookmark_name} for all _mcp_ bookmarks.
+
+        A failed read returns {} unless *strict*; ensure_heading_bookmarks reads
+        strictly so a bad read does not insert or prune locators.
+        """
         result: dict[int, str] = {}
         try:
             bookmarks = doc.getBookmarks()
@@ -175,7 +180,7 @@ class BookmarkService(ServiceBase):
             para_ranges = get_paragraph_ranges(doc)
             text_obj = doc.getText()
             for name in names:
-                if not name.startswith("_mcp_"):
+                if not (isinstance(name, str) and name.startswith("_mcp_")):
                     continue
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
@@ -187,8 +192,12 @@ class BookmarkService(ServiceBase):
                 placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
                 if placed is not None:
                     result[placed] = name
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("Failed to get MCP bookmark map")
+            if not strict:
+                return {}
+            raise
 
         return result
 
@@ -198,16 +207,22 @@ class BookmarkService(ServiceBase):
         Also removes ``_mcp_`` bookmarks that are no longer on a heading.
         Demoting a heading used to leave the point mark in the document forever.
         """
-        if _SAVE_HOOK_DEPTH == 0:
+        key = self._doc_key(doc)
+        if key not in _ACTIVE_SAVE_HOOK_KEYS:
             self._restore_abandoned(doc)
-        existing_map = self.get_mcp_bookmark_map(doc)
+        try:
+            existing_map = self.get_mcp_bookmark_map(doc, strict=True)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.warning("heading bookmark map unreadable; leaving locators unchanged")
+            return {}
 
         text = doc.getText()
-        enum = text.createEnumeration()
-        para_index = 0
         bookmark_map = {}
         needs_bookmark = []
 
+        enum = text.createEnumeration()
+        para_index = 0
         while enum.hasMoreElements():
             element = enum.nextElement()
             if element.supportsService("com.sun.star.text.Paragraph"):
@@ -226,14 +241,28 @@ class BookmarkService(ServiceBase):
         # Names already on a current heading. New inserts are not in the
         # document yet, so they cannot appear in this stale list.
         kept = set(bookmark_map.values())
-        stale = self._demoted_mcp_names(doc, kept) if _SAVE_HOOK_DEPTH == 0 else []
+        stale = self._demoted_mcp_names(doc, kept) if key not in _ACTIVE_SAVE_HOOK_KEYS else []
 
         if needs_bookmark or stale:
             with self._untracked(doc):
                 for para_idx, start_range in needs_bookmark:
-                    bm_name = "_mcp_%s" % uuid.uuid4().hex[:8]
+                    bm_name = None
+                    for _attempt in range(5):
+                        candidate = "_mcp_%s" % uuid.uuid4().hex[:8]
+                        try:
+                            if not doc.getBookmarks().hasByName(candidate):
+                                bm_name = candidate
+                                break
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            log.exception("Failed checking bookmark existence for %s", candidate)
+                            break
+                    if bm_name is None:
+                        log.warning("Failed to find unique _mcp_ bookmark name after 5 attempts")
+                        continue
                     if self._insert_named_bookmark(doc, text, bm_name, start_range):
                         bookmark_map[para_idx] = bm_name
+
                 # Adding marks without removing them leaves a demoted heading's
                 # _mcp_ bookmark in place, so later navigation still treats that
                 # paragraph as the section. Delete _mcp_ names that are not on a
@@ -251,7 +280,8 @@ class BookmarkService(ServiceBase):
         """``_mcp_`` names that are not on a current heading."""
         try:
             names = doc.getBookmarks().getElementNames()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("Failed to list heading bookmarks for prune")
             return []
         stale: list[str] = []
@@ -260,18 +290,27 @@ class BookmarkService(ServiceBase):
                 stale.append(name)
         return stale
 
-    def _remove_named_bookmarks(self, doc: Any, names: list[str]) -> None:
-        """Remove these bookmarks. Caller holds ``_untracked``."""
+    def _remove_named_bookmarks(self, doc: Any, names: list[str]) -> int:
+        """Remove these bookmarks. Caller holds ``_untracked``. Returns failure count."""
         if not names:
-            return
-        bookmarks = doc.getBookmarks()
-        text = doc.getText()
+            return 0
+        try:
+            bookmarks = doc.getBookmarks()
+            text = doc.getText()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed to access bookmarks for removal")
+            return len(names)
+        failed = 0
         for name in names:
             try:
                 bm = bookmarks.getByName(name)
                 text.removeTextContent(bm)
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                failed += 1
                 log.exception("Failed to remove demoted heading bookmark %s", name)
+        return failed
 
     def find_nearest_heading_bookmark(self, para_index: int, bookmark_map: Any) -> dict[str, Any] | None:
         """Find nearest heading bookmark at or before para_index."""
@@ -284,30 +323,31 @@ class BookmarkService(ServiceBase):
         return None
 
     def _remove_mcp_bookmarks(self, doc: Any) -> int:
-        """Remove all ``_mcp_*`` bookmarks. No undo/modified/cache handling."""
+        """Remove all ``_mcp_*`` bookmarks. Returns removed count."""
         removed = 0
-        bookmarks = doc.getBookmarks()
-        names = bookmarks.getElementNames()
-        text = doc.getText()
+        try:
+            bookmarks = doc.getBookmarks()
+            names = bookmarks.getElementNames()
+            text = doc.getText()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed to get bookmarks for removal")
+            raise
         for name in names:
-            if name.startswith("_mcp_"):
+            if isinstance(name, str) and name.startswith("_mcp_"):
                 try:
                     bm = bookmarks.getByName(name)
                     text.removeTextContent(bm)
                     removed += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.exception("Failed to remove _mcp_ bookmark %s", name)
         return removed
 
     def cleanup_mcp_bookmarks(self, doc: Any) -> int:
         """Remove all _mcp_* bookmarks from the document."""
-        removed = 0
-        try:
-            with self._untracked(doc):
-                removed = self._remove_mcp_bookmarks(doc)
-        except Exception:
-            log.exception("Failed to cleanup bookmarks")
-        return removed
+        with self._untracked(doc):
+            return self._remove_mcp_bookmarks(doc)
 
     def _insert_named_bookmark(self, doc: Any, text: Any, name: str, start_range: Any) -> bool:
         """Insert a point bookmark. Skip and log on name collision."""
@@ -315,15 +355,18 @@ class BookmarkService(ServiceBase):
             if doc.getBookmarks().hasByName(name):
                 log.info("Heading bookmark %s already exists; skip insert", name)
                 return False
-        except Exception:
-            pass
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed checking bookmark existence for %s", name)
+            return False
         try:
             bookmark = doc.createInstance("com.sun.star.text.Bookmark")
             bookmark.Name = name
             cursor = text.createTextCursorByRange(start_range)
             text.insertTextContent(cursor, bookmark, False)
             return True
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("Failed to insert heading bookmark %s", name)
             return False
 
@@ -360,7 +403,12 @@ class BookmarkService(ServiceBase):
                 was = bool(doc.isModified())
             except Exception:
                 was = False
-            _PENDING_STRIPS[key] = _PendingStrip(self.get_mcp_bookmark_map(doc), was, doc)
+            try:
+                bm_map = self.get_mcp_bookmark_map(doc)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                return
+            _PENDING_STRIPS[key] = _PendingStrip(bm_map, was, doc)
         rec = _PENDING_STRIPS.get(key)
         if rec is None or not rec.names:
             return
@@ -372,14 +420,26 @@ class BookmarkService(ServiceBase):
         key = self._pending_key(doc)
         if key is None:
             return
-        rec = _PENDING_STRIPS.pop(key, None)
+        rec = _PENDING_STRIPS.get(key)
         if rec is None:
             return
         target = doc if doc is not None else rec.doc
         if target is None:
             return
-        with self._untracked(target):
-            self._reinsert_named(target, rec.names)
+        leftovers: dict[int, str] = {}
+        try:
+            with self._untracked(target):
+                leftovers = self._reinsert_named(target, rec.names)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed during bookmark restore; leaving pending record")
+            return
+
+        if leftovers:
+            rec.names = leftovers
+        else:
+            _PENDING_STRIPS.pop(key, None)
+
         try:
             if saved:
                 target.setModified(False)
@@ -388,11 +448,18 @@ class BookmarkService(ServiceBase):
         except Exception:
             log.debug("BookmarkService: post-restore setModified failed", exc_info=True)
 
-    def _reinsert_named(self, doc: Any, names: dict[int, str]) -> None:
+    def _reinsert_named(self, doc: Any, names: dict[int, str]) -> dict[int, str]:
+        """Re-insert bookmarks. Returns leftover uninserted names."""
         if not names:
-            return
-        text = doc.getText()
-        paras = get_paragraph_ranges(doc)
+            return {}
+        try:
+            text = doc.getText()
+            paras = get_paragraph_ranges(doc)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed getting text or paragraph ranges for restore")
+            return dict(names)
+        leftovers: dict[int, str] = {}
         for para_idx, name in names.items():
             if para_idx < 0 or para_idx >= len(paras):
                 continue
@@ -401,9 +468,12 @@ class BookmarkService(ServiceBase):
                 if not element.supportsService("com.sun.star.text.Paragraph"):
                     continue
                 start_range = element.getStart()
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 continue
-            self._insert_named_bookmark(doc, text, name, start_range)
+            if not self._insert_named_bookmark(doc, text, name, start_range):
+                leftovers[para_idx] = name
+        return leftovers
 
     def _ensure_save_listener(self, doc: Any) -> None:
         if not hasattr(doc, "addDocumentEventListener"):
@@ -458,9 +528,15 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        bm_svc = ctx.services.writer_bookmarks
-        removed = bm_svc.cleanup_mcp_bookmarks(ctx.doc)
-        return {"status": "ok", "removed": removed}
+        bm_svc = getattr(ctx.services, "writer_bookmarks", None)
+        if bm_svc is None:
+            bm_svc = BookmarkService(ctx.services)
+        try:
+            removed = bm_svc.cleanup_mcp_bookmarks(ctx.doc)
+            return {"status": "ok", "removed": removed}
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return self._tool_error(str(exc))
 
 
 class BookmarkCreate(ToolWriterBookmarkBase):
@@ -474,6 +550,8 @@ class BookmarkCreate(ToolWriterBookmarkBase):
         name = kwargs.get("name")
         if not name:
             return self._tool_error("Bookmark name is required.")
+        if name.startswith("_mcp_"):
+            return self._tool_error("Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them.")
 
         bookmarks = doc.getBookmarks()
         if bookmarks.hasByName(name):
@@ -540,6 +618,8 @@ class BookmarkRename(ToolWriterBookmarkBase):
 
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
+        if new_name.startswith("_mcp_"):
+            return self._tool_error("Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them.")
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(old_name):
@@ -552,6 +632,7 @@ class BookmarkRename(ToolWriterBookmarkBase):
         bm.setName(new_name)
 
         return {"status": "ok", "message": f"Bookmark renamed from '{old_name}' to '{new_name}'."}
+
 
 
 class BookmarkGet(ToolWriterBookmarkBase):

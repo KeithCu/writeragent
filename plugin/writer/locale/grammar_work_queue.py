@@ -14,11 +14,12 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
 
 **Layer 2 — Batch-drain dedup** (``_drain_loop`` dict accumulator)
 
-    After the worker wakes on the first ``get()``, it enters a tight
-    ``get(timeout=GRAMMAR_WORKER_PAUSE_TIMEOUT_S)`` loop that collects every
-    pending item into a ``batch_by_key`` dict keyed by ``inflight_key``.
-    For each key only the item with the highest ``enqueue_seq`` is kept
-    (same rule as the tested pure ``deduplicate_grammar_batch``).
+    After the worker wakes on the first ``get()``, it separates items into
+    complete and partial sentences. Partial sentences wait out a 1.0s quiet
+    period (``GRAMMAR_WORKER_PAUSE_TIMEOUT_S``) reset on each keystroke, while
+    complete sentences coalesce for a fixed 50ms window (``GRAMMAR_COMPLETE_COALESCE_S``)
+    before dispatch. For each key only the item with the highest ``enqueue_seq``
+    is kept (same rule as the tested pure ``deduplicate_grammar_batch``).
 
     *Blind spot*: The dict cannot detect items that were already consumed in a
     *previous* batch and whose ``inflight_key`` was re-enqueued while the
@@ -53,7 +54,7 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
 
 **``inflight_key`` design**
 
-    Complete sentences: ``{doc_id}|{locale}|{hash(text)[:16]}``.  Unique
+    Complete sentences: ``{doc_id}|{locale}|{fingerprint_for_text}`` (24 hex characters).  Unique
     per sentence, stable if the sentence is unchanged — so two different
     sentences in the same paragraph never collide.
 
@@ -107,6 +108,7 @@ class GrammarWorkItem:
     original_bcp47: str = ""
     provider: str = ""
     n_start: int = 0
+    checker_identity: str = ""
     paragraph_text: str = ""
 
 
@@ -131,7 +133,8 @@ def record_enqueue_latest(prev: dict[str, int], item: GrammarWorkItem) -> tuple[
     prev_seq = prev.get(key)
     out_of_order = prev_seq is not None and item.enqueue_seq < prev_seq
     new_d = dict(prev)
-    new_d[key] = item.enqueue_seq
+    # Never lower generation on out-of-order enqueue; keeping the higher seq ensures inflight_superseded drops the late older item.
+    new_d[key] = max(prev_seq, item.enqueue_seq) if prev_seq is not None else item.enqueue_seq
     return new_d, out_of_order, prev_seq if out_of_order else None
 
 
@@ -323,11 +326,6 @@ class GrammarWorkQueue:
                     return
                 i = self._worker_count
                 self._worker_count += 1
-            if i > 0:
-                # Stagger extra drain threads; do not hold _lock across sleep.
-                from plugin.framework.client.request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
-
-                time.sleep(LLM_MIN_REQUEST_INTERVAL_SEC)
             t = threading.Thread(target=self._drain_loop, name=f"writeragent-grammar-queue-{i}", daemon=True)
             t.start()
 
@@ -337,42 +335,134 @@ class GrammarWorkQueue:
         ``None`` is a poison-pill; nothing enqueues it today. A real shutdown must
         put one ``None`` per drain thread, or extra workers block forever.
         """
-        while True:
-            first = self._q.get()
-            if first is None:
-                break
-            # Layer 2 fast path: collapse same-key items as they arrive instead
-            # of appending all then dedup-ing.  This is now the *primary*
-            # dedup point for rapid typing (the historical Layer 1 tail-replace
-            # at enqueue time was removed because the worker drains so quickly
-            # that the queue is usually empty between keystrokes anyway).
-            batch_by_key: dict[str, GrammarWorkItem] = {first.inflight_key: first}
-            while True:
-                try:
-                    more = self._q.get(timeout=grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S)
-                    if more is None:
-                        return
-                    prev = batch_by_key.get(more.inflight_key)
-                    if should_replace_for_key(prev, more):
-                        batch_by_key[more.inflight_key] = more
-                except queue.Empty:
-                    break
-            batch = list(batch_by_key.values())
-            grammar_obs("queue_drain_batch", batch_size=len(batch), seqs=tuple(x.enqueue_seq for x in batch), keys=tuple(x.inflight_key for x in batch))
-            # Same-key newest-wins already applied in batch_by_key (same rule as
-            # deduplicate_grammar_batch, which remains the tested pure helper).
+        completes: dict[str, GrammarWorkItem] = {}
+        partials: dict[str, GrammarWorkItem] = {}
+        partial_deadlines: dict[str, float] = {}
+
+        def _absorb(item: GrammarWorkItem) -> None:
+            if item.partial_sentence:
+                prev = partials.get(item.inflight_key)
+                if should_replace_for_key(prev, item):
+                    partials[item.inflight_key] = item
+                    partial_deadlines[item.inflight_key] = (
+                        time.monotonic() + grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S
+                    )
+            else:
+                prev = completes.get(item.inflight_key)
+                if should_replace_for_key(prev, item):
+                    completes[item.inflight_key] = item
+
+        def _dispatch(batch: list[GrammarWorkItem]) -> None:
+            if not batch:
+                return
+            grammar_obs(
+                "queue_drain_batch",
+                batch_size=len(batch),
+                seqs=tuple(x.enqueue_seq for x in batch),
+                keys=tuple(x.inflight_key for x in batch),
+            )
             grammar_obs(
                 "queue_drain_survivors",
                 survivor_count=len(batch),
                 seqs=tuple(x.enqueue_seq for x in batch),
             )
-
             groups = filter_stale_and_group(batch, self._is_stale)
-
             for (doc_id, locale), group_items in groups.items():
-                grammar_obs("queue_execute_batch", doc_id=doc_id, locale=locale, item_count=len(group_items))
+                grammar_obs(
+                    "queue_execute_batch",
+                    doc_id=doc_id,
+                    locale=locale,
+                    item_count=len(group_items),
+                )
                 import plugin.writer.locale.grammar_worker as grammar_worker
+
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
+
+        while True:
+            try:
+                # 1. Dispatch partial sentences whose quiet period has expired.
+                now = time.monotonic()
+                ready_keys = [k for k, dl in partial_deadlines.items() if dl <= now]
+                if ready_keys:
+                    ready_items = [partials.pop(k) for k in ready_keys]
+                    for k in ready_keys:
+                        del partial_deadlines[k]
+                    _dispatch(ready_items)
+                    continue
+
+                # 2. Wait for incoming items if completes is empty.
+                if not completes:
+                    if partial_deadlines:
+                        wait_timeout = max(0.0, min(partial_deadlines.values()) - time.monotonic())
+                    else:
+                        wait_timeout = None
+
+                    try:
+                        first = self._q.get(timeout=wait_timeout)
+                    except queue.Empty:
+                        continue
+
+                    if first is None:
+                        # Poison-pill: dispatch anything already absorbed, then stop.
+                        remaining = list(completes.values()) + list(partials.values())
+                        completes.clear()
+                        partials.clear()
+                        partial_deadlines.clear()
+                        _dispatch(remaining)
+                        return
+
+                    _absorb(first)
+
+                # 3. If completes has items, slurp non-blocking and coalesce for fixed window.
+                if completes:
+                    poison = False
+                    while True:
+                        try:
+                            nxt = self._q.get_nowait()
+                        except queue.Empty:
+                            break
+                        if nxt is None:
+                            poison = True
+                            break
+                        _absorb(nxt)
+
+                    if poison:
+                        remaining = list(completes.values()) + list(partials.values())
+                        completes.clear()
+                        partials.clear()
+                        partial_deadlines.clear()
+                        _dispatch(remaining)
+                        return
+
+                    # Fixed coalesce window (deadline does not move when more items arrive)
+                    coalesce_deadline = time.monotonic() + grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S
+                    while True:
+                        remaining_wait = coalesce_deadline - time.monotonic()
+                        if remaining_wait <= 0:
+                            break
+                        try:
+                            nxt = self._q.get(timeout=remaining_wait)
+                        except queue.Empty:
+                            break
+                        if nxt is None:
+                            poison = True
+                            break
+                        _absorb(nxt)
+
+                    if poison:
+                        remaining = list(completes.values()) + list(partials.values())
+                        completes.clear()
+                        partials.clear()
+                        partial_deadlines.clear()
+                        _dispatch(remaining)
+                        return
+
+                    batch = list(completes.values())
+                    completes.clear()
+                    _dispatch(batch)
+
+            except Exception:
+                log.exception("[grammar] drain loop error")
 
 
 _grammar_queue_singleton = GrammarWorkQueue()

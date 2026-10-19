@@ -129,9 +129,11 @@ def test_leading_list_numbers_every_item(ctx):
         assert rich_text.append_rich_text(doc, "first question", role="user")
         assert rich_text.append_rich_text(doc, "<ol><li>alpha</li><li>beta</li></ol>", role="assistant")
         assert rich_text.append_rich_text(doc, '<ol start="11"><li>gamma</li><li>delta</li></ol>', role="assistant")
+        assert rich_text.append_rich_text(doc, '<ol type="A"><li>letter</li></ol>', role="assistant")
         labels = _list_labels(doc)
         assert ("alpha", "1.") in labels and ("beta", "2.") in labels, labels
         assert ("gamma", "11.") in labels and ("delta", "12.") in labels, labels
+        assert ("letter", "A.") in labels, labels
         assert "\u200b" not in doc.getText().getString()
     finally:
         doc.close(True)

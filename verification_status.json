@@ -285,7 +285,6 @@
         "functions_contracted": [
           "venv_authorized_top_level_modules",
           "venv_blocked_modules",
-          "inprocess_authorized_modules",
           "format_venv_import_policy_for_prompt"
         ],
         "ci_integration": true
