@@ -260,6 +260,19 @@ jobs:
             make test-mock-sidebar
           fi
 
+      # Mock runs use the default LO profile; keep its debug log for flakes
+      # where a send never reaches the mock server.
+      - name: Upload mock sidebar soffice log
+        if: ${{ always() && inputs.test_mock_sidebar == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-sidebar-log-${{ matrix.os }}-${{ github.run_id }}
+          path: |
+            ~/.config/libreoffice/4/user/writeragent_debug.log*
+            ~/Library/Application Support/LibreOffice/4/user/writeragent_debug.log*
+            ~/AppData/Roaming/LibreOffice/4/user/writeragent_debug.log*
+          if-no-files-found: warn
+
   release-verify:
     name: ${{ format('Release Verify ({0})', matrix.os) }}
     if: github.event_name == 'workflow_dispatch'
