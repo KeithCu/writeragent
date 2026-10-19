@@ -99,6 +99,11 @@ def _setup_peer(ctx):
             pass
         calc_controls, calc_listener = adopt_chat_sidebar(ctx, _calc_doc)
         ensure_sidebar_chat_mode(calc_controls, doc_type="calc", listener=calc_listener)
+        # Look up Writer's controls again now that Calc is open, in case Writer's
+        # deck was rebuilt meanwhile (seen on macOS: old controls kept the greeting).
+        from plugin.chatbot.sidebar_test_hooks import chat_dialog_controls
+
+        writer_controls = chat_dialog_controls(ctx, _writer_doc) or writer_controls
 
     _session.writer_doc = _writer_doc
     _session.calc_doc = _calc_doc
@@ -185,6 +190,23 @@ def _transcript(which: str) -> str:
         return transcript_text(listener=sl)
     except Exception:
         return ""
+
+
+def _listener_transcript(which: str) -> str:
+    """Freshly looked-up deck text, for failure messages only (compare with the cached controls)."""
+    from plugin.chatbot.sidebar_test_hooks import chat_dialog_controls
+
+    doc = _writer_doc if which == "writer" else _calc_doc
+    ctx = getattr(_session, "hook_ctx", None)
+    try:
+        controls = chat_dialog_controls(ctx, doc) or {}
+        for name in ("response_rich", "response"):
+            ctrl = controls.get(name)
+            if ctrl is not None and hasattr(ctrl, "getText"):
+                return "fresh %s: %s" % (name, ctrl.getText())
+        return "<no fresh controls>"
+    except Exception as exc:
+        return "<error %r>" % exc
 
 
 def _send(which: str, text: str, timeout: float = 90.0) -> None:
@@ -330,7 +352,8 @@ def _press_stop(which: str) -> None:
     ctx = getattr(_session, "hook_ctx", None)
     if ctx is not None:
         try:
-            execute_debug_sidebar_op("STOP_CLICKED", ctx=ctx)
+            # Name the doc: the current component may be the other window (macOS).
+            execute_debug_sidebar_op("STOP_CLICKED", ctx=ctx, doc=_writer_doc if which == "writer" else _calc_doc)
         except Exception:
             pass
 
@@ -460,7 +483,7 @@ def test_p1_total_row_peer_roundtrip(ctx):
         "Calc did not write a Total row: formula=%r calc=%r" % (formula, calc_txt[-300:])
     )
     assert "[Peer work from:" in writer_txt or "Total" in writer_txt or "total" in writer_txt.lower(), (
-        "Writer follow-up never saw the reply: %r" % writer_txt[-400:]
+        "Writer follow-up never saw the reply: %r fresh=%r" % (writer_txt[-400:], _listener_transcript("writer")[-400:])
     )
     snaps = _captures()
     assert finish_immediately_after_peer_sends(snaps), "specialized did not finish immediately after accepted: %r" % [
@@ -643,7 +666,10 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
         time.sleep(0.12)
     try:
         assert calc_replied, "Calc never sent the reply: decided=%r" % _capture_tools()
-        assert saw_mid, "Writer ramble never painted mid-stream: %r" % writer_txt[-300:]
+        assert saw_mid, "Writer ramble never painted mid-stream: %r fresh=%r" % (
+            writer_txt[-300:],
+            _listener_transcript("writer")[-300:],
+        )
         assert not injected_mid, (
             "Calc reply injected while Writer ramble was still streaming: %r" % writer_txt[-300:]
         )

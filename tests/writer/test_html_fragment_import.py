@@ -329,6 +329,12 @@ def test_restore_fields_in_region_without_document_search():
     assert restored == 1
     model.findFirst.assert_not_called()
 
+    # Region with no token: findFirst is not called.
+    clean_text = _Text()
+    clean_text.plain = "Clean region without token"
+    assert _restore_field_placeholders(model, clean_text) == 0
+    model.findFirst.assert_not_called()
+
 
 def test_restore_fields_in_region_two_paragraphs_advances_past_break():
     needle = "[[WA-FIELD:page-number]]"
@@ -414,16 +420,38 @@ def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains
     model.findFirst.return_value = found
     model.findNext.return_value = None
 
+    def _clear_token(*_args, **_kwargs):
+        text.getString.return_value = "Resolved"
+        return True
+
     with (
         patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
         patch("plugin.writer.html_import.uno_same", return_value=True),
-        patch("plugin.writer.html_import._insert_restored_field", return_value=True) as insert,
+        patch("plugin.writer.html_import._insert_restored_field", side_effect=_clear_token) as insert,
     ):
         restored = _restore_field_placeholders(model, text)
 
     assert restored >= 2
     assert model.findFirst.called
     assert insert.called
+
+
+def test_restore_field_placeholders_raises_when_token_remains_after_find_first():
+    from plugin.framework.errors import ToolExecutionError
+
+    needle = "[[WA-FIELD:page-number]]"
+    text = MagicMock()
+    text.getString.return_value = "Unresolved " + needle
+
+    model = MagicMock()
+    model.findFirst.return_value = None
+
+    with (
+        patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
+        pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:page-number\]\]"),
+    ):
+        _restore_field_placeholders(model, text)
+    assert text.getString() == "Unresolved " + needle
 
 
 def test_rewrite_exported_field_spans_keeps_page_offset():

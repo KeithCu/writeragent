@@ -490,7 +490,7 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
     assert executed_args['name'] == 'unknown'
     assert executed_args['args'] == {}
     assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
-    assert tool_done_item[1] == ""  # Missing ID fallback
+    assert tool_done_item[1] == "call_0_0"  # Missing ID gets call_<round>_<index>
     assert tool_done_item[2] == "unknown" # Missing name fallback
     assert tool_done_item[3] == "not-valid-json" # Should be the original string
     assert tool_done_item[4] == '{"result": "ok"}'

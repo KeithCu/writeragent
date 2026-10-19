@@ -30,6 +30,8 @@ When the same base occurs more than once, the reading is applied at that `<ruby>
 
 Format-preserving (plain-text) replace of the base does not drop existing ruby: `setString` is skipped when characters match, so the Ruby portions stay.
 
+Mixed math applies ruby per HTML segment because a formula is not the length of its source.
+
 ## Unchanged / out of scope
 
 - **Search / `getString()`:** reading is not in the paragraph string. `search_in_document` matches `漢字`, not `かんじ`.

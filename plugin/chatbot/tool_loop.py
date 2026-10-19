@@ -744,18 +744,32 @@ class ToolCallingMixin:
         elif kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:
-            mutates = False
             raw = item if isinstance(item, (tuple, list)) else ()
             s = cast("Sequence[Any]", raw)
-            ln = len(s)
-            if ln > 4:
-                with suppress_disposed("Tool loop event: mutates_document check", logger=log):
-                    from plugin.main import get_tools as _get_tools_registry
+            if len(s) < 5:
+                log.warning("Tool loop received malformed TOOL_DONE item: %r", item)
+                return ToolLoopEvent(kind=EventKind.ERROR, data={"error": "Malformed TOOL_DONE item"})
+            mutates = False
+            with suppress_disposed("Tool loop event: mutates_document check", logger=log):
+                from plugin.main import get_tools as _get_tools_registry
 
-                    tool = _get_tools_registry().get(s[2])
-                    if tool and tool.detects_mutation():
-                        mutates = True
-            return ToolLoopEvent(kind=EventKind.TOOL_RESULT, data={"call_id": s[1] if ln > 1 else None, "func_name": s[2] if ln > 2 else None, "func_args_str": s[3] if ln > 3 else None, "result": s[4] if ln > 4 else None, "mutates_document": mutates})
+                tool = _get_tools_registry().get(s[2])
+                if tool and tool.detects_mutation():
+                    mutates = True
+            call_id = s[1] if isinstance(s[1], str) and s[1].strip() else ""
+            func_name = s[2] if isinstance(s[2], str) and s[2].strip() else "unknown"
+            func_args_str = s[3] if isinstance(s[3], str) else "{}"
+            result = s[4] if isinstance(s[4], str) else ("" if s[4] is None else str(s[4]))
+            return ToolLoopEvent(
+                kind=EventKind.TOOL_RESULT,
+                data={
+                    "call_id": call_id,
+                    "func_name": func_name,
+                    "func_args_str": func_args_str,
+                    "result": result,
+                    "mutates_document": mutates,
+                },
+            )
         elif kind == StreamQueueKind.FINAL_DONE:
             return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
         elif kind == StreamQueueKind.ERROR:

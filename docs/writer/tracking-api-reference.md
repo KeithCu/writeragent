@@ -63,7 +63,8 @@ In LibreOffice Writer, "Comments" are internally referred to as `Annotation` tex
 3. Attach the field to a `TextRange` (e.g., a search match, not only the view cursor) using `insertTextContent` on that range. `add_comment` spans the matched passage and can reply via `parent_name`.
 
 ### Managing Annotations
-- **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking.
+- **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking. `comment_list` reports `location` (body, table cell, header/footer) via `describe_match_location`; `paragraph_index` is present only when the comment anchor belongs to the main body text (`uno_same(anchor.getText(), doc.getText())`).
+- **Resolving:** `comment_resolve` resolves an annotation and optionally inserts a threaded reply. Resolve replies are assigned a unique, non-empty `Name` prior to insert so they appear in subsequent `comment_list` calls with their own addressable name.
 - **Deleting:** Call `removeTextContent` on the text field, which disposes one field (`SwXTextField::dispose`). Agent-facing `comment_delete` by `name` removes that annotation and every reply whose `ParentName` chain reaches it. Delete by `author` removes annotations with that author only.
 
 ## Dispatch Commands (.uno:)

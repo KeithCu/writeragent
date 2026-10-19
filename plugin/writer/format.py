@@ -626,7 +626,7 @@ def content_has_block_markup(content: str) -> bool:
     return impl(content)
 
 
-def _content_has_block_markup(content: str) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _content_has_block_markup(content: str | None) -> bool:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _content_has_block_markup as impl
     return impl(content)
 

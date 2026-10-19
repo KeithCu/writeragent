@@ -313,8 +313,9 @@ def test_auto_eval_overlaps_string_and_lo(monkeypatch: pytest.MonkeyPatch) -> No
     times = {name: stamp for name, stamp, _backend in events}
     assert times["comment_management-start"] < times["table_from_mess-end"]
     assert times["table_from_mess-start"] < times["comment_management-end"]
-    # Two staged 0.15s jobs are about 0.30s serial. 0.35 is only CI slack.
-    assert wall < 0.35
+    # The start/end order above is the overlap check. Wall time only catches a hang:
+    # a loaded macOS runner took 0.369 s for two overlapped 0.15 s jobs.
+    assert wall < 1.0
 
 
 def test_flag_row_bumps_tool_rounds(monkeypatch: pytest.MonkeyPatch) -> None:

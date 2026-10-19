@@ -46,7 +46,7 @@ from plugin.scripting.editor_ipc import (
     write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame_with_timeout
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
@@ -577,7 +577,7 @@ class PersistentEditor:
 
     def _read_editor_message(self, proc: subprocess.Popen[bytes], stdout: Any) -> dict[str, Any] | None:
         """Read one editor frame with a deadline so a partial length prefix cannot hang."""
-        msg = read_pickle_frame_with_timeout(
+        msg = read_pickle_frame(
             stdout,
             30.0,
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,

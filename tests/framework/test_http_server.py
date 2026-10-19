@@ -27,7 +27,12 @@ def _reuse(sock: socket.socket) -> int:
 
 
 def test_reuseaddr_follows_allow_reuse_address() -> None:
-    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    # The default is off on Windows (there SO_REUSEADDR lets another program grab the port),
+    # so turn it on explicitly to check that the flag is honored.
+    class _Reuse(DualStackThreadPoolHTTPServer):
+        allow_reuse_address = True
+
+    server = _Reuse(("127.0.0.1", 0), _Handler)
     try:
         assert server.sockets
         # macOS/BSD getsockopt returns the option's flag bit (4), not 1; any nonzero means on.

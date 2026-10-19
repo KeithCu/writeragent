@@ -50,9 +50,13 @@ def _write_frame(payload: dict[str, Any]) -> None:
 
 
 def _read_host_response(context: str) -> dict[str, Any]:
-    response = read_pickle_frame(
-        get_child_ipc_stdin(), require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
-    )
+    try:
+        response = read_pickle_frame(
+            get_child_ipc_stdin(), require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
+        )
+    except IpcFrameError as exc:
+        # A truncated or bad frame means the host link is gone; callers expect ConnectionError.
+        raise ConnectionError(f"Lost connection to LibreOffice host during {context}: {exc}") from exc
     if response is None:
         raise ConnectionError(f"Lost connection to LibreOffice host during {context}")
     return response

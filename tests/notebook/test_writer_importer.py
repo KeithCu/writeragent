@@ -1821,11 +1821,8 @@ def test_file_url_to_local_path_unquotes(monkeypatch):
     from plugin.notebook.writer_importer import _file_url_to_local_path
 
     fake_uno = MagicMock()
-    try:
-        import pyuno  # type: ignore
-        fake_uno.fileUrlToSystemPath.side_effect = pyuno.fileUrlToSystemPath
-    except Exception:
-        fake_uno.fileUrlToSystemPath.side_effect = lambda u: url2pathname(unquote(urlparse(u).path))
+    # Never import the real pyuno here: in a venv CPython on macOS it segfaults.
+    fake_uno.fileUrlToSystemPath.side_effect = lambda u: url2pathname(unquote(urlparse(u).path))
     monkeypatch.setitem(sys.modules, "uno", fake_uno)
 
     res = _file_url_to_local_path("file:///tmp/my%20pic.png")
