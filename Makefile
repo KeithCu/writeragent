@@ -151,7 +151,7 @@ endif
 
 .PHONY: help build build-no-recording release release-verify release-no-test release-build update-xml repack repack-deploy register-built-oxt manifest manifest-core manifest-harper rdb-core build-core build-core-native deploy-core register-librepy-oxt build-harper deploy-harper register-libreharper-oxt xcu clean \
         native build-native clean-native update-vec sync-vec \
-        proxy-stubs \
+        proxy-stubs proxy-stubs-check \
         openrouter-catalog \
         install install-force uninstall cache \
         dev-deploy dev-deploy-remove \
@@ -347,7 +347,7 @@ openrouter-catalog:
 update-xml:
 	"$(PYTHON)" -c "import sys; sys.path.insert(0, '$(SCRIPTS)'); from manifest_registry import generate_update_xml; generate_update_xml('$(PROJECT_ROOT)', 'update.xml')"
 
-release-build: auto-translate vendor manifest openrouter-catalog compile-translations update-xml schema-docs
+release-build: auto-translate vendor manifest openrouter-catalog compile-translations update-xml schema-docs proxy-stubs-check
 	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without tests)..."
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -455,11 +455,11 @@ clean-native:
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.pyd
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.c
 
-proxy-stubs:
-	# Write to a temp file first: a failed run used to leave writeragent_api.py empty.
-	"$(PYTHON)" scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py.tmp \
-		&& mv plugin/scripting/writeragent_api.py.tmp plugin/scripting/writeragent_api.py \
-		|| { rm -f plugin/scripting/writeragent_api.py.tmp; exit 1; }
+proxy-stubs: manifest
+	"$(PYTHON)" scripts/generate_tool_proxies.py --output plugin/scripting/writeragent_api.py
+
+proxy-stubs-check:
+	"$(PYTHON)" scripts/generate_tool_proxies.py --check plugin/scripting/writeragent_api.py
 
 xcu: manifest
 
