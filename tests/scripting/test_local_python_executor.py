@@ -1995,7 +1995,7 @@ r5 = operator.methodcaller("upper")("hello")
     assert executor.state["r4"] == "gadget"
     assert executor.state["r5"] == "HELLO"
 
-    # Module cache keys by allowlist object identity.
+    # Tip: cache one wrapper per raw module to avoid unbounded growth across executors.
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
     import operator
     list_a = ["operator"]
@@ -2004,7 +2004,22 @@ r5 = operator.methodcaller("upper")("hello")
     mod_a2 = get_safe_module(operator, list_a)
     mod_b = get_safe_module(operator, list_b)
     assert mod_a1 is mod_a2
-    assert mod_a1 is not mod_b
+    assert mod_a1 is mod_b
+
+
+def test_operator_and_string_star_imports():
+    # Tip: star-import delegates __all__ and __dir__ so exported names import cleanly.
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator", "string"])
+    result = executor("from operator import *\nres_add = add(1, 2)\nf = attrgetter('real')\nres_attr = f(3+4j)")
+    assert result.output == 3.0
+    assert executor.state["res_add"] == 3
+    assert executor.state["res_attr"] == 3.0
+
+    result_str = executor("from string import *\nres_letters = ascii_letters[:4]\nfmt = Formatter().format('{0}', 'hi')")
+    assert result_str.output == "hi"
+    assert executor.state["res_letters"] == "abcd"
+    assert executor.state["fmt"] == "hi"
+
 
 
 def test_numpy_pickle_policy_enforcement(tmp_path):

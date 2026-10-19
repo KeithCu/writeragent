@@ -1754,14 +1754,27 @@ _REAL_MODULES: dict[int, ModuleType] = {}
 class _DelegatingSafeModule(ModuleType):
     """ModuleType wrapper exposing safe overrides while delegating attributes without scanning dir()."""
 
+    _authorized_imports: list[str] | None
+
     def __init__(self, real_module: ModuleType, authorized_imports: list[str] | None = None):
         super().__init__(real_module.__name__, getattr(real_module, "__doc__", None))
         _REAL_MODULES[id(self)] = real_module
+        self._authorized_imports = authorized_imports
         if real_module.__name__ == "operator":
-            self.attrgetter = lambda *attrs: _safe_attrgetter(*attrs, authorized_imports=authorized_imports)
+            self.attrgetter = lambda *attrs: _safe_attrgetter(
+                *attrs, authorized_imports=object.__getattribute__(self, "_authorized_imports")
+            )
             self.methodcaller = _safe_methodcaller
         elif real_module.__name__ == "string":
             self.Formatter = _SafeFormatter
+
+    def __dir__(self) -> list[str]:
+        real = _REAL_MODULES.get(id(self))
+        names = set(super().__dir__())
+        names.discard("_authorized_imports")
+        if real is not None:
+            names.update(dir(real))
+        return sorted(names)
 
     def __getattribute__(self, name: str) -> Any:
         if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
@@ -1769,15 +1782,18 @@ class _DelegatingSafeModule(ModuleType):
         return super().__getattribute__(name)
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
         real = _REAL_MODULES.get(id(self))
         if real is None:
+            raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
+        # Tip: delegate __all__ so star-imports can discover exported names.
+        if name == "__all__":
+            return getattr(real, name)
+        if name.startswith("_"):
             raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
         return getattr(real, name)
 
 
-_SAFE_MODULE_CACHE: dict[tuple[int, int | None], _DelegatingSafeModule] = {}
+_SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
 
 
 def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None) -> Any:
@@ -1790,11 +1806,14 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
         return ModuleType(name)
 
     if name in ("operator", "string"):
-        cache_key = (id(raw_module), id(authorized_imports) if authorized_imports is not None else None)
+        # Tip: cache one wrapper per raw module to avoid unbounded growth across executor instances.
+        cache_key = id(raw_module)
         wrapper = _SAFE_MODULE_CACHE.get(cache_key)
         if wrapper is None:
             wrapper = _DelegatingSafeModule(raw_module, authorized_imports=authorized_imports)
             _SAFE_MODULE_CACHE[cache_key] = wrapper
+        else:
+            wrapper._authorized_imports = authorized_imports
         return wrapper
 
     return raw_module
