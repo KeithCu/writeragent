@@ -195,7 +195,7 @@ def test_restore_fields_on_writer_inserts_uno(ctx: Any, doc: Any) -> None:
 
     # 2. insert at beginning
     doc.getText().setString("body")
-    res = ApplyDocumentContent().execute(tool_ctx, target="position", position="beginning", content=field_html)
+    res = ApplyDocumentContent().execute(tool_ctx, target="beginning", content=field_html)
     assert res.get("status") == "ok", res
     tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
     assert tf is not None
@@ -204,7 +204,7 @@ def test_restore_fields_on_writer_inserts_uno(ctx: Any, doc: Any) -> None:
 
     # 3. insert at end
     doc.getText().setString("body")
-    res = ApplyDocumentContent().execute(tool_ctx, target="position", position="end", content=field_html)
+    res = ApplyDocumentContent().execute(tool_ctx, target="end", content=field_html)
     assert res.get("status") == "ok", res
     tf = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
     assert tf is not None
