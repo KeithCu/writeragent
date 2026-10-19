@@ -53,7 +53,7 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
 
 **``inflight_key`` design**
 
-    Complete sentences: ``{doc_id}|{locale}|{hash(text)[:16]}``.  Unique
+    Complete sentences: ``{doc_id}|{locale}|{fingerprint_for_text}`` (24 hex characters).  Unique
     per sentence, stable if the sentence is unchanged — so two different
     sentences in the same paragraph never collide.
 
@@ -107,6 +107,7 @@ class GrammarWorkItem:
     original_bcp47: str = ""
     provider: str = ""
     n_start: int = 0
+    checker_identity: str = ""
 
 
 

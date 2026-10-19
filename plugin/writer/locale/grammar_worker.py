@@ -89,6 +89,17 @@ class _BatchResultSummary:
         return f"{self.first_text} \u00b7 {self.second_text}" if self.second_text else self.first_text
 
 
+def _item_cache_identity(item: Any) -> str | None:
+    """Resolve cache checker_identity for a work item without persisting bare 'llm'."""
+    checker_ident = getattr(item, "checker_identity", "")
+    if checker_ident:
+        return checker_ident
+    provider = getattr(item, "provider", "")
+    if provider in ("harper", "languagetool", "vale"):
+        return provider
+    return None
+
+
 def process_grammar_results(
     chunk: list[tuple[Any, str]],
     results: list[Any],
@@ -102,13 +113,14 @@ def process_grammar_results(
     from .grammar_proofread_cache import ignored_rules_snapshot
 
     summary = _BatchResultSummary()
+    doc_id = chunk[0][0].doc_id if chunk else ""
+    ignored = doc_ignored_rules(ec.ctx, doc_id) if doc_id else set()
+    global_ignored = ignored_rules_snapshot()
     for idx, (item, text) in enumerate(chunk):
         if ec.gq and ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
         if idx < len(results):
             errors = results[idx]
-            ignored = doc_ignored_rules(ec.ctx, item.doc_id)
-            global_ignored = ignored_rules_snapshot()
             norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, bcp47)
 
             filtered_errors = []
@@ -118,8 +130,9 @@ def process_grammar_results(
                 filtered_errors.append(e)
 
             put_kwargs: dict[str, Any] = {"ctx": ec.ctx, "doc_id": item.doc_id}
-            if item.provider:
-                put_kwargs["checker_identity"] = item.provider
+            cache_ident = _item_cache_identity(item)
+            if cache_ident:
+                put_kwargs["checker_identity"] = cache_ident
             grammar_proofread_cache.cache_put_sentence(bcp47, text, [asdict(e) for e in filtered_errors], **put_kwargs)
             if original_bcp47 and not grammar_proofread_locale.grammar_bcp47_tags_match(original_bcp47, bcp47):
                 log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
@@ -795,8 +808,9 @@ def _worker_collect_valid_items(
             grammar_obs("worker_skip", reason="superseded_before_process", enqueue_seq=item.enqueue_seq, inflight_key=item.inflight_key)
             continue
         get_kwargs: dict[str, Any] = {"ctx": ctx, "doc_id": item.doc_id}
-        if item.provider:
-            get_kwargs["checker_identity"] = item.provider
+        cache_ident = _item_cache_identity(item)
+        if cache_ident:
+            get_kwargs["checker_identity"] = cache_ident
         if grammar_proofread_cache.cache_get_sentence(grammar_bcp47, item.text, **get_kwargs) is None:
             valid_items.append((item, item.text))
     return valid_items
