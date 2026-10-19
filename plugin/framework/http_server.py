@@ -142,25 +142,27 @@ class _RequestThreads:
             # workers + 128 bounds that without turning a normal burst into an HTTP 503.
             if self._pending >= self._max_workers + self._max_queued:
                 raise _AcceptQueueFull(self._pending, self._max_workers + self._max_queued)
+            # Tip: don't size the pool from idle workers; one about to get() a queued
+            # item still looks idle, so GET /health could starve behind a busy handler.
+            # _pending counts every call not yet finished; start a thread while that
+            # count is above the number of threads, up to the cap. Start missing workers
+            # before queueing so a thread creation failure with zero live workers leaves
+            # _pending and the queue unchanged, allowing later submits to recover.
+            need = min(self._max_workers, self._pending + 1)
+            try:
+                while len(self._threads) < need:
+                    self._start_one_locked()
+            except Exception as exc:
+                if not self._threads:
+                    raise
+                log.warning(
+                    "HTTP worker start failed (%s); queueing on the %d live worker(s)",
+                    exc,
+                    len(self._threads),
+                )
             fut: Future[Any] = Future()
             self._work_queue.put(_RequestWork(fut, fn, args))
-            # What was wrong: _idle was incremented before get() and
-            # decremented only after get() returned. A worker about to
-            # take an already queued item still looked idle, so this
-            # branch did not start a thread. The worker then blocked
-            # inside one handler. Later accepts, including GET /health,
-            # stayed on the queue while len(_threads) was under the cap,
-            # and nothing submitted again to grow the pool.
-            # How: the health test holds the one worker permit and queues
-            # more executes on the listeners. Health needs a thread that
-            # was never started.
-            # Why: _pending counts every call not yet finished. Start a
-            # thread while that count is above the number of threads,
-            # up to the cap. A thread already blocked in get() is in
-            # _threads, so a finished serial call does not grow the pool.
             self._pending += 1
-            while len(self._threads) < min(self._max_workers, self._pending):
-                self._start_one_locked()
             return fut
 
     def _start_one_locked(self) -> None:
@@ -241,7 +243,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     The socket accept loop uses selectors.DefaultSelector to monitor all bound sockets concurrently.
     Incoming connections are submitted to ``_RequestThreads``. The worker count is bounded.
-    The accept queue is capped (default 128); past the ceiling the accept thread closes the socket; HTTP 503 is unchanged.
+    The accept queue is capped (default 128); past the ceiling the accept thread closes the socket and writes no response. Compute HTTP 503 is worker admission, not this path.
     Supports optional TLS socket wrapping.
 
     ``socket_timeout`` is None unless the caller passes one. None means the
