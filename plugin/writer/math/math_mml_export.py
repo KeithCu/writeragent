@@ -535,7 +535,9 @@ def _math_hits_in_paragraph(
         portion = portion_enum.nextElement()
         emb = portion_math_embed(portion)
         if emb is not None:
-            embeds.append(emb)
+            # Writer can report one as-character object in two portions; count it once.
+            if not any(uno_same(emb, seen) for seen in embeds):
+                embeds.append(emb)
             continue
         try:
             chunk = portion.getString() or ""
