@@ -560,7 +560,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self._doc_id_for_ignore: dict[str, str] = {}
         self._bound_empty_uid_docs: set[str] = set()
         self._failed_bind_deadlines: dict[str, float] = {}
-        self._bind_lock = threading.Lock()
+        self._bind_lock: threading.Lock = threading.Lock()
         self._lingu_listeners: list[Any] = []
         # First-session Harper: ensure-ready can broadcast before Writer hooks
         # XLinguServiceEventListener. Remember the miss and recover once.
