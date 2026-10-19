@@ -1204,7 +1204,89 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
     assert apply.call_count == 1
 
 
+def test_run_cells_stop_from_menu_without_active_doc_skips_remainder():
+    """Tip: Stop from ≡ menu when get_active_document is None must durably stop Run All."""
+    from plugin.notebook.notebook_runner import stop_from_menu
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(*_a, **_k):
+        # Tip: simulating menu click when active doc is None
+        with patch("plugin.framework.uno_context.get_active_document", return_value=None):
+            stop_from_menu(ctx, frame=None)
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert apply.call_count == 1
+    assert ran == ["x = 1"]
+    assert cells[1].execution_count is None
+
+
+def test_run_cells_stop_from_menu_distinct_wrapper_skips_remainder():
+    """Tip: Stop from frame with distinct PyUNO wrapper must durably stop the running batch."""
+    from plugin.notebook.notebook_runner import stop_from_menu
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    doc.getRuntimeUID.return_value = ""
+    doc.getURL.return_value = ""
+    frame = MagicMock()
+    other_doc = MagicMock()
+    other_doc.getRuntimeUID.return_value = ""
+    other_doc.getURL.return_value = ""
+    frame.getController.return_value.getModel.return_value = other_doc
+    ran: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(*_a, **_k):
+        stop_from_menu(ctx, frame=frame)
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert apply.call_count == 1
+    assert ran == ["x = 1"]
+    assert cells[1].execution_count is None
+
+
 def _patch_run_cells(state, exec_side_effect, flush, pump):
+
     from contextlib import contextmanager
 
     @contextmanager

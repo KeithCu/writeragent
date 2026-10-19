@@ -739,7 +739,7 @@ def test_run_all_two_cells_share_kernel(ctx, doc):
 def test_run_all_stop_skips_remaining_cells(ctx, doc):
     """Stop after the first cell must not start the long / later cells."""
     from plugin.notebook.cell_registry import load_registry
-    from plugin.notebook.notebook_runner import request_stop, run_all_for_doc
+    from plugin.notebook.notebook_runner import run_all_for_doc
     from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
 
     ipynb = _three_cell_stop_ipynb_path()
@@ -750,9 +750,9 @@ def test_run_all_stop_skips_remaining_cells(ctx, doc):
         assert state is not None and len(state.code_cells) == 3
 
         def _flush(*_a, **_k):
-            # Pump is only called between cells now, so if we request stop here, it's before cell 2.
-            # The first cell already ran! So cells_run=1 is correct.
-            request_stop(doc)
+            # Tip: Stop from ≡ menu runs when get_active_document is None; stop request must be durable.
+            from plugin.notebook.notebook_runner import stop_from_menu
+            stop_from_menu(ctx, None)
 
         with (
             patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),

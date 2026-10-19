@@ -112,19 +112,22 @@ def _clear_stop(busy_key: str) -> None:
     _stop_event(busy_key).clear()
 
 
-def request_stop(doc: Any) -> None:
+def request_stop(doc: Any | None) -> None:
     """Ask the in-flight cell / remaining Run All sequence to stop.
 
     Must not check ``_running_docs`` — the busy guard skips a second ▶, but
     Stop has to land while that key is held.
     """
-    _stop_event(_doc_key(doc)).set()
+    if doc is not None:
+        _stop_event(_doc_key(doc)).set()
+    # Tip: the menu may hand us None or another wrapper of the doc, so flag
+    # every running batch; Run All checks its flag between cells.
+    for key in list(_running_docs):
+        _stop_event(key).set()
 
 
-def stop_for_doc(doc: Any) -> None:
+def stop_for_doc(doc: Any | None) -> None:
     """Menu/toolbar Stop. Never blocked by the busy guard."""
-    if doc is None:
-        return
     request_stop(doc)
 
 
