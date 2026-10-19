@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO tests for HTML import ruby write (apply_document_content)."""
 
+import os
+import re
 from typing import Any
 
 import uno  # noqa: F401
@@ -248,6 +250,185 @@ def test_escape_prose_angle_brackets_survives_starwriter_filter_uno(ctx: Any, do
     portion = para.createEnumeration().nextElement()
     assert portion.getString() == "bold"
     assert portion.getPropertyValue("CharWeight") > 100
+
+
+def _project_body_paragraphs(doc: Any) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    from plugin.writer.html_export import _iter_ruby_spans_in_paragraph
+
+    enum = doc.getText().createEnumeration()
+    paras = []
+    while enum.hasMoreElements() is True:
+        para = enum.nextElement()
+        style = str(para.getPropertyValue("ParaStyleName") or "")
+        text = str(para.getString() or "")
+        rubies = [(s.base, s.reading) for s in _iter_ruby_spans_in_paragraph(para)]
+        paras.append((style, text, rubies))
+    if paras and not paras[-1][1]:
+        paras.pop()
+    return paras
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
+    """Live round-trip harness testing HTML import/export projection and idempotence."""
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+    from plugin.writer.html_export import _iter_ruby_spans_in_paragraph
+    from plugin.writer.images.image_tools import insert_image
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    # Fixture 1: nested blocks sharing one style slot
+    doc.getText().setString("")
+    nested_html = (
+        '<h1 data-lo-style="Heading1">T</h1>'
+        '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
+        '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
+        '<h2 data-lo-style="Heading2">D</h2>'
+    )
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=nested_html)
+    assert res.get("status") == "ok", res
+    plain1 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain1
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain1)
+    read1 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read1.get("status") == "ok", read1
+    read_html1 = read1.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html1
+    assert "data-lo-style=" in read_html1
+    proj1 = _project_body_paragraphs(doc)
+    assert [(p[0], p[1]) for p in proj1] == [
+        ("Heading 1", "T"),
+        ("Quotations", "q"),
+        ("Standard", "a"),
+        ("Standard", "b"),
+        ("Heading 2", "D"),
+    ], proj1
+    # Idempotence on nested-style fixture
+    res_re = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=read_html1)
+    assert res_re.get("status") == "ok", res_re
+    read1_re = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read1_re.get("status") == "ok", read1_re
+    proj1_re = _project_body_paragraphs(doc)
+    assert proj1_re == proj1
+
+    # Fixture 2: unclosed p tag
+    doc.getText().setString("")
+    f2 = '<p data-lo-style="Heading1">One<p data-lo-style="Caption">Two'
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f2)
+    assert res.get("status") == "ok", res
+    plain2 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain2
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain2)
+    read2 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read2.get("status") == "ok", read2
+    read_html2 = read2.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html2
+    assert "data-lo-style=" in read_html2
+    proj2 = _project_body_paragraphs(doc)
+    assert [p[0] for p in proj2] == ["Heading 1", "Caption"], proj2
+    assert [p[1] for p in proj2] == ["One", "Two"], proj2
+
+    # Fixture 3: styled div wrapper
+    doc.getText().setString("")
+    f3 = '<div data-lo-style="Caption">cap</div><p data-lo-style="Heading1">h</p>'
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f3)
+    assert res.get("status") == "ok", res
+    plain3 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain3
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain3)
+    read3 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read3.get("status") == "ok", read3
+    read_html3 = read3.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html3
+    assert "data-lo-style=" in read_html3
+    proj3 = _project_body_paragraphs(doc)
+    assert [(p[0], p[1]) for p in proj3] == [("Caption", "cap"), ("Heading 1", "h")], proj3
+
+    # Fixture 4: repeated base ruby with backslash-n
+    doc.getText().setString("")
+    f4 = "<p>漢字\\n<ruby>漢字<rt>かんじ</rt></ruby></p>"
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f4)
+    assert res.get("status") == "ok", res
+    plain4 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain4
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain4)
+    read4 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read4.get("status") == "ok", read4
+    read_html4 = read4.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html4
+    para4 = doc.getText().createEnumeration().nextElement()
+    spans4 = list(_iter_ruby_spans_in_paragraph(para4))
+    assert len(spans4) == 1, spans4
+    assert spans4[0].base == "漢字" and spans4[0].reading == "かんじ"
+    assert spans4[0].start > 0, f"ruby attached at start: {spans4}"
+    # Range get on temp-doc copy preserves ruby
+    range_res = GetDocumentContent().execute(tool_ctx, scope="range", start=0, end=len(plain4))
+    assert range_res.get("status") == "ok", range_res
+    assert "<rt>かんじ</rt>" in (range_res.get("content") or "")
+
+    # Fixture 5: prose angle brackets and bold
+    doc.getText().setString("")
+    f5 = "<p>List<String> and 2 < 3</p>"
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f5)
+    assert res.get("status") == "ok", res
+    plain5 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain5
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain5)
+    read5 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read5.get("status") == "ok", read5
+    read_html5 = read5.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html5
+    proj5 = _project_body_paragraphs(doc)
+    assert proj5[0][1] == "List<String> and 2 < 3", proj5
+
+    # Fixture 6: field spans
+    doc.getText().setString("")
+    f6 = '<p>Page <span title="page-number"/> / <span title="date"/></p>'
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f6)
+    assert res.get("status") == "ok", res
+    plain6 = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain6
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain6)
+    read6 = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read6.get("status") == "ok", read6
+    read_html6 = read6.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html6
+    tf_page = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
+    assert tf_page is not None
+    tf_date = _find_field_by_service(doc, "com.sun.star.text.textfield.DateTime")
+    assert tf_date is not None
+    assert tf_date.getPropertyValue("IsDate") is True
+    # Idempotence on field fixture
+    proj6 = _project_body_paragraphs(doc)
+    res_re6 = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=read_html6)
+    assert res_re6.get("status") == "ok", res_re6
+    read6_re = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read6_re.get("status") == "ok", read6_re
+    proj6_re = _project_body_paragraphs(doc)
+    assert proj6_re == proj6
+
+    # Image case
+    directory = os.path.dirname(os.path.abspath(__file__))
+    while directory and not os.path.exists(os.path.join(directory, "pyproject.toml")):
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    logo = os.path.join(directory, "extension", "assets", "logo_32.png")
+    if os.path.isfile(logo):
+        doc.getText().setString("")
+        insert_image(ctx, doc, logo, 32, 32, add_to_gallery=False, add_frame=False)
+        count_before = len(doc.getGraphicObjects().getElementNames())
+        got_img = GetDocumentContent().execute(tool_ctx, scope="full", include_images=False)
+        assert got_img.get("status") == "ok", got_img
+        img_html = got_img.get("content") or ""
+        assert 'src=""' in img_html
+        res_img = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=img_html)
+        assert res_img.get("status") == "ok", res_img
+        count_after = len(doc.getGraphicObjects().getElementNames())
+        assert count_after == count_before
 
 
 

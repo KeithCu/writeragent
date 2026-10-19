@@ -49,6 +49,13 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _GO_RIGHT_CHUNK = 8192
 
 
+class _ImportRubySpan(NamedTuple):
+    base: str
+    reading: str
+    is_above: bool
+    visible_offset: int
+
+
 def _visible_html_text(fragment: str) -> str:
     """Tag-stripped, entity-unescaped text of an HTML fragment."""
     if not fragment:
@@ -56,7 +63,7 @@ def _visible_html_text(fragment: str) -> str:
     return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool, int]]]:
+def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above, visible_offset)`` in document order.
@@ -68,7 +75,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool, i
     """
     if not html or not isinstance(html, str) or "<ruby" not in html.lower():
         return html, []
-    spans: list[tuple[str, str, bool, int]] = []
+    spans: list[_ImportRubySpan] = []
     out: list[str] = []
     visible_len = 0
     pos = 0
@@ -88,7 +95,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool, i
         base = _visible_html_text(base_html)
         is_above = "under" not in attrs.lower()
         if base and reading:
-            spans.append((base, reading, is_above, visible_len))
+            spans.append(_ImportRubySpan(base, reading, is_above, visible_len))
         out.append(base_html)
         visible_len += len(base)
         pos = match.end()
@@ -154,7 +161,7 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
         hay.gotoEnd(True)
         return origin, hay.getString() or ""
 
-    got = best_effort(read_imported, "_apply_ruby_spans: could not read imported text")
+    got = uno_read(read_imported, None)
     if got is None:
         return
     origin, haystack = got
@@ -167,14 +174,15 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     cur_pos = 0
 
     for item in spans:
-        base, reading, is_above = item[0], item[1], item[2] if len(item) > 2 else True
+        base, reading = item[0], item[1]
+        is_above = bool(item[2])
         if not base or not reading:
             continue
 
         # The span's fourth item is the base's visible-text offset, so a repeated
         # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
-        offset = item[3] if len(item) > 3 and isinstance(item[3], int) and item[3] >= 0 else None
-        target_offset = (anchor + offset) if offset is not None else None
+        offset = item[3]
+        target_offset = (anchor + offset) if offset is not None and offset >= 0 else None
 
         idx = -1
         if target_offset is not None and target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
@@ -232,17 +240,17 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
             _go_right(cur, len(base), False)
             cur_pos = cur_pos + len(base)
             pos = idx + len(base)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.warning("_apply_ruby_spans: failed for %r", base, exc_info=True)
             cur = None
             pos = idx + len(base)
 
 
-_BLOCK_MARKUP_PATTERNS = [
-    "<p>", "<p ", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6",
-    "<div", "<ul", "<ol", "<li", "<table", "<tr", "<td", "<th",
-    "<blockquote", "<pre", "<hr", "<section", "<article",
-]
+_BLOCK_MARKUP_RE = re.compile(
+    r"<(?:p|div|h[1-6]|ul|ol|li|table|thead|tbody|tfoot|tr|td|th|blockquote|pre|hr|section|article)\b",
+    re.IGNORECASE,
+)
 
 
 def _strip_data_lo_style(start_tag: str) -> str:
@@ -439,7 +447,8 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         try:
             if end is not None and text_obj.compareRegionStarts(walk_cur.getStart(), end) != 1:
                 break
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             break
 
         if style:
@@ -460,7 +469,8 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         try:
             if not walk_cur.gotoNextParagraph(False):
                 break
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             break
 
 
@@ -640,7 +650,8 @@ def _deleted_by_the_edit(model: Any, original: Any) -> bool:
     text of the paragraph a picture is anchored to."""
     try:
         anchor = original.getAnchor()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return True
     if not _is_recording_changes(model):
         return False
@@ -653,13 +664,15 @@ def _deleted_by_the_edit(model: Any, original: Any) -> bool:
             point.gotoEndOfParagraph(False)
             if not point.goRight(1, True):
                 return False  # the last paragraph has no break: it stays
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             return False
     try:
         redlines = model.getRedlines()
         total = int(redlines.getCount())
         enum = redlines.createEnumeration()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return False
     for _unused in range(total):
         if enum.hasMoreElements() is not True:
@@ -674,7 +687,8 @@ def _deleted_by_the_edit(model: Any, original: Any) -> bool:
             # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal.
             if text.compareRegionStarts(start, point) >= 0 and text.compareRegionEnds(point, end) >= 0:
                 return True
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             continue  # another text object, or not comparable
     return False
 
@@ -700,8 +714,8 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
                                 break
                     if found is not None:
                         break
-            except Exception:
-                pass
+            except Exception as exc:
+                reraise_if_disposed(exc)
         if found is None:
             if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original):
                 raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
@@ -724,10 +738,13 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         for prop, value in image.props.items():
             try:
                 picture.setPropertyValue(prop, value)
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 log.debug("kept image %r: could not restore %s", image.name, prop, exc_info=True)
-        with contextlib.suppress(Exception):
+        try:
             picture.setName(image.name)  # taken while the original is a pending deletion
+        except Exception as exc:
+            reraise_if_disposed(exc)
 
 
 @contextlib.contextmanager
@@ -823,10 +840,9 @@ def _insert_mixed_html_and_math_at_cursor(
                 cursor.gotoRange(tail.getStart(), False)
                 continue
 
-            chunk, seg_ruby = extract_and_strip_ruby(chunk)
-
             # Expand literal \n and \t for plain HTML without math
             chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
+            chunk, seg_ruby = extract_and_strip_ruby(chunk)
 
             sub = _ensure_html_linebreaks(chunk)
             seg_ruby_skip = _ruby_skip(cursor.getText(), cursor, seg_ruby)
@@ -907,6 +923,8 @@ def _insert_mixed_or_plain_html(
     # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
     clean, block_styles = _extract_block_lo_styles(unescaped_content)
+    # Expand literal \n and \t before measuring ruby offsets and StarWriter import
+    clean = clean.replace("\\n", "\n").replace("\\t", "\t")
     has_math = html_fragment_contains_mixed_math(clean)
     if not has_math:
         # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
@@ -927,9 +945,7 @@ def _insert_mixed_or_plain_html(
     if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
     else:
-        # Expand literal \n and \t for plain HTML without math
-        expanded = clean.replace("\\n", "\n").replace("\\t", "\t")
-        single = _ensure_html_linebreaks(expanded)
+        single = _ensure_html_linebreaks(clean)
         if not styled:
             _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
         else:
@@ -1309,6 +1325,7 @@ def _replace_single_range_with_content(
         try:
             _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc, apply_styles=False)
         except Exception as e:
+            reraise_if_disposed(e)
             # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
             # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
             # the opaque error; the atomic wrapper rolls back the partial edit either way.
@@ -1532,55 +1549,6 @@ def _cursor_over(text_obj: Any, offset: int, needle: str) -> Any | None:
     return cursor
 
 
-def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
-    """Cursor covering the first plain-text *needle* in *text_obj*.
-
-    A document ``findFirst`` does not see a header or footer on a page style
-    that no page uses. That is the footer of a page style just created by
-    ``style_clone``. Walking portions addresses that text directly. A text
-    field counts as one cursor step (probe A'); ``getString()`` expands it,
-    so the index has to come from the portion walk, not from ``getString()``.
-    """
-    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if enum is _FAILED:
-        return None
-    steps = 0
-    paras = 0
-    while enum.hasMoreElements() is True and paras < 5000:
-        paras += 1
-        try:
-            para = enum.nextElement()
-        except Exception:
-            break
-        if paras > 1:
-            # Why-comment: the break is a cursor step and is not in portion text.
-            steps += 1
-        try:
-            portions = para.createEnumeration()
-        except Exception:
-            continue
-        seen = 0
-        while portions.hasMoreElements() is True and seen < 5000:
-            seen += 1
-            try:
-                portion = portions.nextElement()
-                kind = portion.getPropertyValue("TextPortionType")
-            except Exception:
-                break
-            if kind == "TextField":
-                steps += 1
-                continue
-            chunk = uno_read(lambda: portion.getString() or "", "")
-            if not isinstance(chunk, str):
-                chunk = str(chunk)
-            pos = chunk.find(needle)
-            if pos < 0:
-                steps += len(chunk)
-                continue
-            return uno_read(lambda: _cursor_over(text_obj, steps + pos, needle), None)
-    return None
-
-
 def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
     props = {}
     if props_str:
@@ -1590,42 +1558,115 @@ def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
                 props[k] = v
     return props
 
-def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
-    """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search."""
-    restored = 0
-    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
-    for _unused in range(50):
-        try:
-            plain = text_obj.getString() or ""
-        except Exception as e:
-            log.debug("_restore_fields_by_cursor getString failed: %s", e)
-            return restored
-        if prefix not in plain:
-            return restored
 
+def _check_no_remaining_field_placeholders(text_obj: Any, prefix: str, nonce: str | None = None) -> None:
+    if text_obj is None:
+        return
+    plain = uno_read(lambda: text_obj.getString() or "", "")
+    if prefix in plain:
         match = None
         for m in _FIELD_TOKEN_RE.finditer(plain):
             if nonce is None or m.group(1) == nonce:
                 match = m
                 break
-        if not match:
-            return restored
+        tok = match.group(0) if match else "[[WA-FIELD:...]]"
+        raise ToolExecutionError(
+            f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+        )
 
-        token = match.group(0)
-        title = match.group(2).lower()
-        props = _parse_field_token_props(match.group(3))
 
-        cursor = _select_placeholder(text_obj, token)
+def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
+    """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
+
+    A document findFirst misses headers and footers on unused page styles (such as
+    cloned styles). Walking portions addresses that text directly. A text field
+    counts as one cursor step; getString() expands it, so steps come from the portion
+    walk, not from getString().
+    """
+    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
+    try:
+        plain = text_obj.getString() or ""
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("_restore_fields_by_cursor getString failed: %s", exc)
+        return 0
+
+    if prefix not in plain:
+        return 0
+
+    try:
+        enum = text_obj.createEnumeration()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("_restore_fields_by_cursor createEnumeration failed: %s", exc)
+        return 0
+
+    if enum is None:
+        return 0
+
+    hits: list[tuple[int, str, str, dict[str, str]]] = []
+    steps = 0
+    paras = 0
+
+    try:
+        while enum.hasMoreElements() is True and paras < 5000:
+            paras += 1
+            try:
+                para = enum.nextElement()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                break
+            if paras > 1:
+                # The paragraph break is one cursor step and is not in portion text.
+                steps += 1
+            try:
+                portions = para.createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                continue
+            if portions is None:
+                continue
+            seen = 0
+            while portions.hasMoreElements() is True and seen < 5000:
+                seen += 1
+                try:
+                    portion = portions.nextElement()
+                    kind = portion.getPropertyValue("TextPortionType")
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    break
+                if kind == "TextField":
+                    steps += 1
+                    continue
+                try:
+                    chunk = portion.getString() or ""
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    chunk = ""
+                if not isinstance(chunk, str):
+                    chunk = str(chunk)
+                for m in _FIELD_TOKEN_RE.finditer(chunk):
+                    if nonce is None or m.group(1) == nonce:
+                        tok = m.group(0)
+                        title = m.group(2).lower()
+                        props = _parse_field_token_props(m.group(3))
+                        hits.append((steps + m.start(), tok, title, props))
+                steps += len(chunk)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("_restore_fields_by_cursor enumeration failed: %s", exc)
+
+    restored = 0
+    for offset, token, title, props in reversed(hits):
+        cursor = _cursor_over(text_obj, offset, token)
         if cursor is None:
-            return restored
-
-        # A False return used to stop here and leave [[WA-FIELD:…]] in the
-        # region while replace_xtext_with_html still returned.
+            continue
         if props:
             _insert_restored_field(model, cursor, title, props)
         else:
             _insert_restored_field(model, cursor, title)
         restored += 1
+
     return restored
 
 
@@ -1644,73 +1685,47 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
         plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
         if plain is not _FAILED and prefix not in plain:
             return walked
+
     if model is None or not hasattr(model, "createSearchDescriptor"):
-        if text_obj is not None:
-            plain = uno_read(lambda: text_obj.getString() or "", "")
-            if prefix in plain:
-                match = None
-                for m in _FIELD_TOKEN_RE.finditer(plain):
-                    if nonce is None or m.group(1) == nonce:
-                        match = m
-                        break
-                tok = match.group(0) if match else "[[WA-FIELD:...]]"
-                raise ToolExecutionError(
-                    f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-                )
+        _check_no_remaining_field_placeholders(text_obj, prefix, nonce)
         return walked
+
     restored = walked
 
-    # createSearchDescriptor, findFirst, getString, and findNext do not fail
-    # on a live model. Swallowing them left [[WA-FIELD:…]] in the header and
-    # the write still returned.
     sd = model.createSearchDescriptor()
     sd.SearchRegularExpression = True
 
     nonce_pat = re.escape(nonce) if nonce else r"[a-zA-Z0-9]+"
-    for title in _EXPORTED_FIELD_TITLES:
-        sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":" + title + r"(?:\|[^\]]+)?\]\]"
-        found = model.findFirst(sd)
+    titles_pat = "|".join(_EXPORTED_FIELD_TITLES)
+    sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:(?:" + titles_pat + r"))(?:\|[^\]]+)?\]\]"
+    found = model.findFirst(sd)
 
-        while found is not None:
-            in_region = True
-            if text_obj is not None:
-                # A failed getText is not "in this region". uno_same stays.
-                in_region = uno_same(found.getText(), text_obj)
+    while found is not None:
+        in_region = True
+        if text_obj is not None:
+            in_region = uno_same(found.getText(), text_obj)
 
-            props: dict[str, str] = {}
-            field_title = title
-            token = found.getString()
-            if isinstance(token, str):
-                match = _FIELD_TOKEN_RE.match(token)
-                if match and (nonce is None or match.group(1) == nonce):
-                    field_title = match.group(2).lower()
-                    props = _parse_field_token_props(match.group(3))
+        props: dict[str, str] = {}
+        field_title = ""
+        token = found.getString()
+        if isinstance(token, str):
+            match = _FIELD_TOKEN_RE.match(token)
+            if match and (nonce is None or match.group(1) == nonce):
+                field_title = match.group(2).lower()
+                props = _parse_field_token_props(match.group(3))
 
-            # Capture the next hit before the insert replaces this range.
-            nxt = model.findNext(found.getEnd(), sd)
+        nxt = model.findNext(found.getEnd(), sd)
 
-            if in_region:
-                if props:
-                    _insert_restored_field(model, found, field_title, props)
-                else:
-                    _insert_restored_field(model, found, field_title)
-                restored += 1
+        if in_region and field_title:
+            if props:
+                _insert_restored_field(model, found, field_title, props)
+            else:
+                _insert_restored_field(model, found, field_title)
+            restored += 1
 
-            found = nxt
+        found = nxt
 
-    if text_obj is not None:
-        plain = uno_read(lambda: text_obj.getString() or "", "")
-        if prefix in plain:
-            match = None
-            for m in _FIELD_TOKEN_RE.finditer(plain):
-                if nonce is None or m.group(1) == nonce:
-                    match = m
-                    break
-            tok = match.group(0) if match else "[[WA-FIELD:...]]"
-            raise ToolExecutionError(
-                f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-            )
-
+    _check_no_remaining_field_placeholders(text_obj, prefix, nonce)
     return restored
 
 
@@ -1768,7 +1783,8 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
             if candidate is not None and candidate.isLocked() is not True:
                 candidate.enterUndoContext(title)
                 mgr = candidate
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             mgr = None
         if mgr is None:
             raise ToolExecutionError("Could not enter undo context for header/footer import.")
@@ -1887,8 +1903,7 @@ def _content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
-    lower = content.lower()
-    return any(p in lower for p in _BLOCK_MARKUP_PATTERNS)
+    return bool(_BLOCK_MARKUP_RE.search(content))
 
 
 
@@ -1901,11 +1916,11 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
         if enum is None:
             return False, None
         portions: list[tuple[str, int]] = []
-        while enum.hasMoreElements():
+        while enum.hasMoreElements() is True:
             elem = enum.nextElement()
             if hasattr(elem, "createEnumeration"):
                 penum = elem.createEnumeration()
-                while penum.hasMoreElements():
+                while penum.hasMoreElements() is True:
                     portion = penum.nextElement()
                     kind = getattr(portion, "TextPortionType", None)
                     if kind is None and hasattr(portion, "getPropertyValue"):
@@ -1923,7 +1938,8 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
                 text_str = elem.getString() if hasattr(elem, "getString") else ""
                 portions.append((kind or "Text", len(text_str)))
         return False, portions
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return False, None
 
 

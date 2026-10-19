@@ -220,21 +220,37 @@ def test_restore_field_placeholders_creates_mapped_services():
         created.append(svc)
         return MagicMock()
 
-    def find_first(sd):
+    titles = list(_EXPORTED_FIELD_TITLES)
+    sd_captured = []
+
+    def make_hit(title):
         rng = MagicMock()
         text = MagicMock()
         text.createTextCursorByRange.return_value = MagicMock()
         rng.getText.return_value = text
         rng.getEnd.return_value = MagicMock()
+        rng.getString.return_value = f"[[WA-FIELD:nonce:{title}]]"
         return rng
+
+    hits = [make_hit(t) for t in titles]
+
+    def find_first(sd):
+        sd_captured.append(sd.SearchString)
+        return hits[0]
+
+    def find_next(end, sd):
+        hits.pop(0)
+        return hits[0] if hits else None
 
     model = MagicMock()
     model.createInstance.side_effect = create_instance
     model.findFirst.side_effect = find_first
-    model.findNext.return_value = None
+    model.findNext.side_effect = find_next
 
     restored = _restore_field_placeholders(model)
     assert restored == len(_EXPORTED_FIELD_TITLES)
+    model.findFirst.assert_called_once()
+    assert all(title in sd_captured[0] for title in _EXPORTED_FIELD_TITLES)
     assert set(created) == set(_FIELD_TITLE_TO_SERVICE.values())
     # Author is shared by name + initials; DocInfo title/subject must both land.
     assert created.count("com.sun.star.text.textfield.Author") == 2
@@ -252,6 +268,7 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
     found = MagicMock()
     found.getText.return_value = object()
     found.getEnd.return_value = MagicMock()
+    found.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
     model = MagicMock()
     model.createSearchDescriptor.return_value = MagicMock()
     model.findFirst.return_value = found
@@ -270,6 +287,83 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
     ):
         assert hi._restore_field_placeholders(model, header) == 0
         insert.assert_not_called()
+
+
+def test_restore_fields_by_cursor_single_walk_last_token_first():
+    """Three tokens across two portions: one createEnumeration walk, no findFirst, inserted in reverse."""
+    nonce = "test1234"
+    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
+    tok2 = f"[[WA-FIELD:{nonce}:time]]"
+    tok3 = f"[[WA-FIELD:{nonce}:date]]"
+
+    portion1_str = f"Page {tok1} and at {tok2} "
+    portion2_str = f"on {tok3} end"
+    full_str = portion1_str + portion2_str
+
+    class _Portion:
+        def __init__(self, s):
+            self.s = s
+
+        def getPropertyValue(self, name):
+            assert name == "TextPortionType"
+            return "Text"
+
+        def getString(self):
+            return self.s
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def createEnumeration(self):
+            return _Enum([_Portion(portion1_str), _Portion(portion2_str)])
+
+    class _Text:
+        def __init__(self):
+            self.plain = full_str
+            self.enum_calls = 0
+
+        def getString(self):
+            return self.plain
+
+        def createEnumeration(self):
+            self.enum_calls += 1
+            return _Enum([_Para()])
+
+        def createTextCursor(self):
+            cursor = MagicMock()
+            cursor.goRight.return_value = True
+            return cursor
+
+    text = _Text()
+    model = MagicMock()
+    model.findFirst.side_effect = AssertionError("findFirst should not run")
+
+    inserted_titles = []
+
+    def _inserted(unused_model, cursor, title, *args):
+        inserted_titles.append(title)
+        text.plain = text.plain.replace(f"[[WA-FIELD:{nonce}:{title}]]", title)
+        return True
+
+    with (
+        patch("plugin.writer.html_import._cursor_over") as mock_cursor_over,
+        patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted),
+    ):
+        mock_cursor_over.side_effect = lambda _txt, _off, tok: MagicMock()
+        restored = _restore_field_placeholders(model, text, nonce=nonce)
+
+    assert restored == 3
+    assert text.enum_calls == 1
+    model.findFirst.assert_not_called()
+    assert inserted_titles == ["date", "time", "page-number"]
 
 
 def test_restore_fields_in_region_without_document_search():

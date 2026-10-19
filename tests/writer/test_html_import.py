@@ -1100,3 +1100,22 @@ def test_paragraph_after_none_is_text_start():
     text = MagicMock()
     html_import._paragraph_after(text, None)
     text.createTextCursorByRange.assert_called_once_with(text.getStart.return_value)
+
+
+def test_content_has_block_markup_whitespace_and_inline_tags():
+    from plugin.writer.html_import import _content_has_block_markup
+
+    assert _content_has_block_markup("<p\n style=a>") is True
+    assert _content_has_block_markup("<p\tx>") is True
+    assert _content_has_block_markup("<span>") is False
+    assert _content_has_block_markup("<param>") is False
+    assert _content_has_block_markup("List<String>") is False
+
+
+def test_collect_range_portions_magic_mock_returns_immediately():
+    from plugin.writer.html_import import _collect_range_portions
+
+    mock_range = MagicMock()
+    has_special, portions = _collect_range_portions(mock_range)
+    assert has_special is False
+    assert portions == []
