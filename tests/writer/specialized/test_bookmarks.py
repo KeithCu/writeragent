@@ -529,11 +529,11 @@ def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
 
     with _in_save_hook(key_a):
         # Doc A is in save hook: demoted is NOT pruned
-        res_a = svc.ensure_heading_bookmarks(doc_a)
+        svc.ensure_heading_bookmarks(doc_a)
         assert "_mcp_a_old" in doc_a.bookmarks
 
         # Doc B is NOT in save hook: abandoned is restored and demoted IS pruned
-        res_b = svc.ensure_heading_bookmarks(doc_b)
+        svc.ensure_heading_bookmarks(doc_b)
         assert key_b not in _PENDING_STRIPS
         assert "_mcp_b_old" not in doc_b.bookmarks
 
