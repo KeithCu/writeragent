@@ -333,3 +333,110 @@ def test_replace_emoji_in_header_uno(ctx, doc):
     assert res["status"] == "ok", res
     assert header_text.getString() == "AXB"
 
+
+def _setup_header_with_field_and_logo(doc, ctx):
+    from plugin.writer.images.image_tools import insert_image_into_header_footer
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Page ")
+
+    cur = header.createTextCursor()
+    cur.gotoEnd(False)
+    field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+    try:
+        from com.sun.star.text.PageNumberType import CURRENT
+        field.setPropertyValue("PageNumberType", CURRENT)
+        field.setPropertyValue("NumberingType", 4)
+    except Exception:
+        pass
+    header.insertTextContent(cur, field, False)
+
+    fd, path = tempfile.mkstemp(suffix=".png")
+    try:
+        os.write(fd, _PNG_BYTES)
+        os.close(fd)
+        insert_image_into_header_footer(
+            doc, path, "header", width_mm=10, height_mm=10, style_name=_style_name(doc), ctx=ctx,
+        )
+    finally:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+    return header
+
+
+@native_test
+@with_native_doc("writer")
+def test_undo_rollback_restores_header_fields_and_logo(ctx, doc):
+    from plugin.writer.html_import import insert_html_fragment_at_cursor
+    from plugin.writer.page import _scan_region_content
+
+    header = _setup_header_with_field_and_logo(doc, ctx)
+    scan_before = _scan_region_content(doc, header)
+    assert scan_before["fields"] and scan_before["images"]
+
+    mgr = doc.getUndoManager()
+    title = "test_undo_probe"
+    mgr.enterUndoContext(title)
+    cur = header.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    insert_html_fragment_at_cursor(cur, "<p>replaced</p>", wrap=False, model=None)
+    mgr.leaveUndoContext()
+
+    titles = mgr.getAllUndoActionTitles()
+    assert titles and titles[0] == title
+    mgr.undo()
+
+    scan_after = _scan_region_content(doc, header)
+    assert len(scan_after["fields"]) == len(scan_before["fields"])
+    assert len(scan_after["images"]) == len(scan_before["images"])
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_set_header_undo_rollback_on_import_failure(ctx, doc):
+    from unittest.mock import patch
+    from plugin.writer.page import _scan_region_content
+
+    header = _setup_header_with_field_and_logo(doc, ctx)
+    scan_before = _scan_region_content(doc, header)
+    assert scan_before["fields"] and scan_before["images"]
+
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=RuntimeError("injected import failure"),
+    ):
+        res = _set(doc, ctx, "header", "<p>failed import</p>")
+
+    assert res["status"] == "error"
+    scan_after = _scan_region_content(doc, header)
+    assert len(scan_after["fields"]) == len(scan_before["fields"])
+    assert len(scan_after["images"]) == len(scan_before["images"])
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_set_header_undo_rollback_on_field_restore_failure(ctx, doc):
+    from unittest.mock import patch
+    from plugin.writer.page import _scan_region_content
+
+    header = _setup_header_with_field_and_logo(doc, ctx)
+    scan_before = _scan_region_content(doc, header)
+    assert scan_before["fields"] and scan_before["images"]
+
+    with patch(
+        "plugin.writer.html_import._restore_field_placeholders",
+        side_effect=RuntimeError("injected field restore failure"),
+    ):
+        res = _set(doc, ctx, "header", '<p>Page <span title="page-number"/></p>')
+
+    assert res["status"] == "error"
+    scan_after = _scan_region_content(doc, header)
+    assert len(scan_after["fields"]) == len(scan_before["fields"])
+    assert len(scan_after["images"]) == len(scan_before["images"])
+
