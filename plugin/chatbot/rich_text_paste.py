@@ -765,8 +765,12 @@ def _copy_formatted_from_hidden_doc_to_control(
                         if maybe_link:
                             after_len = get_control_text_length(control)
                             addr = normalize_cell_address(href) if href else None
-                            if not addr and is_pending:
-                                addr = pending_links.pop(0)[1]
+                            if is_pending:
+                                # Pop the matched queue head even when href supplied the address.
+                                # An href used to leave the queue head, so the next same label reused it.
+                                pending_addr = pending_links.pop(0)[1]
+                                if not addr:
+                                    addr = pending_addr
                             elif not addr and portion_looks_like_cell_link(portion, txt):
                                 addr = normalize_cell_address(txt.strip())
                             if addr and isinstance(before_len, int) and isinstance(after_len, int):
@@ -870,6 +874,19 @@ def _plain_role_prefix(role: str) -> str:
     return _role_prefix(role)
 
 
+def _row_separator_suffix(text: str | None) -> str:
+    """Return the newline suffix needed to leave one blank line after *text*."""
+    # The separator used to append \n\n after a single trailing newline,
+    # so the gap became two blank lines.
+    if not text or not text.strip():
+        return ""
+    if text.endswith("\n\n"):
+        return ""
+    if text.endswith("\n"):
+        return "\n"
+    return "\n\n"
+
+
 def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap."""
     model = control.getModel() if control else None
@@ -878,8 +895,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
 
     wrote = False
     theme = ChatTheme.resolve(style_window=style_window)
-    existing_text = model.Text or ""
-    needs_sep = bool(existing_text.strip() and not existing_text.endswith("\n\n"))
+    last_text = model.Text or ""
 
     cursor = model.createTextCursor()
     cursor.gotoEnd(False)
@@ -888,8 +904,9 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
         plain = _plain_fallback_text(content or "")
         if not plain.strip():
             continue
-        if needs_sep:
-            _insert_string_at_rich_cursor(model, cursor, "\n\n")
+        sep = _row_separator_suffix(last_text)
+        if sep:
+            _insert_string_at_rich_cursor(model, cursor, sep)
             cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
 
@@ -904,7 +921,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
         _apply_sidebar_para_margins(cursor)
 
         wrote = True
-        needs_sep = not plain.endswith("\n\n")
+        last_text = plain
 
     if wrote and auto_scroll:
         _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
@@ -1021,20 +1038,16 @@ def append_formatted_rows(
 def _ensure_message_separator(control: Any) -> None:
     """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
     def _do_separate() -> None:
-        model = control.getModel()
-        text = (model.Text or "") if model is not None else ""
-        if model is None or not text.strip():
+        model = control.getModel() if control else None
+        if model is None or not hasattr(model, "createTextCursor"):
             return
-        if not hasattr(model, "createTextCursor"):
-            return
-        # Same gap _ensure_trailing_line_break already leaves. This helper
-        # used to insert \n\n whenever the control was non-empty, so a message
-        # that already ended in a blank line grew another one on every append.
-        if text.endswith("\n\n"):
+        text = model.Text or ""
+        suffix = _row_separator_suffix(text)
+        if not suffix:
             return
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
-        _insert_string_at_rich_cursor(model, cursor, "\n\n")
+        _insert_string_at_rich_cursor(model, cursor, suffix)
         log_rich_scroll("separator", control=control)
 
     best_effort(_do_separate, "_ensure_message_separator")
@@ -1047,15 +1060,13 @@ def _ensure_trailing_line_break(control: Any) -> None:
     the next line. We want ``\\n\\n`` (same gap as ``_ensure_message_separator``).
     """
     def _do_break() -> None:
-        model = control.getModel()
-        if model is None or not (model.Text or "").strip():
-            return
-        if not hasattr(model, "createTextCursor"):
+        model = control.getModel() if control else None
+        if model is None or not hasattr(model, "createTextCursor"):
             return
         text = model.Text or ""
-        if text.endswith("\n\n"):
+        suffix = _row_separator_suffix(text)
+        if not suffix:
             return
-        suffix = "\n" if text.endswith("\n") else "\n\n"
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)

@@ -1011,6 +1011,10 @@ class RichTextControlListener(BaseWindowListener):
     def disposing(self, Source: Any) -> None:
         log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
         self._disposed = True
+        if self.rich_control is not None:
+            from plugin.calc.navigation import clear_cell_link_spans
+
+            clear_cell_link_spans(self.rich_control)
         self.rich_control = None
         # CPython can reuse id() after GC; leaving the parent id in this set
         # makes a later panel skip rich-control init and show the plain field.

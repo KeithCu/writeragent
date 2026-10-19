@@ -91,3 +91,31 @@ def test_rich_text_control_append_formatted_row(ctx):
             dlg.dispose()
         except Exception:
             pass
+
+
+@native_test
+def test_rich_text_control_cell_link_duplicate_labels_and_sheet_refs(ctx):
+    """Multiple anchors with duplicate labels consume queue entries in order."""
+    assert ctx is not None
+
+    from plugin.calc.navigation import cell_link_registry
+    from plugin.chatbot.rich_text_paste import append_formatted_row
+
+    dlg, control = _create_test_dialog_with_rich_control(ctx)
+    try:
+        html = (
+            '<p>Check <a href="cell://A1">See</a> and then <a href="cell://C3">See</a>. '
+            'Also <a href="cell://Sheet1.A1">Sheet1.A1</a>.</p>'
+        )
+        append_formatted_row(ctx, control, html, role="assistant", style_window=dlg, auto_scroll=False)
+        spans = cell_link_registry._spans.get(id(control), [])
+        addresses = [addr for _s, _e, addr in spans]
+        assert addresses == ["A1", "C3", "Sheet1.A1"]
+    finally:
+        cell_link_registry.clear(control)
+        try:
+            dlg.setVisible(False)
+            dlg.dispose()
+        except Exception:
+            pass
+

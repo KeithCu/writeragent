@@ -115,6 +115,38 @@ class TestEnsureMessageSeparator:
             _ensure_message_separator(control)
             mock_insert.assert_called_once_with(model, cursor, "\n\n")
 
+        model.Text = "already\n"
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor") as mock_insert:
+            _ensure_message_separator(control)
+            mock_insert.assert_called_once_with(model, cursor, "\n")
+
+    def test_plain_append_respects_existing_newlines(self):
+        from plugin.chatbot.rich_text_paste import _plain_append_messages
+
+        control = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+
+        model.Text = "needs gap"
+        inserted = []
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=lambda m, c, s, **kw: inserted.append(s)):
+            _plain_append_messages(control, [("user", "next")], MagicMock(), MagicMock())
+        assert inserted[0] == "\n\n"
+
+        model.Text = "already\n"
+        inserted.clear()
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=lambda m, c, s, **kw: inserted.append(s)):
+            _plain_append_messages(control, [("user", "next")], MagicMock(), MagicMock())
+        assert inserted[0] == "\n"
+
+        model.Text = "already\n\n"
+        inserted.clear()
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=lambda m, c, s, **kw: inserted.append(s)):
+            _plain_append_messages(control, [("user", "next")], MagicMock(), MagicMock())
+        assert inserted[0] == "You: "
+
 
 class TestAppendRichTextViaClipboard:
     def test_pipeline_order(self):
@@ -1256,6 +1288,76 @@ class TestFlattenTextTableCopy:
         from plugin.chatbot.rich_text import CHAT_FONT_NAME
         assert font_sets == [CHAT_FONT_NAME, "Liberation Sans"]
         assert mock_len.call_count == 2
+
+    @pytest.mark.parametrize(
+        ("portions_spec", "queue", "expected_spans"),
+        [
+            # Failing case 1: href then plain portion with same label consumes both queue entries
+            ([("See", "writeragent-cell://A1"), ("See", "")], [("See", "A1"), ("See", "C3")], ["A1", "C3"]),
+            # Failing case 2: href consumes queue entry; later plain portion does not take stale address
+            ([("See", "writeragent-cell://A1"), ("See", "")], [("See", "A1")], ["A1"]),
+            # Correct case 3: two plain portions with matching queue entries
+            ([("See", ""), ("See", "")], [("See", "A1"), ("See", "C3")], ["A1", "C3"]),
+            # Correct case 4: split label without href matches neither
+            ([("Sheet1.", ""), ("A1", "")], [("Sheet1.A1", "Sheet1.A1")], []),
+            # Correct case 5: label inside longer portion does not match
+            ([("See A1 for details", "")], [("A1", "A1")], []),
+            # Correct case 6: single pending link without href
+            ([("Sheet1.A1", "")], [("Sheet1.A1", "Sheet1.A1")], ["Sheet1.A1"]),
+        ],
+    )
+    def test_cell_link_queue_consumption(self, portions_spec, queue, expected_spans):
+        from plugin.calc.navigation import cell_link_registry
+        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
+
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        src_doc = MagicMock()
+
+        portions = []
+        for txt, href in portions_spec:
+            p = MagicMock()
+            p.getString.return_value = txt
+            p.CharColor = -1
+            p.CharFontName = "Liberation Sans"
+            p.CharHeight = 10.0
+            p.CharWeight = 100.0
+            p.HyperLinkURL = href
+            p.CharUnderline = 0
+            portions.append(p)
+
+        para = MagicMock()
+        para.supportsService.return_value = False
+        para.getPropertyValue.return_value = None
+        para.createEnumeration.return_value = _uno_enum(portions)
+        src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([para])
+
+        theme = MagicMock(user_color=1, assistant_color=2)
+        counter = iter(range(0, 1000, 5))
+
+        try:
+            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=lambda _c: next(counter)), \
+                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
+                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                    src_doc,
+                    control,
+                    MagicMock(),
+                    role="assistant",
+                    auto_scroll=False,
+                    cell_link_targets=list(queue),
+                )
+            assert ok is True, reason
+            registered = [addr for _s, _e, addr in cell_link_registry._spans.get(id(control), [])]
+            assert registered == expected_spans
+        finally:
+            cell_link_registry.clear(control)
 
 
 def test_plain_fallback_text_drops_script_and_unescapes():

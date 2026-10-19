@@ -290,7 +290,7 @@ def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callabl
     class _CalcCellLinkMouseListener(unohelper.Base, XMouseListener):  # type: ignore[misc]
         def disposing(self, Source: Any) -> None:
             _CELL_LINK_LISTENERS.pop(ctrl_id, None)
-            cell_link_registry.clear(Source)
+            cell_link_registry.clear(control)
 
         def mousePressed(self, e: Any) -> None:
             pass
