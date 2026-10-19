@@ -296,14 +296,14 @@ class ProximityService(ServiceBase):
         bookmark_map = {}
         if "headings" in include:
             tree = self._tree_svc.build_heading_tree(doc)
-            bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, para_ranges=para_ranges)
+            bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
             flat = self._flatten_tree(tree, doc)
             ctx_idx, _unused = self._find_heading_context(flat, center_idx)
             result["heading_chain"] = self._get_heading_chain(flat, ctx_idx, bookmark_map)
 
         if "paragraphs" in include:
             if not bookmark_map:
-                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc, para_ranges=para_ranges)
+                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
             paragraphs = []
             for i in range(start_idx, end_idx + 1):
                 el = para_ranges[i]
@@ -363,6 +363,8 @@ class ProximityService(ServiceBase):
             result["frames"] = frames
 
         if "comments" in include:
+            from plugin.framework.uno_context import uno_same
+
             comments = []
             try:
                 fields = doc.getTextFields()
@@ -371,13 +373,22 @@ class ProximityService(ServiceBase):
                     field = enum.nextElement()
                     if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                         continue
-                    author = field.getPropertyValue("Author")
                     anchor = field.getAnchor()
+                    # Skip non-body annotations so headers/footers do not map to paragraph 0.
+                    if anchor is None:
+                        continue
+                    try:
+                        anchor_text = anchor.getText()
+                    except Exception:
+                        anchor_text = None
+                    if anchor_text is None or not uno_same(anchor_text, text_obj):
+                        continue
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
+                        author = field.getPropertyValue("Author")
                         content = field.getPropertyValue("Content")
                         resolved_flag = field.getPropertyValue("Resolved")
-                        comments.append({"author": author, "content": content[:200], "paragraph_index": pi, "resolved": resolved_flag})
+                        comments.append({"author": author, "content": (content or "")[:200], "paragraph_index": pi, "resolved": resolved_flag})
             except Exception:
                 pass
             result["comments"] = comments

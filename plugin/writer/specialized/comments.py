@@ -318,33 +318,37 @@ class CommentResolve(ToolWriterCommentBase):
                 "message": "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
             }
 
-        from plugin.writer.edit_review import WriterCompoundUndo
+        reply_name = None
+        if resolution:
+            reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
+            reply.setPropertyValue("ParentName", comment_name)
+            reply.setPropertyValue("Content", resolution)
+            reply.setPropertyValue("Author", author)
+            _ensure_annotation_name(reply, doc)
+            reply_name = _annotation_name(reply)
+            _set_annotation_date(reply)
+            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
+            anchor = target.getAnchor()
+            host = anchor.getText()
+            cursor = host.createTextCursorByRange(anchor.getStart())
+            names_before = _annotation_field_names(doc)
+            host.insertTextContent(cursor, reply, False)
+            names_after = _annotation_field_names(doc)
+            if len(names_after) <= len(names_before):
+                return {
+                    "status": "error",
+                    "message": "Reply insert did not register an annotation.",
+                    "parent_name": comment_name,
+                }
+            if not reply_name:
+                reply_name = _name_of_new_annotation(doc, reply, names_before)
 
-        with WriterCompoundUndo(doc, "Resolve Comment"):
-            if resolution:
-                reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
-                reply.setPropertyValue("ParentName", comment_name)
-                reply.setPropertyValue("Content", resolution)
-                reply.setPropertyValue("Author", author)
-                _ensure_annotation_name(reply, doc)
-                _set_annotation_date(reply)
-                # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
-                anchor = target.getAnchor()
-                host = anchor.getText()
-                cursor = host.createTextCursorByRange(anchor.getStart())
-                names_before = _annotation_field_names(doc)
-                host.insertTextContent(cursor, reply, False)
-                names_after = _annotation_field_names(doc)
-                if len(names_after) <= len(names_before):
-                    return {
-                        "status": "error",
-                        "message": "Reply insert did not register an annotation.",
-                        "parent_name": comment_name,
-                    }
+        target.setPropertyValue("Resolved", True)
 
-            target.setPropertyValue("Resolved", True)
-
-        return {"status": "ok", "comment_name": comment_name, "resolved": True}
+        result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "resolved": True}
+        if reply_name:
+            result["reply_name"] = reply_name
+        return result
 
 
 _WORKFLOW_TASK_PREFIXES = WORKFLOW_TASK_PREFIXES

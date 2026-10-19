@@ -154,9 +154,7 @@ def test_fields_delete(mock_ctx):
     assert res["requested_count"] == 1
     assert res["missing_ids"] == []
     mock_anchor_1.setString.assert_not_called()
-    mock_anchor_2.setString.assert_not_called()
-    mock_anchor_1.getText().removeTextContent.assert_not_called()
-    mock_anchor_2.getText().removeTextContent.assert_called_with(mock_field_2)
+    mock_anchor_2.setString.assert_called_once_with("")
 
 
 def test_fields_delete_validation_and_missing_ids(mock_ctx):
@@ -185,9 +183,34 @@ def test_fields_delete_validation_and_missing_ids(mock_ctx):
 
     res = tool.execute(mock_ctx, ids=[1, 1, 99])
     assert res["status"] == "error"
+    assert res["code"] == "FIELD_NOT_FOUND"
+    assert res["deleted_count"] == 0
     assert res["requested_count"] == 2
     assert res["missing_ids"] == [1, 99]
     assert "comment_delete" in res["message"]
+
+
+def test_fields_delete_partial_missing_ids(mock_ctx):
+    doc = mock_ctx.doc
+    mock_fields = MagicMock()
+    mock_enum = MagicMock()
+
+    field1 = MagicMock()
+    field1.supportsService.return_value = False
+    field1.getAnchor.return_value = MagicMock()
+
+    mock_enum.hasMoreElements.side_effect = [True, False]
+    mock_enum.nextElement.return_value = field1
+    mock_fields.createEnumeration.return_value = mock_enum
+    doc.getTextFields.return_value = mock_fields
+
+    tool = FieldsDelete()
+    res = tool.execute(mock_ctx, ids=[1, 42])
+    assert res["status"] == "ok"
+    assert res["deleted_count"] == 1
+    assert res["requested_count"] == 2
+    assert res["missing_ids"] == [42]
+    field1.getAnchor().setString.assert_called_once_with("")
 
 
 def test_fields_skip_annotations_in_list_and_delete(mock_ctx):
@@ -220,31 +243,52 @@ def test_fields_skip_annotations_in_list_and_delete(mock_ctx):
     res_del = FieldsDelete().execute(mock_ctx, ids=[1])
     assert res_del["status"] == "ok"
     assert res_del["deleted_count"] == 1
-    page_field.getAnchor().getText().removeTextContent.assert_called_with(page_field)
-    ann_field.getAnchor().getText().removeTextContent.assert_not_called()
+    page_field.getAnchor().setString.assert_called_once_with("")
+    ann_field.getAnchor().setString.assert_not_called()
 
 
-def test_fields_insert_search_absorb_failure_leaves_match_and_no_set_string(mock_ctx):
+def test_fields_insert_search_rolls_back_failed_insert(mock_ctx, monkeypatch):
     doc = mock_ctx.doc
-    mock_controller = MagicMock()
-    doc.getCurrentController.return_value = mock_controller
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    entered = {}
+    mgr.enterUndoContext.side_effect = lambda t: entered.__setitem__("title", t)
+    mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
+    doc.getUndoManager.return_value = mgr
 
-    # Mock search cursor
     mock_cursor = MagicMock()
     mock_text = MagicMock()
     mock_cursor.getText.return_value = mock_text
     mock_text.insertTextContent.side_effect = RuntimeError("insert failed")
 
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("plugin.writer.specialized.fields.resolve_target_cursor", lambda ctx, t, o: mock_cursor)
-        mock_field = MagicMock()
-        doc.createInstance.return_value = mock_field
+    monkeypatch.setattr("plugin.writer.specialized.fields.resolve_target_cursor", lambda ctx, t, o: mock_cursor)
+    mock_field = MagicMock()
+    doc.createInstance.return_value = mock_field
 
-        res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="search", old_content="TARGET")
-        assert res["status"] == "error"
-        assert "insert failed" in res["message"]
-        mock_cursor.setString.assert_not_called()
-        mock_text.insertTextContent.assert_called_with(mock_cursor, mock_field, True)
+    res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="search", old_content="TARGET")
+    assert res["status"] == "error"
+    assert "rolled back" in res["message"]
+    assert "insert failed" in res["message"]
+    mock_cursor.setString.assert_called_once_with("")
+    mgr.undo.assert_called_once()
+
+
+def test_fields_insert_search_locked_undo_does_not_delete(mock_ctx, monkeypatch):
+    doc = mock_ctx.doc
+    mgr = MagicMock()
+    mgr.isLocked.return_value = True
+    doc.getUndoManager.return_value = mgr
+
+    mock_cursor = MagicMock()
+    monkeypatch.setattr("plugin.writer.specialized.fields.resolve_target_cursor", lambda ctx, t, o: mock_cursor)
+    mock_field = MagicMock()
+    doc.createInstance.return_value = mock_field
+
+    res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="search", old_content="TARGET")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    mock_cursor.setString.assert_not_called()
+    mgr.enterUndoContext.assert_not_called()
 
 
 # --- where a field lives decides whether deleting it is safe -------------------------------
@@ -311,8 +355,7 @@ def test_fields_delete_says_what_it_removed_and_from_where(mock_ctx, monkeypatch
 
     assert res["deleted_count"] == 1
     assert res["deleted"] == [{"content": "Page Number", "location": "footer (page style 'Standard')"}]
-    anchor.getText().removeTextContent.assert_called_with(field)
-    anchor.setString.assert_not_called()
+    anchor.setString.assert_called_with("")
 
 
 def test_fields_disposal_is_document_disposed(mock_ctx):

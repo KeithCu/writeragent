@@ -539,6 +539,7 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = CommentResolve().execute(ctx, name="target", resolution="Fixed")
     assert res["status"] == "ok"
+    assert res.get("reply_name") == "ReplyName"
     host.insertTextContent.assert_called_once()
     body_text.insertTextContent.assert_not_called()
 
@@ -578,6 +579,26 @@ def test_comment_resolve_assigns_non_empty_name():
     assert res["status"] == "ok"
     assert "Name" in assigned
     assert assigned["Name"].startswith("__Annotation__")
+    assert res.get("reply_name") == assigned["Name"]
+
+
+def test_add_comment_search_uses_find_all_ranges():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+    match_range = MagicMock()
+    match_range.getString.return_value = "found text"
+    mtext = MagicMock()
+    match_range.getText.return_value = mtext
+    doc.getTextFields.return_value = _fields_that_grow()
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[match_range]) as mock_find, \
+         patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = AddComment().execute(ctx, content="test note", search="find me")
+
+    assert res["status"] == "ok"
+    mock_find.assert_called_once_with(doc, "find me")
 
 
 def test_comment_resolve_failed_reply_insert_does_not_set_resolved():

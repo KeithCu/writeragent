@@ -169,55 +169,33 @@ class FieldsDelete(ToolWriterFieldBase):
         missing_ids = [fid for fid in cleaned_ids if fid not in found_ids]
 
         if not fields_to_delete:
-            err = self._tool_error(
-                f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
-                requested_count=requested_count,
-                missing_ids=missing_ids,
-            )
-            err["requested_count"] = requested_count
-            err["missing_ids"] = missing_ids
-            return err
+            return {
+                "status": "error",
+                "code": "FIELD_NOT_FOUND",
+                "message": f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
+                "deleted_count": 0,
+                "requested_count": requested_count,
+                "missing_ids": missing_ids,
+            }
 
-        from plugin.writer.edit_review import WriterCompoundUndo
-
-        undo_title = "WriterAgent: Delete text fields"
-        undo_ctx = WriterCompoundUndo(doc, undo_title)
         deleted_count = 0
         deleted = []
-        try:
-            for _cid, field in fields_to_delete:
-                anchor = field.getAnchor()
-                try:
-                    # Report the region before the anchor is emptied: a page number removed from a
-                    # footer and one removed from the body read identically afterwards.
-                    where = describe_match_location(anchor, doc, hf_labels)
-                except Exception:
-                    where = "unknown"
-                try:
-                    what = field.getPresentation(True)  # the field's identity, not its rendering
-                except Exception:
-                    what = ""
-                # removeTextContent cleanly drops the field without eating neighboring text under tracked changes.
-                anchor.getText().removeTextContent(field)
-                deleted_count += 1
-                deleted.append({"content": what, "location": where})
-        except Exception as exc:
-            undo_ctx.close()
-            if is_real_disposal(exc):
-                raise
+        for _cid, field in fields_to_delete:
+            anchor = field.getAnchor()
             try:
-                if hasattr(doc, "getUndoManager"):
-                    um = doc.getUndoManager()
-                    if um is not None:
-                        titles = um.getAllUndoActionTitles()
-                        if titles and titles[0] == undo_title:
-                            um.undo()
-            except Exception as undo_exc:
-                if is_real_disposal(undo_exc):
-                    raise
-            return self._tool_error(f"Failed while deleting fields: {exc}")
-        finally:
-            undo_ctx.close()
+                # Report the region before the anchor is emptied: a page number removed from a
+                # footer and one removed from the body read identically afterwards.
+                where = describe_match_location(anchor, doc, hf_labels)
+            except Exception:
+                where = "unknown"
+            try:
+                what = field.getPresentation(True)
+            except Exception:
+                what = ""
+            # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
+            anchor.setString("")
+            deleted_count += 1
+            deleted.append({"content": what, "location": where})
 
         return {
             "status": "ok",
@@ -289,15 +267,40 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        # Insert at resolved cursor (absorb match if target is search)
-        absorb = (target == "search")
-        try:
-            text = cursor.getText()
-            text.insertTextContent(cursor, field, absorb)
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            return self._tool_error(f"Failed to insert field: {e}")
+        # Insert at resolved cursor
+        if target == "search" and old_content:
+            from ..edit_review import next_agent_edit_undo_title
+            from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
+            undo_title = next_agent_edit_undo_title()
+
+            def mutate() -> dict[str, Any] | None:
+                cursor.setString("")
+                text = cursor.getText()
+                text.insertTextContent(cursor, field, False)
+                return None
+
+            try:
+                error = commit_or_rollback(doc, undo_title, mutate)
+                if error is not None:
+                    return error
+            except UndoUnavailable:
+                return self._tool_error(
+                    "Cannot replace the matched text atomically (no usable undo context).",
+                    code="UNDO_UNAVAILABLE",
+                )
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Failed to insert field; the change was rolled back ({e}).")
+        else:
+            try:
+                text = cursor.getText()
+                text.insertTextContent(cursor, field, False)
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Failed to insert field: {e}")
 
         return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}
 

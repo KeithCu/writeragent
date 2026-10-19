@@ -310,10 +310,12 @@ def test_forms_edit_invalid_state_leaves_model_untouched():
 
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.writer.specialized.forms._resolve_form_page", return_value=dp):
-        res = FormEditControl()._execute_main(ctx, name="target_ctrl", state="not-a-state", label="Should Not Change")
+        res = FormEditControl()._execute_main(ctx, name="target_ctrl", state="not-a-state", new_name="new_ctrl", label="Should Not Change")
         assert res["status"] == "error"
         assert "Could not interpret" in res["message"]
-        # Label was not updated
+        # Neither Name nor Label were updated
+        assert model.Name == "target_ctrl"
+        assert shape.Name == "target_ctrl"
         assert not hasattr(model, "Label") or model.Label != "Should Not Change"
 
 
@@ -349,5 +351,33 @@ def test_forms_parse_field_tag_requires_name_and_valid_control():
     assert parsed["control"] == "combobox"
     assert parsed["name"] == "c1"
     assert parsed["items"] == ["one", "two"]
+
+
+def test_form_create_control_disposal_from_create_instance_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+
+    doc = MagicMock()
+    doc.createInstance.side_effect = DocumentDisposedError("closed")
+    ctx = SimpleNamespace(doc=doc)
+    with pytest.raises(DocumentDisposedError):
+        FormCreateControl()._execute_main(ctx, control="text", name="fld")
+
+
+def test_form_create_control_date_default_value_applied():
+    doc = MagicMock()
+    model = MagicMock()
+    doc.createInstance.side_effect = lambda name: model if "DateField" in name else MagicMock()
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value.getText.return_value = MagicMock()
+    controller.getSelection.return_value = selection
+
+    ctx = SimpleNamespace(doc=doc)
+    res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="2026-10-18")
+    assert res["status"] == "ok"
+    assert hasattr(model, "Date") or hasattr(model, "DefaultDate")
+
 
 

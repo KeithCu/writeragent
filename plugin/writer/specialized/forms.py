@@ -151,9 +151,8 @@ def _find_control_shape(dp: Any, index: Any = None, name: Any = None) -> tuple[A
         return None, None, format_error_payload(ToolExecutionError(f"No form control named '{wanted}'."))
     hit_details = []
     for idx, shape in hits:
-        s_name = getattr(shape, "Name", "") or ""
         m_label = getattr(shape.Control, "Label", "") or ""
-        hit_details.append(f"index {idx} (shape '{s_name}', label '{m_label}')")
+        hit_details.append(f"index {idx} (label '{m_label}')")
     return None, None, format_error_payload(ToolExecutionError(f"Several form controls match '{wanted}': {', '.join(hit_details)}; pass index as well."))
 
 
@@ -416,6 +415,13 @@ class FormCreateControl(ToolWriterFormBase):
             # Create the shape
             shape = doc.createInstance("com.sun.star.drawing.ControlShape")
 
+            # Default sizes (100ths of mm)
+            w = kwargs.get("width", 3000 if control_type not in ("checkbox", "radio") else 500)
+            h = kwargs.get("height", 600 if control_type not in ("checkbox", "radio") else 500)
+            shape.setSize(Size(w, h))
+
+            shape.Control = model
+
             # Radios group by model Name; shape Name stays caller's name
             if control_type == "radio" and kwargs.get("group_name"):
                 model.Name = kwargs["group_name"]
@@ -425,13 +431,6 @@ class FormCreateControl(ToolWriterFormBase):
                 model.Name = name
                 shape.Name = name
                 group_name = getattr(model, "Name", "") or ""
-
-            # Default sizes (100ths of mm)
-            w = kwargs.get("width", 3000 if control_type not in ("checkbox", "radio") else 500)
-            h = kwargs.get("height", 600 if control_type not in ("checkbox", "radio") else 500)
-            shape.setSize(Size(w, h))
-
-            shape.Control = model
 
             if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
                 dp = _resolve_form_page(doc, kwargs.get("page"))
@@ -504,40 +503,16 @@ class FormCreate(ToolWriterFormBase):
         fields = kwargs.get("fields", [])
         results = []
         creator = FormCreateControl()
-        doc = ctx.doc
-        from plugin.writer.edit_review import WriterCompoundUndo
+        for field in fields:
+            res = creator._execute_main(ctx, **field)
+            results.append(res)
+            # Call _insert_space only when that field's result is not status="error"
+            if isinstance(res, dict) and res.get("status") != "error":
+                _run_on_main(self._insert_space, ctx)
 
-        undo_title = "WriterAgent: Create form controls"
-        undo_ctx = WriterCompoundUndo(doc, undo_title)
-        has_error = False
-
-        try:
-            for field in fields:
-                res = creator._execute_main(ctx, **field)
-                results.append(res)
-                if isinstance(res, dict) and res.get("status") == "ok":
-                    _run_on_main(self._insert_space, ctx)
-                else:
-                    has_error = True
-                    break
-        finally:
-            undo_ctx.close()
-
-        if has_error:
-            try:
-                if hasattr(doc, "getUndoManager"):
-                    um = doc.getUndoManager()
-                    if um is not None:
-                        titles = um.getAllUndoActionTitles()
-                        if titles and titles[0] == undo_title:
-                            um.undo()
-            except Exception as undo_exc:
-                if is_real_disposal(undo_exc):
-                    raise
-            err = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
-            if err is not None:
-                return err
-            return self._tool_error("One or more form fields failed")
+        failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
+        if failure is not None:
+            return failure
 
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
@@ -617,52 +592,27 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         creator = FormCreateControl()
         field_results: list[Any] = []
         field_names: list[Any] = []
-        doc = ctx.doc
-        from plugin.writer.edit_review import WriterCompoundUndo
 
-        undo_title = "WriterAgent: Generate form"
-        undo_ctx = WriterCompoundUndo(doc, undo_title)
-        has_error = False
-
-        try:
-            for part in parts:
-                if part.startswith("{FIELD:"):
-                    params = self._parse_field_tag(part)
-                    if params:
-                        res = _run_on_main(creator._execute_main, ctx, **params)
-                        if not isinstance(res, dict):
-                            res = format_error_payload(ToolExecutionError("Form field returned no result."))
-                        field_results.append(res)
-                        field_names.append(params)
-                        if res.get("status") != "ok":
-                            has_error = True
-                            break
-                    else:
-                        snippet = part if len(part) <= 80 else part[:77] + "..."
-                        err_res = format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}"))
-                        field_results.append(err_res)
-                        field_names.append({})
-                        has_error = True
-                        break
+        for part in parts:
+            if part.startswith("{FIELD:"):
+                params = self._parse_field_tag(part)
+                if params:
+                    res = _run_on_main(creator._execute_main, ctx, **params)
+                    if not isinstance(res, dict):
+                        res = format_error_payload(ToolExecutionError("Form field returned no result."))
+                    field_results.append(res)
+                    field_names.append(params)
                 else:
-                    if part:
-                        _run_on_main(self._insert_text, ctx, part)
-        finally:
-            undo_ctx.close()
+                    snippet = part if len(part) <= 80 else part[:77] + "..."
+                    field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
+                    field_names.append({})
+            else:
+                if part:
+                    _run_on_main(self._insert_text, ctx, part)
 
-        if has_error:
-            try:
-                if hasattr(doc, "getUndoManager"):
-                    um = doc.getUndoManager()
-                    if um is not None:
-                        titles = um.getAllUndoActionTitles()
-                        if titles and titles[0] == undo_title:
-                            um.undo()
-            except Exception as undo_exc:
-                if is_real_disposal(undo_exc):
-                    raise
-            failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
-            return failure or self._tool_error("Form generation failed.")
+        failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
+        if failure is not None:
+            return failure
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
@@ -743,7 +693,11 @@ class FormListControls(ToolWriterFormBase):
             if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                 model = shape.Control
                 shape_name = getattr(shape, "Name", "") or ""
-                info = {"index": i, "name": getattr(model, "Name", ""), "shape_name": shape_name, "type": _get_readable_type(model)}
+                model_name = getattr(model, "Name", "") or ""
+                ctrl_name = shape_name if shape_name else model_name
+                info = {"index": i, "name": ctrl_name, "type": _get_readable_type(model)}
+                if model_name and ctrl_name != model_name:
+                    info["group_name"] = model_name
                 info.update(_control_value_fields(model))
 
                 # Geometry
