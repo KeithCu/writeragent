@@ -1428,10 +1428,11 @@ def test_run_cells_error_continues_unless_stopped():
     assert state.next_execution_count == 4
 
 
-def _run_cells_with(exec_fn, apply_fn=None):
+def _run_cells_with(exec_fn, apply_fn=None, doc=None):
     ctx = MagicMock()
     state = NotebookDocState(code_cells=_three_cells(), next_execution_count=1)
-    doc = MagicMock()
+    if doc is None:
+        doc = MagicMock()
     applied: list[str] = []
 
     def _apply(_doc, _cell, result, *, ctx=None):
@@ -1495,11 +1496,43 @@ def test_run_cells_document_disposed_mid_batch_stops_quietly():
         if seen["applies"] == 2:
             raise DisposedException("document closed")
 
-    with patch(
-        "plugin.notebook.notebook_runner.is_disposed_exception",
-        side_effect=lambda e: isinstance(e, DisposedException),
-    ):
-        result, applied, _state = _run_cells_with(_exec, _apply)
+    result, applied, _state = _run_cells_with(_exec, _apply)
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert applied == ["ok", "ok"]
+
+
+def test_run_cells_live_document_runtime_exception_propagates():
+    class RuntimeException(Exception):
+        pass
+
+    def _exec(_ctx, _doc, code):
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _apply(_result):
+        raise RuntimeException("real UNO error")
+
+    with pytest.raises(RuntimeException, match="real UNO error"):
+        _run_cells_with(_exec, _apply)
+
+
+def test_run_cells_document_disposed_mid_batch_value_error_stops_quietly():
+    class DisposedException(Exception):
+        pass
+
+    def _exec(_ctx, _doc, code):
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    seen = {"applies": 0}
+    doc = MagicMock()
+
+    def _apply(_result):
+        seen["applies"] += 1
+        if seen["applies"] == 2:
+            doc.getImplementationName.side_effect = DisposedException("document closed")
+            raise ValueError("property missing during close")
+
+    result, applied, _state = _run_cells_with(_exec, _apply, doc=doc)
     assert result.status == "stopped"
     assert result.cells_run == 1
     assert applied == ["ok", "ok"]

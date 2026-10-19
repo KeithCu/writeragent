@@ -15,7 +15,7 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort, is_disposed_exception, is_document_disposed
+from plugin.framework.errors import best_effort, is_document_disposed, is_real_disposal
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
@@ -1187,9 +1187,8 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 try:
                     one = _execute_and_apply(ctx, doc, state, cell, code)
                 except Exception as exc:
-                    # Document closed mid-batch: stop quietly instead of raising
-                    # out of Run All.
-                    if is_disposed_exception(exc) or is_document_disposed(doc):
+                    # Tip: stop quietly only when the document is gone; a live RuntimeException propagates.
+                    if is_document_disposed(doc) or is_real_disposal(exc):
                         stopped = True
                         break
                     raise

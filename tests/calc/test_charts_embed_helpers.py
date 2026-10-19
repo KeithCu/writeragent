@@ -453,6 +453,38 @@ def test_list_charts_calc_per_sheet_error_is_explicit():
     assert result["errors"][0]["sheet"] == "Sheet2"
 
 
+def test_list_charts_calc_get_sheets_disposed_propagates_when_impl_name_succeeds():
+    doc = MagicMock()
+    doc.getImplementationName.return_value = "ScModelObj"
+    doc.getSheets.side_effect = _DisposedException("getSheets disposed")
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=lambda obj, name: name == "com.sun.star.sheet.SpreadsheetDocument"),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+    ):
+        with pytest.raises(_DisposedException):
+            ListCharts().execute(ctx)
+
+
+def test_list_charts_calc_get_sheets_runtime_exception_is_tool_error_when_live():
+    doc = MagicMock()
+    doc.getImplementationName.return_value = "ScModelObj"
+    doc.getSheets.side_effect = RuntimeException("temporary failure")
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=lambda obj, name: name == "com.sun.star.sheet.SpreadsheetDocument"),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+    ):
+        result = ListCharts().execute(ctx)
+
+    assert result["status"] == "error"
+    assert "Could not list charts: RuntimeException: temporary failure" in result["message"]
+
+
 def test_list_charts_draw_per_shape_error_keeps_later_chart():
     bad = MagicMock()
     bad.getShapeType.side_effect = ValueError("bad shape")

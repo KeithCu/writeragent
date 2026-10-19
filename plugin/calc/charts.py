@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal
+from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal, is_tool_document_disposed
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000
@@ -772,7 +772,7 @@ def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], 
     and raised other errors, so one bad shape aborted the list. A closed
     document propagates. A live-document failure is appended to *errors*.
     """
-    if is_real_disposal(exc) or (is_disposed_exception(exc) and is_document_disposed(doc)):
+    if is_tool_document_disposed(exc, doc):
         raise exc
     errors.append({**where, "message": _format_chart_exception_msg(exc)})
 
@@ -928,7 +928,8 @@ class ListCharts(ToolBaseDummy):
                 sheets = doc.getSheets()
                 sheets_count = sheets.getCount()
             except Exception as exc:
-                if is_disposed_exception(exc) and is_document_disposed(doc):
+                # Tip: real disposal propagates even when the document probe still answers.
+                if is_tool_document_disposed(exc, doc):
                     raise exc
                 return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
             for i in range(sheets_count):
@@ -987,7 +988,8 @@ class ListCharts(ToolBaseDummy):
                 pages = doc.getDrawPages()
                 pages_count = pages.getCount()
             except Exception as exc:
-                if is_disposed_exception(exc) and is_document_disposed(doc):
+                # Tip: real disposal propagates even when the document probe still answers.
+                if is_tool_document_disposed(exc, doc):
                     raise exc
                 return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
             for i in range(pages_count):
