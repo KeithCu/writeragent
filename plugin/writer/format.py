@@ -27,7 +27,7 @@ import tempfile
 from typing import Any, Iterator, cast
 
 import uno
-from plugin.doc.text_helpers import get_string_without_tracked_deletions as _get_str  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.url_utils import path_to_file_url
 from .math.html_math_segment import html_fragment_contains_mixed_math  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from .math.math_mml_convert import convert_latex_to_starmath as convert_latex_to_starmath  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -36,13 +36,6 @@ from .math.math_mml_convert import insert_writer_math_formula as insert_writer_m
 from . import xhtml_style_postprocess as xhtml_post  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 log = logging.getLogger("writeragent.writer")
-
-
-def _selection_range_for_export(model: Any) -> tuple[int, int]:  # pyright: ignore[reportUnusedFunction]
-    """Resolve selection range for export (lazy import so html_export never names text_helpers directly or document_helpers)."""
-    from plugin.doc.text_helpers import get_selection_range
-
-    return get_selection_range(model)
 
 
 def _deletion_author() -> Any:  # pyright: ignore[reportUnusedFunction]
@@ -304,6 +297,15 @@ def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str]
     return True
 
 
+_STYLE_PROP_FAILED = object()
+_CHAR_PROPS_KEY = "__writable_char_props__"
+_FONT_SLANT_TO_INT: dict[str, int] = {
+    "none": 0,
+    "oblique": 1,
+    "italic": 2,
+}
+
+
 def _reset_properties_to_default(cursor: Any, names: Any) -> list[str]:
     """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style.
 
@@ -320,14 +322,16 @@ def _reset_properties_to_default(cursor: Any, names: Any) -> list[str]:
     try:
         cursor.setPropertiesToDefault(names)
         return list(names)
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         pass  # no XMultiPropertyStates on this range — fall back to one at a time
     cleared = []
     for name in names:
         try:
             cursor.setPropertyToDefault(name)
             cleared.append(name)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             continue
     return cleared
 
@@ -339,12 +343,26 @@ def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
         for name in REPORTED_CHAR_PROPERTIES:
             if name in props and name not in summary:
                 val = props[name]
+                if getattr(type(val), "__module__", None) in ("uno", "pyuno"):
+                    inner = getattr(val, "value", None)
+                    if inner is not None:
+                        val = inner
+                if name == "CharPosture" and isinstance(val, str):
+                    low = val.strip().lower()
+                    if low in _FONT_SLANT_TO_INT:
+                        val = _FONT_SLANT_TO_INT[low]
                 if isinstance(val, (str, int, float, bool)):
                     summary[name] = val
     return summary
 
 
-def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_name: str, clear_direct: str = "none") -> dict[str, Any]:
+def apply_paragraph_style_preserving_direct_char(
+    doc: Any,
+    cursor: Any,
+    style_name: str,
+    clear_direct: str = "none",
+    style_cache: dict[Any, Any] | None = None,
+) -> dict[str, Any]:
     """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
 
     Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
@@ -365,6 +383,9 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
       no-op). Does not restore Para*; LibreOffice already dropped those when ParaStyleName was set;
       ``"all"`` restores nothing and clears the paragraph properties too (Ctrl+M semantics).
 
+    A result with a ``warning`` and ``capture_incomplete=True`` means later runs were not read
+    back, so the override dict may be short.
+
     Returns a report dict so callers can tell the agent what actually happened.
 
     KNOWN LIMITATION: a direct override whose value equals the old style default is not
@@ -372,6 +393,9 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
     """
 
     walk_notes: list[str] = []
+    capture_failures = 0
+    if style_cache is None:
+        style_cache = {}
 
     def _expand_to_full_paragraphs(cur: Any) -> Any:
         text = cur.getText()
@@ -384,57 +408,141 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
         return expanded
 
     def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
+        nonlocal capture_failures
         overrides: list[Any] = []
-        para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        try:
+            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
         READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
-        para_enum = capture_cursor.createEnumeration()
+        if not isinstance(READONLY, int):
+            READONLY = 16
+        try:
+            para_enum = capture_cursor.createEnumeration()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
         _paras = 0
         while para_enum.hasMoreElements() is True and _paras < _CAPTURE_PARA_LIMIT:
             _paras += 1
-            para = para_enum.nextElement()
+            try:
+                para = para_enum.nextElement()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                break
             if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
                 continue
-            old_style = para_styles.getByName(para.getPropertyValue("ParaStyleName"))
+
+            try:
+                cur_style_name = para.getPropertyValue("ParaStyleName")
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                continue
+
+            if cur_style_name in style_cache:
+                old_style = style_cache[cur_style_name]
+            else:
+                try:
+                    old_style = para_styles.getByName(cur_style_name)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    old_style = None
+                style_cache[cur_style_name] = old_style
+
             if old_style is None:
                 continue
+
             try:
                 portion_enum = para.createEnumeration()
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
                 continue
+
             _portions = 0
             while portion_enum.hasMoreElements() is True and _portions < _CAPTURE_PORTION_LIMIT:
                 _portions += 1
                 try:
                     portion = portion_enum.nextElement()
-                    if portion.getPropertyValue("TextPortionType") != "Text":
-                        continue
-                    portion_props = portion.getPropertySetInfo().getProperties()
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    break
+
+                try:
+                    portion_type = portion.getPropertyValue("TextPortionType")
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
                     continue
+                if portion_type != "Text":
+                    continue
+
+                char_names = style_cache.get(_CHAR_PROPS_KEY)
+                if char_names is None:
+                    try:
+                        info = portion.getPropertySetInfo()
+                        if info is not None:
+                            portion_props = info.getProperties()
+                            names = [
+                                p.Name for p in portion_props
+                                if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & READONLY)
+                            ]
+                            if names:
+                                style_cache[_CHAR_PROPS_KEY] = names
+                                char_names = names
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
+
+                if not char_names:
+                    continue
+
                 props = {}
-                for p in portion_props:
-                    name = p.Name
-                    if not name.startswith("Char"):
-                        continue
-                    if READONLY and (p.Attributes & READONLY):
-                        continue
+                for name in char_names:
                     try:
                         val = portion.getPropertyValue(name)
-                    except Exception:
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
                         continue
-                    try:
-                        if val == old_style.getPropertyValue(name):
-                            continue
-                    except Exception:
+
+                    cache_key = (cur_style_name, name)
+                    if cache_key in style_cache:
+                        style_val = style_cache[cache_key]
+                    else:
+                        try:
+                            style_val = old_style.getPropertyValue(name)
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            capture_failures += 1
+                            style_val = _STYLE_PROP_FAILED
+                        style_cache[cache_key] = style_val
+
+                    if style_val is _STYLE_PROP_FAILED:
+                        continue
+                    if val == style_val:
                         continue
                     props[name] = val
+
                 if props:
                     try:
                         pc = portion.getText().createTextCursorByRange(portion.getStart())
                         pc.gotoRange(portion.getEnd(), True)
                         overrides.append((pc, props))
-                    except Exception:
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
                         continue
+
             record_walk_cap(portion_enum, _portions, _CAPTURE_PORTION_LIMIT, "text portions", walk_notes)
         record_walk_cap(para_enum, _paras, _CAPTURE_PARA_LIMIT, "paragraphs", walk_notes)
         return overrides
@@ -442,7 +550,11 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
     capture_cursor = _expand_to_full_paragraphs(cursor)
     overrides = _capture_direct_char_overrides(capture_cursor)
     found = _summarize_char_overrides(overrides)
-    cursor.setPropertyValue("ParaStyleName", style_name)
+    try:
+        cursor.setPropertyValue("ParaStyleName", style_name)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
 
     if clear_direct == "all":
         skip = None  # restore nothing
@@ -458,11 +570,14 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
                     continue
                 try:
                     pc.setPropertyValue(name, val)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
 
-    report: dict[str, Any] = {"direct_formatting": "preserved" if clear_direct == "none" else "cleared",
-                              "clear_direct": clear_direct}
+    report: dict[str, Any] = {
+        "direct_formatting": "preserved" if clear_direct == "none" else "cleared",
+        "clear_direct": clear_direct,
+    }
     if clear_direct == "none":
         # What the caller can act on: these overrode the style and are the reason it looks like
         # the apply did nothing.
@@ -474,15 +589,20 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
         removed = found if skip is None else {k: v for k, v in found.items() if k in skip}
         if removed:
             report["removed_char_overrides"] = removed
-        # Clear explicitly rather than leaning on the ParaStyleName side effect, which leaves
-        # direct Char* on the text portions standing. "all" targets exactly the overrides that
-        # were found, so nothing unrelated is touched.
-        char_targets = (STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
-                        else sorted({n for _pc, props in overrides for n in props}))
+        # Clear Char* explicitly: the ParaStyleName side effect leaves direct overrides on portions.
+        char_targets = (
+            STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
+            else sorted({n for _pc, props in overrides for n in props})
+        )
         report["cleared_char_properties"] = _reset_properties_to_default(capture_cursor, char_targets)
         report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+
+    if capture_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
     if walk_notes:
         report["warning"] = " ".join(walk_notes)
+    if capture_failures > 0:
+        report["capture_incomplete"] = True
     return report
 
 

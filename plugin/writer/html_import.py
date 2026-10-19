@@ -454,6 +454,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
                 break
             paras.append(el)
         i += 1
+    style_cache: dict[Any, Any] = {}
     for para_el, style in zip(paras, styles):
         if not style:
             continue
@@ -461,8 +462,11 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
         try:
             cur = text_obj.createTextCursorByRange(para_el.getStart())
             cur.gotoEndOfParagraph(True)
-            format_mod.apply_paragraph_style_preserving_direct_char(model, cur, resolved)
-        except Exception:
+            format_mod.apply_paragraph_style_preserving_direct_char(
+                model, cur, resolved, style_cache=style_cache,
+            )
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
 
 

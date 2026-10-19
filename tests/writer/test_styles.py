@@ -1343,3 +1343,22 @@ def test_installed_font_names_cached_after_success_not_after_none():
     finally:
         styles_mod._installed_font_names_cache = None
 
+
+def test_apply_style_merge_reports_ors_capture_incomplete():
+    from plugin.writer.styles import ApplyStyle
+
+    rep1 = {"direct_formatting": "preserved", "preserved_char_overrides": {"CharWeight": 150}}
+    rep2 = {"direct_formatting": "preserved", "capture_incomplete": True, "warning": "walk warning"}
+    merged = ApplyStyle._merge_reports([rep1, rep2])
+    assert merged.get("capture_incomplete") is True
+    assert merged.get("warning") == "walk warning"
+    assert merged.get("preserved_char_overrides") == {"CharWeight": 150}
+
+    # Only first range sets it
+    merged_first = ApplyStyle._merge_reports([rep2, rep1])
+    assert merged_first.get("capture_incomplete") is True
+
+    # Neither sets it
+    merged_clean = ApplyStyle._merge_reports([rep1, {}])
+    assert "capture_incomplete" not in merged_clean
+

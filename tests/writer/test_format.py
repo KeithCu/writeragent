@@ -650,7 +650,6 @@ def test_format_module_avoids_document_helpers_ops_review_authors():
         elif isinstance(node, ast.Import):
             mods.extend(alias.name for alias in node.names)
     assert "plugin.doc.document_helpers" not in mods
-    assert "plugin.doc.text_helpers" in mods
     assert ".ops" not in mods
     assert "ops" not in mods
     assert ".review_authors" not in mods
@@ -759,13 +758,15 @@ def test_clearable_para_properties_are_the_single_source_for_styles_schema():
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import format as fmt
 
+    posture = type("FontSlant", (), {"__module__": "uno", "value": "ITALIC"})()
+
     overrides = [
-        (object(), {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharLocale": object()}),
+        (object(), {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharLocale": object(), "CharPosture": posture}),
         (object(), {"CharFontName": "Courier"}),
     ]
     summary = fmt._summarize_char_overrides(overrides)
 
-    assert summary == {"CharFontName": "Times New Roman", "CharHeight": 12.0}
+    assert summary == {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharPosture": 2}
     assert "CharLocale" not in summary  # UNO struct -> not serialisable, left out
 
 
@@ -1082,3 +1083,160 @@ def test_paragraph_is_block():
 
 def test_heading_is_block():
     assert _content_has_block_markup("<h1>title</h1>") is True
+
+
+def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
+    from unittest.mock import MagicMock
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.side_effect = lambda name: "DefaultVal"
+
+    # Paragraph 1 with 2 portions
+    portion1 = MagicMock()
+    portion1.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal"
+    prop_char = MagicMock()
+    prop_char.Name = "CharWeight"
+    prop_char.Attributes = 0
+    prop_set_info = MagicMock()
+    prop_set_info.getProperties.return_value = [prop_char]
+    portion1.getPropertySetInfo.return_value = prop_set_info
+
+    portion2 = MagicMock()
+    portion2.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal2"
+    portion2.getPropertySetInfo.return_value = MagicMock()
+
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para1_enum = MagicMock()
+    para1_enum.hasMoreElements.side_effect = [True, True, False]
+    para1_enum.nextElement.side_effect = [portion1, portion2]
+    para1.createEnumeration.return_value = para1_enum
+
+    # Paragraph 2 with 1 portion (same style "Standard")
+    portion3 = MagicMock()
+    portion3.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal3"
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.side_effect = [True, False]
+    para2_enum.nextElement.side_effect = [portion3]
+    para2.createEnumeration.return_value = para2_enum
+
+    # Call 1: applies to para1 with cache
+    cursor1 = MagicMock()
+    doc_enum1 = MagicMock()
+    doc_enum1.hasMoreElements.side_effect = [True, False]
+    doc_enum1.nextElement.side_effect = [para1]
+    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
+    cursor1.createEnumeration.return_value = doc_enum1
+
+    style_cache = {}
+    fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", style_cache=style_cache)
+
+    portion1.getPropertySetInfo.assert_called_once()
+    portion2.getPropertySetInfo.assert_not_called()
+    assert style.getPropertyValue.call_count == 1  # once for CharWeight
+    assert para_styles.getByName.call_count == 1
+
+    # Call 2: applies to para2 with the same shared cache
+    cursor2 = MagicMock()
+    doc_enum2 = MagicMock()
+    doc_enum2.hasMoreElements.side_effect = [True, False]
+    doc_enum2.nextElement.side_effect = [para2]
+    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
+    cursor2.createEnumeration.return_value = doc_enum2
+
+    fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1", style_cache=style_cache)
+
+    # para_styles.getByName should NOT be called again for "Standard"
+    assert para_styles.getByName.call_count == 1
+    portion3.getPropertySetInfo.assert_not_called()
+
+
+def test_apply_paragraph_style_capture_failure_and_disposal():
+    from unittest.mock import MagicMock
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = 100
+
+    prop1 = MagicMock()
+    prop1.Name = "CharWeight"
+    prop1.Attributes = 0
+    prop2 = MagicMock()
+    prop2.Name = "CharHeight"
+    prop2.Attributes = 0
+    info = MagicMock()
+    info.getProperties.return_value = [prop1, prop2]
+
+    def get_prop_side_effect(name):
+        if name == "TextPortionType":
+            return "Text"
+        if name == "CharWeight":
+            return 150
+        if name == "CharHeight":
+            raise RuntimeError("Property unavailable")
+        return None
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = get_prop_side_effect
+    portion.getPropertySetInfo.return_value = info
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True, False]
+    para_enum.nextElement.side_effect = [portion]
+    para.createEnumeration.return_value = para_enum
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True, False]
+    doc_enum.nextElement.side_effect = [para]
+    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
+    cursor.createEnumeration.return_value = doc_enum
+
+    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    assert rep.get("capture_incomplete") is True
+    assert "warning" in rep
+    assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
+
+    # Disposal exception propagates as DocumentDisposedError
+    DisposedExc = type("DisposedException", (Exception,), {})
+    portion_disp = MagicMock()
+    portion_disp.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (_ for _ in ()).throw(DisposedExc("object disposed"))
+    portion_disp.getPropertySetInfo.return_value = info
+
+    para_disp = MagicMock()
+    para_disp.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para_disp.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para_disp_enum = MagicMock()
+    para_disp_enum.hasMoreElements.side_effect = [True, False]
+    para_disp_enum.nextElement.side_effect = [portion_disp]
+    para_disp.createEnumeration.return_value = para_disp_enum
+
+    cursor_disp = MagicMock()
+    doc_disp_enum = MagicMock()
+    doc_disp_enum.hasMoreElements.side_effect = [True, False]
+    doc_disp_enum.nextElement.side_effect = [para_disp]
+    cursor_disp.getText.return_value.createTextCursorByRange.return_value = cursor_disp
+    cursor_disp.createEnumeration.return_value = doc_disp_enum
+
+    with pytest.raises(DocumentDisposedError):
+        fmt.apply_paragraph_style_preserving_direct_char(doc, cursor_disp, "Heading 1")
+

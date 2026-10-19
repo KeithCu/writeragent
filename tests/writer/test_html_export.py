@@ -728,3 +728,70 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     table.getCellNames.return_value = ()
     rows, cols, names = _writer_table_copy_layout(table)
     assert (rows, cols, names) == (1, 1, [])
+
+
+def test_range_export_skips_flat_odf_when_no_autostyle():
+    """Flat ODF is skipped when XHTML contains no paragraph-P<digits> autostyle classes."""
+    text = MagicMock()
+    text.createEnumeration.side_effect = lambda: _Enum([_para("Text body")])
+    source = MagicMock()
+    source.getText.return_value = text
+
+    def _portions(element, truncated_out=None):
+        yield (_Portion(), "Hello")
+
+    temp_doc = MagicMock()
+    temp_text = MagicMock()
+    temp_cursor = MagicMock()
+    temp_doc.getText.return_value = temp_text
+    temp_text.createTextCursor.return_value = temp_cursor
+    styles = MagicMock()
+    styles.hasByName.return_value = True
+    temp_doc.getStyleFamilies.return_value.getByName.return_value = styles
+
+    # Case 1: XHTML with paragraph-Text_20_body does not call _autostyle_maps
+    xhtml_named = '<html><body><p class="paragraph-Text_20_body">Hello</p></body></html>'
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._element_overlaps", return_value=True),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
+        patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
+        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
+    ):
+        _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+        )
+        autostyle_mock.assert_not_called()
+        semantic_mock.assert_called_once_with(xhtml_named, {}, {})
+
+    # Case 2: XHTML with paragraph-P1 calls _autostyle_maps and forwards maps to semantic_html
+    xhtml_auto = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
+    expected_parents = {"P1": "Standard"}
+    expected_overrides = {"P1": "color:red"}
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._element_overlaps", return_value=True),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
+        patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
+        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
+    ):
+        _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+        )
+        autostyle_mock.assert_called_once_with(temp_doc, None)
+        semantic_mock.assert_called_once_with(xhtml_auto, expected_parents, expected_overrides)
+
