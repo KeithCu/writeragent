@@ -53,6 +53,10 @@ DESELECTED_K = (
     "test_styling_logging_counts_not_payloads",
     # --strip drops grammar_obs calls, so this grammar_obs assert has nothing to see.
     "test_locale_mismatch_proceeds_and_double_caches",
+    # The bundle has no source extension/Addons.xcu (build_oxt strips Debug from its copy).
+    "test_hamburger_menu_commands_parity_with_addons_xcu",
+    # --strip drops log.info calls, so the TLS-error caplog check sees nothing.
+    "test_handle_error_connection_error_does_not_call_super",
 )
 
 
