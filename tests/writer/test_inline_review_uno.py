@@ -401,38 +401,59 @@ def test_resolve_reject_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno(ctx, doc):
-    """resolve-all must spare a user redline even when it shares a paragraph with an agent change:
-    that change is skipped (left for the native UI) while agent changes in clean paragraphs still
-    resolve."""
+    """resolve-all spares a user redline even when it shares a paragraph with an agent change:
+    non-overlapping agent changes resolve via exact retry while the user's redline remains."""
     _body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
     _tracked_replace(doc, "quick", "fast")                         # user redline in paragraph 1
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
-    user_and_agent_before = _redline_count(doc)
     resolved = resolve_all_agent_changes(doc, ctx, True)
-    assert resolved == 1, "only the clean-paragraph agent change resolves, got %d" % resolved
-    assert has_agent_changes(doc), "the shared-paragraph agent change is left pending"
-    assert _redline_count(doc) < user_and_agent_before, "the clean agent change was resolved"
+    assert resolved == 2, "both agent changes resolve, got %d" % resolved
+    assert not has_agent_changes(doc), "all agent changes resolved"
+    assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
 @native_test
 @with_native_doc("writer")
 def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ctx, doc):
-    """resolve_all_with_feedback must surface a user-facing note when some changes are skipped
-    (they share a paragraph with the user's own redline) -- otherwise the menu/popup click looks
-    like it did nothing. A fully clean resolve-all returns an empty message (no nag)."""
-    # Mixed: one agent change shares paragraph 1 with a user redline (skipped), one is clean.
+    """resolve_all_with_feedback surfaces a user-facing note when overlapping changes are skipped,
+    and returns an empty message when all changes can be resolved."""
+    # Non-overlapping in same paragraph resolves cleanly -> empty message.
     _body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
     _tracked_replace(doc, "quick", "fast")
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
     n, msg = resolve_all_with_feedback(doc, ctx, True)
-    assert n == 1, "only the clean-paragraph agent change resolves, got %d" % n
-    assert msg and "Manage" in msg, "a skipped change must produce a user-facing message: %r" % msg
+    assert n == 2, "both agent changes resolve, got %d" % n
+    assert msg == "", "non-overlapping fixture resolves with an empty message: %r" % msg
+
+    # Overlapping user redline: overlapping agent change stays, clean resolves, user redline remains.
+    _body(doc, ctx, "The quick brown fox.", "Lonely agent clause here.")
+    _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
+    _tracked_replace(doc, "dog", "cat")
+    n_overlap, msg_overlap = resolve_all_with_feedback(doc, ctx, True)
+    assert n_overlap == 1, "only the clean-paragraph agent change resolves, got %d" % n_overlap
+    assert msg_overlap and "Manage" in msg_overlap, "skipped overlapping change must mention Manage: %r" % msg_overlap
+    assert _find(doc, "cat") is not None, "user redline remains"
 
     # All-clean run -> no message.
     _body(doc, ctx, "Clean one.", "Clean two.")
     _agent_edit(doc, ctx, ("Clean one.", "Clean one EDITED."), ("Clean two.", "Clean two EDITED."))
     n2, msg2 = resolve_all_with_feedback(doc, ctx, True)
     assert n2 == 2 and msg2 == "", "all-clean resolve-all returns no message, got n=%d msg=%r" % (n2, msg2)
+
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ctx, doc):
+    """Stacked agent pair plus a non-overlapping user redline in the same paragraph:
+    both agent tokens resolve and the user redline remains."""
+    _body(doc, ctx, "The quick brown fox jumps.")
+    _tracked_replace(doc, "quick", "fast")
+    _agent_edit(doc, ctx, ("fox", "dog"))
+    _agent_edit(doc, ctx, ("dog", "wolf"))
+    resolved = resolve_all_agent_changes(doc, ctx, True)
+    assert resolved == 2, "both agent tokens resolve, got %d" % resolved
+    assert not has_agent_changes(doc), "all agent changes resolved"
+    assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
 # --- fast-travel: count + next/previous navigation -------------------------------------

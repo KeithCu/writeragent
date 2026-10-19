@@ -141,6 +141,15 @@ def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[i
 
 
 
+def redline_date_key(dt: Any) -> tuple[Any, ...] | None:
+    """Extract (Year, Month, Day, Hours, Minutes, Seconds, NanoSeconds) from RedlineDateTime."""
+    if dt is None:
+        return None
+    return tuple(
+        getattr(dt, f, None) for f in ("Year", "Month", "Day", "Hours", "Minutes", "Seconds", "NanoSeconds")
+    )
+
+
 def redline_identity_key(rl: Any) -> tuple[Any, ...]:
     """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
 
@@ -157,10 +166,7 @@ def redline_identity_key(rl: Any) -> tuple[Any, ...]:
         except Exception:
             return None
 
-    dt = prop("RedlineDateTime")
-    when = None if dt is None else tuple(
-        getattr(dt, f, None) for f in ("Year", "Month", "Day", "Hours", "Minutes", "Seconds", "NanoSeconds"))
-    return (rid, prop("RedlineType"), prop("RedlineAuthor"), when, prop("RedlineComment"))
+    return (rid, prop("RedlineType"), prop("RedlineAuthor"), redline_date_key(prop("RedlineDateTime")), prop("RedlineComment"))
 
 
 def _stacked_on_someone_else(rl: Any) -> bool:

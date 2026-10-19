@@ -38,7 +38,7 @@ def _run_loop(tokens, blocked):
         )
         return RedlineView(reliable=True, total=len(rows), rows=rows)
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None):
+    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
         if token in blocked:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), (before or fake_view(model))
         if token in state["tokens"]:
@@ -223,7 +223,7 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None):
+    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
         if token == "A":
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view
         return ResolveResult(ResolveStatus.UNRELIABLE), view
@@ -237,3 +237,83 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
         assert n == 0
         assert "shares a paragraph with" not in msg
         assert "Started resolving changes" in msg
+
+
+def test_resolve_all_exact_retry_and_noop_suppression():
+    rows = (
+        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+    )
+    view = RedlineView(reliable=True, total=2, rows=rows)
+    calls = []
+
+    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
+        calls.append((token, prefer_exact, allow_paragraph_fallback))
+        if token == "A":
+            if not prefer_exact:
+                return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view
+            return ResolveResult(ResolveStatus.NO_OP), view
+        if token == "B":
+            return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view
+        return ResolveResult(ResolveStatus.UNRELIABLE), view
+
+    with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
+         patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
+         patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
+        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+
+    assert res.status == ResolveStatus.REFUSED_FOREIGN
+    assert res.resolved == 0
+    assert calls == [
+        ("A", False, True),
+        ("A", True, False),
+        ("B", False, True),
+    ]
+    with patch("plugin.writer.inline_review._resolve_all_agent_changes", return_value=res):
+        n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
+    assert n == 0
+    assert "None could be resolved here -- each overlaps with one of your own tracked changes" in msg
+
+
+def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count():
+    rows_before = (
+        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+    )
+    view_before = RedlineView(reliable=True, total=2, rows=rows_before)
+    view_after = RedlineView(reliable=True, total=0, rows=())
+
+    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
+        if not prefer_exact:
+            return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view_before
+        return ResolveResult(ResolveStatus.RESOLVED, 2), view_after
+
+    with patch("plugin.writer.inline_review.scan_redline_view", return_value=view_before), \
+         patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
+         patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
+        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+
+    assert res.status == ResolveStatus.RESOLVED
+    assert res.resolved == 2
+
+
+def test_resolve_all_exact_retry_removed_outside_set_stays_partial():
+    rows_before = (
+        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+    )
+    view_before = RedlineView(reliable=True, total=2, rows=rows_before)
+    view_after = RedlineView(reliable=True, total=1, rows=(rows_before[1],))
+
+    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
+        if not prefer_exact:
+            return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view_before
+        return ResolveResult(ResolveStatus.PARTIAL), view_after
+
+    with patch("plugin.writer.inline_review.scan_redline_view", return_value=view_before), \
+         patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
+         patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
+        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+
+    assert res.status == ResolveStatus.PARTIAL
+    assert res.resolved == 1

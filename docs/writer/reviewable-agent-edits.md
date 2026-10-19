@@ -184,9 +184,9 @@ Delete and Insert as two independent rows. WriterAgent adds:
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
-   follows the count-without-previews rule: `pending_agent_change_count` returns this distinct-comment
-   count via `agent_change_presence` without reading text previews with `XTextCursor.getString()`. Its per-document
-   modify listener queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
+   follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
+   count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
+   modify listener (`review_toolbar._schedule_refresh` → `refresh_review_toolbar`) queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.
@@ -215,6 +215,8 @@ redline in the group still refuses. Reject undoes a stacked Delete one layer per
 dispatch repeats over what is left of the group while each pass makes progress; success is claimed
 only when exactly the group is gone. Multi-dispatch resolves (overlapping groups and mixed resolve-all
 loops) are wrapped in a compound undo context so undo restores all resolved edits together in one step.
+
+In bulk resolve (`resolve_all_agent_changes`), changes are attempted paragraph-wide first so clean paragraphs clear sibling agent changes in one dispatch. When a user redline in the paragraph triggers `REFUSED_FOREIGN`, bulk resolve retries with exact bounds. Overlapping user redlines still refuse. If an exact dispatch proves to be a no-op, further exact retries are disabled for the remainder of that run.
 
 On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
 paragraph-wide selection (which resolves every redline in range) and refuses when foreign or

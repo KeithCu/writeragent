@@ -34,6 +34,7 @@ from plugin.writer.inline_review import (
     agent_changes,
     agent_self_resolution_block_reason,
     agent_tokens,
+    cursor_in_agent_change,
     goto_adjacent_agent_change,
     pending_agent_change_count,
     resolve_agent_change,
@@ -157,6 +158,15 @@ class FakeModel:
 
     def getRedlines(self):
         return self._rl
+
+
+class _ViewModel(FakeModel):
+    def __init__(self, redlines):
+        super().__init__(redlines)
+        self.controller = MagicMock()
+
+    def getCurrentController(self):
+        return self.controller
 
 
 # --------------------------------------------------------------------------- _span_contains_point
@@ -513,9 +523,22 @@ def test_scan_redline_view_property_read_counts():
     class _Stamp:
         Year, Month, Day, Hours, Minutes, Seconds, NanoSeconds = 2026, 9, 26, 11, 49, 0, 0
 
+    class CountingFakeRange(FakeRange):
+        def __init__(self, s, e, text=None):
+            super().__init__(s, e, text)
+            self.get_text_reads = 0
+
+        def getText(self):
+            self.get_text_reads += 1
+            return super().getText()
+
     class CountingFakeRedline(FakeRedline):
         def __init__(self, comment, s, e, author="Author", stamp=None):
             super().__init__(comment, s, e)
+            self.start_range = CountingFakeRange(s, s)
+            self.end_range = CountingFakeRange(e, e)
+            self._props["RedlineStart"] = self.start_range
+            self._props["RedlineEnd"] = self.end_range
             self._props["RedlineAuthor"] = author
             self._props["RedlineDateTime"] = stamp
             self.reads: Counter[str] = Counter()
@@ -530,16 +553,48 @@ def test_scan_redline_view_property_read_counts():
     assert view_agent.reliable is True
     assert agent_rl.reads["RedlineAuthor"] == 0
     assert agent_rl.reads["RedlineDateTime"] == 0
+    assert agent_rl.reads["RedlineIdentifier"] == 0
+    assert agent_rl.reads["RedlineType"] == 0
+    assert agent_rl.start_range.get_text_reads == 0
     assert agent_rl.reads["RedlineComment"] == 1
-    assert agent_rl.reads["RedlineIdentifier"] == 1
-    assert agent_rl.reads["RedlineType"] == 1
+    assert agent_rl.reads["RedlineStart"] == 1
+    assert agent_rl.reads["RedlineEnd"] == 1
     assert view_agent.rows[0].identity is None
 
+    # preview=True adds one type read
+    agent_rl_preview = CountingFakeRedline(TOKEN_PREFIX + "s:1", 0, 5)
+    model_agent_preview = FakeModel(FakeRedlines([agent_rl_preview]))
+    view_agent_preview = scan_redline_view(model_agent_preview, preview=True)
+    assert view_agent_preview.reliable is True
+    assert agent_rl_preview.reads["RedlineType"] == 1
+
+    # Foreign row reads identifier, type, author, date once each; comment is not read twice
     user_rl = CountingFakeRedline("user note", 10, 15, author="Alice", stamp=_Stamp)
     model_user = FakeModel(FakeRedlines([user_rl]))
     view_user = scan_redline_view(model_user)
     assert view_user.reliable is True
+    assert user_rl.reads["RedlineComment"] == 1
+    assert user_rl.reads["RedlineIdentifier"] == 1
+    assert user_rl.reads["RedlineType"] == 1
+    assert user_rl.reads["RedlineAuthor"] == 1
+    assert user_rl.reads["RedlineDateTime"] == 1
     assert view_user.rows[0].identity == redline_identity_key(user_rl)
+
+    # cursor_in_agent_change on default view does not call getText(); goto_adjacent_agent_change still will
+    model = _ViewModel(FakeRedlines([agent_rl]))
+    vc = MagicMock()
+    vc.getText.return_value = FakeText()
+    vc.getStart.return_value = FakeRange(2, 2)
+    model.controller.getViewCursor.return_value = vc
+
+    agent_rl.start_range.get_text_reads = 0
+    token = cursor_in_agent_change(model, view=view_agent)
+    assert token == TOKEN_PREFIX + "s:1"
+    assert agent_rl.start_range.get_text_reads == 0
+
+    next_tok = goto_adjacent_agent_change(model, forward=True)
+    assert next_tok == TOKEN_PREFIX + "s:1"
+    assert agent_rl.start_range.get_text_reads > 0
 
 
 
@@ -736,14 +791,6 @@ def test_redline_is_agent_change_unreadable_fails_closed():
 
 
 # ------------------------------------------------ overlapping agent changes resolve together (#36)
-
-class _ViewModel(FakeModel):
-    def __init__(self, redlines):
-        super().__init__(redlines)
-        self.controller = MagicMock()
-
-    def getCurrentController(self):
-        return self.controller
 
 
 def _overlap_doc(*extra):

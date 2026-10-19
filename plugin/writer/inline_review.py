@@ -115,29 +115,23 @@ def _review_message(
     if status == ResolveStatus.NO_OP:
         return _("Nothing was changed. Resolve remaining changes from Edit > Track Changes > Manage.")
 
-    if status in (ResolveStatus.REFUSED_FOREIGN, ResolveStatus.REFUSED_SIBLING, ResolveStatus.NOT_ELIGIBLE):
-        if is_all:
-            if resolved == 0:
-                return _(
-                    "None could be resolved here -- each shares a paragraph with one of your own"
-                    " tracked changes. Resolve them from Edit > Track Changes > Manage."
-                )
+    if is_all:
+        if resolved == 0:
             return _(
-                "Resolved %d of %d. The rest share a paragraph with your own tracked changes --"
-                " resolve those from Edit > Track Changes > Manage."
-            ) % (resolved, total)
+                "None could be resolved here -- each overlaps with one of your own"
+                " tracked changes. Resolve them from Edit > Track Changes > Manage."
+            )
         return _(
-            "Could not resolve this change here -- it may share a paragraph with one of"
-            " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
-        )
-
+            "Resolved %(resolved)d of %(total)d. The rest overlap with your own tracked changes --"
+            " resolve those from Edit > Track Changes > Manage."
+        ) % {"resolved": resolved, "total": total}
     return _(
         "Could not resolve this change here -- it may share a paragraph with one of"
         " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
     )
 
 
-def scan_redline_view(model: Any) -> RedlineView:
+def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
     """Build a snapshot of document redlines without reading change text."""
     rows: list[RedlineRow] = []
 
@@ -145,27 +139,50 @@ def scan_redline_view(model: Any) -> RedlineView:
         comment_raw = rl.getPropertyValue("RedlineComment")
         comment_str = str(comment_raw) if comment_raw is not None else None
         token = comment_str if (comment_str and _review_scan.is_agent_token(comment_str)) else None
-        identifier = rl.getPropertyValue("RedlineIdentifier")
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
-        kind_raw = rl.getPropertyValue("RedlineType")
-        kind = str(kind_raw) if kind_raw is not None else None
-        text = None
-        if start is not None:
+
+        if token is not None:
+            kind = None
+            if preview:
+                kind_raw = rl.getPropertyValue("RedlineType")
+                kind = str(kind_raw) if kind_raw is not None else None
+            rows.append(
+                RedlineRow(
+                    token=token,
+                    identifier=None,
+                    start=start,
+                    end=end,
+                    kind=kind,
+                    text=None,
+                    identity=None,
+                )
+            )
+            return True
+
+        rid = rl.getPropertyValue("RedlineIdentifier")
+
+        def prop(name: str) -> Any:
             try:
-                text = start.getText()
+                return rl.getPropertyValue(name)
             except Exception:
-                text = None
-        # Tip: only foreign rows need the identity key; skip the property reads for agent rows.
-        identity = _review_scan.redline_identity_key(rl) if token is None else None
+                return None
+
+        identity = (
+            rid,
+            prop("RedlineType"),
+            prop("RedlineAuthor"),
+            _review_scan.redline_date_key(prop("RedlineDateTime")),
+            comment_raw,
+        )
         rows.append(
             RedlineRow(
-                token=token,
-                identifier=identifier,
+                token=None,
+                identifier=None,
                 start=start,
                 end=end,
-                kind=kind,
-                text=text,
+                kind=None,
+                text=None,
                 identity=identity,
             )
         )
@@ -306,7 +323,7 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
 
     Primarily a preview helper for tests.
     """
-    view = scan_redline_view(model)
+    view = scan_redline_view(model, preview=True)
     grouped: dict[str, dict[str, Any]] = {}
     for r in view.rows:
         if r.token is None:
@@ -315,7 +332,9 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
         if r.start is None or r.end is None:
             continue
         try:
-            t = r.text if r.text is not None else r.start.getText()
+            t = _row_text(r)
+            if t is None:
+                continue
             span = t.createTextCursorByRange(r.start)
             span.gotoRange(r.end, True)
             text = span.getString()
@@ -421,7 +440,7 @@ def goto_agent_change(model: Any, token: str, view: RedlineView | None = None) -
 
 
 def pending_agent_change_count(model: Any) -> int:
-    """How many agent changes are still pending review -- the toolbar's live counter."""
+    """Distinct pending agent changes in the document (for callers and tests)."""
     count, _reliable = _review_scan.agent_change_presence(model)
     return count
 
@@ -562,6 +581,7 @@ def _classify_span_conflicts(
     span: Any,
     target_token: str | None,
     strict_sibling_edges: bool = False,
+    sibling_tokens: set[str] | None = None,
 ) -> tuple[bool, bool]:
     """Classify redline rows against span. Returns (has_foreign_conflict, has_sibling_conflict)."""
     if isinstance(rows, RedlineView):
@@ -616,6 +636,8 @@ def _classify_span_conflicts(
         if overlaps:
             if is_sibling:
                 has_sibling = True
+                if sibling_tokens is not None and r.token is not None:
+                    sibling_tokens.add(r.token)
             else:
                 return True, False
     return False, has_sibling
@@ -661,6 +683,8 @@ def resolve_agent_change(
     refuse_sibling_agent: bool = True,
     prefer_exact: bool = True,
     before: RedlineView | None = None,
+    *,
+    allow_paragraph_fallback: bool = True,
 ) -> tuple[ResolveResult, RedlineView]:
     """Accept/reject ONE agent change by token.
 
@@ -690,8 +714,9 @@ def resolve_agent_change(
         if prefer_exact:
             exact = text.createTextCursorByRange(left)
             exact.gotoRange(right, True)
+            strict_siblings: set[str] = set()
             has_foreign, has_sibling = _classify_span_conflicts(
-                before.rows, text, exact, token, strict_sibling_edges=True
+                before.rows, text, exact, token, strict_sibling_edges=True, sibling_tokens=strict_siblings
             )
             if has_foreign:
                 log.debug("inline_review: refusing inline resolve of %s -- user redline overlaps", token)
@@ -713,12 +738,16 @@ def resolve_agent_change(
             after = scan_redline_view(model)
             removed, foreign_safe = _token_delta(before, after)
 
-            if removed == {token} and after.reliable and foreign_safe:
-                return ResolveResult(ResolveStatus.RESOLVED, 1), after
+            if token in removed and (removed - {token}) <= strict_siblings and after.reliable and foreign_safe:
+                return ResolveResult(ResolveStatus.RESOLVED, len(removed)), after
             if removed or not after.reliable or not foreign_safe:
                 log.warning("inline_review: exact resolve of %s had post-dispatch failure (removed=%s, reliable=%s, foreign_safe=%s)",
                             token, removed, after.reliable, foreign_safe)
                 return ResolveResult(ResolveStatus.PARTIAL), after
+
+            if not allow_paragraph_fallback:
+                log.debug("inline_review: exact resolve of %s was no-op (fallback disabled)", token)
+                return ResolveResult(ResolveStatus.NO_OP), after
 
             log.debug("inline_review: exact resolve of %s was no-op; widening to paragraph", token)
 
@@ -955,6 +984,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     skip_reasons: dict[str, ResolveStatus] = {}
     dispatched = False
     cur_view = entry_view
+    exact_unsupported = False
 
     with _grouped_resolve_undo(model):
         # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip`, so pending
@@ -978,6 +1008,22 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
             res, next_view = resolve_agent_change(
                 model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False, before=cur_view
             )
+            if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
+                # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
+                exact_res, exact_view = resolve_agent_change(
+                    model,
+                    ctx,
+                    token,
+                    accept,
+                    refuse_sibling_agent=False,
+                    prefer_exact=True,
+                    before=cur_view,
+                    allow_paragraph_fallback=False,
+                )
+                if exact_res.status == ResolveStatus.NO_OP:
+                    exact_unsupported = True
+                else:
+                    res, next_view = exact_res, exact_view
             # A dispatch was attempted once status is in this set.
             if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
                 dispatched = True
