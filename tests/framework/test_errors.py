@@ -193,6 +193,25 @@ class TestErrorHandling:
         assert "Request Timeout" not in formula
         assert "formula evaluation timed out" in formula
 
+    def test_format_error_message_oserror_filesystem_vs_transport(self):
+        import errno
+        import socket
+        from plugin.framework.errors import format_error_message
+
+        # Filesystem errors fall through to the raw message without "Connection Error:"
+        assert format_error_message(FileExistsError("cache exists")) == "cache exists"
+        assert "Connection Error" not in format_error_message(BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable"))
+        assert "Connection Error" not in format_error_message(OSError(errno.ENOSPC, "No space left on device"))
+        assert format_error_message(OSError("disk full")) == "disk full"
+        assert format_error_message(OSError()) == "OSError"
+
+        # Transport errors retain Connection Error: or specific sentences
+        assert "Connection Error" in format_error_message(ConnectionResetError("Connection reset by peer"))
+        assert "Connection Error" in format_error_message(OSError(errno.EHOSTUNREACH, "No route to host"))
+        assert "Connection Error" in format_error_message(socket.gaierror(socket.EAI_NONAME, "Name or service not known"))
+        refused_msg = format_error_message(OSError("connection refused"))
+        assert "Connection Refused" in refused_msg
+
     def test_format_error_message_socket_timeout_vs_host_timeout(self):
         import socket
         from plugin.framework.errors import format_error_message
@@ -637,6 +656,84 @@ class TestSuppressDisposed:
         assert (is_tool_document_disposed(CustomRuntimeException(""), None))
         assert (is_tool_document_disposed(CustomRuntimeException(""), DeadDoc()))
         assert not (is_tool_document_disposed(ValueError("Bad value"), live))
+
+    def test_disposal_predicates_truth_table(self):
+        from plugin.framework.errors import (
+            DocumentDisposedError,
+            is_disposed_exception,
+            is_document_disposed,
+            is_real_disposal,
+            is_tool_document_disposed,
+        )
+
+        class CustomDisposedException(Exception):
+            pass
+
+        class CustomRuntimeException(Exception):
+            pass
+
+        class NoCallableDoc:
+            getImplementationName = "not_callable"
+
+        class LiveDoc:
+            def getImplementationName(self):
+                return "SwXTextDocument"
+
+        class DisposedProbeDoc:
+            def getImplementationName(self):
+                raise CustomDisposedException("gone")
+
+        class RuntimeProbeDoc:
+            def getImplementationName(self):
+                raise CustomRuntimeException("probe failed")
+
+        docs = [
+            ("none", None, True),
+            ("no_callable", NoCallableDoc(), False),
+            ("live", LiveDoc(), False),
+            ("disposed_probe", DisposedProbeDoc(), True),
+            ("runtime_probe", RuntimeProbeDoc(), False),
+        ]
+
+        # Verify is_document_disposed directly on each document
+        for _doc_name, doc_obj, expected_doc_disposed in docs:
+            assert is_document_disposed(doc_obj) is expected_doc_disposed
+
+        # Exception kinds: (exc, expected_real, expected_disposed_exc)
+        exceptions: list[tuple[str, BaseException, bool, bool]] = [
+            ("DocumentDisposedError", DocumentDisposedError("gone"), True, True),
+            ("DisposedException", CustomDisposedException("disposed"), True, True),
+            ("RuntimeException", CustomRuntimeException("runtime"), False, True),
+            ("ValueError", ValueError("bad value"), False, False),
+        ]
+
+        try:
+            import uno  # noqa: F401
+            from com.sun.star.lang import IllegalArgumentException
+
+            exceptions.append(("IllegalArgumentException", IllegalArgumentException("arg"), False, False))
+        except (ImportError, AttributeError):
+            pass
+
+        for exc_name, exc, exp_real, exp_disposed_exc in exceptions:
+            assert is_real_disposal(exc) is exp_real, f"{exc_name} is_real_disposal mismatch"
+            assert is_disposed_exception(exc) is exp_disposed_exc, f"{exc_name} is_disposed_exception mismatch"
+
+            for doc_name, doc_obj, exp_doc_disposed in docs:
+                # Expected tool document disposed logic:
+                if not exp_disposed_exc:
+                    expected_tool_disposed = False
+                elif exp_real:
+                    expected_tool_disposed = True
+                elif not exp_doc_disposed and doc_obj is not None:
+                    expected_tool_disposed = False
+                else:
+                    expected_tool_disposed = True
+
+                actual = is_tool_document_disposed(exc, doc_obj)
+                assert (
+                    actual is expected_tool_disposed
+                ), f"is_tool_document_disposed failed for {exc_name} x {doc_name}: expected {expected_tool_disposed}, got {actual}"
 
     def test_suppress_disposed_with_disposed_error(self):
         from plugin.framework.errors import (

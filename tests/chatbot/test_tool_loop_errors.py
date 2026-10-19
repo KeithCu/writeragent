@@ -152,7 +152,42 @@ def test_document_context_error_handling(test_instance, mock_get_tools):
         test_instance._do_send_chat_with_tools("test", "test_model", "writer")
 
         assert test_instance._terminal_status == "Error"
-        assert any("[Error reading document: Failed to get document context]" in r for r in test_instance.responses)
+        assert any("[Error reading document: Something bad]" in r for r in test_instance.responses)
+
+        class MockRuntimeException(Exception):
+            pass
+        MockRuntimeException.__name__ = "RuntimeException"
+
+        class MockDisposedException(Exception):
+            pass
+        MockDisposedException.__name__ = "DisposedException"
+
+        class LiveDoc:
+            def getImplementationName(self):
+                return "SwXTextDocument"
+
+        class DeadDoc:
+            def getImplementationName(self):
+                raise MockDisposedException("doc gone")
+
+        # RuntimeException against live doc -> reading-error, not closed
+        test_instance.responses.clear()
+        test_instance._terminal_status = None
+        mock_refresh.side_effect = MockRuntimeException("bridge broke")
+        test_instance._do_send_chat_with_tools("test", LiveDoc(), "writer")
+
+        assert test_instance._terminal_status == "Error"
+        assert any("[Error reading document: bridge broke]" in r for r in test_instance.responses)
+        assert not any("[Document closed or unavailable.]" in r for r in test_instance.responses)
+
+        # RuntimeException against dead doc -> closed
+        test_instance.responses.clear()
+        test_instance._terminal_status = None
+        mock_refresh.side_effect = MockRuntimeException("bridge broke")
+        test_instance._do_send_chat_with_tools("test", DeadDoc(), "writer")
+
+        assert test_instance._terminal_status == "Error"
+        assert any("[Document closed or unavailable.]" in r for r in test_instance.responses)
 
 def test_audio_handling_error(test_instance, mock_get_tools):
     mock_get_tools.get_schemas.return_value = [{"name": "test_tool"}]

@@ -23,6 +23,7 @@ All custom exceptions should inherit from WriterAgentException.
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 from typing import Any, Callable, TypeVar, overload
 
@@ -46,6 +47,33 @@ try:
 except (ImportError, AttributeError):
     UNO_DISPOSED_EXCEPTIONS = ()
 
+_FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
+    val
+    for name in ("ENOSPC", "ENOTEMPTY", "EROFS", "EDQUOT", "EFBIG", "ENAMETOOLONG", "EBUSY")
+    if (val := getattr(errno, name, None)) is not None
+)
+_TRANSPORT_ERRNOS: frozenset[int] = frozenset(
+    val
+    for name in ("EHOSTUNREACH", "ENETUNREACH", "EINTR")
+    if (val := getattr(errno, name, None)) is not None
+)
+_FILESYSTEM_CLASSES: tuple[type[BaseException], ...] = (
+    FileNotFoundError,
+    PermissionError,
+    IsADirectoryError,
+    NotADirectoryError,
+    FileExistsError,
+    BlockingIOError,
+)
+
+
+def _has_disposal_name(exc: BaseException) -> bool:
+    return "DisposedException" in type(exc).__name__
+
+
+def _has_runtime_teardown_name(exc: BaseException) -> bool:
+    return "RuntimeException" in type(exc).__name__
+
 
 def is_disposed_exception(exc: BaseException) -> bool:
     """Return True if exc represents a UNO object disposal or runtime teardown exception.
@@ -66,8 +94,7 @@ def is_disposed_exception(exc: BaseException) -> bool:
         return True
     if UNO_DISPOSED_EXCEPTIONS and isinstance(exc, UNO_DISPOSED_EXCEPTIONS):
         return True
-    exc_name = type(exc).__name__
-    return "DisposedException" in exc_name or "RuntimeException" in exc_name
+    return _has_disposal_name(exc) or _has_runtime_teardown_name(exc)
 
 
 _T = TypeVar("_T")
@@ -404,7 +431,7 @@ def _is_connection_refused(exc: BaseException, reason: str) -> bool:
         return True
     if getattr(nested, "errno", None) == errno.ECONNREFUSED:
         return True
-    return "Connection refused" in reason
+    return "connection refused" in reason.lower()
 
 
 def _is_socket_timeout_phrase(text: str) -> bool:
@@ -479,45 +506,56 @@ def format_error_message(e: BaseException) -> str:
         return _("Script execution blocked by sandbox policy: {0}").format(getattr(e, "message", str(e)))
 
     # Filesystem errors are not a down local server. Match connection-shaped
-    # OSError, not FileNotFoundError or PermissionError.
-    if isinstance(e, (urllib.error.URLError, OSError)) and not isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
-        # URLError is not itself a socket.timeout; the timeout is e.reason.
-        # Check that before the connection-error sentence, or a wrapped
-        # timeout tells the user the server is down.
-        reason_obj: BaseException | None
-        if isinstance(e, urllib.error.URLError):
-            raw_reason = getattr(e, "reason", None)
-            reason_obj = raw_reason if isinstance(raw_reason, BaseException) else None
-        else:
-            reason_obj = e
-        if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
-            msg_obj = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
-            if _is_socket_timeout_phrase(msg_obj):
+    # transport errors, not filesystem classes or errnos.
+    reason_obj: BaseException | None
+    if isinstance(e, urllib.error.URLError):
+        raw_reason = getattr(e, "reason", None)
+        reason_obj = raw_reason if isinstance(raw_reason, BaseException) else None
+    else:
+        reason_obj = e if isinstance(e, BaseException) else None
+
+    if UNDER_CROSSHAIR:
+        reason = "mock"
+    elif reason_obj is not None:
+        reason = resolve_exception_message(reason_obj)
+    elif isinstance(e, urllib.error.URLError):
+        reason = str(getattr(e, "reason", None) or e)
+    else:
+        reason = str(e)
+
+    is_fs = isinstance(e, _FILESYSTEM_CLASSES) or (getattr(e, "errno", None) in _FILESYSTEM_ERRNOS)
+    if isinstance(e, (urllib.error.URLError, OSError)) and not is_fs:
+        is_transport = (
+            isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.gaierror, socket.herror))
+            or (getattr(e, "errno", None) in _TRANSPORT_ERRNOS)
+            or ("timed out" in reason.lower() and "formula" not in reason.lower())
+            or _is_connection_refused(e, reason)
+            or ("getaddrinfo failed" in reason.lower())
+        )
+        if is_transport:
+            # URLError is not itself a socket.timeout; the timeout is e.reason.
+            # Check that before the connection-error sentence, or a wrapped
+            # timeout tells the user the server is down.
+            if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
+                msg_obj = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
+                if _is_socket_timeout_phrase(msg_obj):
+                    return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
+                return msg_obj
+            # urllib.request wraps a certificate failure as URLError(reason=SSLError).
+            # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
+            # and hide the TLS sentence.
+            if isinstance(reason_obj, ssl.SSLError):
+                tls = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
+                return _("TLS/SSL Error: {0}").format(tls)
+            if "timed out" in reason.lower() and "formula" not in reason.lower():
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-            return msg_obj
-        # urllib.request wraps a certificate failure as URLError(reason=SSLError).
-        # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
-        # and hide the TLS sentence.
-        if isinstance(reason_obj, ssl.SSLError):
-            tls = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
-            return _("TLS/SSL Error: {0}").format(tls)
-        if UNDER_CROSSHAIR:
-            reason = "mock"
-        elif reason_obj is not None:
-            reason = resolve_exception_message(reason_obj)
-        elif isinstance(e, urllib.error.URLError):
-            reason = str(getattr(e, "reason", None) or e)
-        else:
-            reason = str(e)
-        if "timed out" in reason.lower() and "formula" not in reason.lower():
-            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-        # Errno text and unrelated messages both contain "111" (port 1111).
-        # Match the errno or the words, not that substring.
-        if _is_connection_refused(e, reason):
-            return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
-        if "getaddrinfo failed" in reason:
-            return _("DNS Error. Could not resolve the endpoint URL.")
-        return _("Connection Error: {0}").format(reason)
+            # Errno text and unrelated messages both contain "111" (port 1111).
+            # Match the errno or the words, not that substring.
+            if _is_connection_refused(e, reason):
+                return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
+            if "getaddrinfo failed" in reason.lower():
+                return _("DNS Error. Could not resolve the endpoint URL.")
+            return _("Connection Error: {0}").format(reason)
 
     lower = msg.lower()
     if "venv not found" in lower or "no python executable found" in lower:
@@ -631,6 +669,16 @@ def check_not_none(model: Any, context_name: str = "Object") -> None:
 check_disposed = check_not_none
 
 
+def is_real_disposal(exc: BaseException) -> bool:
+    """True only for DisposedException / DocumentDisposedError.
+
+    A bare UNO RuntimeException on a live document is a real error. Mapping it
+    to DocumentDisposedError made is_tool_document_disposed skip the live-doc
+    check and report "Document was closed".
+    """
+    return isinstance(exc, DocumentDisposedError) or _has_disposal_name(exc)
+
+
 def is_document_disposed(doc: Any) -> bool:
     """Safely check if a UNO document or component is disposed or invalid."""
     if doc is None:
@@ -642,10 +690,7 @@ def is_document_disposed(doc: Any) -> bool:
         _unused = impl_fn()
         return False
     except Exception as exc:
-        # A live document can raise RuntimeException for a bad call.
-        # Only a disposal exception means the document is gone.
-        name = type(exc).__name__
-        return isinstance(exc, DocumentDisposedError) or "DisposedException" in name
+        return is_real_disposal(exc)
 
 
 def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
@@ -659,24 +704,11 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     """
     if not is_disposed_exception(exc):
         return False
-    # "DocumentDisposedError" does not contain "DisposedException", so the
-    # name test alone would let a live-doc probe hide this type. The
-    # exception already says the object was disposed.
-    if isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__:
+    if is_real_disposal(exc):
         return True
     if doc is not None and not is_document_disposed(doc):
         return False
     return True
-
-
-def is_real_disposal(exc: BaseException) -> bool:
-    """True only for DisposedException / DocumentDisposedError.
-
-    A bare UNO RuntimeException on a live document is a real error. Mapping it
-    to DocumentDisposedError made is_tool_document_disposed skip the live-doc
-    check and report "Document was closed".
-    """
-    return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
 
 
 def _uno_disposal_message(exc: BaseException) -> str:

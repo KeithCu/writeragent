@@ -36,7 +36,6 @@ def test_report_script_dialog_error_shows_the_exception():
     with (
         patch.object(ui, "set_control_text") as mock_set_text,
         patch.object(ui, "msgbox") as mock_box,
-        patch("plugin.framework.errors.is_disposed_exception", return_value=False),
     ):
         ui._report_script_dialog_error(ctx, dlg, RuntimeError("disk full"), "Save")
     mock_set_text.assert_called_once_with(lbl, "disk full")
@@ -47,13 +46,43 @@ def test_report_script_dialog_error_disposed_document():
     ctx = MagicMock()
     dlg = MagicMock()
     dlg.getControl.return_value = None
-    with (
-        patch.object(ui, "msgbox") as mock_box,
-        patch("plugin.framework.errors.is_disposed_exception", return_value=True),
-    ):
-        ui._report_script_dialog_error(ctx, dlg, RuntimeError("disposed"), "Delete")
+
+    class MockDisposedException(Exception):
+        pass
+
+    MockDisposedException.__name__ = "DisposedException"
+
+    with patch.object(ui, "msgbox") as mock_box:
+        ui._report_script_dialog_error(ctx, dlg, MockDisposedException("disposed"), "Delete")
     mock_box.assert_called_once()
     assert "no longer open" in mock_box.call_args.args[2]
+
+
+def test_report_script_dialog_error_runtime_exception_live_doc_vs_none_doc():
+    ctx = MagicMock()
+    dlg = MagicMock()
+    lbl = MagicMock()
+    dlg.getControl.return_value = lbl
+
+    class MockRuntimeException(Exception):
+        pass
+
+    MockRuntimeException.__name__ = "RuntimeException"
+
+    class LiveDoc:
+        def getImplementationName(self):
+            return "SwXTextDocument"
+
+    # Live doc shows the exception text
+    with patch.object(ui, "set_control_text") as mock_set_text:
+        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("live error"), "Save", doc=LiveDoc())
+    mock_set_text.assert_called_once_with(lbl, "live error")
+
+    # doc=None is "no longer open"
+    with patch.object(ui, "set_control_text") as mock_set_text:
+        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("missing doc"), "Save", doc=None)
+    mock_set_text.assert_called_once()
+    assert "no longer open" in mock_set_text.call_args.args[1]
 
 
 def test_native_dialog_window_closing_does_not_dispose():

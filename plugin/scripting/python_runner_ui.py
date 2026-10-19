@@ -102,12 +102,12 @@ def _builtin_helpers_readonly_text() -> str:
     return read_only_helper_message()
 
 
-def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
+def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
     """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
     log.exception("%s failed in dialog", where)
-    from plugin.framework.errors import is_disposed_exception
+    from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
 
-    text = _("The document is no longer open.") if is_disposed_exception(exc) else str(exc)
+    text = _("The document is no longer open.") if is_tool_document_disposed(exc, doc) else resolve_exception_message(exc)
     lbl = dlg.getControl("InstructionLbl")
     if lbl is not None:
         set_control_text(lbl, text)
@@ -601,7 +601,7 @@ class NativePythonScriptDialog:
                 if res.text:
                     set_control_text(lbl, res.text)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save")
+                _report_script_dialog_error(ctx, dlg, exc, "Save", doc=owner._doc)
 
         def _on_save_as() -> None:
             try:
@@ -638,7 +638,7 @@ class NativePythonScriptDialog:
                     user_success_msg=_("Script '%s' saved to My Scripts."),
                 )
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save As")
+                _report_script_dialog_error(ctx, dlg, exc, "Save As", doc=owner._doc)
 
         def _on_delete() -> None:
             try:
@@ -679,7 +679,7 @@ class NativePythonScriptDialog:
                     owner._refresh_script_dropdown()
                     set_control_text(lbl, _("Script '%s' deleted.") % real_name)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Delete")
+                _report_script_dialog_error(ctx, dlg, exc, "Delete", doc=owner._doc)
 
         def _on_new() -> None:
             try:
@@ -704,7 +704,7 @@ class NativePythonScriptDialog:
                     if ec is not None:
                         set_control_text(ec, starter_code)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "New script")
+                _report_script_dialog_error(ctx, dlg, exc, "New script", doc=owner._doc)
 
         def _on_cancel() -> None:
             log.debug("native script dialog: BtnCancel")

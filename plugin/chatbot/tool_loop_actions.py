@@ -38,8 +38,8 @@ from plugin.framework.errors import (
     UnoObjectError,
     best_effort,
     format_error_payload,
-    is_disposed_exception,
     is_tool_document_disposed,
+    resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import capture_send_stop, execute_on_main_thread
@@ -707,6 +707,7 @@ class ToolLoopEffectInterpreter:
             # Clear replaced the message list, or the turn was aborted.
             # Do not write [DOCUMENT CONTENT] onto the wiped chat.
             return True
+        doc = None
         try:
             # The frame document is the live snapshot. The model captured on
             # the turn is what tool workers run against. Every action host has
@@ -718,11 +719,12 @@ class ToolLoopEffectInterpreter:
             session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if isinstance(exc, UnoObjectError) or is_tool_document_disposed(exc, doc):
                 log.debug("Tool loop: document disposed during context refresh", exc_info=True)
+                host._append_response("\n[Document closed or unavailable.]\n")
             else:
                 log.exception("Tool loop: failed to refresh document context after mutating tool")
-            host._append_response("\n[Document closed or unavailable.]\n")
+                host._append_response(f"\n[Error reading document: {resolve_exception_message(exc)}]\n")
             host._terminal_status = "Error"
             host._set_status("Error")
             return True

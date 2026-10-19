@@ -181,6 +181,21 @@ def test_update_document_context_effect_stops_when_document_is_gone():
     assert host.session.refresh_calls == []
 
 
+def test_update_document_context_effect_reports_error_on_unexpected_refresh_failure():
+    host = FakeHost()
+
+    def failing_refresh(model, ctx):
+        raise ValueError("Corrupt section tree")
+
+    host.session.refresh_document_context = failing_refresh
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is True
+    assert host.appended[-1][0] == "\n[Error reading document: Corrupt section tree]\n"
+    assert host._terminal_status == "Error"
+    assert host.statuses[-1] == "Error"
+
+
 def test_spawn_llm_worker_effect_refreshes_tools_before_spawning():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)
