@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.transform_schema import (
     AUTOLAYOUT_ID,
@@ -331,7 +332,7 @@ def _calculate_text_selection_span(text: str, int_spec: list[int]) -> tuple[int,
     Tip: drviews2.cxx SelectText normalizes oversized indexes with EE_TEXTPOS_MAX,
     but clamping would format text the command did not name. Error instead.
     """
-    paras = text.replace("\r\n", "\n").split("\n")
+    paras = normalize_linebreaks(text).split("\n")
     num_paras = len(paras)
 
     def _para_start(p_idx: int) -> int:

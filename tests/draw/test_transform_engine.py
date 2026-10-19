@@ -1213,5 +1213,28 @@ def test_edit_text_object_empty_array_returns_own_message_not_stale_warning() ->
     assert msg != "Stale planted warning"
 
 
+def test_select_text_span_with_crlf_and_cr_linebreaks() -> None:
+    # Tip: Impress/Draw text can expose CRLF or CR linebreaks; selection spans match LF offsets.
+    from plugin.draw.transform_engine import _calculate_text_selection_span
+
+    paras = ["first", "second", "third"]
+    for sep in ("\n", "\r\n", "\r"):
+        text = sep.join(paras)
+        span_p1 = _calculate_text_selection_span(text, [1])
+        assert isinstance(span_p1, tuple)
+        start, end, mode = span_p1
+        assert start == len("first") + 1
+        assert end == start + len("second")
+        assert mode == "range"
+
+        span_cross = _calculate_text_selection_span(text, [0, 2, 1, 3])
+        assert isinstance(span_cross, tuple)
+        c_start, c_end, c_mode = span_cross
+        assert c_start == 2
+        assert c_end == len("first") + 1 + 3
+        assert c_mode == "range"
+
+
+
 
 
