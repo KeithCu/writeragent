@@ -203,7 +203,7 @@ def slim_librepy_smolagents_init(bundle_plugin_dir: str) -> None:
     init_path = os.path.join(bundle_plugin_dir, "contrib", "smolagents", "__init__.py")
     if not os.path.isfile(init_path):
         raise FileNotFoundError("LibrePy bundle missing smolagents __init__: %s" % init_path)
-    with open(init_path, "w", encoding="utf-8") as fh:
+    with open(init_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(LIBREPY_SMOLAGENTS_INIT)
 
 

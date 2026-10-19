@@ -162,22 +162,23 @@ def iter_libreharper_vendor_packages(vendor_dir: str) -> list[str]:
 def slim_libreharper_package_inits(bundle_plugin_dir: str) -> None:
     """Replace heavy package __init__ files with stubs for the Harper-only OXT."""
     writer_init = os.path.join(bundle_plugin_dir, "writer", "__init__.py")
+    # Tip: newline="\n" keeps the stubs byte-identical in OXTs built on Windows.
     os.makedirs(os.path.dirname(writer_init), exist_ok=True)
-    with open(writer_init, "w", encoding="utf-8") as fh:
+    with open(writer_init, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(LIBREHARPER_WRITER_INIT)
 
     doc_init = os.path.join(bundle_plugin_dir, "doc", "__init__.py")
     os.makedirs(os.path.dirname(doc_init), exist_ok=True)
-    with open(doc_init, "w", encoding="utf-8") as fh:
+    with open(doc_init, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(LIBREHARPER_DOC_INIT)
 
     client_dir = os.path.join(bundle_plugin_dir, "framework", "client")
     os.makedirs(client_dir, exist_ok=True)
-    with open(os.path.join(client_dir, "__init__.py"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(client_dir, "__init__.py"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(LIBREHARPER_CLIENT_INIT)
 
     # scripting/venv stays a package so optional empty package layout matches WriterAgent.
     venv_init = os.path.join(bundle_plugin_dir, "scripting", "venv", "__init__.py")
     if not os.path.isfile(venv_init):
-        with open(venv_init, "w", encoding="utf-8") as fh:
+        with open(venv_init, "w", encoding="utf-8", newline="\n") as fh:
             fh.write('"""Empty venv package stub (LibreHarper; Harper lives under writer.locale)."""\n')
