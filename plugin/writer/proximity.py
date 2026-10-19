@@ -30,7 +30,7 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.writer.tree import _heading_tree_fingerprint
+from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint
 
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
@@ -154,7 +154,8 @@ class ProximityService(ServiceBase):
             raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
         tree = self._tree_svc.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+        indices = _collect_heading_indices(tree)
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, heading_para_indices=indices)
         flat = self._flatten_tree(tree, doc)
 
         if not flat:
@@ -295,15 +296,18 @@ class ProximityService(ServiceBase):
 
         bookmark_map = {}
         if "headings" in include:
-            tree = self._tree_svc.build_heading_tree(doc)
-            bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+            tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
+            indices = _collect_heading_indices(tree)
+            bookmark_map = self._bm_svc.ensure_heading_bookmarks(
+                doc, heading_para_indices=indices, para_ranges=para_ranges
+            )
             flat = self._flatten_tree(tree, doc)
             ctx_idx, _unused = self._find_heading_context(flat, center_idx)
             result["heading_chain"] = self._get_heading_chain(flat, ctx_idx, bookmark_map)
 
         if "paragraphs" in include:
             if not bookmark_map:
-                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
+                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc, para_ranges=para_ranges)
             paragraphs = []
             for i in range(start_idx, end_idx + 1):
                 el = para_ranges[i]

@@ -107,7 +107,7 @@ def get_paragraph_ranges(model: Any) -> list[Any]:
     text = model.getText()
     enum = text.createEnumeration()
     ranges = []
-    while enum.hasMoreElements():
+    while enum.hasMoreElements() is True:  # a MagicMock return never stops a plain truth test
         ranges.append(enum.nextElement())
     return ranges
 

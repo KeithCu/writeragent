@@ -26,6 +26,8 @@ class TestTreeServiceSearch:
         self.doc_svc = MagicMock()
         self.doc_svc.doc_key.return_value = "test_doc"
         self.doc_svc.yield_to_gui = MagicMock()
+        from plugin.doc.paragraph_search import get_paragraph_ranges
+        self.doc_svc.get_paragraph_ranges.side_effect = get_paragraph_ranges
 
         self.bm_svc = MagicMock()
         self.bm_svc.get_mcp_bookmark_map.return_value = {
@@ -209,6 +211,8 @@ class TestTreeServiceSearch:
         vc.gotoRange = MagicMock(side_effect=_goto_range)
 
         # Make the paragraph search logic mock out successfully
+        # setup_method routes this to the real enumerator; a MagicMock doc would loop forever.
+        self.tree_svc._doc_svc.get_paragraph_ranges.side_effect = None
         self.tree_svc._doc_svc.get_paragraph_ranges.return_value = []
         self.tree_svc._doc_svc.find_paragraph_for_range.return_value = 1
 
@@ -288,3 +292,77 @@ def test_heading_tree_fingerprint():
     assert _heading_tree_fingerprint(doc) == 42
     doc_none = SimpleNamespace()
     assert _heading_tree_fingerprint(doc_none) is None
+
+
+class _CountingEnumDoc(WriterDocStub):
+    def __init__(self, elements):
+        super().__init__(elements)
+        self.enum_calls = 0
+
+    def getText(self):
+        text = super().getText()
+        orig_create_enum = text.createEnumeration
+
+        def _counting_enum():
+            self.enum_calls += 1
+            return orig_create_enum()
+
+        text.createEnumeration = _counting_enum
+        return text
+
+
+def test_get_document_tree_single_enumeration_and_stats():
+    """get_document_tree enumerates once, calls get_page_count once, and skips second stats walk."""
+    from plugin.writer.outline import collect_document_stats
+
+    elements = [
+        ElementStub("Heading 1", outline_level=1),
+        ElementStub("Body paragraph 1"),
+        ElementStub("Heading 2", outline_level=1),
+        ElementStub("Body paragraph 2"),
+    ]
+    doc = _CountingEnumDoc(elements)
+
+    doc_svc = MagicMock()
+    doc_svc.doc_key.return_value = "doc_test"
+    from plugin.doc.paragraph_search import get_paragraph_ranges
+
+    doc_svc.get_paragraph_ranges.side_effect = get_paragraph_ranges
+    doc_svc.get_page_count.return_value = 1
+
+    bm_svc = MagicMock()
+    bm_svc.ensure_heading_bookmarks.return_value = {}
+
+    tree_svc = TreeService(services=MagicMock())
+    tree_svc._doc_svc = doc_svc
+    tree_svc._bm_svc = bm_svc
+
+    # 1. heading_only enumerates once
+    doc.enum_calls = 0
+    tree_svc.get_document_tree(doc, content_strategy="heading_only", depth=1)
+    assert doc.enum_calls == 1
+    doc_svc.get_page_count.assert_called_once()
+    doc_svc.get_page_count.reset_mock()
+
+    # 2. first_lines enumerates once
+    tree_svc._drop_tree_cache()
+    doc.enum_calls = 0
+    res_fl = tree_svc.get_document_tree(doc, content_strategy="first_lines", depth=1)
+    assert doc.enum_calls == 1
+    doc_svc.get_page_count.assert_called_once()
+
+    # 3. collect_document_stats given heading_tree, paragraph_count, and page_count does not enumerate or call doc_svc again
+    doc.enum_calls = 0
+    doc_svc.get_page_count.reset_mock()
+    stats = collect_document_stats(
+        doc,
+        doc_svc,
+        heading_tree=tree_svc.build_heading_tree(doc),
+        paragraph_count=res_fl["total_paragraphs"],
+        page_count=res_fl["page_count"],
+    )
+    assert doc.enum_calls == 0
+    doc_svc.get_page_count.assert_not_called()
+    assert stats["heading_count"] == 2
+    assert stats["paragraph_count"] == 4
+    assert stats["page_count"] == 1

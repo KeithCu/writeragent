@@ -324,9 +324,12 @@ The gateway parameter `python_tool_domain` on `delegate_to_specialized_*` stays 
 
 `tables` now has a dedicated UNO toolset (`ToolWriterTableBase` in `specialized/tables.py`) for structural row/column/cell operations, alongside the core HTML path used for table *content*. **Math** still uses the core HTML insert path, not a `specialized_domain`. Rows above combine specialized domains, planned gaps, and LO-wide areas not covered by WriterAgent tools.
 
-For Writer text tables, `table_list` and `table_get_cells` report `nesting` (direct parent
-table/cell; top-level tables return null parent fields) and `nested_in_cells` (this table's
-host cells that contain nested tables). `table_list` also reports `cell_count`
+For Writer text tables, `table_list` and `table_get_cells` report `nesting` (direct
+cell sibling only: direct parent table/cell; a table inside a frame inside a cell
+stays not nested, and top-level tables return null parent fields) and `nested_in_cells`
+(this table's host cells that contain nested tables). Single-table nesting resolution
+uses `table.getAnchor().getText()` to inspect the host cell and parent table directly
+without scanning every cell in the document. `table_list` also reports `cell_count`
 (`len(getCellNames())`); if that is not `rows * cols`, the table is not a rectangle — read
 `table_get_cells` `cells`. Writer `table_get_cells` returns `cells` and `cell_names` (no
 `matrix`); empty string is an empty cell and a missing name is not a cell. A failed Draw/Impress cell read is a tool error, not "". Optional `cell=`

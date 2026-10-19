@@ -103,7 +103,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
 | `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Draw/Impress cuts a longer summary to a prefix of max_context and appends [... document truncated ...]. Selection markers. |
-| `resolve_locator` | `paragraph:`, `heading:` (sibling-ordinal), and `chapter_number:` (paint label) resolve here. Every `bookmark:`, plus `heading_text:`, `section:`, and `page:`, goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
+| `resolve_locator` | `paragraph:` is resolved here. Every other locator (`heading:`, `chapter_number:`, `bookmark:`, `heading_text:`, `section:`, `page:`, ...) goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
 `DocumentService` methods that are **wrappers**, not new logic:

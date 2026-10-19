@@ -15,6 +15,7 @@ from plugin.framework.errors import is_disposed_exception, uno_probe
 
 from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
+from ..table_helpers import fill_table_cells
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
@@ -212,14 +213,15 @@ def _cell_plain_siblings(cell: Any) -> str:
     return "\n".join(parts)
 
 
-def _cell_matrix_text(cell: Any, visible: bool = True) -> str:
+def _cell_matrix_text(cell: Any, visible: bool = True, hosted_tables: list[str] | None = None) -> str:
     """Cell text for table_get_cells: host cells omit concatenated inner-table text.
 
     *visible* hides pending tracked deletions: getString() also returns text a tracked change
     deleted, so a pending "velha" -> "nova" read "celula novavelha" here while
     get_document_content showed "celula nova" (relato #43).
     """
-    if _cell_hosted_table_names(cell):
+    has_hosted = bool(hosted_tables) if hosted_tables is not None else bool(_cell_hosted_table_names(cell))
+    if has_hosted:
         return _cell_plain_siblings(cell)
     return get_string_without_tracked_deletions(cell) if visible else cell.getString()
 
@@ -423,9 +425,59 @@ def _writer_nesting(
 
 def _nesting_for(doc: Any, name: str) -> dict[str, Any]:
     """Direct-parent nesting dict for one table name (missing -> not nested)."""
-    # TODO: Optimize single-table nesting check via table.getAnchor().getText() (cell vs body)
-    # to avoid full-document _writer_nesting scan (O(all cells)), keeping _writer_nesting for
-    # TableList whole-document views once existing tests/fakes support anchor-based parent resolution.
+    text = None
+    try:
+        tables = _tables(doc)
+        if not tables.hasByName(name):
+            return _not_nested()
+        table = tables.getByName(name)
+        anchor = table.getAnchor()
+        if anchor is not None:
+            text = anchor.getText()
+    except Exception:
+        text = None
+
+    if text is None or not hasattr(text, "createTextCursor"):
+        nesting_by_name = _writer_nesting(doc)[0]
+        return nesting_by_name.get(name, _not_nested())
+
+    cell_name = None
+    try:
+        if hasattr(text, "CellName"):
+            cell_name = text.CellName
+        elif hasattr(text, "getPropertyValue"):
+            cell_name = text.getPropertyValue("CellName")
+    except Exception:
+        pass
+
+    if not cell_name:
+        return _not_nested()
+
+    parent_table_name = None
+    try:
+        cur = text.createTextCursor()
+        ptable = None
+        if hasattr(cur, "TextTable"):
+            ptable = cur.TextTable
+        elif hasattr(cur, "getPropertyValue"):
+            ptable = cur.getPropertyValue("TextTable")
+        if ptable is not None:
+            if hasattr(ptable, "getName"):
+                parent_table_name = ptable.getName()
+            elif hasattr(ptable, "Name"):
+                parent_table_name = ptable.Name
+            elif hasattr(ptable, "getPropertyValue"):
+                parent_table_name = ptable.getPropertyValue("Name")
+    except Exception:
+        pass
+
+    if parent_table_name and parent_table_name != name:
+        return {
+            "is_nested": True,
+            "parent_table": str(parent_table_name),
+            "parent_cell": str(cell_name),
+        }
+
     nesting_by_name = _writer_nesting(doc)[0]
     return nesting_by_name.get(name, _not_nested())
 
@@ -587,33 +639,6 @@ def _resolve_uno_context(ctx: Any) -> Any:
     return get_ctx()
 
 
-def _set_cell_string(cell: Any, text: str) -> None:
-    """Set text on a Writer or Draw cell."""
-
-    def via_text() -> bool:
-        cell.getText().setString(text)
-        return True
-
-    if hasattr(cell, "getText") and uno_probe(via_text, False):
-        return
-    if hasattr(cell, "setString"):
-        cell.setString(text)
-
-
-def fill_table_cells(table: Any, data: Any) -> int:
-    """Write a 2D string grid into ``table.getCellByPosition(col, row)``. Returns cells written."""
-    written = 0
-    for r_idx, row in enumerate(data):
-        if not isinstance(row, (list, tuple)):
-            continue
-        for c_idx, val in enumerate(row):
-            cell = table.getCellByPosition(c_idx, r_idx)
-            text = "" if val is None else str(val)
-            _set_cell_string(cell, text)
-            written += 1
-    return written
-
-
 class TableList(ToolWriterTableBase):
     name: str | None = "table_list"
     description: str = (
@@ -721,16 +746,29 @@ class TableGetCells(ToolWriterTableBase):
             rows, cols = _dims(table)
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
-            cell_names = _writer_named_cells(table)
+            all_cell_names = _writer_named_cells(table)
+            nested_in_cells: dict[str, list[str]] = {}
+            for cn in all_cell_names:
+                cell_obj = uno_probe(lambda: table.getCellByName(cn), _FAILED)
+                if cell_obj is _FAILED:
+                    continue
+                hosted = _cell_hosted_table_names(cell_obj)
+                if hosted:
+                    nested_in_cells[cn] = hosted
+
             if cell_raw:
                 resolved = _resolve_cell_name(table, cell_raw)
                 if resolved is None:
-                    return self._tool_error(_unknown_cell_message(cell_raw, name, cell_names))
+                    return self._tool_error(_unknown_cell_message(cell_raw, name, all_cell_names))
                 cell_names = [resolved]
+            else:
+                cell_names = all_cell_names
+
             cells: dict[str, str] = {}
             for cell_name in cell_names:
                 try:
-                    cells[cell_name] = _cell_matrix_text(table.getCellByName(cell_name))
+                    c = table.getCellByName(cell_name)
+                    cells[cell_name] = _cell_matrix_text(c, hosted_tables=nested_in_cells.get(cell_name))
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
                     # That also swallows document disposal. Re-raise disposal and log
@@ -743,7 +781,6 @@ class TableGetCells(ToolWriterTableBase):
                 return self._tool_error(
                     "Could not read cell '%s' in table '%s'." % (cell_raw, name)
                 )
-            nesting_by_name, hosted = _writer_nesting(ctx.doc)[:2]
             payload = {
                 "status": "ok",
                 "table_name": name,
@@ -751,8 +788,8 @@ class TableGetCells(ToolWriterTableBase):
                 "cols": cols,
                 "cell_names": list(cells.keys()),
                 "cells": cells,
-                "nesting": nesting_by_name.get(name, _not_nested()),
-                "nested_in_cells": hosted.get(name, {}),
+                "nesting": _nesting_for(ctx.doc, name),
+                "nested_in_cells": nested_in_cells,
             }
             if cell_raw:
                 payload["cell"] = next(iter(cells))
@@ -1061,8 +1098,6 @@ class TableInsert(ToolWriterTableBase):
 
                 if parent and host_cell_name:
                     created_nesting = {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name}
-                elif created_name:
-                    created_nesting = _nesting_for(doc, created_name)
                 else:
                     created_nesting = _not_nested()
 

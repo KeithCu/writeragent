@@ -164,7 +164,7 @@ class BookmarkService(ServiceBase):
             except Exception:
                 log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
-    def get_mcp_bookmark_map(self, doc: Any) -> dict[int, str]:
+    def get_mcp_bookmark_map(self, doc: Any, para_ranges: list[Any] | None = None) -> dict[int, str]:
         """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""
         result: dict[int, str] = {}
         try:
@@ -172,7 +172,8 @@ class BookmarkService(ServiceBase):
             names = bookmarks.getElementNames()
             if not names:
                 return result
-            para_ranges = get_paragraph_ranges(doc)
+            if para_ranges is None:
+                para_ranges = get_paragraph_ranges(doc)
             text_obj = doc.getText()
             for name in names:
                 if not name.startswith("_mcp_"):
@@ -192,7 +193,12 @@ class BookmarkService(ServiceBase):
 
         return result
 
-    def ensure_heading_bookmarks(self, doc: Any) -> dict[int, str]:
+    def ensure_heading_bookmarks(
+        self,
+        doc: Any,
+        heading_para_indices: list[int] | None = None,
+        para_ranges: list[Any] | None = None,
+    ) -> dict[int, str]:
         """Ensure every heading has an _mcp_ bookmark. Returns map.
 
         Also removes ``_mcp_`` bookmarks that are no longer on a heading.
@@ -200,28 +206,37 @@ class BookmarkService(ServiceBase):
         """
         if _SAVE_HOOK_DEPTH == 0:
             self._restore_abandoned(doc)
-        existing_map = self.get_mcp_bookmark_map(doc)
+        existing_map = self.get_mcp_bookmark_map(doc, para_ranges=para_ranges)
 
         text = doc.getText()
-        enum = text.createEnumeration()
-        para_index = 0
         bookmark_map = {}
         needs_bookmark = []
 
-        while enum.hasMoreElements():
-            element = enum.nextElement()
-            if element.supportsService("com.sun.star.text.Paragraph"):
-                outline_level = 0
-                try:
-                    outline_level = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
-                if outline_level > 0:
-                    if para_index in existing_map:
-                        bookmark_map[para_index] = existing_map[para_index]
-                    else:
-                        needs_bookmark.append((para_index, element.getStart()))
-            para_index += 1
+        if heading_para_indices is not None:
+            if para_ranges is None:
+                para_ranges = get_paragraph_ranges(doc)
+            for para_index in heading_para_indices:
+                if para_index in existing_map:
+                    bookmark_map[para_index] = existing_map[para_index]
+                elif 0 <= para_index < len(para_ranges):
+                    needs_bookmark.append((para_index, para_ranges[para_index].getStart()))
+        else:
+            enum = text.createEnumeration()
+            para_index = 0
+            while enum.hasMoreElements():
+                element = enum.nextElement()
+                if element.supportsService("com.sun.star.text.Paragraph"):
+                    outline_level = 0
+                    try:
+                        outline_level = element.getPropertyValue("OutlineLevel")
+                    except Exception:
+                        pass
+                    if outline_level > 0:
+                        if para_index in existing_map:
+                            bookmark_map[para_index] = existing_map[para_index]
+                        else:
+                            needs_bookmark.append((para_index, element.getStart()))
+                para_index += 1
 
         # Names already on a current heading. New inserts are not in the
         # document yet, so they cannot appear in this stale list.

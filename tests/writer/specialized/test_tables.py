@@ -1264,7 +1264,7 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
 
 
 def test_resolve_uno_context():
-    from plugin.writer.table_helpers import _resolve_uno_context
+    from plugin.writer.specialized.tables import _resolve_uno_context
     ctx = SimpleNamespace(ctx="CUSTOM_UNO_CTX")
     assert _resolve_uno_context(ctx) == "CUSTOM_UNO_CTX"
 
@@ -1272,7 +1272,7 @@ def test_resolve_uno_context():
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
     import pytest
-    from plugin.writer.table_helpers import _is_text_table, _iter_direct_children, _cell_hosted_table_names
+    from plugin.writer.specialized.tables import _is_text_table, _iter_direct_children, _cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
@@ -1288,5 +1288,24 @@ def test_read_helpers_reraise_disposal():
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
     with pytest.raises(Exception):
         _cell_hosted_table_names(disposed_cell)
+
+
+def test_table_get_cells_does_not_scan_other_tables_getCellNames():
+    """table_get_cells on one table must not call getCellNames() on other tables."""
+    from unittest.mock import MagicMock
+    from plugin.writer.specialized.tables import TableGetCells
+
+    t1 = FakeTable(2, 2, name="T1", anchor_text=SimpleNamespace(createTextCursor=MagicMock(), CellName=None))
+    t2 = FakeTable(2, 2, name="T2", anchor_text=SimpleNamespace(createTextCursor=MagicMock(), CellName=None))
+    t2_cell_names_mock = MagicMock(wraps=t2.getCellNames)
+    t2.getCellNames = t2_cell_names_mock
+
+    doc = FakeWriterDoc({"T1": t1, "T2": t2})
+    ctx = SimpleNamespace(doc=doc)
+
+    res = TableGetCells().execute(ctx, name="T1")
+    assert res["status"] == "ok"
+    assert res["table_name"] == "T1"
+    t2_cell_names_mock.assert_not_called()
 
 
