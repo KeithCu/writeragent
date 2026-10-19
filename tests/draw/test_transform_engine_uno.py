@@ -97,16 +97,18 @@ def test_insert_text_leaves_selection_for_formatting(ctx, doc):
         assert shape.IsEmptyPresentationObject is False
 
     xtext = shape.getText()
+    first, second = "Revenue grew 15% YoY", "Second line"
+    assert xtext.getString().replace("\r\n", "\n").split("\n")[:2] == [first, second]
     cursor = xtext.createTextCursor()
     cursor.gotoStart(False)
-    cursor.gotoEndOfParagraph(True)
-    assert cursor.getString() == "Revenue grew 15% YoY"
+    cursor.goRight(len(first), True)
+    assert cursor.getString() == first
     assert float(cursor.CharWeight) >= 150.0
     assert str(cursor.CharPosture.value) == "ITALIC"
 
-    cursor.gotoNextParagraph(False)
-    cursor.gotoStartOfParagraph(False)
-    cursor.gotoEndOfParagraph(True)
-    assert cursor.getString() == "Second line"
+    cursor.gotoStart(False)
+    cursor.goRight(len(first) + 1, False)
+    cursor.goRight(len(second), True)
+    assert cursor.getString() == second
     assert str(cursor.CharPosture.value) != "ITALIC"
 

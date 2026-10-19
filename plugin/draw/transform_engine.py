@@ -700,12 +700,24 @@ class SlideCommandEngine:
             if para < 0:
                 self.warnings.append("SelectText: negative paragraph index %d" % para)
                 return cursor
-            cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.gotoStartOfParagraph(False)
-            cursor.gotoEndOfParagraph(True)
+            if hasattr(cursor, "gotoStartOfParagraph") and hasattr(cursor, "gotoEndOfParagraph"):
+                cursor.gotoStart(False)
+                for _unused in range(para):
+                    if not cursor.gotoNextParagraph(False):
+                        break
+                cursor.gotoStartOfParagraph(False)
+                cursor.gotoEndOfParagraph(True)
+            else:
+                # Tip: Impress shape text cursors can lack XParagraphCursor (gotoStartOfParagraph
+                # raised on CI), so select by character offsets with plain XTextCursor moves.
+                paras = (xtext.getString() or "").replace("\r\n", "\n").split("\n")
+                para = min(para, len(paras) - 1)
+                offset = sum(len(p) + 1 for p in paras[:para])
+                cursor.gotoStart(False)
+                if offset:
+                    cursor.goRight(offset, False)
+                if paras[para]:
+                    cursor.goRight(len(paras[para]), True)
             self._selection_mode = "range"
             return cursor
         elif n == 2:
