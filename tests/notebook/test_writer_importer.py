@@ -2006,3 +2006,28 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     for raw, expected in ((None, True), ("  ", True), ("x", False), (5, False)):
         rng.getString.return_value = raw
         assert _cursor_para_is_empty(cursor) is expected
+
+
+def test_line_display_cols():
+    from plugin.notebook.notebook_controls import _line_display_cols
+
+    # Plain ASCII
+    assert _line_display_cols("hello") == 5
+    assert _line_display_cols("") == 0
+    assert _line_display_cols("abc def 123") == 11
+
+    # East Asian width W (wide) and F (fullwidth) count as two columns
+    assert _line_display_cols("全") == 2
+    assert _line_display_cols("漢字") == 4
+    assert _line_display_cols("Ａ") == 2
+    assert _line_display_cols("！") == 2
+    assert _line_display_cols("Hi 世界！") == 9
+
+    # Tab expands to 4
+    assert _line_display_cols("\t") == 4
+    assert _line_display_cols("a\t") == 4
+    assert _line_display_cols("abcd\t") == 8
+
+    # Trailing \r does not add a column
+    assert _line_display_cols("hello\r") == 5
+

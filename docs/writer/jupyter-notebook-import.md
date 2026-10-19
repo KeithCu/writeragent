@@ -193,7 +193,8 @@ tail -f ~/.config/libreoffice/4/user/writeragent_debug.log
 
 Useful log indicators:
 - `notebook import start` / `complete`
-- `notebook controls: wired M/K run button(s)`
+- `notebook import attach_form_listener elapsed_ms=… attached_views=… code_cells=…`
+- `notebook controls: no form controller container; ▶ clicks will not run (N code cells)` (logged once per document if container not yet realized)
 - `notebook run cell index=… field=nb_cell_… status=ok`
 
 Native test suite execution:

@@ -19,9 +19,8 @@ Future work (do not forget — leave these until the matching phase, not drive-b
   Safe today because File → Open always targets a fresh doc. Phase 3
   append/merge must use notebook-owned styles so a user's styles keep
   spellcheck.
-- ``notebook_controls._form_and_container`` uses ``forms.getByIndex(0)``. Fine
-  while import owns the first form; iterate forms (or find ``nb_run_*``) if
-  the document can already have other forms.
+- ``notebook_controls._form_and_container`` scans for ``nb_run_*``, then uses
+  form 0 only if none match.
 - Phase 2 Run All / Stop is shipped: drain **between** cells, never
   ``processEventsToIdle`` during ``execute_code`` (LayoutIdle livelock on
   notebooks with many in-flow form controls).
@@ -1766,7 +1765,7 @@ def _import_cells(
                     registry_state.code_cells.append(entry)
                     # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
                     # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
-                    _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"], ctx=ctx)
+                    _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"])
                     stats["shapes"] += 1
                 _append_paragraph_break_at_end(doc)
                 _style_control_paragraph(doc)

@@ -16,15 +16,12 @@ from plugin.notebook.notebook_controls import (
     get_control_view_for_model,
     prune_dead_listeners,
     wire_all_notebook_run_buttons,
-    wire_run_button_listener,
-    wired_run_listener_count,
 )
 
 
 def setup_function() -> None:
     notebook_controls._listener_refs = []
-    notebook_controls._wired_keys = set()
-    notebook_controls._wired_form_docs = set()
+    notebook_controls._warned_no_container = set()
     notebook_controls._doc_listener = None
 
 
@@ -35,7 +32,7 @@ def test_wire_all_ok_off_main_thread(monkeypatch):
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     try:
-        with patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=False):
+        with patch("plugin.notebook.notebook_controls.load_registry", return_value=None):
             result = wire_all_notebook_run_buttons(MagicMock(), MagicMock())
         assert result == 0
 
@@ -65,14 +62,13 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
     state.code_cells = [MagicMock(), MagicMock(), MagicMock()]
     try:
         with (
-            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
             patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
             patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None)),
         ):
             result = wire_all_notebook_run_buttons(MagicMock(), doc)
         assert result == 0
         assert notebook_controls._doc_key(doc) == "uid:uid-dummy-2"
-        assert notebook_controls._doc_key(doc) not in notebook_controls._wired_form_docs
+        assert len(form_run_listeners(doc)) == 0
     finally:
         tg.GUARD_ON = was
 
@@ -87,14 +83,13 @@ def test_wire_all_returns_0_no_container():
     state.code_cells = [MagicMock()]
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None))
     ):
         result = wire_all_notebook_run_buttons(ctx, doc)
 
     assert result == 0
-    assert notebook_controls._doc_key(doc) not in notebook_controls._wired_form_docs
+    assert len(form_run_listeners(doc)) == 0
 
 
 def test_install_notebook_run_button_wiring_global_listener():
@@ -137,14 +132,11 @@ def test_doc_event_listener_wires_buttons():
     doc_event.ViewController = None
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.wire_all_notebook_run_buttons") as wire_all,
-        patch("plugin.notebook.notebook_controls.ensure_form_design_mode_off") as ensure_off
     ):
         listener.on_document_event(doc_event)
 
-    ensure_off.assert_called_once_with(doc)
-    wire_all.assert_called_once_with(ctx, doc)
+    wire_all.assert_called_once_with(ctx, doc, new_view=True)
 
 
 def test_ensure_form_design_mode_off_no_controller():
@@ -181,46 +173,62 @@ def test_get_control_view_uses_gettypebyname_for_xcontrolaccess():
     access.getControl.assert_called_once_with(model)
 
 
-def test_wire_run_button_listener_attaches_to_xbutton():
+def test_notebook_run_button_listener_resolve_doc_order():
     ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = "file:///tmp/nb.odt"
-    model = MagicMock()
-    model.Name = "nb_run_abc"
+    doc.getRuntimeUID.return_value = "uid-resolve-order"
+    listener = NotebookRunButtonListener(ctx, doc, "abc")
+    listener._doc_weak = None
 
-    control = MagicMock()
-    control.queryInterface.return_value = control
-
-    with patch(
-        "plugin.notebook.notebook_controls.get_control_view_for_model",
-        return_value=control,
+    # URL set, weakref empty, active document key matches -> resolve_document_by_url not called
+    active_doc = MagicMock()
+    active_doc.getURL.return_value = "file:///tmp/nb.odt"
+    active_doc.getRuntimeUID.return_value = "uid-resolve-order"
+    with (
+        patch("plugin.framework.uno_context.get_active_document", return_value=active_doc),
+        patch("plugin.framework.uno_context.resolve_document_by_url") as resolve_url,
     ):
-        ok = wire_run_button_listener(ctx, doc, model, "abc")
-    assert ok is True
-    control.addActionListener.assert_called_once()
+        assert listener._resolve_doc() is active_doc
+        resolve_url.assert_not_called()
+
+    # Active key differs -> URL resolve is called
+    diff_doc = MagicMock()
+    diff_doc.getURL.return_value = "file:///tmp/other.odt"
+    diff_doc.getRuntimeUID.return_value = "uid-different"
+    resolved_doc = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.get_active_document", return_value=diff_doc),
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(resolved_doc, "writer")) as resolve_url,
+    ):
+        assert listener._resolve_doc() is resolved_doc
+        resolve_url.assert_called_once_with(ctx, "file:///tmp/nb.odt")
+
+    # Disposed weakref falls through
+    dead_doc = MagicMock()
+    dead_doc.getRuntimeUID.side_effect = Exception("disposed")
+    dead_doc.getURL.side_effect = Exception("disposed")
+    import weakref
+
+    listener._doc_weak = weakref.ref(dead_doc)
+    with (
+        patch("plugin.framework.uno_context.get_active_document", return_value=active_doc),
+        patch("plugin.framework.uno_context.resolve_document_by_url") as resolve_url,
+    ):
+        assert listener._resolve_doc() is active_doc
+        assert listener._doc_weak is None
+        resolve_url.assert_not_called()
 
 
-def test_wire_run_button_listener_idempotent_for_same_runtime_uid():
-    """Untitled docs share RuntimeUID across PyUNO wrappers; one click must be one run."""
+def test_listener_init_when_get_url_raises():
     ctx = MagicMock()
-    doc1 = MagicMock()
-    doc2 = MagicMock()
-    doc1.getURL.return_value = ""
-    doc2.getURL.return_value = ""
-    doc1.getRuntimeUID.return_value = "uid-nb-same"
-    doc2.getRuntimeUID.return_value = "uid-nb-same"
-    model = MagicMock()
-    control = MagicMock()
-    control.queryInterface.return_value = control
-    hex_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-    with patch(
-        "plugin.notebook.notebook_controls.get_control_view_for_model",
-        return_value=control,
-    ):
-        assert wire_run_button_listener(ctx, doc1, model, hex_id) is True
-        assert wire_run_button_listener(ctx, doc2, model, hex_id) is True
-    control.addActionListener.assert_called_once()
+    doc = MagicMock()
+    doc.getRuntimeUID.return_value = "uid-runtime-works"
+    doc.getURL.side_effect = RuntimeError("broken getURL")
+    listener = NotebookRunButtonListener(ctx, doc, "abc")
+    assert listener._doc_key_val == "uid:uid-runtime-works"
+    assert listener._doc_url == ""
+    assert notebook_controls._doc_key(doc) == "uid:uid-runtime-works"
 
 
 def test_notebook_run_button_listener_calls_runner():
@@ -324,7 +332,6 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     state.code_cells = [cell, cell]
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view,
         patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
@@ -373,14 +380,24 @@ def test_doc_event_does_not_attach_a_second_form_listener():
     assert listener is not None
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
-        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state) as mock_load,
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)) as mock_fc,
+        patch("plugin.notebook.notebook_controls.ensure_form_design_mode_off") as mock_off,
     ):
         assert wire_all_notebook_run_buttons(ctx, doc) == 1
         _fire_doc_event(listener, doc, "OnViewCreated")
+
+        mock_load.reset_mock()
+        mock_fc.reset_mock()
+        mock_off.reset_mock()
+
         _fire_doc_event(listener, doc, "OnLoad")
         _fire_doc_event(listener, doc, "OnLoadFinished")
+        _fire_doc_event(listener, doc, "OnNew")
+
+        mock_load.assert_not_called()
+        mock_fc.assert_not_called()
+        assert mock_off.call_count == 3
 
     run_ctrl.addActionListener.assert_called_once()
     container.addContainerListener.assert_called_once()
@@ -402,20 +419,40 @@ def test_doc_event_retries_wire_when_file_open_had_no_container():
         return MagicMock(), found
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_controls._form_and_container", side_effect=_forms),
     ):
         assert wire_all_notebook_run_buttons(ctx, doc) == 0
-        assert notebook_controls._doc_key(doc) not in notebook_controls._wired_form_docs
+        assert len(form_run_listeners(doc)) == 0
         holder["container"] = container
-        _fire_doc_event(listener, doc, "OnViewCreated")
         _fire_doc_event(listener, doc, "OnLoad")
+        _fire_doc_event(listener, doc, "OnLoadFinished")
 
     run_ctrl.addActionListener.assert_called_once()
     container.addContainerListener.assert_called_once()
     assert len(form_run_listeners(doc)) == 1
-    assert notebook_controls._doc_key(doc) in notebook_controls._wired_form_docs
+
+
+def test_no_container_warning_logged_once(caplog):
+    import logging
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getRuntimeUID.return_value = "uid-no-container-warn"
+    doc.getURL.return_value = ""
+    notebook_controls._install_doc_event_listener(ctx)
+    listener = notebook_controls._doc_listener
+    state = MagicMock(code_cells=[MagicMock()])
+    with (
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None)),
+        caplog.at_level(logging.WARNING, logger="writeragent.notebook"),
+    ):
+        _fire_doc_event(listener, doc, "OnLoad")
+        _fire_doc_event(listener, doc, "OnLoadFinished")
+
+    warns = [rec.message for rec in caplog.records if "no form controller container" in rec.message]
+    assert len(warns) == 1
 
 
 def test_listener_counts_exclude_leftover_docs():
@@ -432,9 +469,7 @@ def test_listener_counts_exclude_leftover_docs():
     doc = MagicMock()
     with patch("plugin.notebook.notebook_controls._doc_key", return_value="uid:99"):
         assert len(form_run_listeners(doc)) == 1
-        assert wired_run_listener_count("cell1", doc) == 1
         assert len(form_run_listeners()) == 2
-        assert wired_run_listener_count("cell1") == 2
 
 
 def test_prune_keeps_container_listener():
@@ -450,8 +485,6 @@ def test_prune_keeps_container_listener():
     assert container._form_level is False
 
     notebook_controls._listener_refs = [form, container]
-    notebook_controls._wired_form_docs = {form._doc_key_val}
-    notebook_controls._wired_keys = set()
 
     with patch(
         "plugin.framework.uno_context.resolve_document_by_url",
@@ -461,8 +494,7 @@ def test_prune_keeps_container_listener():
 
     assert form in notebook_controls._listener_refs
     assert container in notebook_controls._listener_refs
-    assert form._doc_key_val in notebook_controls._wired_form_docs
-    assert notebook_controls._wired_keys == set()
+
 
 def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
     """doc listener retry must not call guarded get_runtime_uid."""
@@ -489,7 +521,6 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 
     try:
         with (
-            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
             patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
             patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, MagicMock())),
         ):
@@ -497,6 +528,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
         # Should not raise RuntimeError from get_runtime_uid
     finally:
         tg.GUARD_ON = was
+
 
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
@@ -511,14 +543,11 @@ def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     lis = NotebookFormRunListener(ctx, doc)
 
     notebook_controls._listener_refs = [lis]
-    notebook_controls._wired_form_docs = {lis._doc_key_val}
-    notebook_controls._wired_keys = set()
 
     # weakref is available and returns doc, so it should be kept
     prune_dead_listeners()
 
     assert lis in notebook_controls._listener_refs
-    assert lis._doc_key_val in notebook_controls._wired_form_docs
 
     # Now if weakref is NOT available (e.g. PyUNO doesn't support it)
     lis._doc_weak = None
@@ -526,7 +555,6 @@ def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
 
     # We still keep it because we can't safely resolve off main thread
     assert lis in notebook_controls._listener_refs
-    assert lis._doc_key_val in notebook_controls._wired_form_docs
 
 def test_form_and_container_multiple_forms():
     """_form_and_container should find the correct form controller even if it's not at index 0."""
@@ -571,7 +599,7 @@ def test_form_and_container_multiple_forms():
     assert container is container1
 
 
-def test_recreated_view_skips_rewire_if_container_changes():
+def test_recreated_view_rewires_when_container_changes():
     """If a view is recreated, the container changes, and wire_all should rewire."""
     ctx = MagicMock()
     doc = MagicMock()
@@ -588,12 +616,10 @@ def test_recreated_view_skips_rewire_if_container_changes():
         return a is b
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
         patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same)
     ):
         notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
 
         # 1. Wire with old container
         with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), old_container)):
@@ -628,17 +654,14 @@ def test_attach_form_listener_fails_when_add_container_listener_raises():
     container.getControls.return_value = [control]
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
         patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
     ):
         notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
 
         res = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
         assert res == 0
         assert len(notebook_controls._listener_refs) == 0
-        assert len(notebook_controls._wired_form_docs) == 0
         control.removeActionListener.assert_called_once()
 
 
@@ -661,13 +684,11 @@ def test_wire_all_lost_race_detaches_its_duplicate_listener():
     container.addContainerListener.side_effect = _racer_wins
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
         patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
         patch("plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b),
     ):
         notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
         try:
             assert notebook_controls.wire_all_notebook_run_buttons(ctx, doc) == 1
             ours = container.addContainerListener.call_args.args[0]
@@ -677,7 +698,6 @@ def test_wire_all_lost_race_detaches_its_duplicate_listener():
             assert len(notebook_controls._listener_refs) == 1
         finally:
             notebook_controls._listener_refs.clear()
-            notebook_controls._wired_form_docs.clear()
 
 
 def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
@@ -695,7 +715,6 @@ def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
         return MagicMock(), container2
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", side_effect=lambda d: state1 if d is doc1 else state2),
         patch("plugin.notebook.notebook_controls._form_and_container", side_effect=_forms),
     ):
@@ -710,10 +729,9 @@ def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
         event.Source = doc1
         listener.on_document_event(event)
 
-    doc1_key = notebook_controls._doc_key(doc1)
     doc2_key = notebook_controls._doc_key(doc2)
-    assert doc1_key not in notebook_controls._wired_form_docs
-    assert doc2_key in notebook_controls._wired_form_docs
+    assert len(form_run_listeners(doc1)) == 0
+    assert len(form_run_listeners(doc2)) == 1
     assert len(notebook_controls._listener_refs) == 2
     for lis in notebook_controls._listener_refs:
         assert getattr(lis, "_doc_key_val", None) == doc2_key
@@ -728,7 +746,6 @@ def test_wire_again_after_unload_creates_one_new_pair():
     assert listener is not None
 
     with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
     ):
@@ -771,7 +788,6 @@ def test_container_on_disposing_removes_pair_and_leaves_second_container():
     cont_lis2 = NotebookFormContainerListener(run_lis2, container2)
 
     notebook_controls._listener_refs = [run_lis1, cont_lis1, run_lis2, cont_lis2]
-    notebook_controls._wired_form_docs = {run_lis1._doc_key_val}
 
     cont_lis1.on_disposing(MagicMock())
 
@@ -780,5 +796,5 @@ def test_container_on_disposing_removes_pair_and_leaves_second_container():
     assert run_lis2 in notebook_controls._listener_refs
     assert cont_lis2 in notebook_controls._listener_refs
     assert len(notebook_controls._listener_refs) == 2
-    assert run_lis1._doc_key_val in notebook_controls._wired_form_docs
+    assert len(form_run_listeners(doc)) == 1
 

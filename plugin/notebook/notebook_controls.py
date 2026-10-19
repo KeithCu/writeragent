@@ -17,6 +17,8 @@ notify ``XApproveActionListener`` / ``XActionListener`` on the button view.
 
 So we attach **one** shared ``XActionListener`` to the form controller container
 (existing ``getControls()`` plus ``elementInserted``), not N ``getControl(model)``.
+One listener pair (NotebookFormRunListener + NotebookFormContainerListener) per
+live container; OnUnload and on_disposing drop that pair; a new container adds another pair.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
-from plugin.notebook.cell_registry import _coerce_notebook_text, _prepare_display_text, cell_id_to_hex, has_notebook_registry, load_registry
+from plugin.notebook.cell_registry import _coerce_notebook_text, _prepare_display_text, cell_id_to_hex, load_registry
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -63,14 +65,12 @@ __all__ = [
     "form_button_push_type",
     "ensure_form_design_mode_off",
     "get_control_view_for_model",
-    "wired_run_listener_count",
     "form_run_listeners",
     "prune_dead_listeners",
     "forget_document_wiring",
     "NotebookRunButtonListener",
     "NotebookFormContainerListener",
     "NotebookFormRunListener",
-    "wire_run_button_listener",
     "wire_all_notebook_run_buttons",
     "install_notebook_run_button_wiring",
     "_resolve_para_style",
@@ -82,7 +82,6 @@ __all__ = [
     "_height_for_text",
     "_raw_height_for_text",
     "_anchor_control_as_character",
-    "_set_model_prop",
     "_set_model_props",
     "_style_code_field_model",
     "_style_run_button_model",
@@ -260,11 +259,6 @@ def _set_model_props(model: Any, pairs: list[tuple[str, Any]] | tuple[tuple[str,
             best_effort(functools.partial(model.setPropertyValue, name, value), f"notebook controls could not set model {name}")
 
 
-def _set_model_prop(model: Any, name: str, value: Any) -> None:
-    """Set one form-model property. Skip names this model lacks."""
-    _set_model_props(model, [(name, value)])
-
-
 def _style_code_field_model(model: Any, *, vscroll: bool = False) -> None:
     """Jupyter-like code box: light gray fill, hairline border, Liberation Mono."""
     _set_model_props(
@@ -321,7 +315,7 @@ def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated:
         log.warning("notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d", step, total_ms, shapes_before)
 
 
-def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int, ctx: Any | None = None) -> None:
+def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) -> None:
     """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
     hex_id = cell_id_to_hex(cell_id)
     t0 = time.monotonic()
@@ -418,14 +412,13 @@ def _insert_code_input_in_flow(
 # waiting = deadlock #402). ApplyFormDesignMode=False must happen before the
 # filter returns. Listener methods stay undecorated (LO already invokes those
 # on the UI thread; docs/framework/uno-thread-safety.md §A4). Release OXT still
-# strips remaining decorators. Keep @main_thread_only on getControl /
-# per-button wire / bootstrap install. _lock serializes _listener_refs /
-# _wired_keys / _wired_form_docs mutations (Dummy-2 XFilter and Dummy-3
-# OnViewCreated can overlap) and the one-shot global _doc_listener install.
-# Do not hold it across UNO (getFormController, addActionListener).
+# strips remaining decorators. Keep @main_thread_only on bootstrap install.
+# _lock serializes _listener_refs / _warned_no_container mutations (Dummy-2
+# XFilter and Dummy-3 OnViewCreated can overlap) and the one-shot global
+# _doc_listener install. Do not hold it across UNO (getFormController,
+# addActionListener).
 _listener_refs: list[Any] = []
-_wired_keys: set[tuple[str, str]] = set()
-_wired_form_docs: set[str] = set()
+_warned_no_container: set[str] = set()
 
 _doc_listener: Any | None = None
 _lock = threading.Lock()
@@ -484,7 +477,7 @@ def _doc_key(doc: Any) -> str:
     uid = _read_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
-    url = doc.getURL()
+    url = uno_probe(lambda: doc.getURL(), "")
     if isinstance(url, str) and url:
         return f"url:{url}"
     return f"id:{id(doc)}"
@@ -515,27 +508,6 @@ def _hex_id_from_event(rEvent: Any) -> str | None:
     if hex_id:
         return hex_id
     return _hex_id_from_control_name(_control_name(getattr(rEvent, "Source", None)))
-
-
-def wired_run_listener_count(hex_id: str, doc: Any | None = None) -> int:
-    """How many live ▶ handlers would run *hex_id* (form-level counts as one).
-
-    GHA 34643210006: leftover HTML-paste Writers left leftover_open>0, so
-    ``close_doc`` skipped import-filter ``_wa_notebook`` leftovers. Global
-    ``_listener_refs`` then counted those leftover form listeners
-    (``duplicate listeners: 3``). Pass *doc* to count only that document.
-    A leftover doc's listener does not fire this doc's ▶.
-    """
-    doc_key = _doc_key(doc) if doc is not None else None
-    n = 0
-    for lis in _listener_refs:
-        if doc_key is not None and getattr(lis, "_doc_key_val", None) != doc_key:
-            continue
-        if getattr(lis, "_form_level", False):
-            n += 1
-        elif getattr(lis, "_hex_id", None) == hex_id:
-            n += 1
-    return n
 
 
 def form_run_listeners(doc: Any | None = None) -> list[Any]:
@@ -573,47 +545,26 @@ def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
         return None
 
 
-def _record_listener_keys(lis: Any, survivor_keys: set[tuple[str, str]], survivor_forms: set[str]) -> None:
-    """Classify a live listener into form-doc vs per-button key sets.
-
-    ``NotebookFormContainerListener`` is not form-level (that flag would
-    double-count in ``wired_run_listener_count``) and has ``_hex_id is None``.
-    """
-    if getattr(lis, "_form_level", False):
-        survivor_forms.add(lis._doc_key_val)
-        return
-    hex_id = getattr(lis, "_hex_id", None)
-    if hex_id:
-        survivor_keys.add((lis._doc_key_val, hex_id))
-
-
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
         return
-    global _listener_refs, _wired_keys, _wired_form_docs
+    global _listener_refs
     with _lock:
         refs = list(_listener_refs)
     survivors: list[Any] = []
-    survivor_keys: set[tuple[str, str]] = set()
-    survivor_forms: set[str] = set()
     for lis in refs:
         doc = best_effort(lis._resolve_doc, "notebook controls: prune resolve failed")
         if doc is None:
             continue
         survivors.append(lis)
-        _record_listener_keys(lis, survivor_keys, survivor_forms)
     with _lock:
         # Dummy-2 prune must not drop a Dummy-3 wire_all append that landed
         # after the snapshot.
         added = [lis for lis in _listener_refs if lis not in refs]
         _listener_refs = survivors + added
-        _wired_keys = survivor_keys
-        _wired_form_docs = survivor_forms
-        for lis in added:
-            _record_listener_keys(lis, _wired_keys, _wired_form_docs)
 
 
 class NotebookRunButtonListener(BaseActionListener):
@@ -632,7 +583,7 @@ class NotebookRunButtonListener(BaseActionListener):
         self._hex_id = hex_id
         self._form_level = False
         self._doc_key_val = _doc_key(doc)
-        self._doc_url = str(doc.getURL() or "")
+        self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
         from plugin.framework.uno_context import _read_runtime_uid
 
         # Untitled Writer docs have an empty URL. Hidden native tests (and a
@@ -647,6 +598,36 @@ class NotebookRunButtonListener(BaseActionListener):
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import get_active_document, resolve_document_by_url
 
+        weak = getattr(self, "_doc_weak", None)
+        if callable(weak):
+            ref_doc: Any = weak()
+            if ref_doc is not None:
+                def _probe() -> bool:
+                    try:
+                        if callable(getattr(ref_doc, "getRuntimeUID", None)):
+                            ref_doc.getRuntimeUID()
+                            return True
+                    except Exception:
+                        pass
+                    try:
+                        if callable(getattr(ref_doc, "getURL", None)):
+                            ref_doc.getURL()
+                            return True
+                    except Exception:
+                        pass
+                    return False
+
+                if _probe():
+                    return ref_doc
+            self._doc_weak = None
+
+        active = best_effort(
+            lambda: get_active_document(self._ctx),
+            "notebook controls: active document resolution failed",
+        )
+        if active is not None and _doc_key(active) == self._doc_key_val:
+            return active
+
         if self._doc_url:
             resolved = best_effort(
                 lambda: resolve_document_by_url(self._ctx, self._doc_url),
@@ -656,13 +637,7 @@ class NotebookRunButtonListener(BaseActionListener):
                 doc, _doc_type = resolved
                 if doc is not None:
                     return doc
-        # Prefer a live wrapper before enumerating the desktop (unit tests and
-        # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
-        weak = getattr(self, "_doc_weak", None)
-        if callable(weak):
-            ref_doc = weak()
-            if ref_doc is not None:
-                return ref_doc
+
         if self._runtime_uid:
             resolved = best_effort(
                 lambda: resolve_document_by_url(self._ctx, self._runtime_uid),
@@ -672,12 +647,7 @@ class NotebookRunButtonListener(BaseActionListener):
                 doc, _doc_type = resolved
                 if doc is not None:
                     return doc
-        active = best_effort(
-            lambda: get_active_document(self._ctx),
-            "notebook controls: active document resolution failed",
-        )
-        if active is not None and _doc_key(active) == self._doc_key_val:
-            return active
+
         return None
 
     def on_action_performed(self, rEvent: Any) -> None:
@@ -738,12 +708,10 @@ class NotebookFormContainerListener(BaseContainerListener):
         _attach_action_listener(elem, self._form_listener)
 
     def on_disposing(self, Source: Any) -> None:
-        global _listener_refs, _wired_form_docs
+        global _listener_refs
         with _lock:
             pair = {self, self._form_listener}
             _listener_refs = [lis for lis in _listener_refs if lis not in pair]
-            if not any(getattr(lis, "_doc_key_val", None) == self._doc_key_val and getattr(lis, "_form_level", False) for lis in _listener_refs):
-                _wired_form_docs.discard(self._doc_key_val)
 
 
 def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> bool:
@@ -821,48 +789,6 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         return None, None
 
 
-@main_thread_only
-def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> bool:
-    """Attach ``XActionListener`` to a ▶ button model's view. Returns True on success.
-
-    Import no longer calls this in a loop (``getControl`` per cell). Kept for unit
-    tests and a single-button fallback.
-    """
-    prune_dead_listeners()
-    key = (_doc_key(doc), hex_id)
-    with _lock:
-        if key in _wired_keys:
-            return True
-        _wired_keys.add(key)
-    control = get_control_view_for_model(doc, model)
-    if control is None:
-        with _lock:
-            _wired_keys.discard(key)
-        log.debug("notebook controls: no view for button nb_run_%s", hex_id)
-        return False
-    try:
-        listener = NotebookRunButtonListener(ctx, doc, hex_id)
-        btn = _query_interface(control, "com.sun.star.awt.XButton")
-        if btn is not None:
-            btn.addActionListener(listener)
-        elif hasattr(control, "addActionListener"):
-            control.addActionListener(listener)
-        else:
-            log.warning("notebook controls: control has no addActionListener for nb_run_%s", hex_id)
-            with _lock:
-                _wired_keys.discard(key)
-            return False
-        with _lock:
-            _listener_refs.append(listener)
-        log.debug("notebook controls: wired nb_run_%s", hex_id)
-        return True
-    except Exception:
-        with _lock:
-            _wired_keys.discard(key)
-        log.exception("notebook controls: wire failed for nb_run_%s", hex_id)
-        return False
-
-
 def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
     best_effort(
         lambda: container.removeContainerListener(container_lis),
@@ -882,14 +808,12 @@ def forget_document_wiring(doc: Any) -> None:
     """Drop ▶ listeners and registry bookkeeping for *doc* on unload."""
     if doc is None:
         return
-    global _listener_refs, _wired_keys, _wired_form_docs
+    global _listener_refs
     doc_key = _doc_key(doc)
     with _lock:
+        _warned_no_container.discard(doc_key)
         to_drop = [lis for lis in _listener_refs if getattr(lis, "_doc_key_val", None) == doc_key]
     if not to_drop:
-        with _lock:
-            _wired_form_docs.discard(doc_key)
-            _wired_keys = {k for k in _wired_keys if k[0] != doc_key}
         return
     for lis in to_drop:
         if isinstance(lis, NotebookFormContainerListener):
@@ -900,27 +824,39 @@ def forget_document_wiring(doc: Any) -> None:
     with _lock:
         drop_set = set(to_drop)
         _listener_refs = [lis for lis in _listener_refs if lis not in drop_set]
-        _wired_form_docs.discard(doc_key)
-        _wired_keys = {k for k in _wired_keys if k[0] != doc_key}
 
 
-def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
+def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
     Does **not** call ``controller.getControl(model)`` per code cell.
     """
-    if not has_notebook_registry(doc):
-        return 0
-    state = load_registry(doc)
-    if state is None:
-        return 0
-    prune_dead_listeners()
     doc_key = _doc_key(doc)
+    if not new_view:
+        with _lock:
+            already_wired = any(
+                isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key
+                for lis in _listener_refs
+            )
+        if already_wired:
+            ensure_form_design_mode_off(doc)
+            return 1
+
+    state = load_registry(doc)
+    if state is None or not state.code_cells:
+        return 0
+
+    prune_dead_listeners()
     ensure_form_design_mode_off(doc)
     t0 = time.monotonic()
     _fc, container = _form_and_container(doc)
     if container is None:
-        log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
+        with _lock:
+            warn = doc_key not in _warned_no_container
+            if warn:
+                _warned_no_container.add(doc_key)
+        if warn:
+            log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
     from plugin.framework.uno_context import uno_same
@@ -951,7 +887,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     try:
         container.addContainerListener(container_lis)
     except Exception:
-        log.debug("notebook controls: addContainerListener failed", exc_info=True)
+        log.warning("notebook controls: addContainerListener failed", exc_info=True)
 
         def _rollback() -> None:
             controls = container.getControls() if hasattr(container, "getControls") else ()
@@ -972,7 +908,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         if not already_wired:
             _listener_refs.append(listener)
             _listener_refs.append(container_lis)
-            _wired_form_docs.add(doc_key)
+            _warned_no_container.discard(doc_key)
     if already_wired:
         # File Open (Dummy-2) and view creation can both get past the first
         # check. The other call kept its listener; take ours back off so one
@@ -1013,21 +949,12 @@ def _install_doc_event_listener(ctx: Any) -> None:
                             forget_document_wiring(doc)
                         return
 
-                    if doc is not None and has_notebook_registry(doc):
-                        # File Open wire_all runs inside XFilter.filter() before
-                        # XFormLayerAccess.getFormController exists
-                        # (_form_and_container returns None, None) and discards
-                        # the doc key. This listener is the retry once the view
-                        # exists. Menu import already has a live controller.
-                        # Leave the key after a successful wire. OnViewCreated /
-                        # OnLoad / OnLoadFinished / OnNew fire again after that
-                        # (load completion and Save As); removing the key made
-                        # wire_all attach another NotebookFormRunListener, so
-                        # one ▶ click ran the cell twice. wire_all returns 1
-                        # when the key is already present, and still retries
-                        # when a failed wire discarded it.
-                        ensure_form_design_mode_off(doc)
-                        wire_all_notebook_run_buttons(self._ctx, doc)
+                    if doc is not None:
+                        # Tip: File Open wires inside XFilter.filter() before the form controller
+                        # exists, so this is the retry. These events fire again after a wire
+                        # (load completion, Save As); wire_all must stay idempotent or one ▶ click
+                        # runs the cell twice.
+                        wire_all_notebook_run_buttons(self._ctx, doc, new_view=(name == "OnViewCreated"))
                 except Exception:
                     log.warning("notebook controls: doc-event handling failed", exc_info=True)
 
