@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import unohelper
-from com.sun.star.awt import XActionListener, XItemListener, XTextListener, XTopWindowListener
+from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
@@ -38,6 +38,7 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
+from plugin.framework.uno_listeners import BaseTopWindowListener
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -225,30 +226,9 @@ class NativePythonCellEditorDialog:
             self._wire_listeners(dlg)
             owner = self
 
-            class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: Any) -> None:
+            class _TopWindowListener(BaseTopWindowListener):
+                def on_window_closing(self, rEvent: Any) -> None:
                     owner.close(toolkit_teardown=True)
-
-                def windowClosed(self, e: Any) -> None:
-                    pass
-
-                def windowOpened(self, e: Any) -> None:
-                    pass
-
-                def windowMinimized(self, e: Any) -> None:
-                    pass
-
-                def windowNormalized(self, e: Any) -> None:
-                    pass
-
-                def windowActivated(self, e: Any) -> None:
-                    pass
-
-                def windowDeactivated(self, e: Any) -> None:
-                    pass
-
-                def disposing(self, Source: EventObject) -> None:
-                    pass
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)

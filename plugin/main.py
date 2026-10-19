@@ -677,7 +677,7 @@ _STATIC_MENU_TITLES: dict[str, str] = {
     "notebook.run_all": "Run All",
     "notebook.run_from_here": "Run From Here",
     "notebook.stop": "Stop",
-    "writer.insert_latex_dialog": "Edit LaTeX Math...",
+    "writer.insert_latex_dialog": "Insert LaTeX Math...",
     # None would leave the en-US toolbar title; map these so translations apply
     "writer.review_prev": "◀ Prev",
     "writer.review_next": "Next ▶",
