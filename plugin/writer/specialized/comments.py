@@ -29,6 +29,18 @@ from ..specialized_base import ToolWriterCommentBase
 log = logging.getLogger("writeragent.writer.comments")
 
 
+def _iter_annotations(doc: Any) -> Any:
+    fields = doc.getTextFields()
+    enum = fields.createEnumeration()
+    while enum.hasMoreElements():
+        field = enum.nextElement()
+        try:
+            if field.supportsService("com.sun.star.text.textfield.Annotation"):
+                yield field
+        except Exception as exc:
+            reraise_if_disposed(exc)
+
+
 class CommentList(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
@@ -49,15 +61,8 @@ class CommentList(ToolWriterCommentBase):
         entries = paragraph_entries(para_ranges)
         label_cache: dict[int, str] = {}
 
-        fields = doc.getTextFields()
-        enum = fields.createEnumeration()
         comments = []
-
-        while enum.hasMoreElements():
-            field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
-
+        for field in _iter_annotations(doc):
             entry = _read_annotation(
                 field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
             )
@@ -100,6 +105,9 @@ class AddComment(ToolBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
+        if not content:
+            return self._tool_error("Provide content.")
+
         parent_name = (kwargs.get("parent_name") or "").strip()
         author = (kwargs.get("author") or "WriterAgent").strip() or "WriterAgent"
 
@@ -107,8 +115,6 @@ class AddComment(ToolBase):
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the
         # thread root — nesting under a reply matches LO's Reply button (#636).
         if parent_name:
-            if not content:
-                return self._tool_error("Provide content.")
             parent = _find_annotation_by_name(ctx.doc, parent_name)
             if parent is None:
                 # Top-level comment_added (not _tool_error details) matches the
@@ -180,26 +186,11 @@ class AddComment(ToolBase):
 
     def _insert_reply(self, doc: Any, parent: Any, parent_name: str, content: str, author: str) -> dict[str, Any]:
         """Insert a threaded reply at the parent's anchor. Does not set Resolved."""
-        reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
-        reply.setPropertyValue("ParentName", parent_name)
-        reply.setPropertyValue("Content", content)
-        reply.setPropertyValue("Author", author)
-        # Point-insert replies (ParentName set) do not get an auto Name from Writer;
-        # the pre-insert instance and the document enumeration both stay empty.
-        # Setting Name before insert sticks (LO probe: listed ParentName + Name).
-        assigned_name = _ensure_annotation_name(reply, doc)
-        _set_annotation_date(reply)
-        # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
-        anchor = parent.getAnchor()
-        host = anchor.getText()
-        cursor = host.createTextCursorByRange(anchor.getStart())
-        names_before = _annotation_field_names(doc)
-        host.insertTextContent(cursor, reply, False)
-        names_after = _annotation_field_names(doc)
-        if len(names_after) <= len(names_before):
+        success, reply_name_or_err = _insert_annotation_reply(doc, parent, parent_name, content, author)
+        if not success:
             return {
                 "status": "error",
-                "message": "Reply insert did not register an annotation.",
+                "message": reply_name_or_err,
                 "comment_added": False,
                 "parent_name": parent_name,
             }
@@ -208,7 +199,7 @@ class AddComment(ToolBase):
             "message": "Reply added.",
             "author": author,
             "comment_added": True,
-            "name": _annotation_name(reply) or assigned_name or _name_of_new_annotation(doc, reply, names_before),
+            "name": reply_name_or_err,
             "parent_name": parent_name,
         }
 
@@ -231,36 +222,36 @@ class CommentDelete(ToolWriterCommentBase):
             return self._tool_error("Provide name or author.")
 
         doc = ctx.doc
-        fields = doc.getTextFields()
-        enum = fields.createEnumeration()
-
         rows = []
-        while enum.hasMoreElements():
-            field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
+        for field in _iter_annotations(doc):
             name = field.getPropertyValue("Name")
             parent = field.getPropertyValue("ParentName")
             field_author = field.getPropertyValue("Author")
             rows.append((field, name, parent, field_author))
+
+        parent_to_children: dict[str, list[int]] = {}
+        for idx, (_field, _name, parent, _field_author) in enumerate(rows):
+            if parent:
+                parent_to_children.setdefault(parent, []).append(idx)
 
         selected_indices: set[int] = set()
 
         # dispose() removes one field, and ParentName is only the immediate
         # parent, so the name set has to be the chain.
         if comment_name:
-            doomed = {comment_name}
-            changed = True
-            while changed:
-                changed = False
-                for idx, (_field, name, parent, _field_author) in enumerate(rows):
-                    if idx in selected_indices:
-                        continue
-                    if (name and name in doomed) or (parent and parent in doomed):
-                        selected_indices.add(idx)
-                        if name and name not in doomed:
-                            doomed.add(name)
-                            changed = True
+            queue = [comment_name]
+            seen_names = {comment_name}
+            for idx, (_field, name, _parent, _author) in enumerate(rows):
+                if name == comment_name:
+                    selected_indices.add(idx)
+            while queue:
+                curr_name = queue.pop()
+                for child_idx in parent_to_children.get(curr_name, []):
+                    selected_indices.add(child_idx)
+                    child_name = rows[child_idx][1]
+                    if child_name and child_name not in seen_names:
+                        seen_names.add(child_name)
+                        queue.append(child_name)
 
         if author:
             for idx, (_field, _name, _parent, field_author) in enumerate(rows):
@@ -308,14 +299,8 @@ class CommentResolve(ToolWriterCommentBase):
         author = kwargs.get("author", "AI")
 
         doc = ctx.doc
-        fields = doc.getTextFields()
-        enum = fields.createEnumeration()
-
         target = None
-        while enum.hasMoreElements():
-            field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
+        for field in _iter_annotations(doc):
             name = field.getPropertyValue("Name")
             if name == comment_name:
                 target = field
@@ -330,28 +315,14 @@ class CommentResolve(ToolWriterCommentBase):
 
         reply_name = None
         if resolution:
-            reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
-            reply.setPropertyValue("ParentName", comment_name)
-            reply.setPropertyValue("Content", resolution)
-            reply.setPropertyValue("Author", author)
-            _ensure_annotation_name(reply, doc)
-            reply_name = _annotation_name(reply)
-            _set_annotation_date(reply)
-            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
-            anchor = target.getAnchor()
-            host = anchor.getText()
-            cursor = host.createTextCursorByRange(anchor.getStart())
-            names_before = _annotation_field_names(doc)
-            host.insertTextContent(cursor, reply, False)
-            names_after = _annotation_field_names(doc)
-            if len(names_after) <= len(names_before):
+            success, reply_name_or_err = _insert_annotation_reply(doc, target, comment_name, resolution, author)
+            if not success:
                 return {
                     "status": "error",
-                    "message": "Reply insert did not register an annotation.",
+                    "message": reply_name_or_err,
                     "parent_name": comment_name,
                 }
-            if not reply_name:
-                reply_name = _name_of_new_annotation(doc, reply, names_before)
+            reply_name = reply_name_or_err
 
         target.setPropertyValue("Resolved", True)
 
@@ -383,13 +354,8 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
 
     entries = paragraph_entries(para_ranges)
     label_cache: dict[int, str] = {}
-    fields = doc.getTextFields()
-    enum = fields.createEnumeration()
     tasks = []
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         try:
             content = field.getPropertyValue("Content") or ""
         except Exception:
@@ -433,12 +399,7 @@ def _parse_workflow_content(content: str) -> list[tuple[str | None, str]]:
 
 def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
     doc = ctx.doc
-    fields = doc.getTextFields()
-    enum = fields.createEnumeration()
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         author = field.getPropertyValue("Author") or ""
         if author != "MCP-WORKFLOW":
             continue
@@ -452,13 +413,8 @@ def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
     content = kwargs.get("content", "")
     doc = ctx.doc
     doc_text = doc.getText()
-    fields = doc.getTextFields()
-    enum = fields.createEnumeration()
     existing = None
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         author = field.getPropertyValue("Author") or ""
         if author == "MCP-WORKFLOW":
             existing = field
@@ -478,14 +434,9 @@ def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
 
 def _comment_check_stop(ctx: Any) -> dict[str, Any]:
     doc = ctx.doc
-    fields = doc.getTextFields()
-    enum = fields.createEnumeration()
     stop_signals = []
     workflow_stop = False
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         content = field.getPropertyValue("Content") or ""
         author = field.getPropertyValue("Author") or ""
         resolved = field.getPropertyValue("Resolved")
@@ -569,11 +520,7 @@ class CommentCheckStop(ToolWriterCommentBase):
 
 def _find_annotation_by_name(doc: Any, comment_name: str) -> Any | None:
     """Return the Annotation field whose Name matches *comment_name*, or None."""
-    enum = doc.getTextFields().createEnumeration()
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         if field.getPropertyValue("Name") == comment_name:
             return field
     return None
@@ -587,11 +534,7 @@ def _annotation_name(field: Any) -> str:
 def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unset)."""
     names: list[str] = []
-    enum = doc.getTextFields().createEnumeration()
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-            continue
+    for field in _iter_annotations(doc):
         names.append(field.getPropertyValue("Name") or "")
     return names
 
@@ -647,6 +590,32 @@ def _set_annotation_date(annotation: Any) -> None:
     annotation.setPropertyValue("Date", d)
 
 
+def _insert_annotation_reply(
+    doc: Any, parent: Any, parent_name: str, content: str, author: str
+) -> tuple[bool, str]:
+    """Insert a threaded reply at the parent's anchor. Returns (success, reply_name_or_error_message)."""
+    reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
+    reply.setPropertyValue("ParentName", parent_name)
+    reply.setPropertyValue("Content", content)
+    reply.setPropertyValue("Author", author)
+    # Point-insert replies (ParentName set) do not get an auto Name from Writer;
+    # the pre-insert instance and the document enumeration both stay empty.
+    # Setting Name before insert sticks (LO probe: listed ParentName + Name).
+    assigned_name = _ensure_annotation_name(reply, doc)
+    _set_annotation_date(reply)
+    # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
+    anchor = parent.getAnchor()
+    host = anchor.getText()
+    cursor = host.createTextCursorByRange(anchor.getStart())
+    names_before = _annotation_field_names(doc)
+    host.insertTextContent(cursor, reply, False)
+    names_after = _annotation_field_names(doc)
+    if len(names_after) <= len(names_before):
+        return False, "Reply insert did not register an annotation."
+    reply_name = _annotation_name(reply) or assigned_name or _name_of_new_annotation(doc, reply, names_before)
+    return True, reply_name
+
+
 def _read_annotation(
     field: Any,
     para_ranges: Any,
@@ -662,66 +631,91 @@ def _read_annotation(
 
     entry: dict[str, Any] = {}
     name_read: str | None = None
+    props_read = 0
+    last_exc: Exception | None = None
     try:
         for prop, key in _ANNOTATION_PROPERTIES:
-            val = field.getPropertyValue(prop)
-            if key in ("author", "content") and val is None:
-                val = ""
-            entry[key] = val
-            if key == "name" and val:
-                name_read = val
+            try:
+                val = field.getPropertyValue(prop)
+                if key in ("author", "content") and val is None:
+                    val = ""
+                entry[key] = val
+                props_read += 1
+                if key == "name" and val:
+                    name_read = val
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                last_exc = exc
 
-        dt = field.getPropertyValue("DateTimeValue")
-        if dt is not None:
-            entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-                getattr(dt, "Year", 0),
-                getattr(dt, "Month", 0),
-                getattr(dt, "Day", 0),
-                getattr(dt, "Hours", 0),
-                getattr(dt, "Minutes", 0),
-            )
-        else:
-            entry["date"] = ""
+        try:
+            dt = field.getPropertyValue("DateTimeValue")
+            if dt is not None:
+                entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
+                    getattr(dt, "Year", 0),
+                    getattr(dt, "Month", 0),
+                    getattr(dt, "Day", 0),
+                    getattr(dt, "Hours", 0),
+                    getattr(dt, "Minutes", 0),
+                )
+                props_read += 1
+            else:
+                entry["date"] = ""
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            last_exc = exc
+
+        if props_read == 0:
+            err_msg = str(last_exc) if last_exc is not None else "failed to read annotation"
+            log.warning("Failed to read annotation: %s", err_msg)
+            err_entry: dict[str, Any] = {"error": err_msg, "stale": True}
+            if name_read is not None:
+                err_entry["name"] = name_read
+            return err_entry
 
         # getAnchor().getString() is often empty (the anchor reads as a point even for
         # spanning comments), so fall back to the enclosing paragraph text and say so via
         # anchor_is_paragraph_context.
-        anchor = field.getAnchor()
-        preview = ""
-        if anchor is not None:
-            entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
-            doc_text = text_obj
-            try:
-                anchor_text = anchor.getText()
-            except Exception:
-                anchor_text = None
-            if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
-                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                from plugin.doc.paragraph_search import confirm_paragraph_index
+        try:
+            anchor = field.getAnchor()
+            preview = ""
+            if anchor is not None:
+                entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
+                doc_text = text_obj
+                try:
+                    anchor_text = anchor.getText()
+                except Exception:
+                    anchor_text = None
+                if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
+                    raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                    from plugin.doc.paragraph_search import confirm_paragraph_index
 
-                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                if placed is not None:
-                    entry["paragraph_index"] = placed
+                    placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                    if placed is not None:
+                        entry["paragraph_index"] = placed
 
-            try:
-                preview = (anchor.getString() or "")[:80]
-            except Exception:
-                preview = ""
-            if not preview:
-                from plugin.writer.search import enclosing_paragraph_text
+                try:
+                    preview = (anchor.getString() or "")[:80]
+                except Exception:
+                    preview = ""
+                if not preview:
+                    from plugin.writer.search import enclosing_paragraph_text
 
-                ptxt = (enclosing_paragraph_text(anchor) or "").strip()
-                if ptxt:
-                    preview = ptxt[:120]
-                    entry["anchor_is_paragraph_context"] = True
-        else:
-            entry["location"] = "body"
-        entry["anchor_preview"] = preview
+                    ptxt = (enclosing_paragraph_text(anchor) or "").strip()
+                    if ptxt:
+                        preview = ptxt[:120]
+                        entry["anchor_is_paragraph_context"] = True
+            else:
+                entry["location"] = "body"
+            entry["anchor_preview"] = preview
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            last_exc = exc
+
         return entry
     except Exception as exc:
         reraise_if_disposed(exc)
         log.warning("Failed to read annotation: %s", exc)
-        err_entry: dict[str, Any] = {"error": str(exc), "stale": True}
+        outer_err: dict[str, Any] = {"error": str(exc), "stale": True}
         if name_read is not None:
-            err_entry["name"] = name_read
-        return err_entry
+            outer_err["name"] = name_read
+        return outer_err

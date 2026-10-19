@@ -19,7 +19,14 @@ from plugin.writer.specialized.fields import FieldsInsert, FieldsList, FieldsDel
 @pytest.fixture
 def mock_ctx():
     # Fields APIs (getTextFields, etc.) stay MagicMock; factory owns ToolContext wiring.
-    return TestingFactory.create_context(doc=MagicMock(), doc_type="writer")
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    entered = {}
+    mgr.enterUndoContext.side_effect = lambda t: entered.__setitem__("title", t)
+    mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
+    doc.getUndoManager.return_value = mgr
+    return TestingFactory.create_context(doc=doc, doc_type="writer")
 
 
 def test_fields_list_empty(mock_ctx):
@@ -441,4 +448,90 @@ def test_fields_delete_without_snapshot_succeeds(mock_ctx):
     anchor.setString.assert_called_with("")
 
 
+def test_fields_list_snapshot_equals_delete_computed_hash(mock_ctx):
+    field1 = MagicMock()
+    field1.supportsService.return_value = False
+    field1.getPresentation.return_value = "Page 1"
+    field1.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
 
+    field2 = MagicMock()
+    field2.supportsService.return_value = False
+    field2.getPresentation.return_value = "Page 2"
+    field2.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+
+    fields = MagicMock()
+
+    def make_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, False]
+        enum.nextElement.side_effect = [field1, field2]
+        return enum
+
+    fields.createEnumeration.side_effect = make_enum
+    mock_ctx.doc.getTextFields.return_value = fields
+
+    list_res = FieldsList().execute(mock_ctx)
+    snapshot = list_res["snapshot"]
+
+    # Passing that exact snapshot succeeds because delete computes the same hash
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1], snapshot=snapshot)
+    assert del_res["status"] == "ok"
+    assert del_res["deleted_count"] == 1
+
+
+def test_fields_delete_rollback_when_setString_raises(mock_ctx):
+    field1 = MagicMock()
+    field1.supportsService.return_value = False
+    field1.getPresentation.return_value = "F1"
+    field1.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor1 = MagicMock()
+    field1.getAnchor.return_value = anchor1
+
+    field2 = MagicMock()
+    field2.supportsService.return_value = False
+    field2.getPresentation.return_value = "F2"
+    field2.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor2 = MagicMock()
+    anchor2.setString.side_effect = RuntimeError("anchor clear failed")
+    field2.getAnchor.return_value = anchor2
+
+    field3 = MagicMock()
+    field3.supportsService.return_value = False
+    field3.getPresentation.return_value = "F3"
+    field3.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor3 = MagicMock()
+    field3.getAnchor.return_value = anchor3
+
+    fields = MagicMock()
+
+    def make_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, True, False]
+        enum.nextElement.side_effect = [field1, field2, field3]
+        return enum
+
+    fields.createEnumeration.side_effect = make_enum
+    mock_ctx.doc.getTextFields.return_value = fields
+
+    mgr = mock_ctx.doc.getUndoManager()
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1, 2, 3])
+    assert del_res["status"] == "error"
+    assert del_res.get("details", {}).get("deleted_count") == 0
+    assert "anchor clear failed" in del_res["message"]
+    mgr.undo.assert_called_once()
+
+
+def test_fields_delete_locked_undo_does_not_delete(mock_ctx):
+    field = MagicMock()
+    field.supportsService.return_value = False
+    field.getPresentation.return_value = "Page 1"
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor = field.getAnchor.return_value
+    _one_field_doc(mock_ctx.doc, field)
+
+    mock_ctx.doc.getUndoManager().isLocked.return_value = True
+
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1])
+    assert del_res["status"] == "error"
+    assert del_res["code"] == "UNDO_UNAVAILABLE"
+    anchor.setString.assert_not_called()

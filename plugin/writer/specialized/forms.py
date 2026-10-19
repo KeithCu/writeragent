@@ -33,7 +33,7 @@ from plugin.doc.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import coerce_control_state
-from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal
+from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
@@ -183,17 +183,27 @@ def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
     return (year, month, day)
 
 
+class _StackedDrawPageCursor:
+    def __init__(self, dp: Any) -> None:
+        self.margin_x: int = 5000
+        self.gap: int = 400
+        bottom = 800
+        for i in range(dp.getCount()):
+            s = dp.getByIndex(i)
+            pos = s.getPosition()
+            sz = s.getSize()
+            bottom = max(bottom, pos.Y + sz.Height)
+        self.next_y: int = bottom + self.gap
+
+    def next_position(self, height: int) -> Point:
+        y = self.next_y
+        self.next_y = y + height + self.gap
+        return Point(self.margin_x, y)
+
+
 def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_height: int) -> Point:
     """Place new controls below existing shapes on a draw page (1/100 mm)."""
-    margin_x = 5000
-    gap = 400
-    max_bottom = 800
-    for i in range(dp.getCount()):
-        s = dp.getByIndex(i)
-        pos = s.getPosition()
-        sz = s.getSize()
-        max_bottom = max(max_bottom, pos.Y + sz.Height)
-    return Point(margin_x, max_bottom + gap)
+    return _StackedDrawPageCursor(dp).next_position(default_height)
 
 
 # XCell.getType() members that can take setString without dropping a number or formula.
@@ -341,7 +351,7 @@ class FormCreateControl(ToolWriterFormBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+    def _execute_main(self, ctx: Any, cursor: Any = None, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         control_type = str(kwargs.get("control", ""))
         name = kwargs.get("name", "Field")
@@ -430,7 +440,10 @@ class FormCreateControl(ToolWriterFormBase):
                 dp = _resolve_form_page(doc, kwargs.get("page"))
                 if dp is None:
                     return _no_form_draw_page_payload()
-                pos = _next_stacked_position_on_draw_page(dp, w, h)
+                if cursor is not None:
+                    pos = cursor.next_position(h)
+                else:
+                    pos = _next_stacked_position_on_draw_page(dp, w, h)
                 shape.setPosition(pos)
                 dp.add(shape)
             else:
@@ -490,10 +503,15 @@ class FormCreate(ToolWriterFormBase):
         doc = ctx.doc
         results: list[Any] = []
         creator = FormCreateControl()
+        cursor = None
+        if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
+            dp = _resolve_form_page(doc, None)
+            if dp is not None:
+                cursor = _StackedDrawPageCursor(dp)
 
         def mutate() -> dict[str, Any] | None:
             for field in fields:
-                res = creator._execute_main(ctx, **field)
+                res = creator._execute_main(ctx, cursor=cursor, **field)
                 results.append(res)
                 # Call _insert_space only when that field's result is not status="error"
                 if isinstance(res, dict) and res.get("status") != "error":
@@ -604,12 +622,18 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         field_results: list[Any] = []
         field_names: list[Any] = []
 
+        cursor = None
+        if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
+            dp = _resolve_form_page(doc, None)
+            if dp is not None:
+                cursor = _StackedDrawPageCursor(dp)
+
         def mutate() -> dict[str, Any] | None:
             for part in parts:
                 if part.startswith("{FIELD:"):
                     params = self._parse_field_tag(part)
                     if params:
-                        res = creator._execute_main(ctx, **params)
+                        res = creator._execute_main(ctx, cursor=cursor, **params)
                         if not isinstance(res, dict):
                             res = format_error_payload(ToolExecutionError("Form field returned no result."))
                         field_results.append(res)
@@ -620,7 +644,13 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         field_names.append({})
                 else:
                     if part:
-                        self._insert_text(ctx, part)
+                        if cursor is not None:
+                            try:
+                                self._insert_text(ctx, part, cursor=cursor)
+                            except TypeError:
+                                self._insert_text(ctx, part)
+                        else:
+                            self._insert_text(ctx, part)
 
             failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
             if failure is not None:
@@ -640,7 +670,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
-    def _insert_text(self, ctx: Any, text: str) -> None:
+    def _insert_text(self, ctx: Any, text: str, cursor: Any = None) -> None:
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
             plain = _plain_text_for_calc_html_fragment(text)
@@ -657,7 +687,10 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 return
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
-            pos = _next_stacked_position_on_draw_page(dp, w, h)
+            if cursor is not None:
+                pos = cursor.next_position(h)
+            else:
+                pos = _next_stacked_position_on_draw_page(dp, w, h)
             shape = bridge.create_shape("com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp)
             shape.setString(plain)
             return
@@ -665,8 +698,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         from ..html_import import insert_html_fragment_at_cursor
 
         vc = doc.getCurrentController().getViewCursor()
-        cursor = clone_text_range(vc)
-        insert_html_fragment_at_cursor(cursor, text, wrap=False)
+        cursor_range = clone_text_range(vc)
+        insert_html_fragment_at_cursor(cursor_range, text, wrap=False)
 
     def _parse_field_tag(self, tag: str) -> dict[str, Any] | None:
         pairs = re.findall(r"(\w+)[:=]['\"]([^'\"]*)['\"]", tag)
@@ -713,26 +746,30 @@ class FormListControls(ToolWriterFormBase):
         controls = []
 
         for i in range(dp.getCount()):
-            shape = dp.getByIndex(i)
-            if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
-                model = shape.Control
-                shape_name = getattr(shape, "Name", "") or ""
-                model_name = getattr(model, "Name", "") or ""
-                ctrl_name = shape_name if shape_name else model_name
-                info = {"index": i, "name": ctrl_name, "type": _get_readable_type(model)}
-                if model_name and ctrl_name != model_name:
-                    info["group_name"] = model_name
-                info.update(_control_value_fields(model))
+            try:
+                shape = dp.getByIndex(i)
+                if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
+                    model = shape.Control
+                    shape_name = getattr(shape, "Name", "") or ""
+                    model_name = getattr(model, "Name", "") or ""
+                    ctrl_name = shape_name if shape_name else model_name
+                    info = {"index": i, "name": ctrl_name, "type": _get_readable_type(model)}
+                    if model_name and ctrl_name != model_name:
+                        info["group_name"] = model_name
+                    info.update(_control_value_fields(model))
 
-                # Geometry
-                pos = shape.getPosition()
-                sz = shape.getSize()
-                info["x"] = pos.X
-                info["y"] = pos.Y
-                info["width"] = sz.Width
-                info["height"] = sz.Height
+                    # Geometry
+                    pos = shape.getPosition()
+                    sz = shape.getSize()
+                    info["x"] = pos.X
+                    info["y"] = pos.Y
+                    info["width"] = sz.Width
+                    info["height"] = sz.Height
 
-                controls.append(info)
+                    controls.append(info)
+            except Exception as e:
+                reraise_if_disposed(e)
+                controls.append({"index": i, "error": str(e), "stale": True})
 
         out: dict[str, Any] = {"status": "ok", "controls": controls, "count": len(controls)}
         if _is_spreadsheet_doc(doc):

@@ -316,7 +316,7 @@ class _HeadingDoc:
 
 
 def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
-    def fake_find(anchor, _ranges, _text=None):
+    def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
     monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
@@ -370,7 +370,7 @@ def test_ensure_drops_unplaced_mcp_bookmark_instead_of_paragraph_zero(monkeypatc
 def test_ensure_keeps_demoted_bookmark_during_save_hook(monkeypatch):
     from plugin.writer.specialized.bookmarks import _in_save_hook
 
-    def fake_find(anchor, _ranges, _text=None):
+    def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
     monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
@@ -512,7 +512,7 @@ def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
 def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
     from plugin.writer.specialized.bookmarks import _in_save_hook, _PENDING_STRIPS, _PendingStrip
 
-    def fake_find(anchor, _ranges, _text=None):
+    def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
     monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
@@ -607,4 +607,86 @@ def test_bookmark_list_isolates_bad_bookmark():
     assert res["bookmarks"][1]["name"] == "bad_bm"
     assert res["bookmarks"][1]["stale"] is True
     assert "damaged anchor" in res["bookmarks"][1]["error"]
+
+
+def test_bookmark_delete_rejects_mcp_names():
+    from plugin.writer.specialized.bookmarks import BookmarkDelete
+
+    doc = MagicMock()
+    text = MagicMock()
+    doc.getText.return_value = text
+    bookmarks = MagicMock()
+    doc.getBookmarks.return_value = bookmarks
+
+    ctx = MagicMock(doc=doc)
+    res = BookmarkDelete().execute(ctx, name="_mcp_heading_123")
+    assert res["status"] == "error"
+    assert "bookmark_cleanup" in res.get("error", "") or "bookmark_cleanup" in res.get("message", "")
+    text.removeTextContent.assert_not_called()
+
+    # User bookmark deletes successfully
+    user_bm = MagicMock()
+    user_anchor = MagicMock()
+    user_anchor.getText.return_value = text
+    user_bm.getAnchor.return_value = user_anchor
+    bookmarks.hasByName.return_value = True
+    bookmarks.getByName.return_value = user_bm
+
+    ok_res = BookmarkDelete().execute(ctx, name="user_bookmark")
+    assert ok_res["status"] == "ok"
+    text.removeTextContent.assert_called_once_with(user_bm)
+
+
+def test_bookmark_get_and_delete_dead_anchor_and_disposal():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.specialized.bookmarks import BookmarkDelete, BookmarkGet
+
+    doc = MagicMock()
+    bookmarks = MagicMock()
+    doc.getBookmarks.return_value = bookmarks
+    bookmarks.hasByName.return_value = True
+
+    bad_bm = MagicMock()
+    bad_bm.getAnchor.side_effect = RuntimeError("dead anchor")
+    bookmarks.getByName.return_value = bad_bm
+
+    ctx = MagicMock(doc=doc)
+
+    # getAnchor error returns structured error with stale: True
+    get_res = BookmarkGet().execute(ctx, name="target")
+    assert get_res["status"] == "error"
+    assert get_res.get("details", {}).get("stale") is True or get_res.get("stale") is True
+
+    # delete with dead anchor returns structured error with stale: True
+    del_res = BookmarkDelete().execute(ctx, name="target")
+    assert del_res["status"] == "error"
+    assert del_res.get("details", {}).get("stale") is True or del_res.get("stale") is True
+
+    # Disposal propagates
+    disposed_bm = MagicMock()
+    disposed_bm.getAnchor.side_effect = DocumentDisposedError("document closed")
+    bookmarks.getByName.return_value = disposed_bm
+
+    with pytest.raises(DocumentDisposedError):
+        BookmarkGet().execute(ctx, name="target")
+
+    with pytest.raises(DocumentDisposedError):
+        BookmarkDelete().execute(ctx, name="target")
+
+
+def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatch):
+    doc = MagicMock()
+    bookmarks = MagicMock()
+    bookmarks.getElementNames.return_value = ["intro_bm", "appendix_bm"]
+    doc.getBookmarks.return_value = bookmarks
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("get_paragraph_ranges should not be called when no _mcp_ bookmarks exist")
+
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.get_paragraph_ranges", fail_if_called)
+
+    svc = BookmarkService()
+    bm_map, all_names = svc._read_mcp_bookmark_map_and_names(doc, para_ranges=None)
+    assert bm_map == {}
+    assert all_names == ["intro_bm", "appendix_bm"]
 

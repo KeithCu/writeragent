@@ -185,7 +185,7 @@ def test_form_generate_reports_field_failures(monkeypatch):
 
 def test_form_generate_reports_unparsed_field_tag():
     tool = FormGenerate()
-    tool._insert_text = lambda ctx, text: None
+    tool._insert_text = lambda ctx, text, cursor=None: None
 
     res = tool._process_form_content(_mock_form_ctx(), "Intro {FIELD:broken} end")
 
@@ -465,6 +465,176 @@ def test_form_create_and_control_schemas_match_control_type_map():
     expected_keys = sorted(_CONTROL_TYPE_MAP.keys())
     assert sorted(FormCreateControl.parameters["properties"]["control"]["enum"]) == expected_keys
     assert sorted(FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]) == expected_keys
+
+
+def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
+    from plugin.writer.specialized.forms import FormCreate
+    from com.sun.star.awt import Point, Size
+
+    dp = MagicMock()
+    existing_shape = MagicMock()
+    existing_shape.getPosition.return_value = Point(0, 0)
+    existing_shape.getSize.return_value = Size(100, 500)
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = existing_shape
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    created_shapes = []
+
+    def fake_create_instance(service):
+        inst = MagicMock()
+        if service == "com.sun.star.drawing.ControlShape":
+            created_shapes.append(inst)
+        return inst
+
+    doc.createInstance.side_effect = fake_create_instance
+
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    tool = FormCreate()
+    fields = [
+        {"control": "text", "name": "t1", "height": 600},
+        {"control": "text", "name": "t2", "height": 600},
+        {"control": "text", "name": "t3", "height": 600},
+    ]
+    res = tool.execute(SimpleNamespace(doc=doc), fields=fields)
+    assert res["status"] == "ok"
+
+    # getByIndex was called only once during initial page scan (for 1 existing shape)
+    assert dp.getByIndex.call_count == 1
+
+    # Check positions:
+    # bottom = 800. first Y = 800 + 400 = 1200.
+    # after h=600: next Y = 1200 + 600 + 400 = 2200.
+    # after h=600: next Y = 2200 + 600 + 400 = 3200.
+    assert created_shapes[0].setPosition.call_args[0][0].Y == 1200
+    assert created_shapes[1].setPosition.call_args[0][0].Y == 2200
+    assert created_shapes[2].setPosition.call_args[0][0].Y == 3200
+
+
+def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
+    from plugin.writer.specialized.forms import FormGenerate
+
+    dp = MagicMock()
+    dp.getCount.return_value = 0
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    control_shapes = []
+    text_shapes = []
+
+    def fake_create_instance(service):
+        inst = MagicMock()
+        if service == "com.sun.star.drawing.ControlShape":
+            control_shapes.append(inst)
+        return inst
+
+    doc.createInstance.side_effect = fake_create_instance
+
+    bridge = MagicMock()
+    bridge.get_active_page.return_value = dp
+
+    def fake_create_shape(service, x, y, w, h, page=None):
+        sh = MagicMock()
+        text_shapes.append((sh, y, h))
+        return sh
+
+    bridge.create_shape.side_effect = fake_create_shape
+
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+    monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge)
+
+    tool = FormGenerate()
+    # Interleaved Draw text (h=1000) and control (h=600)
+    content = "Label 1 {FIELD:control='text' name='c1'}"
+    res = tool._process_form_content(SimpleNamespace(doc=doc), content)
+    assert res["status"] == "ok"
+
+    # Label text placed first: Y = 1200 (h=1000)
+    assert len(text_shapes) == 1
+    assert text_shapes[0][1] == 1200
+    # Next Y = 1200 + 1000 + 400 = 2600 for control shape
+    assert len(control_shapes) == 1
+    assert control_shapes[0].setPosition.call_args[0][0].Y == 2600
+
+
+def test_writer_create_does_not_call_scanner(monkeypatch):
+    from plugin.writer.specialized.forms import FormCreate, _StackedDrawPageCursor
+
+    cursor_inits = []
+    orig_init = _StackedDrawPageCursor.__init__
+
+    def fake_init(self, dp):
+        cursor_inits.append(dp)
+        orig_init(self, dp)
+
+    monkeypatch.setattr(_StackedDrawPageCursor, "__init__", fake_init)
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    # Writer doc
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+
+    ctrl = MagicMock()
+    view_cursor = MagicMock()
+    ctrl.getViewCursor.return_value = view_cursor
+    ctrl.getSelection.return_value = None
+    doc.getCurrentController.return_value = ctrl
+
+    tool = FormCreate()
+    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "f1"}])
+    assert res["status"] == "ok"
+    assert len(cursor_inits) == 0
+
+
+def test_form_list_controls_handles_failing_shape(monkeypatch):
+    from plugin.writer.specialized.forms import FormListControls
+    from com.sun.star.awt import Point, Size
+
+    bad_shape = MagicMock()
+    bad_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    bad_shape.getPosition.side_effect = RuntimeError("shape position corrupted")
+
+    good_shape = MagicMock()
+    good_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    good_shape.Name = "good_control"
+    model = MagicMock()
+    model.Name = "good_control"
+    model.supportsService.side_effect = lambda s: s == "com.sun.star.form.component.TextField"
+    good_shape.Control = model
+    good_shape.getPosition.return_value = Point(100, 200)
+    good_shape.getSize.return_value = Size(300, 400)
+
+    dp = MagicMock()
+    dp.getCount.return_value = 2
+    dp.getByIndex.side_effect = [bad_shape, good_shape]
+
+    doc = MagicMock()
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    res = FormListControls()._execute_main(SimpleNamespace(doc=doc))
+    assert res["status"] == "ok"
+    assert res["count"] == 2
+    assert res["controls"][0]["stale"] is True
+    assert res["controls"][0]["index"] == 0
+    assert "shape position corrupted" in res["controls"][0]["error"]
+    assert res["controls"][1]["name"] == "good_control"
+    assert res["controls"][1]["index"] == 1
 
 
 

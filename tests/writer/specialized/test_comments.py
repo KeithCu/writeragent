@@ -871,3 +871,170 @@ def test_comment_list_propagates_real_disposal_from_item():
     res = CommentList().execute_safe(ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_comment_list_per_property_try_keeps_good_properties():
+    from plugin.writer.specialized.comments import CommentList
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+
+    def get_prop(p):
+        if p == "Content":
+            raise RuntimeError("content failed")
+        if p == "Author":
+            return "Alice"
+        if p == "DateTimeValue":
+            return None
+        return ""
+
+    field.getPropertyValue.side_effect = get_prop
+    doc = MagicMock()
+    doc.getText.return_value = MagicMock()
+
+    class OneEnum:
+        def __init__(self):
+            self.done = False
+        def hasMoreElements(self):
+            return not self.done
+        def nextElement(self):
+            self.done = True
+            return field
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = OneEnum
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    res = CommentList().execute(ctx)
+    assert res["status"] == "ok"
+    assert len(res["comments"]) == 1
+    assert res["comments"][0]["author"] == "Alice"
+    assert "stale" not in res["comments"][0]
+
+
+def test_read_annotation_disposal_propagates():
+    from plugin.writer.specialized.comments import _read_annotation
+    import pytest
+
+    field = MagicMock()
+    field.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
+    with pytest.raises(DocumentDisposedError):
+        _read_annotation(field, [], MagicMock(), MagicMock())
+
+
+def test_add_comment_empty_content_errors_without_search(monkeypatch):
+    from plugin.writer.specialized.comments import AddComment
+
+    searched = False
+
+    def fake_find(*_args, **_kwargs):
+        nonlocal searched
+        searched = True
+        return []
+
+    monkeypatch.setattr("plugin.writer.search.find_all_ranges", fake_find)
+    ctx = MagicMock()
+    tool = AddComment()
+    res = tool.execute(ctx, content="", search="hello")
+    assert res["status"] == "error"
+    assert "Provide content" in res["message"]
+    assert not searched
+
+
+def test_reply_and_resolve_call_shared_helper(monkeypatch):
+    from plugin.writer.specialized import comments
+
+    helper_calls = []
+
+    def fake_insert_reply(doc, parent, parent_name, content, author):
+        helper_calls.append((parent_name, content, author))
+        if content == "fail":
+            return False, "insert error"
+        return True, "new_reply_name"
+
+    monkeypatch.setattr(comments, "_insert_annotation_reply", fake_insert_reply)
+
+    # 1. AddComment reply path
+    target = MagicMock()
+    monkeypatch.setattr(comments, "_find_annotation_by_name", lambda doc, name: target)
+    ctx = MagicMock()
+    add_res = comments.AddComment().execute(ctx, content="my reply", parent_name="c1", author="Author1")
+    assert add_res["status"] == "ok"
+    assert add_res["comment_added"] is True
+    assert add_res["name"] == "new_reply_name"
+    assert helper_calls[-1] == ("c1", "my reply", "Author1")
+
+    # 2. CommentResolve failure does not set Resolved
+    target.reset_mock()
+    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
+    resolve_fail = comments.CommentResolve().execute(ctx, name="c1", resolution="fail", author="AI")
+    assert resolve_fail["status"] == "error"
+    assert "comment_added" not in resolve_fail
+    target.setPropertyValue.assert_not_called()
+
+    # 3. CommentResolve success sets Resolved
+    target.reset_mock()
+    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
+    resolve_ok = comments.CommentResolve().execute(ctx, name="c1", resolution="resolved it", author="AI")
+    assert resolve_ok["status"] == "ok"
+    assert resolve_ok["resolved"] is True
+    assert resolve_ok["reply_name"] == "new_reply_name"
+    assert "comment_added" not in resolve_ok
+    target.setPropertyValue.assert_called_once_with("Resolved", True)
+
+
+def test_comment_delete_subtree_and_author_isolation(monkeypatch):
+    from plugin.writer.specialized import comments
+
+    # Tree:
+    # c1 (Alice, parent "")
+    #  -> c2 (Alice, parent "c1")
+    #      -> c3 (Bob, parent "c2")
+    # c4 (Bob, parent "")
+    # c5 (Alice, parent "")
+    def make_field(name, parent, author):
+        f = MagicMock()
+        f.getPropertyValue.side_effect = lambda p: {"Name": name, "ParentName": parent, "Author": author}.get(p, "")
+        anchor = MagicMock()
+        text = MagicMock()
+        anchor.getText.return_value = text
+        f.getAnchor.return_value = anchor
+        f._name = name
+        return f
+
+    f1 = make_field("c1", "", "Alice")
+    f2 = make_field("c2", "c1", "Alice")
+    f3 = make_field("c3", "c2", "Bob")
+    f4 = make_field("c4", "", "Bob")
+    f5 = make_field("c5", "", "Alice")
+
+    all_fields = [f1, f2, f3, f4, f5]
+    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: list(all_fields))
+    ctx = MagicMock()
+
+    # Subtree delete of c1: removes c1, c2, c3
+    res_sub = comments.CommentDelete().execute(ctx, name="c1")
+    assert res_sub["status"] == "ok"
+    assert res_sub["deleted"] == 3
+    for f in (f1, f2, f3):
+        f.getAnchor().getText().removeTextContent.assert_called_once_with(f)
+    for f in (f4, f5):
+        f.getAnchor().getText().removeTextContent.assert_not_called()
+
+    # Reset
+    for f in all_fields:
+        f.getAnchor().getText().removeTextContent.reset_mock()
+
+    # Author delete of Alice: removes c1, c2, c5 (does not delete Bob's reply c3 or Bob's c4)
+    res_auth = comments.CommentDelete().execute(ctx, author="Alice")
+    assert res_auth["status"] == "ok"
+    assert res_auth["deleted"] == 3
+    for f in (f1, f2, f5):
+        f.getAnchor().getText().removeTextContent.assert_called_once_with(f)
+    for f in (f3, f4):
+        f.getAnchor().getText().removeTextContent.assert_not_called()
+

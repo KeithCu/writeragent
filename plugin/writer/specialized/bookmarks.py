@@ -182,21 +182,19 @@ class BookmarkService(ServiceBase):
             if not names:
                 return result, names_list
             names_list = [n for n in names if isinstance(n, str)]
+            mcp_names = [n for n in names_list if n.startswith("_mcp_")]
+            if not mcp_names:
+                return result, names_list
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
             from plugin.doc.paragraph_search import paragraph_entries
 
             entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
-            for name in names_list:
-                if not name.startswith("_mcp_"):
-                    continue
+            for name in mcp_names:
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
-                try:
-                    para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                except TypeError:
-                    para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
+                para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
                 # A failed placement returns 0, so a stale _mcp_ mark must not be
                 # stored as the bookmark for the first paragraph.
                 # confirm_paragraph_index keeps 0 only when the anchor is actually
@@ -626,16 +624,23 @@ class BookmarkDelete(ToolWriterBookmarkBase):
         name = kwargs.get("name")
         if not name:
             return self._tool_error("Bookmark name is required.")
+        if name.startswith("_mcp_"):
+            return self._tool_error(
+                "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
+            )
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(name):
             return self._tool_error(f"Bookmark '{name}' not found.")
 
         bm = bookmarks.getByName(name)
-        anchor = bm.getAnchor()
-        text = anchor.getText()
-
-        text.removeTextContent(bm)
+        try:
+            anchor = bm.getAnchor()
+            text = anchor.getText()
+            text.removeTextContent(bm)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return self._tool_error(f"Bookmark '{name}' anchor is not in the document.", stale=True)
 
         return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
 
@@ -686,8 +691,12 @@ class BookmarkGet(ToolWriterBookmarkBase):
             return self._tool_error(f"Bookmark '{name}' not found.")
 
         bm = bookmarks.getByName(name)
-        anchor = bm.getAnchor()
-        text_content = anchor.getString()
+        try:
+            anchor = bm.getAnchor()
+            text_content = anchor.getString()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return self._tool_error(f"Bookmark '{name}' anchor is not in the document.", stale=True)
 
         return {"status": "ok", "bookmark": {"name": name, "text": text_content}}
 
@@ -721,7 +730,8 @@ class BookmarkResolve(ToolWriterBookmarkBase):
         bm = bookmarks.getByName(bookmark_name)
         try:
             anchor = bm.getAnchor()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             return self._tool_error("Bookmark '%s' anchor is not in the document." % bookmark_name)
 
         # Find paragraph index. A failed placement is 0, which is also a real

@@ -12,7 +12,7 @@
 import hashlib
 from typing import Any
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
 from ..specialized_base import ToolWriterFieldBase
 from ..target_resolver import resolve_target_cursor
@@ -56,28 +56,32 @@ def _specific_field_service(field: Any) -> str:
     return ""
 
 
-def _compute_document_fields_snapshot(doc: Any) -> str:
+def _iter_body_field_identity(doc: Any) -> Any:
+    # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
+    # imported wherever the field tools are registered.
     from ..search import describe_match_location
 
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
     hf_labels: dict[int, str] = {}
-    hasher = hashlib.sha256()
+    count = 0
     while enum.hasMoreElements():
         field = enum.nextElement()
         if _is_annotation(field):
             continue
+        count += 1
         service = _specific_field_service(field)
         try:
-            pres = field.getPresentation(False)
-        except Exception:
-            pres = ""
+            presentation = field.getPresentation(False)
+        except Exception as e:
+            reraise_if_disposed(e)
+            presentation = ""
         try:
-            loc = describe_match_location(field.getAnchor(), doc, hf_labels)
-        except Exception:
-            loc = "unknown"
-        hasher.update(f"{service}|{pres}|{loc}\n".encode("utf-8"))
-    return hasher.hexdigest()
+            location = describe_match_location(field.getAnchor(), doc, hf_labels)
+        except Exception as e:
+            reraise_if_disposed(e)
+            location = "unknown"
+        yield count, field, service, presentation, location
 
 
 class FieldsUpdateAll(ToolWriterFieldBase):
@@ -109,33 +113,16 @@ class FieldsList(ToolWriterFieldBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-
-        # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
-        # imported wherever the field tools are registered.
-        from ..search import describe_match_location
-
-        fields = doc.getTextFields()
-        enum = fields.createEnumeration()
-
         results = []
-        hf_labels: dict[int, str] = {}
         hasher = hashlib.sha256()
         count = 0
-        while enum.hasMoreElements():
-            field = enum.nextElement()
-            if _is_annotation(field):
-                continue
-            count += 1
-
-            # Use getPresentation to get human-readable info
-            try:
-                presentation = field.getPresentation(False)
-            except Exception:
-                presentation = str(field)
-
+        for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
+            count = field_id
+            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
             try:
                 content = field.getPresentation(True)
-            except Exception:
+            except Exception as e:
+                reraise_if_disposed(e)
                 content = ""
 
             props = {}
@@ -148,23 +135,12 @@ class FieldsList(ToolWriterFieldBase):
                                 val = field.getPropertyValue(prop_name)
                                 if isinstance(val, (int, float, str, bool)):
                                     props[prop_name] = val
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                        except Exception as e:
+                            reraise_if_disposed(e)
+                except Exception as e:
+                    reraise_if_disposed(e)
 
-            # Where the field lives decides whether deleting it is safe: getTextFields() returns
-            # header and footer fields mixed in with the body's, and a page number in a footer
-            # looks exactly like one in the text. Same labels the search path reports.
-            try:
-                location = describe_match_location(field.getAnchor(), doc, hf_labels)
-            except Exception:
-                location = "unknown"
-
-            service = _specific_field_service(field)
-            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
-
-            results.append({"id": count, "presentation": presentation, "content": content,
+            results.append({"id": field_id, "presentation": presentation, "content": content,
                             "location": location, "properties": props})
 
         return {"status": "ok", "field_count": count, "snapshot": hasher.hexdigest(), "fields": results}
@@ -207,8 +183,16 @@ class FieldsDelete(ToolWriterFieldBase):
             return self._tool_error("No field IDs provided.", requested_count=0, missing_ids=[])
 
         doc = ctx.doc
+        hasher = hashlib.sha256()
+        fields_to_delete: list[tuple[int, Any, str]] = []
+
+        for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
+            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
+            if field_id in seen:
+                fields_to_delete.append((field_id, field, location))
+
         if snapshot is not None:
-            current_snapshot = _compute_document_fields_snapshot(doc)
+            current_snapshot = hasher.hexdigest()
             if current_snapshot != snapshot:
                 return {
                     "status": "error",
@@ -216,23 +200,8 @@ class FieldsDelete(ToolWriterFieldBase):
                     "message": "Document fields have changed since fields_list. Call fields_list again.",
                     "deleted_count": 0,
                 }
-        from ..search import describe_match_location  # deferred, see FieldsList.execute
 
-        fields = doc.getTextFields()
-        enum = fields.createEnumeration()
-
-        fields_to_delete: list[tuple[int, Any]] = []
-        hf_labels: dict[int, str] = {}
-        count = 0
-        while enum.hasMoreElements():
-            field = enum.nextElement()
-            if _is_annotation(field):
-                continue
-            count += 1
-            if count in seen:
-                fields_to_delete.append((count, field))
-
-        found_ids = {c for c, _ in fields_to_delete}
+        found_ids = {c for c, _, _ in fields_to_delete}
         missing_ids = [fid for fid in cleaned_ids if fid not in found_ids]
 
         if not fields_to_delete:
@@ -245,25 +214,47 @@ class FieldsDelete(ToolWriterFieldBase):
                 "missing_ids": missing_ids,
             }
 
-        deleted_count = 0
-        deleted = []
-        for _cid, field in fields_to_delete:
+        targets = []
+        for _cid, field, where in fields_to_delete:
             anchor = field.getAnchor()
             try:
-                # Report the region before the anchor is emptied: a page number removed from a
-                # footer and one removed from the body read identically afterwards.
-                where = describe_match_location(anchor, doc, hf_labels)
-            except Exception:
-                where = "unknown"
-            try:
                 what = field.getPresentation(True)
-            except Exception:
+            except Exception as e:
+                reraise_if_disposed(e)
                 what = ""
-            # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
-            anchor.setString("")
-            deleted_count += 1
-            deleted.append({"content": what, "location": where})
+            targets.append((anchor, what, where))
 
+        from ..edit_review import next_agent_edit_undo_title
+        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
+        undo_title = next_agent_edit_undo_title()
+        deleted: list[dict[str, Any]] = []
+
+        def mutate() -> dict[str, Any] | None:
+            for anchor, what, where in targets:
+                # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
+                anchor.setString("")
+                deleted.append({"content": what, "location": where})
+            return None
+
+        try:
+            error = commit_or_rollback(doc, undo_title, mutate)
+            if error is not None:
+                return error
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot delete fields atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE",
+            )
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            return self._tool_error(
+                f"Failed to delete fields; the change was rolled back ({e}).",
+                deleted_count=0,
+            )
+
+        deleted_count = len(deleted)
         return {
             "status": "ok",
             "message": f"Successfully deleted {deleted_count} field(s).",
