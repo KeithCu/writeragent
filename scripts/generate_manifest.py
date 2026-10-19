@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Generate _manifest.py and XCS/XCU from module.yaml files.
+"""Generate _manifest.py, Settings/Vision XDL, dialog.xlb, and description.xml from module manifests.
 
-Reads each module.yaml under plugin/, validates it, and produces:
-  - build/generated/_manifest.py     — Python dict for runtime
-  - build/generated/registry/*.xcs   — LO config schemas
-  - build/generated/registry/*.xcu   — LO config defaults
-  - Generates description.xml from description.xml.tpl with version
+Menus and accelerators stay hand-written in extension/ and extension-core/.
 
 Usage:
     python3 scripts/generate_manifest.py
-    python3 scripts/generate_manifest.py --modules core mcp ai_openai
+    python3 scripts/generate_manifest.py --modules scripting vision
 """
 
 import argparse
@@ -29,7 +25,7 @@ except ImportError:
     sys.exit(1)
 
 
-def find_modules(modules_dir, filter_names=None):
+def find_modules(modules_dir):
     """Find all module.yaml files recursively and return parsed manifests.
 
     Module name comes from the ``name`` field in module.yaml.
@@ -38,25 +34,190 @@ def find_modules(modules_dir, filter_names=None):
     """
     manifests = []
     for dirpath, dirnames, filenames in os.walk(modules_dir):
+        dirnames[:] = [d for d in dirnames if d not in ("lib", "__pycache__") and not d.startswith(".")]
         if "module.yaml" not in filenames:
             continue
-        # Build dotted module name from relative path
         rel = os.path.relpath(dirpath, modules_dir)
         module_name = rel.replace(os.sep, ".")
 
-        if filter_names:
-            top_level = module_name.split(".")[0]
-            if module_name not in filter_names and top_level not in filter_names:
-                continue
-
         yaml_path = os.path.join(dirpath, "module.yaml")
-        with open(yaml_path) as f:
-            manifest = yaml.safe_load(f)
+        with open(yaml_path, encoding="utf-8") as f:
+            manifest = yaml.safe_load(f) or {}
+        manifest["_dir_name"] = module_name
+        manifest["_yaml_path"] = yaml_path
         manifest.setdefault("name", module_name)
         manifests.append(manifest)
 
     manifests.sort(key=lambda m: m["name"])
     return manifests
+
+
+def filter_modules(manifests, filter_names):
+    """Filter modules by name, directory name, or top-level segment, plus inline children."""
+    if not filter_names:
+        return list(manifests)
+    filter_set = set(filter_names)
+    kept = []
+    kept_names = set()
+
+    for m in manifests:
+        name = m.get("name", "")
+        dir_name = m.get("_dir_name", "")
+        name_top = name.split(".")[0] if name else ""
+        dir_top = dir_name.split(".")[0] if dir_name else ""
+        if (
+            name in filter_set
+            or dir_name in filter_set
+            or name_top in filter_set
+            or dir_top in filter_set
+        ):
+            kept.append(m)
+            kept_names.add(name)
+
+    # Also keep modules whose config_inline targets an already kept module
+    for m in manifests:
+        if m in kept:
+            continue
+        inline = m.get("config_inline")
+        if isinstance(inline, str) and inline in kept_names:
+            kept.append(m)
+            kept_names.add(m.get("name", ""))
+
+    return kept
+
+
+def validate_manifests(manifests):
+    """Validate parsed module manifests against structural invariants.
+
+    Returns a list of error strings formatted as 'path: field: message'.
+    """
+    errors = []
+
+    # 1. Duplicate name
+    names_seen = {}
+    for m in manifests:
+        name = m.get("name")
+        path = m.get("_yaml_path", name or "unknown")
+        if not name:
+            errors.append(f"{path}: name: module name is required")
+            continue
+        if name in names_seen:
+            errors.append(f"{path}: name: duplicate module name '{name}'")
+        else:
+            names_seen[name] = path
+
+    # 2. Duplicate provides_services
+    services_seen = {}
+    for m in manifests:
+        path = m.get("_yaml_path", m.get("name", "unknown"))
+        for svc in m.get("provides_services", []):
+            if svc in services_seen:
+                errors.append(f"{path}: provides_services: duplicate service '{svc}'")
+            else:
+                services_seen[svc] = path
+
+    # 3. Requires entry that is neither a module name nor a provides_services in full tree
+    all_module_names = set(names_seen.keys())
+    all_services = set(services_seen.keys())
+    known_targets = all_module_names | all_services
+
+    for m in manifests:
+        path = m.get("_yaml_path", m.get("name", "unknown"))
+        for req in m.get("requires", []):
+            if req not in known_targets:
+                errors.append(f"{path}: requires: unknown requirement '{req}'")
+
+    # 4. Dependency cycle, using a visiting set and iterating sorted(by_name)
+    by_name = {m["name"]: m for m in manifests if m.get("name")}
+    provides = {}
+    for m in manifests:
+        for svc in m.get("provides_services", []):
+            provides[svc] = m.get("name")
+
+    visited = set()
+    visiting = set()
+
+    def check_cycle(name, stack):
+        if name in visiting:
+            cycle = " -> ".join(stack + [name])
+            return f"dependency cycle: {cycle}"
+        if name in visited:
+            return None
+        visiting.add(name)
+        m = by_name.get(name)
+        if m:
+            for req in m.get("requires", []):
+                target = provides.get(req, req)
+                if target in by_name:
+                    err = check_cycle(target, stack + [name])
+                    if err:
+                        return err
+        visiting.discard(name)
+        visited.add(name)
+        return None
+
+    for name in sorted(by_name):
+        if name not in visited:
+            err = check_cycle(name, [])
+            if err:
+                m = by_name[name]
+                path = m.get("_yaml_path", name)
+                errors.append(f"{path}: requires: {err}")
+
+    # 5. config_inline string whose target module is missing; config_inline: true whose name has no dot
+    for m in manifests:
+        path = m.get("_yaml_path", m.get("name", "unknown"))
+        inline = m.get("config_inline")
+        if inline is not None:
+            if isinstance(inline, str):
+                if inline not in by_name:
+                    errors.append(f"{path}: config_inline: target module '{inline}' not found")
+            elif inline is True:
+                if "." not in m.get("name", ""):
+                    errors.append(f"{path}: config_inline: module name '{m.get('name')}' has no dot for parent inlining")
+
+    # 6. settings_tab present and not a bool
+    for m in manifests:
+        path = m.get("_yaml_path", m.get("name", "unknown"))
+        if "settings_tab" in m and not isinstance(m["settings_tab"], bool):
+            errors.append(f"{path}: settings_tab: must be a boolean")
+
+    # 7-10. Config validations
+    valid_widgets = {
+        "text", "checkbox", "password", "textarea", "number",
+        "slider", "select", "combo", "button", "separator"
+    }
+
+    for m in manifests:
+        path = m.get("_yaml_path", m.get("name", "unknown"))
+        if "config" not in m:
+            continue
+        cfg = m["config"]
+        if not isinstance(cfg, dict):
+            errors.append(f"{path}: config: must be a mapping")
+            continue
+        for fname, schema in cfg.items():
+            if not isinstance(schema, dict):
+                errors.append(f"{path}: config.{fname}: must be a mapping")
+                continue
+            widget = schema.get("widget", "text")
+            if widget not in valid_widgets:
+                errors.append(f"{path}: config.{fname}.widget: invalid widget '{widget}'")
+            if widget == "select":
+                if not schema.get("options") and not schema.get("options_provider"):
+                    errors.append(f"{path}: config.{fname}: select widget requires options or options_provider")
+            for int_field in ("x", "width", "height", "label_x", "label_width"):
+                if int_field in schema:
+                    val = schema[int_field]
+                    if not isinstance(val, int) or isinstance(val, bool):
+                        errors.append(f"{path}: config.{fname}.{int_field}: must be an integer")
+            for num_field in ("min", "max", "step"):
+                if num_field in schema:
+                    val = schema[num_field]
+                    if not isinstance(val, (int, float)) or isinstance(val, bool):
+                        errors.append(f"{path}: config.{fname}.{num_field}: must be a number")
+
+    return errors
 
 
 def topo_sort(modules):
@@ -68,19 +229,25 @@ def topo_sort(modules):
             provides[svc] = m["name"]
 
     visited = set()
+    visiting = set()
     order = []
 
     def visit(name):
         if name in visited:
             return
-        visited.add(name)
+        if name in visiting:
+            raise ValueError(f"Cyclic module requires graph at {name!r}")
+        visiting.add(name)
         m = by_name.get(name)
         if m is None:
+            visiting.discard(name)
             return
         for req in m.get("requires", []):
             provider = provides.get(req, req)
             if provider in by_name:
                 visit(provider)
+        visiting.discard(name)
+        visited.add(name)
         order.append(m)
 
     if "core" in by_name:
@@ -91,10 +258,8 @@ def topo_sort(modules):
     return order
 
 
-
 def _json_to_python(text):
     """Convert JSON literals to Python literals (true->True, false->False, null->None)."""
-    # Only replace JSON keywords when they appear as values, not inside strings
     result = []
     in_string = False
     escape = False
@@ -120,10 +285,8 @@ def _json_to_python(text):
             result.append(ch)
             i += 1
             continue
-        # Outside string: replace JSON keywords
         for jval, pyval in (("true", "True"), ("false", "False"), ("null", "None")):
             if text[i:i+len(jval)] == jval:
-                # Check it's a whole word (not part of a larger identifier)
                 before_ok = (i == 0 or not text[i-1].isalnum())
                 after_ok = (i + len(jval) >= len(text) or not text[i+len(jval)].isalnum())
                 if before_ok and after_ok:
@@ -150,7 +313,7 @@ def _filter_librepy_config(config):
 def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
     """Generate _manifest.py with module descriptors and pre-computed config defaults."""
     from plugin.version import EXTENSION_VERSION
-    from manifest_common import write_if_changed
+    from scripts.manifest_common import write_if_changed
 
     lines = [
         '"""Auto-generated module manifest. DO NOT EDIT."""',
@@ -196,7 +359,6 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
             entry["settings_tab"] = False
         if m.get("config_dialog"):
             entry["config_dialog"] = m["config_dialog"]
-        # json.dumps then convert true/false/null to Python True/False/None
         json_text = json.dumps(entry, indent=8, ensure_ascii=False)
         lines.append("    %s," % _json_to_python(json_text))
     lines.append("]")
@@ -215,18 +377,17 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
 # Ensure scripts/ is on path for manifest_xdl and manifest_registry
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
 
-from manifest_xdl import generate_standalone_config_dialogs, generate_xdl_files, update_dialog_xlb
-from manifest_registry import (
-    generate_addons_xcu,
-    generate_accelerators_xcu,
+from scripts.manifest_xdl import generate_standalone_config_dialogs, update_dialog_xlb
+from scripts.manifest_registry import (
     generate_settings_dialog_tabs,
     generate_manifest_xml,
     patch_description_xml,
 )
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate _manifest.py and XCS/XCU from module.yaml files")
+        description="Generate _manifest.py, Settings/Vision XDL, dialog.xlb, and description.xml from module manifests")
     parser.add_argument(
         "--modules", nargs="*", default=None,
         help="Only process these modules (default: all)")
@@ -236,9 +397,6 @@ def main():
     parser.add_argument(
         "--skip-writeragent-extension", action="store_true",
         help="Do not update extension/ description.xml or META-INF")
-    parser.add_argument(
-        "--skip-addons", action="store_true",
-        help="Do not generate build/generated/Addons.xcu or Accelerators.xcu")
     args = parser.parse_args()
 
     modules_dir = os.path.join(PROJECT_ROOT, "plugin")
@@ -251,65 +409,73 @@ def main():
     plugin_yaml_path = os.path.join(PROJECT_ROOT, "plugin", "plugin.yaml")
     framework_manifest = None
     if os.path.isfile(plugin_yaml_path):
-        with open(plugin_yaml_path) as f:
+        with open(plugin_yaml_path, encoding="utf-8") as f:
             framework_manifest = yaml.safe_load(f)
         framework_manifest.setdefault("name", "main")
         print("  Loaded framework config: plugin/plugin.yaml")
 
     print("Scanning modules in %s..." % modules_dir)
-    manifests = find_modules(modules_dir, args.modules)
-    
+    manifests = find_modules(modules_dir)
+
     if not manifests:
         print("  No modules found!")
         return 1
 
-    sorted_modules = topo_sort(manifests)
+    # Validate the full tree before applying any module filter
+    errors = validate_manifests(manifests)
+    if errors:
+        for err in errors:
+            print(err, file=sys.stderr)
+        return 1
+
+    emit_modules = filter_modules(manifests, args.modules)
+    if not emit_modules:
+        print("  No modules found matching filter!")
+        return 1
+
+    sorted_modules = topo_sort(emit_modules)
+
+    # Strip temporary metadata keys before writing manifests
+    for m in sorted_modules:
+        m.pop("_yaml_path", None)
+        m.pop("_dir_name", None)
 
     # Prepend framework manifest (always first, before all modules)
     if framework_manifest:
+        framework_manifest.pop("_yaml_path", None)
+        framework_manifest.pop("_dir_name", None)
         sorted_modules.insert(0, framework_manifest)
     names = [m["name"] for m in sorted_modules]
     print("  Module order: %s" % " -> ".join(names))
 
     librepy_flavor = args.skip_writeragent_extension
-
     build_dir = os.path.join(PROJECT_ROOT, "build", "generated")
 
-    # Read Tools -> Options enable flag
-    enable_options = os.environ.get("WRITERAGENT_ENABLE_OPTIONS", "1") == "1"
-    if not enable_options:
-        print("  WRITERAGENT_ENABLE_OPTIONS is false. Skipping Tools -> Options generation.")
-
-    # 1. Addons.xcu (menus) — run first to collect conditional menus
-    if not args.skip_addons:
-        addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
-        generate_addons_xcu(
-            sorted_modules, framework_manifest, addons_xcu_path)
-
-    # 2. _manifest.py
+    # 1. _manifest.py
     manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path, librepy_flavor=librepy_flavor)
 
-    # 4. XDL dialog pages (single Dialogs/ tree — lowercase dialogs/ collides on Windows)
-    dialogs_dir = os.path.join(build_dir, "Dialogs")
-    generate_xdl_files(sorted_modules, dialogs_dir)
+    # 2. XDL standalone dialog pages and dialog.xlb
     standalone_dialog_ids = generate_standalone_config_dialogs(sorted_modules, build_dir)
     wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "Dialogs")
     wa_dialogs_gen = os.path.join(build_dir, "Dialogs")
     update_dialog_xlb(wa_dialogs_ext, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
     update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
 
-    # 5. Accelerators.xcu (shortcuts)
-    if not args.skip_addons:
-        accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
-        generate_accelerators_xcu(sorted_modules, accel_xcu_path)
+    # Clean stale XDLs in build/generated/Dialogs
+    dialogs_dir = os.path.join(build_dir, "Dialogs")
+    allowed_basenames = {"SettingsDialog.xdl"} | {f"{did}.xdl" for did in standalone_dialog_ids}
+    if os.path.isdir(dialogs_dir):
+        for fname in os.listdir(dialogs_dir):
+            if fname.endswith(".xdl") and fname not in allowed_basenames:
+                os.remove(os.path.join(dialogs_dir, fname))
 
-    # 6. META-INF/manifest.xml
+    # 3. META-INF/manifest.xml
     if not args.skip_writeragent_extension:
         manifest_xml_path = os.path.join(PROJECT_ROOT, "extension", "META-INF", "manifest.xml")
-        generate_manifest_xml(sorted_modules, manifest_xml_path)
+        generate_manifest_xml(manifest_xml_path)
 
-    # 7. SettingsDialog Tabs
+    # 4. SettingsDialog Tabs
     generate_settings_dialog_tabs(
         sorted_modules,
         os.path.join(PROJECT_ROOT, "extension", "Dialogs", "SettingsDialog.xdl.tpl"),
@@ -317,7 +483,7 @@ def main():
         librepy_flavor=librepy_flavor,
     )
 
-    # 8. Patch version
+    # 5. Patch version
     if not args.skip_writeragent_extension:
         patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
 

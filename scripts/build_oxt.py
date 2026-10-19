@@ -108,8 +108,6 @@ EXCLUDE_PATTERNS = (
 # wiped ChatPanelDialog.xdl during hot-deploy (empty sidebar).
 GENERATED_INCLUDES = [
     "build/generated/Dialogs/",
-    "build/generated/Addons.xcu",
-    "build/generated/Accelerators.xcu",
 ]
 
 BUNDLE_DIR = "build/bundle"

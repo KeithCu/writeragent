@@ -1,9 +1,10 @@
-"""Registry/XCU generation: Addons.xcu, Accelerators.xcu, SettingsDialog tabs, manifest.xml, description.xml."""
+"""Registry/dialog generation: SettingsDialog tabs, manifest.xml, description.xml, and update feeds."""
 
 import os
+import re
 import xml.etree.ElementTree as ET
 
-from manifest_xdl import _dlg, _oor, _pretty_name, _DLG_NS, _XS_NS
+from scripts.manifest_xdl import _dlg, _pretty_name, _DLG_NS
 from scripts.manifest_common import (
     add_label as _common_add_label,
     add_checkbox as _common_add_checkbox,
@@ -57,327 +58,10 @@ def _settings_hover_text(schema):
     return ""
 
 
-# ── Addons.xcu Generation ────────────────────────────────────────────
-
-# Context name mapping: short names → LO document service names
-_CONTEXT_MAP = {
-    "writer": "com.sun.star.text.TextDocument",
-    "calc": "com.sun.star.sheet.SpreadsheetDocument",
-    "draw": "com.sun.star.drawing.DrawingDocument",
-    "impress": "com.sun.star.presentation.PresentationDocument",
-    "web": "com.sun.star.text.WebDocument",
-    "global": "com.sun.star.text.GlobalDocument",
-}
-
-# Default context: all document types
-_DEFAULT_CONTEXT = ",".join(sorted(_CONTEXT_MAP.values()))
-
-_PROTOCOL = "org.extension.writeragent"
-
-
-def _resolve_context(context_list):
-    """Convert a list of short context names to a LO context string.
-
-    Returns comma-separated LO service names, or the default (all types)
-    if context_list is empty/None.
-    """
-    if not context_list:
-        return _DEFAULT_CONTEXT
-    resolved = []
-    for name in context_list:
-        svc = _CONTEXT_MAP.get(name)
-        if svc:
-            resolved.append(svc)
-        else:
-            # Allow raw LO service names
-            resolved.append(name)
-    return ",".join(sorted(resolved))
-
-
-def _menu_node(parent, node_name, title=None, url=None, context=None,
-               target="_self", has_icon=False):
-    """Create a menu <node> element for Addons.xcu.
-
-    Args:
-        has_icon: If True, emit an empty ImageIdentifier so LO reserves
-                  space for a runtime icon (set via XImageManager API).
-    """
-    node = ET.SubElement(parent, "node", {
-        _oor("name"): node_name,
-        _oor("op"): "replace",
-    })
-    if url:
-        url_prop = ET.SubElement(node, "prop", {_oor("name"): "URL"})
-        ET.SubElement(url_prop, "value").text = url
-    if title:
-        title_prop = ET.SubElement(node, "prop", {_oor("name"): "Title"})
-        val = ET.SubElement(title_prop, "value")
-        val.set("xml:lang", "en-US")
-        val.text = title
-    if context:
-        ctx_prop = ET.SubElement(node, "prop", {
-            _oor("name"): "Context",
-            _oor("type"): "xs:string",
-        })
-        ET.SubElement(ctx_prop, "value").text = context
-    if url and url != "private:separator":
-        tgt_prop = ET.SubElement(node, "prop", {
-            _oor("name"): "Target",
-            _oor("type"): "xs:string",
-        })
-        ET.SubElement(tgt_prop, "value").text = target
-    if has_icon:
-        img_prop = ET.SubElement(node, "prop", {
-            _oor("name"): "ImageIdentifier",
-            _oor("type"): "xs:string",
-        })
-        ET.SubElement(img_prop, "value")
-    return node
-
-
-def _build_menu_entries(submenu_el, entries, actions, module_name, counter,
-                        icon_entries=None):
-    """Recursively build menu entries under a <node oor:name="Submenu">.
-
-    Args:
-        submenu_el: Parent Submenu element.
-        entries: List of menu entry dicts from YAML.
-        actions: Dict of action definitions from YAML.
-        module_name: Module name for URL prefix.
-        counter: Mutable list [int] for unique node naming.
-        icon_entries: Optional list to collect (command_url, module_name,
-                      icon_prefix) tuples for the Images section.
-    """
-    for entry in entries:
-
-        counter[0] += 1
-        node_id = "M%d" % counter[0]
-
-        if entry.get("separator"):
-            _menu_node(submenu_el, node_id, url="private:separator")
-            continue
-
-        action_name = entry.get("action")
-        if action_name:
-            action_def = actions.get(action_name, {})
-            title = entry.get("title") or action_def.get("title", action_name)
-            url = "%s:%s.%s" % (_PROTOCOL, module_name, action_name)
-            context = _resolve_context(entry.get("context"))
-            icon_prefix = action_def.get("icon")
-            has_icon = bool(icon_prefix)
-            _menu_node(submenu_el, node_id, title=title, url=url,
-                       context=context, has_icon=has_icon)
-            if has_icon and icon_entries is not None:
-                icon_entries.append((url, module_name, icon_prefix))
-        elif entry.get("title") and entry.get("submenu"):
-            # Submenu container
-            title = entry["title"]
-            url = "%s:NoOp" % _PROTOCOL
-            context = _resolve_context(entry.get("context"))
-            node = _menu_node(submenu_el, node_id, title=title, url=url,
-                              context=context)
-            child_submenu = ET.SubElement(node, "node",
-                                         {_oor("name"): "Submenu"})
-            _build_menu_entries(child_submenu, entry["submenu"], actions,
-                                module_name, counter,
-                                icon_entries=icon_entries)
-        else:
-            continue
-
-
-def generate_addons_xcu(modules, framework_manifest, output_path):
-    """Generate Addons.xcu from module and framework menu/action declarations.
-
-    Args:
-        modules: Sorted list of module manifests (topo-sort order).
-        framework_manifest: Framework-level manifest (plugin.yaml), or None.
-        output_path: Path for the generated Addons.xcu.
-    """
-    root = ET.Element(_oor("component-data"), {
-        _oor("name"): "Addons",
-        _oor("package"): "org.openoffice.Office",
-    })
-    root.set("xmlns:xs", _XS_NS)
-
-    addon_ui = ET.SubElement(root, "node", {_oor("name"): "AddonUI"})
-    menubar = ET.SubElement(addon_ui, "node",
-                            {_oor("name"): "OfficeMenuBar"})
-    top_menu = ET.SubElement(menubar, "node", {
-        _oor("name"): "org.extension.writeragent.menubar",
-        _oor("op"): "replace",
-    })
-
-    # Top-level menu title
-    title_prop = ET.SubElement(top_menu, "prop", {
-        _oor("name"): "Title",
-        _oor("type"): "xs:string",
-    })
-    val = ET.SubElement(title_prop, "value")
-    val.set("xml:lang", "en-US")
-    val.text = "WriterAgent"
-
-    # Empty ImageIdentifier — reserves space for runtime XImageManager icons
-    img_prop = ET.SubElement(top_menu, "prop", {
-        _oor("name"): "ImageIdentifier",
-        _oor("type"): "xs:string",
-    })
-    ET.SubElement(img_prop, "value")
-
-    # Context: all doc types
-    ctx_prop = ET.SubElement(top_menu, "prop", {
-        _oor("name"): "Context",
-        _oor("type"): "xs:string",
-    })
-    ET.SubElement(ctx_prop, "value").text = _DEFAULT_CONTEXT
-
-    submenu = ET.SubElement(top_menu, "node", {_oor("name"): "Submenu"})
-
-    counter = [0]
-    prev_module = False
-    icon_entries = []  # (command_url, module_name, icon_prefix)
-    # Module entries (in topo-sort order)
-    for m in modules:
-        menus = m.get("menus")
-        if not menus:
-            continue
-        mod_name = m["name"]
-        if mod_name == "main":
-            continue  # framework handled separately below
-        actions = m.get("actions", {})
-
-        # Auto-separator between module groups
-        if prev_module:
-            counter[0] += 1
-            _menu_node(submenu, "M%d" % counter[0], url="private:separator")
-
-        _build_menu_entries(submenu, menus, actions, mod_name, counter,
-                            icon_entries=icon_entries)
-        prev_module = True
-
-    # Framework entries (appended last)
-    if framework_manifest:
-        fw_menus = framework_manifest.get("menus", [])
-        fw_actions = framework_manifest.get("actions", {})
-        if fw_menus:
-            _build_menu_entries(submenu, fw_menus, fw_actions, "main", counter,
-                                icon_entries=icon_entries)
-
-    # NOTE: the review fast-travel toolbar's OfficeToolBar node lives in the hand-maintained
-    # extension/Addons.xcu (the file that actually ships -- build_oxt overwrites the generated one
-    # with it), like every other menu/toolbar entry in this project. We deliberately do NOT generate
-    # it here: a second source would only drift from the shipped file.
-
-    # Images section — static default icons for menu commands
-    if icon_entries:
-        images_node = ET.SubElement(addon_ui, "node",
-                                    {_oor("name"): "Images"})
-        for cmd_url, mod_name, icon_prefix in icon_entries:
-            # Unique node name from command URL
-            safe_name = cmd_url.replace(":", ".") + ".img"
-            img_node = ET.SubElement(images_node, "node", {
-                _oor("name"): safe_name,
-                _oor("op"): "replace",
-            })
-            url_prop = ET.SubElement(img_node, "prop", {_oor("name"): "URL"})
-            ET.SubElement(url_prop, "value").text = cmd_url
-            udi_node = ET.SubElement(img_node, "node",
-                                     {_oor("name"): "UserDefinedImages"})
-            small_prop = ET.SubElement(udi_node, "prop",
-                                       {_oor("name"): "ImageSmallURL"})
-            icon_path = "%%origin%%/plugin/%s/icons/%s_16.png" % (
-                mod_name, icon_prefix)
-            ET.SubElement(small_prop, "value").text = icon_path
-
-    ET.indent(root, space="  ")
-    body = ET.tostring(root, encoding="unicode", xml_declaration=True)
-
-    _write_if_changed(output_path, body + "\n")
-    print("  Generated %s" % output_path)
-
-
-
-# ── Accelerators.xcu Generation ─────────────────────────────────────
-
-
-def generate_accelerators_xcu(modules, output_path):
-    """Generate Accelerators.xcu from module shortcut declarations.
-
-    Reads ``shortcuts`` from each module manifest. Each shortcut maps an
-    action name to a key spec and optional context list.
-
-    Format in module.yaml::
-
-        shortcuts:
-          extend_selection:
-            key: Q_MOD1
-            context: [writer, calc]
-    """
-    root = ET.Element(_oor("component-data"), {
-        _oor("name"): "Accelerators",
-        _oor("package"): "org.openoffice.Office",
-    })
-    root.set("xmlns:xs", _XS_NS)
-    root.set("xmlns:install", "http://openoffice.org/2004/installation")
-    root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-
-    primary_keys = ET.SubElement(root, "node",
-                                 {_oor("name"): "PrimaryKeys"})
-
-    # Collect shortcuts per context
-    # context_shortcuts: { lo_service_name: [(key, command_url)] }
-    context_shortcuts = {}
-
-    for m in modules:
-        shortcuts = m.get("shortcuts")
-        if not shortcuts:
-            continue
-        mod_name = m["name"]
-
-        for action_name, shortcut_def in shortcuts.items():
-            key = shortcut_def.get("key")
-            if not key:
-                continue
-            url = "%s:%s.%s" % (_PROTOCOL, mod_name, action_name)
-            contexts = shortcut_def.get("context", [])
-            if not contexts:
-                # All contexts
-                for svc in _CONTEXT_MAP.values():
-                    context_shortcuts.setdefault(svc, []).append((key, url))
-            else:
-                for ctx_name in contexts:
-                    svc = _CONTEXT_MAP.get(ctx_name, ctx_name)
-                    context_shortcuts.setdefault(svc, []).append((key, url))
-
-    # Build XML
-    for lo_svc, shortcuts in sorted(context_shortcuts.items()):
-        modules_node = ET.SubElement(primary_keys, "node",
-                                     {_oor("name"): "Modules"})
-        svc_node = ET.SubElement(modules_node, "node",
-                                 {_oor("name"): lo_svc})
-        for key, url in shortcuts:
-            key_node = ET.SubElement(svc_node, "node", {
-                _oor("name"): key,
-                _oor("op"): "replace",
-            })
-            cmd_prop = ET.SubElement(key_node, "prop",
-                                     {_oor("name"): "Command"})
-            cmd_val = ET.SubElement(cmd_prop, "value")
-            cmd_val.set("xml:lang", "en-US")
-            cmd_val.text = url
-
-    ET.indent(root, space="  ")
-    body = ET.tostring(root, encoding="unicode", xml_declaration=True)
-
-    _write_if_changed(output_path, body + "\n")
-    print("  Generated %s" % output_path)
-
-
-
-
 def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_flavor=False):
     """Auto-generate tabs and pages for SettingsDialog.xdl using a template."""
     if not os.path.exists(tpl_path):
-        return
+        raise FileNotFoundError(f"Template not found: {tpl_path}")
 
     with open(tpl_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -386,7 +70,9 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
     page_marker = "<!-- AUTO_GENERATED_PAGES -->"
 
     if tab_marker not in content or page_marker not in content:
-        return
+        raise ValueError(f"Template missing auto-generated markers in {tpl_path}")
+    if "<!-- === Page 1:" not in content or "<!-- OK Button" not in content:
+        raise ValueError(f"Template missing anchor comments in {tpl_path}")
 
     from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
 
@@ -397,7 +83,8 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
     
     # LibrePy ships only module tabs (General/Image are hidden at runtime).
     tab_x = 5 if librepy_flavor else 131
-    page_num = 3
+    pages_in_tpl = [int(p) for p in re.findall(r'dlg:page="(\d+)"', content)]
+    page_num = (max(pages_in_tpl) + 1) if pages_in_tpl else 3
 
     for m in iter_settings_tab_modules(modules):
         name = m["name"]
@@ -580,11 +267,14 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
 
     new_content = before_tabs + tab_marker + "\n" + "\n".join(tabs) + "\n\n  " + middle + page_marker + "\n" + "\n".join(pages) + "\n\n  " + rest2
 
+    if 'dlg:id="btn_ok"' not in new_content or 'dlg:id="btn_cancel"' not in new_content:
+        raise ValueError("Generated SettingsDialog missing btn_ok or btn_cancel")
+
     _write_if_changed(output_path, new_content)
     print(f"  Injected {len(tabs)} tabs into {os.path.basename(output_path)}")
 
 
-def generate_manifest_xml(modules, output_path):
+def generate_manifest_xml(output_path):
     """Generate META-INF/manifest.xml with XCS/XCU entries for selected modules."""
     MANIFEST_NS = "http://openoffice.org/2001/manifest"
 
@@ -647,7 +337,7 @@ def patch_description_xml(extension_dir):
         print("  WARNING: description.xml.tpl not found, skipping")
         return
 
-    with open(tpl_path) as f:
+    with open(tpl_path, encoding="utf-8") as f:
         content = f.read()
 
     content = content.replace("{{VERSION}}", EXTENSION_VERSION)
@@ -675,9 +365,14 @@ def generate_update_xml(root_dir, feed="update.xml"):
             ("update-libreharper.xml.tpl", "update-libreharper.xml"),
         ]
     elif isinstance(feed, (list, tuple)):
-        feeds = [feed_map[f] for f in feed if f in feed_map]
+        for f in feed:
+            if f not in feed_map:
+                raise ValueError(f"Unknown feed: {f}")
+        feeds = [feed_map[f] for f in feed]
     else:
-        feeds = [feed_map.get(feed, (f"{feed}.tpl", feed))]
+        if feed not in feed_map:
+            raise ValueError(f"Unknown feed: {feed}")
+        feeds = [feed_map[feed]]
 
     for tpl_name, out_name in feeds:
         tpl_path = os.path.join(root_dir, "plugin", tpl_name)
@@ -685,7 +380,7 @@ def generate_update_xml(root_dir, feed="update.xml"):
         if not os.path.exists(tpl_path):
             # Optional: feed might not be present in every project setup
             continue
-        with open(tpl_path) as f:
+        with open(tpl_path, encoding="utf-8") as f:
             content = f.read()
         content = content.replace("{{VERSION}}", EXTENSION_VERSION)
         _write_if_changed(update_path, content)

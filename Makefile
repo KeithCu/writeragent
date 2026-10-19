@@ -8,7 +8,7 @@
 #
 # Build:
 #   make build                     Build .oxt (all modules auto-discovered)
-#   make xcu                       Generate XCS/XCU from Python config schemas
+#   make xcu                       Regenerate _manifest.py, Settings/Vision XDL, dialog.xlb, and description.xml
 #   make clean                     Remove build artifacts
 #
 # Dev workflow:
@@ -217,7 +217,7 @@ help:
 	@echo "  make deploy-core            Build + install LibrePy (removes WriterAgent if present)"
 	@echo "  make build-harper           Build standalone LibreHarper.oxt (Harper grammar only)"
 	@echo "  make deploy-harper          Build + install LibreHarper (does not remove WriterAgent)"
-	@echo "  make xcu                    Generate XCS/XCU from config schemas"
+	@echo "  make xcu                    Regenerate _manifest.py, Settings/Vision XDL, dialog.xlb, description.xml"
 	@echo "  make schema-docs            Generate docs/writeragent-config-schema.md from module.yaml"
 	@echo "  make clean                  Remove build artifacts"
 	@echo ""
@@ -443,7 +443,7 @@ manifest:
 manifest-core:
 	"$(PYTHON)" $(SCRIPTS)/generate_manifest.py --modules scripting vision \
 		--manifest-output build/generated/_manifest_librepy.py \
-		--skip-writeragent-extension --skip-addons
+		--skip-writeragent-extension
 
 rdb-core:
 	# Bash-only (no Windows .ps1). CI without unoidl-write reuses the

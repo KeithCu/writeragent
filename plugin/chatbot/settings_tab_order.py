@@ -48,11 +48,12 @@ def _build_inline_maps(modules: list[dict[str, Any]]) -> tuple[set[str], dict[st
         if target not in inline_targets:
             inline_set.add(name)
 
-    by_name = {m["name"]: m for m in modules}
     inline_map: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
-    for name in inline_set:
-        target = inline_targets[name]
-        inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
+    for m in modules:
+        name = m["name"]
+        if name in inline_set:
+            target = inline_targets[name]
+            inline_map.setdefault(target, []).append((m, m.get("config", {})))
 
     return inline_set, inline_map
 

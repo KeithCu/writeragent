@@ -145,7 +145,6 @@ def _ensure_librepy_manifest(base_dir: str) -> None:
         "--manifest-output",
         manifest_out,
         "--skip-writeragent-extension",
-        "--skip-addons",
     ]
     print("  Generating slim LibrePy manifest...")
     subprocess.run(cmd, cwd=base_dir, check=True)

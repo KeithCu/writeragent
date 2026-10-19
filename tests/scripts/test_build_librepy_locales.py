@@ -37,7 +37,6 @@ def _ensure_manifest_core() -> None:
             "--manifest-output",
             str(_REPO / "build" / "generated" / "_manifest_librepy.py"),
             "--skip-writeragent-extension",
-            "--skip-addons",
         ],
         cwd=_REPO,
         check=True,

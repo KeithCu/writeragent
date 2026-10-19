@@ -284,7 +284,7 @@ def test_generated_manifest_includes_import_filter():
             from scripts.manifest_registry import generate_manifest_xml
 
             with patch("scripts.manifest_registry._write_if_changed") as mock_write:
-                generate_manifest_xml([], "dummy")
+                generate_manifest_xml("dummy")
                 assert mock_write.called
                 body = mock_write.call_args[0][1]
         finally:
