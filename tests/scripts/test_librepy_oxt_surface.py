@@ -289,7 +289,6 @@ def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path:
 
     monkeypatch.setattr("scripts.build_librepy_oxt._ensure_librepy_manifest", lambda base_dir: None)
     monkeypatch.setattr("scripts.build_librepy_oxt.patch_description_xml", lambda dest: None)
-    monkeypatch.setattr("scripts.build_librepy_oxt.generate_update_xml", lambda base, name: None)
 
     real_isfile = os.path.isfile
 
