@@ -1265,7 +1265,8 @@ class TestToolIsolation:
         try:
             with patch.object(worker_pool.thread_guard, "set_background_task", block_unwind):
                 result = registry.execute("mutate_then_unwind", DummyContext())
-            assert entered.is_set()
+            # Wait for worker thread to reach the unwind hook after queuing result.
+            assert entered.wait(timeout=2)
             assert result["status"] == "ok"
             assert result["applied"] is True
             assert applied == ["applied"]
