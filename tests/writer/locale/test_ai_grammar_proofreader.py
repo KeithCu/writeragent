@@ -1698,7 +1698,8 @@ def test_reset_ignore_rules_with_no_listeners_sets_pending() -> None:
     assert pr._pending_proofread_again is True
 
 
-def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture) -> None:
+def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
+    # Tip: mock the queue; a real enqueue starts background LLM work that leaks persistence into later tests.
     pr = _make_proofreader()
     text1 = "This is a paragraph. Second sentence."
     text2 = "This is a paragraph! Second sentence."
