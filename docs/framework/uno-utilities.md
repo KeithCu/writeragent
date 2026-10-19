@@ -37,8 +37,8 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `get_service_manager` | `ctx.ServiceManager` or `ctx.getServiceManager()`. |
 | `get_desktop` | `com.sun.star.frame.Desktop` from the extension context. Skips create when `desktop_create_is_unsafe()` (no-VCL `uno.bin` / `unopkg`). That answer is cached; process identity does not change. Tests call `reset_desktop_create_is_unsafe_for_tests()`. |
 | `get_toolkit` | `com.sun.star.awt.Toolkit` (event pump / focus). |
-| `process_events_to_idle` | Drain VCL via the approved toolkit pump (skips when a chat/MCP drain owner is active). |
-| `wait_while_pumping` | Secondary wait loop: PE2I (`force=False`) on the VCL thread, else **post** PE2I to main (Writer linguistic `Dummy-*` waiters). Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`. |
+| `process_events_to_idle` | Drain VCL via the approved toolkit pump (skips when a chat/MCP drain owner is active; implemented in `vcl_pumping`, re-exported). |
+| `wait_while_pumping` | Secondary wait loop: PE2I (`force=False`) on the VCL thread, else **post** PE2I to main (Writer linguistic `Dummy-*` waiters; implemented in `vcl_pumping`, re-exported). Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`. |
 | `get_package_info` | `PackageInformationProvider` singleton. |
 | `set_package_extension_id` / `resolve_package_extension_id` | Pin / detect LibrePy vs WriterAgent vs LibreHarper OXT id. |
 | `get_extension_url` | Package location URL, else `vnd.sun.star.extension://<id>`. |
@@ -48,7 +48,7 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `product_display_name` / `is_libreharper` | User-visible product name / LibreHarper probe. |
 | `get_active_document` | `desktop.getCurrentComponent()` (Start Center possible when nothing is open). |
 | `get_document_from_frame` | Model from a sidebar frame controller (preferred over Desktop for panels). |
-| `focus_preserved` | Restore an explicit control after RichTextControl steals focus. No process-wide pin. |
+| `focus_preserved` | Restore an explicit control after RichTextControl steals focus (implemented in `vcl_pumping`, re-exported). No process-wide pin. |
 
 `get_toolkit` / `get_ctx` are also the drain chokepoint for [`plugin/framework/async_stream.py`](../../plugin/framework/async_stream.py). Thread-affinity wrappers live in [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py) (`guard_uno`, `main_thread_only`) — see [uno-thread-safety.md](uno-thread-safety.md).
 
@@ -474,7 +474,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 ### 3.5 `uno_context.py` scope creep
 
-`uno_context` keeps the UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) and `focus_preserved` (explicit control, no process pin). Sidebar listeners, the focus pin, and the panel live on [`FrameSession`](../../plugin/framework/frame_session.py). Do not put them back in process globals.
+`uno_context` keeps the UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url), with VCL pumping and `focus_preserved` implemented in `vcl_pumping` (re-exported by `uno_context`). Sidebar listeners, the focus pin, and the panel live on [`FrameSession`](../../plugin/framework/frame_session.py). Do not put them back in process globals.
 
 Each open frame has one session. Its query `focusGained`, leave-query, and page-click listeners close over that session. A control's own `disposing` forgets the Python binding and does not call `remove*`. Frame close releases this session's query, leave, and click listeners so those closures cannot keep the session alive, and does not remove the frame listener itself (that broadcaster is already walking its list). A dead control's `remove*` is ignored. Explicit panel release removes listeners only when the disposed panel is the one currently bound to that session. A late dispose of a previous sidebar on the same frame clears that control's focus pin when it is still the pin, and leaves the rebound sidebar's listeners in place. A second frame's dispose or click does not touch the first.
 
@@ -514,7 +514,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 ### P3 — optional / low value
 
-9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` stays, and takes the panel's Ask field explicitly.
+9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` moved to `vcl_pumping` (re-exported by `uno_context`), and takes the panel's Ask field explicitly.
 10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
 12. Notebook `file://` strip fallback → same URL→path helper.

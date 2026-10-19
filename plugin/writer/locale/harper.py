@@ -460,9 +460,12 @@ def _log_harper_wait_reenter() -> None:
 
     started, wait_thread = _harper_wait_snapshot()
     wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
-    from plugin.framework.config import get_grammar_provider
+    try:
+        from plugin.framework.config import get_grammar_provider
 
-    provider = get_grammar_provider() or "harper"
+        provider = get_grammar_provider() or "harper"
+    except Exception:
+        provider = "harper"
     thread_name = threading.current_thread().name
     log.warning(
         "[harper] harper_wait_reenter thread=%s wait_thread=%s wait_age_ms=%s provider=%s",

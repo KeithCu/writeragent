@@ -57,10 +57,6 @@ from plugin.framework.errors import (
 )
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
 from plugin.framework.vcl_pumping import (
-    _SECONDARY_IDLE_RESERVING as _SECONDARY_IDLE_RESERVING,
-    _post_secondary_idle as _post_secondary_idle,
-    _secondary_idle_lock as _secondary_idle_lock,
-    _secondary_idle_posted as _secondary_idle_posted,
     focus_preserved as focus_preserved,
     process_events_to_idle as process_events_to_idle,
     wait_while_pumping as wait_while_pumping,

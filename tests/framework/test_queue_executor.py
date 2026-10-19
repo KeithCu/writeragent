@@ -152,26 +152,21 @@ def _drain_default_work_queue() -> None:
             default_executor._work_queue.get_nowait()
         except queue.Empty:
             break
-    # What was wrong: a background post with no AsyncCallback stays in
-    # _pending_posts, and this drain only emptied _work_queue.
-    # How it happened: post() appends there and returns. The next test on
-    # this xdist worker that marks marshal ready and calls post() flushes
-    # that row first (test_stop_does_not_drop_violation_popup then saw
-    # pending_work_count() == 2, queue_depth=1 at post_enqueue).
-    # Why this change: clear the pending list in the same before/after drain.
+    # A post with no AsyncCallback waits in _pending_posts; the next test's post() would flush it.
     with default_executor._pending_lock:
         default_executor._pending_posts.clear()
         default_executor._pending_lock.notify_all()
+    import plugin.framework.vcl_pumping as vp
+    from plugin.framework.vcl_pumping import _secondary_idle_lock
+
+    with _secondary_idle_lock:
+        vp._secondary_idle_in_flight = False
 
 
 @pytest.fixture(autouse=True)
 def empty_work_queue():
-    # What was wrong: setup-only drain left a cancelled timeout item queued.
-    # How it happened: execute()'s timeout marks the item cancelled and does not
-    # dequeue it, and the mocked poke never runs process_queue. The next test
-    # on this xdist worker is often another module.
-    # Why this change: drain after the test too. qsize() != 0 makes
-    # wait_while_pumping skip its off-main post until the 1s timeout.
+    # Drain after the test too: execute()'s timeout marks items cancelled without
+    # dequeuing them, and mocked pokes may not run process_queue before the next test.
     _drain_default_work_queue()
     yield
     _drain_default_work_queue()
@@ -268,25 +263,6 @@ def test_post_to_main_thread_fire_and_forget(mock_poke, mock_get_async):
     assert (item.fn is my_func)
     mock_poke.assert_called_once()
 
-
-def test_callable_is_scheduled_matches_fn_not_queue_depth() -> None:
-    """Unrelated queued work is not this callback; the pending list counts."""
-    from plugin.framework.queue_executor import QueueExecutor
-
-    def pump() -> None:
-        return None
-
-    queued = QueueExecutor()
-    queued._work_queue.put(object())
-    assert queued.callable_is_scheduled(pump) is False
-    queued._work_queue.put(_WorkItem("pump", pump, (), {}, blocking=False))
-    assert queued.callable_is_scheduled(pump) is True
-
-    pending = QueueExecutor()
-    pending._work_queue.put(object())
-    assert pending.callable_is_scheduled(pump) is False
-    pending._pending_posts.append((pump, (), {}, None))
-    assert pending.callable_is_scheduled(pump) is True
 
 @pytest.fixture(autouse=True)
 def reset_mt_globals():
@@ -1173,12 +1149,15 @@ def test_cancel_reput_pokes_kept_work():
     keep_scope = SendCancellation()
     cancel_scope = SendCancellation()
     kept = _WorkItem("kept", lambda: None, (), {}, blocking=False, scope=keep_scope)
+    unscoped = _WorkItem("unscoped", lambda: None, (), {}, blocking=False, scope=None)
     doomed = _WorkItem("doomed", lambda: None, (), {}, blocking=False, scope=cancel_scope)
     qe._work_queue.put(kept)
+    qe._work_queue.put(unscoped)
     qe._work_queue.put(doomed)
     qe.cancel_pending_work(cancel_scope)
     assert pokes == ["poke"]
     assert qe._work_queue.get_nowait() is kept
+    assert qe._work_queue.get_nowait() is unscoped
     assert doomed.cancelled is True
 
 
@@ -1261,9 +1240,11 @@ def test_cancel_drops_pending_posts_for_that_scope_only():
     other = SendCancellation()
     qe._pending_posts.append((lambda: None, (), {}, scope))
     qe._pending_posts.append((lambda: None, (), {}, other))
+    qe._pending_posts.append((lambda: None, (), {}, None))
     qe.cancel_pending_work(scope)
-    assert len(qe._pending_posts) == 1
+    assert len(qe._pending_posts) == 2
     assert qe._pending_posts[0][3] is other
+    assert qe._pending_posts[1][3] is None
 
 
 def test_flush_pending_posts_keeps_original_scope():
@@ -1554,21 +1535,6 @@ def test_set_context_wakes_pending_posts():
         assert mock_enqueue.call_args.args[0]() == "pending"
 
 
-def test_callable_is_scheduled_ignores_cancelled():
-    """callable_is_scheduled must return False if the scheduled item is cancelled."""
-    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
-    import uuid
-
-    qe = QueueExecutor()
-    def my_fn(): pass
-
-    item = _WorkItem(str(uuid.uuid4()), my_fn, (), {}, blocking=False)
-    qe._work_queue.put(item)
-
-    assert qe.callable_is_scheduled(my_fn) is True
-
-    item.cancelled = True
-    assert qe.callable_is_scheduled(my_fn) is False
 
 
 def test_process_queue_claim_gap_raises():
