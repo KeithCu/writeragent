@@ -224,7 +224,7 @@ def test_insert_content_entry_points_decode_complete_entities():
     text_range = MagicMock()
     text_range.getText.return_value = MagicMock()
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed, \
-         patch("plugin.writer.specialized.tables.raise_if_range_hosts_nested_table"):
+         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"):
         html_import._replace_single_range_with_content(model, text_range, raw, MagicMock())
         assert mock_mixed.call_args.args[3] == expected
 

@@ -106,6 +106,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/format.py",
     "plugin/writer/html_export.py",
     "plugin/writer/html_import.py",
+    "plugin/writer/table_nesting.py",
     "plugin/writer/xhtml_style_postprocess.py",
     "plugin/writer/math/__init__.py",
     "plugin/writer/math/latex_dialog.py",

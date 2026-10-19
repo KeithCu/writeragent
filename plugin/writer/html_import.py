@@ -1171,7 +1171,7 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
                     raise AttributeError("insertDocumentFromURL")
                 # Clear only real text selections (never shapes).
                 if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
-                    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+                    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
                     raise_if_range_hosts_nested_table(rng)
                     rng.setString("")
@@ -1291,7 +1291,7 @@ def _replace_single_range_with_content(
         saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
     cursor = text_obj.createTextCursorByRange(text_range)
-    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
     # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
     raise_if_range_hosts_nested_table(text_range)
@@ -1984,7 +1984,7 @@ def replace_preserving_format(
     # createTextCursorByRange() raises "End of content node doesn't have the proper
     # start node". target_range.getText() resolves to the cell (or body) correctly,
     # matching the markup path which already uses found.getText().
-    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
     raise_if_range_hosts_nested_table(target_range)
     text = target_range.getText()

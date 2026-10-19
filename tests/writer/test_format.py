@@ -180,7 +180,7 @@ def test_insert_content_at_position_text_selection_clears_range():
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
         # Master nested-table check walks MagicMock enumerations forever.
-        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -220,7 +220,7 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
-        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -446,7 +446,7 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
         side_effect=ToolExecutionError("nested tables"),
     ):
         with pytest.raises(ToolExecutionError, match="nested tables"):
@@ -478,7 +478,7 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
     ):
         with pytest.raises(RuntimeError, match="clear failed"):
             insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")

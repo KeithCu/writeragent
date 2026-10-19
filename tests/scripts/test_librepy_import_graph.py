@@ -212,8 +212,7 @@ def test_librepy_shipped_function_level_imports_are_safe():
         "plugin/writer/images/image_tools.py",
         # Writer scope selection fallback
         "plugin/writer/format.py",
-        # Nested-table refuse (master ca0fc04f) imports WriterAgent-only specialized.tables.
-        # Not this harness PR; same allowlist pattern as format.py.
+        # Undo manager title helper in html_import (next_agent_edit_undo_title)
         "plugin/writer/html_import.py",
     }
 
@@ -291,6 +290,51 @@ def test_librepy_shipped_function_level_imports_are_safe():
                                 unexpected.append((rel, node.lineno, full_mod))
 
     assert unexpected == []
+
+
+def test_librepy_writer_all_plugin_imports_resolve_to_shipped_files():
+    """All import statements in LibrePy-shipped plugin/writer files must resolve to shipped files."""
+    shipped = _get_shipped_paths()
+    writer_shipped = [
+        rel for rel in sorted(shipped)
+        if rel.startswith("plugin/writer/") and rel.endswith(".py")
+    ]
+    # Pre-existing intentional lazy WriterAgent-only imports (review tracking and search fallbacks).
+    allowed_lazy = {
+        "plugin.writer.edit_review",
+        "plugin.writer.page",
+        "plugin.writer.review_authors",
+        "plugin.writer.search",
+    }
+    missing: list[str] = []
+    for rel in writer_shipped:
+        path = _REPO_ROOT / rel
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
+        pkg_parts = Path(rel).with_suffix("").parts[:-1]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("plugin.") and not _is_shipped_plugin_module(alias.name, shipped):
+                        if alias.name not in allowed_lazy:
+                            missing.append(f"{rel}:{node.lineno} -> {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                level = node.level
+                mod = node.module or ""
+                if level > 0:
+                    base = pkg_parts[: len(pkg_parts) - level + 1]
+                    full_mod = ".".join(base + (tuple(mod.split(".")) if mod else ()))
+                else:
+                    full_mod = mod
+                if full_mod and full_mod.startswith("plugin."):
+                    if not _is_shipped_plugin_module(full_mod, shipped):
+                        sub_cands = [
+                            _plugin_mod_to_candidates(f"{full_mod}.{alias.name}")
+                            for alias in node.names
+                        ]
+                        if not any(any(sc in shipped for sc in scands) for scands in sub_cands):
+                            if full_mod not in allowed_lazy:
+                                missing.append(f"{rel}:{node.lineno} -> {full_mod}")
+    assert missing == []
 
 
 def test_librepy_staged_bundle_imports_without_writeragent(tmp_path: Path):

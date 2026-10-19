@@ -763,7 +763,7 @@ def test_delete_row_refuses_nested_host_in_frame():
 
 def test_raise_if_range_hosts_nested_table_cell_vs_body():
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
     parent = FakeParentTable(2, 2, nested_by_cell={"B2": [FakeTextTableElement("Child")]})
     cell = parent.getCellByName("B2")
