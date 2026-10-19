@@ -107,6 +107,7 @@ class GrammarWorkItem:
     original_bcp47: str = ""
     provider: str = ""
     n_start: int = 0
+    paragraph_text: str = ""
 
 
 
@@ -307,6 +308,10 @@ class GrammarWorkQueue:
         # Normal append.  (Historical Layer 1 "tail-replace" under _q.mutex was
         # removed in the TD4 simplification pass because it was ineffective
         # during the common rapid-drain burst case; see the module docstring.)
+        if item.doc_id and item.grammar_bcp47:
+            from .grammar_persistence import grammar_registry
+
+            grammar_registry.record_enqueued_locale(item.doc_id, item.grammar_bcp47)
         self._q.put(item)
         self._ensure_workers(item.ctx)
 

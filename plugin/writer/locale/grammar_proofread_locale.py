@@ -36,6 +36,7 @@ _log = logging.getLogger("writeragent.grammar")
 # Loaders accept exactly 2, 3, and 4. v3 is locale-blind (adopted on first
 # locale read). Any other version is rejected rather than parsed as v3.
 GRAMMAR_CACHE_VERSION = 4
+GRAMMAR_CACHE_MAX_CHARS = 900_000
 
 # Name of the user-defined string property under which the document-embedded cache is stored inside the ODT file.
 # Default: "WriterAgentGrammarCache"

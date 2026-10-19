@@ -102,6 +102,35 @@ def test_worker_build_chunks_detect_prefilter_before_truncate() -> None:
     assert instr == ""
 
 
+def test_worker_build_chunks_detect_prompt_recorded_locales() -> None:
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+    grammar_registry.record_enqueued_locale("doc-prompt", "de-DE")
+    try:
+        item = _item("Bonjour le monde.", doc_id="doc-prompt", grammar_bcp47="fr-FR")
+        chunks, instr = _worker_build_chunks(
+            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, max_chars=1000, detect_lang_enabled=True
+        )
+        assert "de-DE" in instr
+        assert "fr-FR" in instr
+        assert "en-US" not in instr
+    finally:
+        grammar_registry.clear_for_doc("doc-prompt")
+
+
+def test_worker_build_chunks_french_only_no_en_us() -> None:
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+    grammar_registry.clear_for_doc("doc-fr")
+    try:
+        item = _item("Bonjour le monde.", doc_id="doc-fr", grammar_bcp47="fr-FR")
+        chunks, instr = _worker_build_chunks(
+            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, max_chars=1000, detect_lang_enabled=True
+        )
+        assert "fr-FR" in instr
+        assert "en-US" not in instr
+    finally:
+        grammar_registry.clear_for_doc("doc-fr")
+
+
 def test_build_grammar_system_prompt_batch_vs_single() -> None:
     batch = build_grammar_system_prompt("en-US", set(), batch=True, any_partial=False)
     single = build_grammar_system_prompt("en-US", set(), batch=False, any_partial=False)
@@ -486,8 +515,9 @@ def test_locale_mismatch_proceeds_and_double_caches(
          patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
-         patch("plugin.writer.locale.grammar_persistence.apply_language_change") as mock_apply, \
+         patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=False) as mock_apply, \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
+         patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
          patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]):
 
@@ -515,8 +545,9 @@ def test_locale_mismatch_proceeds_and_double_caches(
     
         run_llm_and_cache_batch([item])
     
-        # 1. Verify document update was triggered
-        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0)
+        # 1. Verify document update was triggered with paragraph_text and failure was observed
+        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
+        mock_obs.assert_any_call("apply_language_change_skip", doc_id="doc123", sentence="\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", bcp47="ja-JP")
     
         # 2. Verify grammar check was done with ja-JP
         args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]

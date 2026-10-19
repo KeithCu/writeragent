@@ -244,12 +244,6 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
         log.exception("[grammar] persistence bind failed")
 
 
-def _add_doc_ignored_rule(p: Any, value: str) -> None:
-    with p._lock:
-        p._ignored_rules.add(value)
-    p._persist_to_udprops()
-
-
 def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> None:
     _ensure_persistence_bound(ctx, doc_id)
     ignore_rule_add(str(rule_identifier))
@@ -261,7 +255,7 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     from .grammar_ignore_rules import canonical_rule_keys
 
     stored = canonical_rule_keys(rule_identifier)[0]
-    _add_doc_ignored_rule(p, stored)
+    p.add_ignored_rule(stored)
     log.debug("[grammar] ignoreRule added: '%s' (stored: '%s') to doc_id=%s", rule_identifier, stored, doc_id)
 
 
@@ -273,9 +267,7 @@ def _reset_ignore_rules_on_main(ctx: Any, doc_id: str | None) -> None:
     p = get_persistence(ctx, doc_id) if doc_id else None
     if not p:
         return
-    with p._lock:
-        p._ignored_rules.clear()
-    p._persist_to_udprops()
+    p.clear_ignored_rules()
     log.debug("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
 
 
@@ -736,6 +728,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     enqueue_seq=seq,
                     provider=provider,
                     n_start=sent_start,
+                    paragraph_text=a_text,
                 )
             )
 
