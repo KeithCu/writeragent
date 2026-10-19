@@ -48,6 +48,7 @@ from plugin.framework.errors import WriterAgentException, resolve_exception_mess
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
+    MCP_HTTP_MAX_BODY_BYTES,
     forget_sse_keepalive,
     note_sse_keepalive,
     read_json_body,
@@ -390,7 +391,36 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
         return False
     req_id = msg.get("id") if isinstance(msg, dict) else None
     log.info("[MCP] stale session id %r (current=%r) — 404", incoming, _mcp_session_id)
-    write_http_json(handler, 404, wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG), extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+    # Drain unread body and send Connection: close so the kernel does
+    # not emit TCP RST on close, which manifests as Errno 104 on the client.
+    if msg is None and not getattr(handler, "_body_read", False):
+        raw_length = handler.headers.get("Content-Length") if hasattr(handler, "headers") and handler.headers else None
+        if raw_length:
+            try:
+                content_length = int(raw_length)
+                if 0 < content_length <= MCP_HTTP_MAX_BODY_BYTES:
+                    handler.rfile.read(content_length)
+                    setattr(handler, "_body_read", True)
+            except (TypeError, ValueError, OSError):
+                pass
+    handler.close_connection = True
+
+    def _headers(h: Any) -> None:
+        _send_mcp_response_headers(h, session_id=_mcp_session_id)
+        h.send_header("Connection", "close")
+
+    write_http_json(
+        handler,
+        404,
+        wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG),
+        extra_headers=_headers,
+    )
+    flush = getattr(handler.wfile, "flush", None)
+    if callable(flush):
+        try:
+            flush()
+        except OSError:
+            pass
     return True
 
 
