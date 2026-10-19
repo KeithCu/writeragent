@@ -161,7 +161,6 @@ def test_list_and_quote_paragraph_properties(ctx):
                 props.append({
                     "text": text,
                     "NumberingIsNumber": para.getPropertyValue("NumberingIsNumber"),
-                    "NumberingType": para.getPropertyValue("NumberingType"),
                     "ListId": para.getPropertyValue("ListId"),
                     "ListLabelString": para.getPropertyValue("ListLabelString"),
                     "ParaStyleName": para.getPropertyValue("ParaStyleName"),
