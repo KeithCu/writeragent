@@ -219,3 +219,23 @@ def test_allowlist_entries_fit_cache_key() -> None:
             assert "\n" not in name
             assert len(name) <= DEAL_MAX_TOKEN
 
+
+def test_validate_sandbox_ast_rejects_importfrom_forbidden_dunder() -> None:
+    imports = list(BASE_BUILTIN_MODULES)
+    assert validate_sandbox_ast(ast.parse("from re import __loader__"), imports) == "Forbidden access to dunder attribute: __loader__"
+    assert validate_sandbox_ast(ast.parse("from re import __spec__"), imports) == "Forbidden access to dunder attribute: __spec__"
+    assert validate_sandbox_ast(ast.parse("from re import __dict__"), imports) == "Forbidden access to dunder attribute: __dict__"
+    assert validate_sandbox_ast(ast.parse("from re import __version__"), imports) is None
+    assert validate_sandbox_ast(ast.parse("from collections.abc import Mapping"), imports) is None
+
+
+def test_get_hot_entry_top_level_signals_cache_syntax_error() -> None:
+    imports = list(BASE_BUILTIN_MODULES)
+    for code in ("return 5", "break", "continue", "yield 1"):
+        entry = get_hot_entry(code, imports)
+        assert entry.module is None
+        assert entry.error is not None
+        assert "SyntaxError" in entry.error
+    assert get_hot_entry("from __future__ import annotations\nx = 1", imports).error is None
+
+

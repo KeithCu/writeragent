@@ -17,6 +17,7 @@ from plugin.chatbot.tool_loop_state import (
     UpdateDocumentContextEffect,
     CleanupAudioEffect,
     format_empty_model_response_debug,
+    format_replaced_zero_debug_line,
     format_tool_result_chat_text,
     format_tool_running_ui,
     is_replaced_zero_result,
@@ -161,6 +162,8 @@ def test_stream_done_no_text_includes_debug_sidebar():
     msg = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert "No text from model" in msg.content
     assert "finish_reason='stop'" in msg.content
+    debug_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.is_empty_model_debug)
+    assert debug_eff.text == debug_line
 
 
 def test_format_empty_model_response_debug_overflow_pre_fails_closed():
@@ -618,6 +621,41 @@ def test_tool_result_parsing():
     assert not any(isinstance(e, UpdateDocumentContextEffect) for e in effects_adc)  # mutates_document=False
 
 
+def test_tool_result_missing_data():
+    state = create_base_state()
+    # None fields from a bad TOOL_RESULT event become safe defaults.
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="c1",
+        func_name=None,
+        func_args_str=None,
+        result=None,
+        mutates_document=None,
+    )
+    tr = next_state(state, event)
+    msg_eff = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    assert msg_eff.role == "tool"
+    assert msg_eff.call_id == "c1"
+    assert msg_eff.content == ""
+
+
+def test_stream_done_fills_missing_tool_call_ids():
+    state = create_base_state()
+    calls = [
+        {"id": "", "function": {"name": "a", "arguments": "{}"}},
+        {"function": {"name": "b", "arguments": "{}"}},
+        {"id": "keep", "function": {"name": "c", "arguments": "{}"}},
+    ]
+    event = create_event(EventKind.STREAM_DONE, response={"content": "", "tool_calls": calls, "finish_reason": "tool_calls"})
+    tr = next_state(state, event)
+    msg = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    ids = [tc["id"] for tc in msg.tool_calls]
+    assert ids == ["call_%d_0" % state.round_num, "call_%d_1" % state.round_num, "keep"]
+    # The pending list uses the same ids, so each tool reply matches its call.
+    assert [tc["id"] for tc in tr.state.pending_tools] == ids
+    assert calls[0]["id"] == ""  # input is not mutated
+
+
 def test_object_dict_or_empty():
     from collections import UserDict
 
@@ -634,6 +672,14 @@ def test_pending_tool_call_fields():
     assert pending_tool_call_fields(None) == ("unknown", "{}", "")
     assert pending_tool_call_fields({"id": "c2"}) == ("unknown", "{}", "c2")
     assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "")
+    
+
+def test_format_replaced_zero_debug_line():
+    line = format_replaced_zero_debug_line('{"target": "doc"}')
+    assert line == '[Debug: params {"target": "doc"}]\n'
+    long_line = format_replaced_zero_debug_line("A" * 1000)
+    assert long_line.endswith("...]\n")
+    assert len(long_line) <= 820
 
 
 def test_format_tool_running_ui():

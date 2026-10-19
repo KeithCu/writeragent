@@ -521,18 +521,143 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
     body_text = MagicMock(name="body_text")
     doc.getText.return_value = body_text
 
+    inserted = [False]
     host = MagicMock(name="cell_host")
+    host.insertTextContent.side_effect = lambda *a, **k: inserted.__setitem__(0, True)
+
     field = _make_comment_field("target", host=host)
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
     reply_field = MagicMock(name="reply_field")
+    reply_field.supportsService.return_value = True
+    reply_field.getPropertyValue.return_value = "ReplyName"
     doc.createInstance.return_value = reply_field
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = (
+        lambda: _FiniteEnum([field, reply_field]) if inserted[0] else _FiniteEnum([field])
+    )
 
     ctx = MagicMock(doc=doc)
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = CommentResolve().execute(ctx, name="target", resolution="Fixed")
     assert res["status"] == "ok"
+    assert res.get("reply_name") == "ReplyName"
     host.insertTextContent.assert_called_once()
     body_text.insertTextContent.assert_not_called()
+
+
+def test_comment_resolve_assigns_non_empty_name():
+    from plugin.writer.specialized.comments import CommentResolve
+
+    doc = MagicMock()
+    inserted = [False]
+    host = MagicMock()
+    host.insertTextContent.side_effect = lambda *a, **k: inserted.__setitem__(0, True)
+
+    field = _make_comment_field("target", host=host)
+    reply_field = MagicMock(name="reply_field")
+    reply_field.supportsService.return_value = True
+    assigned = {}
+
+    def get_prop(p):
+        if p == "Name":
+            return assigned.get("Name", "")
+        return ""
+
+    def set_prop(p, v):
+        assigned[p] = v
+
+    reply_field.getPropertyValue.side_effect = get_prop
+    reply_field.setPropertyValue.side_effect = set_prop
+    doc.createInstance.return_value = reply_field
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = (
+        lambda: _FiniteEnum([field, reply_field]) if inserted[0] else _FiniteEnum([field])
+    )
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = CommentResolve().execute(ctx, name="target", resolution="Done")
+    assert res["status"] == "ok"
+    assert "Name" in assigned
+    assert assigned["Name"].startswith("__Annotation__")
+    assert res.get("reply_name") == assigned["Name"]
+
+
+def test_add_comment_search_uses_find_all_ranges():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+    match_range = MagicMock()
+    match_range.getString.return_value = "found text"
+    mtext = MagicMock()
+    match_range.getText.return_value = mtext
+    doc.getTextFields.return_value = _fields_that_grow()
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[match_range]) as mock_find, \
+         patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = AddComment().execute(ctx, content="test note", search="find me")
+
+    assert res["status"] == "ok"
+    mock_find.assert_called_once_with(doc, "find me")
+
+
+def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
+    from plugin.writer.specialized.comments import CommentResolve
+
+    doc = MagicMock()
+    field = _make_comment_field("target", host=MagicMock())
+    doc.createInstance.return_value = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = CommentResolve().execute(ctx, name="target", resolution="Failed to register")
+    assert res["status"] == "error"
+    assert "did not register an annotation" in res["message"]
+    for call_item in field.setPropertyValue.call_args_list:
+        assert call_item[0][0] != "Resolved"
+
+
+def test_comments_none_author_and_content_do_not_raise():
+    from plugin.writer.specialized.comments import CommentList, _comment_scan_tasks, _comment_check_stop
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.getPropertyValue.side_effect = lambda p: {
+        "Author": None,
+        "Content": None,
+        "Name": "c1",
+        "ParentName": None,
+        "Resolved": False,
+        "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
+    }.get(p, None)
+    anchor = MagicMock()
+    anchor.getString.return_value = ""
+    anchor.getText.return_value = MagicMock()
+    field.getAnchor.return_value = anchor
+
+    doc = MagicMock()
+    doc.getText.return_value = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    # 1. CommentList with author filter
+    list_res = CommentList().execute(ctx, author_filter="test")
+    assert list_res["status"] == "ok"
+    assert list_res["comments"] == []
+
+    # 2. _comment_scan_tasks
+    scan_res = _comment_scan_tasks(ctx, {})
+    assert scan_res["status"] == "ok"
+    assert scan_res["count"] == 0
+
+    # 3. _comment_check_stop
+    stop_res = _comment_check_stop(ctx)
+    assert stop_res["status"] == "ok"
+    assert stop_res["should_stop"] is False
 
 
 def test_comment_list_disposal_is_document_disposed():

@@ -380,6 +380,10 @@ LibreOffice Calc (with the Python/`=PY` extension) registers a global document l
 
 There is **no** new menu item.
 
+**Shared formulas and dependency shifting:** Excel frequently stores filled-down formulas using shared formula groups (`t="shared"`, `si=…`) where only the master cell carries the formula body. On import, dependent cells shift trailing dependency arguments by the row/col delta, preserving absolute axis locks (`$B$1`, `B$1`) and table references (`Table1[Col]`). Unrecognized dependency expressions refuse the group and record conversion issues. On export, groups are cleanly unshared with explicit shifted formulas for any non-PY siblings.
+
+**Package guards and atomic writes:** Export ensures `xl/pythonScripts.xml` has an explicit workbook relationship (`http://schemas.microsoft.com/office/2022/relationships/pythonScript`), drops obsolete `xl/calcChain.xml` (part, content-type override, and relationship) to prevent Excel repair prompts, scans for unwritten `_xlws.PY` formulas to avoid orphan bank indices, and uses atomic temporary file replacement on disk. Bank sheets (`py_code_*`) are managed via workbook defined names and `ZZ1` notes to protect existing user sheets from deletion or collisions. Spill clearing uses $O(1)$ bounding rectangles without enumerating large coordinate ranges.
+
 The converter is intentionally not sound for computed references such as `xl(f"A1:A{n}")` or `xl(name)`. Microsoft does not productize those forms either; WriterAgent reports them as unresolved instead of pretending they are DAG-safe. Supported formula-static shapes include fixed ranges, scalar cells, tables, and spill anchors.
 
 CLI:

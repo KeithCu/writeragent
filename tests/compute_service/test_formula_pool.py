@@ -1554,6 +1554,14 @@ class TestFormulaHttpEndpoint:
         assert body.get("result") == 56
 
     def test_http_timeout_is_200_error_then_next_ok(self, formula_server: str) -> None:
+        # Tip: warm a worker first. A cold spawn on a slow Windows runner can use up the
+        # 1.5 s budget before the code runs, which is a 503 QUEUE_TIMEOUT, not this case.
+        warm_status, _warm = self._post(
+            formula_server,
+            {"id": "warm", "code": "result = 0"},
+            headers={"Authorization": "Bearer formula-secret"},
+        )
+        assert warm_status == 200
         status, body = self._post(
             formula_server,
             {
@@ -1563,7 +1571,7 @@ class TestFormulaHttpEndpoint:
             },
             headers={"Authorization": "Bearer formula-secret"},
         )
-        assert status == 200
+        assert status == 200, body
         assert body.get("status") == "error"
         status2, body2 = self._post(
             formula_server,
@@ -2247,7 +2255,7 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
 
 
 def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
-    real_read = process_worker.read_pickle_frame_with_timeout
+    real_read = process_worker.read_pickle_frame
     armed = False
     read_entered = threading.Event()
 
@@ -2258,7 +2266,7 @@ def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch:
             read_entered.set()
         return real_read(*args, **kwargs)
 
-    monkeypatch.setattr(process_worker, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(process_worker, "read_pickle_frame", _read)
 
     settings = ComputeSettings(host="127.0.0.1", port=get_free_port(), workers=1, ocr_workers=0, idle_worker_ttl_sec=3600.0, shared_kernel_ttl_sec=3600.0)
     pool = get_formula_pool(settings)

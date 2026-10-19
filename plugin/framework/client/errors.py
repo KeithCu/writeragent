@@ -131,22 +131,19 @@ def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provid
 
 def format_error_for_display(e: Any) -> str:
     """Return user-friendly error string for display in cells or dialogs."""
-    from plugin.framework.errors import format_error_payload
+    from plugin.framework.errors import WriterAgentException, resolve_exception_message
 
     # Drain loop ERROR items are format_error_payload dicts, not Exception.
     # format_error_payload(dict) would wrap the whole mapping as INTERNAL_ERROR.
     if isinstance(e, dict):
         msg = e.get("message") or e.get("code") or str(e)
         return _("Error: {0}").format(msg)
-    payload = format_error_payload(e)
-    # dict.get evaluates its default before the lookup. format_error_message's
-    # deal.pre requires an Exception, so a string raised PreContractError even
-    # when the payload already had a message. Call the mapper only when the
-    # key is absent.
-    if "message" in payload:
-        message = payload["message"]
-    else:
+    if isinstance(e, WriterAgentException):
+        message = e.message
+    elif isinstance(e, BaseException):
         message = format_error_message(e)
+    else:
+        message = resolve_exception_message(e)
     return _("Error: {0}").format(message)
 
 

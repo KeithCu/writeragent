@@ -116,6 +116,9 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) 
             if not import_authorized(module_name, authorized_imports):
                 # Keep the message short. Dumping authorized_imports exposes duckdb.
                 return f"Import from {module_name} is not allowed."
+            for alias in node.names:
+                if alias.name != "*" and is_forbidden_dunder_attribute(alias.name):
+                    return f"Forbidden access to dunder attribute: {alias.name}"
         elif isinstance(node, ast.Attribute):
             if is_forbidden_dunder_attribute(node.attr):
                 return f"Forbidden access to dunder attribute: {node.attr}"
@@ -200,6 +203,10 @@ def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
                 module=None,
                 error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",
             )
+        try:
+            compile(module, "<sandbox>", "exec", dont_inherit=True)
+        except SyntaxError as exc:
+            return HotEntry(module=None, error=_format_syntax_error(exc))
         validation_error = validate_sandbox_ast(module, authorized_imports)
         return HotEntry(module=module, error=validation_error)
     except RecursionError:
