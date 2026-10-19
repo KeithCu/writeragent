@@ -89,19 +89,6 @@ def _discover_modules(base_dir):
         and not d.startswith(("_", "."))
     )
 
-EXCLUDE_PATTERNS = (
-    ".git",
-    ".DS_Store",
-    "__pycache__",
-    ".pyc",
-    ".pyo",
-    "tests/",
-    "test_",
-    ".tpl",
-    # make pyspector writes under plugin/; never ship in OXT
-    ".pyspector_cache",
-    ".pyspector_baseline.json",
-)
 
 # Generated files (XCS/XCU, XDL dialogs). One Dialogs/ tree only — a separate
 # lowercase dialogs/ collides with Dialogs/ on Windows case-insensitive FS and
@@ -143,7 +130,13 @@ def _vendor_copy_ignore(_dir: str, names: list[str]) -> list[str]:
     return ignored
 
 
-def sync_vendor_into_lib(vendor_dir: str, lib_dir: str, *, prune_websockets: bool = True) -> int:
+def sync_vendor_into_lib(
+    vendor_dir: str,
+    lib_dir: str,
+    *,
+    prune_websockets: bool = True,
+    packages: frozenset[str] | None = None,
+) -> int:
     """Copy ``vendor/`` package trees into a ``plugin/lib/`` directory.
 
     Hot-deploy rsyncs project ``plugin/`` into the LibreOffice cache. The OXT
@@ -155,6 +148,7 @@ def sync_vendor_into_lib(vendor_dir: str, lib_dir: str, *, prune_websockets: boo
         return 0
     os.makedirs(lib_dir, exist_ok=True)
     vendor_count = 0
+    pkg_filter = {p.replace("-", "_").lower() for p in packages} if packages is not None else None
     for entry in sorted(os.listdir(vendor_dir)):
         if entry.startswith(("_", ".")):
             continue
@@ -163,12 +157,19 @@ def sync_vendor_into_lib(vendor_dir: str, lib_dir: str, *, prune_websockets: boo
         if entry.endswith(".dist-info"):
             # Keep only METADATA: latex2mathml reads its own version through
             # importlib.metadata at import time and fails without it.
+            if pkg_filter is not None:
+                dist_stem = entry[: -len(".dist-info")]
+                dist_pkg = dist_stem.split("-")[0].replace("-", "_").lower()
+                if dist_pkg not in pkg_filter:
+                    continue
             meta_src = os.path.join(src_path, "METADATA")
             if os.path.isfile(meta_src):
                 if os.path.exists(dst_path):
                     shutil.rmtree(dst_path)
                 os.makedirs(dst_path)
                 shutil.copy2(meta_src, os.path.join(dst_path, "METADATA"))
+            continue
+        if packages is not None and entry not in packages:
             continue
         if os.path.isdir(src_path):
             if os.path.exists(dst_path):
@@ -178,10 +179,11 @@ def sync_vendor_into_lib(vendor_dir: str, lib_dir: str, *, prune_websockets: boo
                 pruned = prune_vendored_websockets(dst_path)
                 if pruned:
                     print("  Pruned websockets for CDP client (%d paths)" % len(pruned))
+            vendor_count += 1
         elif os.path.isfile(src_path):
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
-        vendor_count += 1
+            vendor_count += 1
     return vendor_count
 
 
@@ -209,9 +211,21 @@ def should_exclude(path, with_tests=False):
     # Attribution only; 48 px PNGs ship. Buttons do not scale graphics (see dialog_views).
     if path_norm.endswith("assets/provider_logos.NOTICE"):
         return True
-    for pat in EXCLUDE_PATTERNS:
-        if pat in path:
-            return True
+
+    parts = [p for p in path_norm.split("/") if p]
+    if not parts:
+        return False
+    basename = parts[-1]
+
+    # make pyspector writes under plugin/; never ship in OXT
+    if any(part in (".git", ".DS_Store", "__pycache__", ".pyspector_cache") for part in parts):
+        return True
+    if basename == ".pyspector_baseline.json":
+        return True
+    if basename.endswith((".pyc", ".pyo", ".tpl")):
+        return True
+    if any(part == "tests" or part.startswith("test_") for part in parts):
+        return True
     return False
 
 

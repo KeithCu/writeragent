@@ -60,6 +60,35 @@ def test_pyspector_cache_excluded_from_oxt():
     assert should_exclude("plugin/main.py") is False
 
 
+def test_should_exclude_component_matching():
+    # Path components matching .git, .DS_Store, __pycache__, .pyspector_cache
+    assert should_exclude(".git") is True
+    assert should_exclude("foo/.git/HEAD") is True
+    assert should_exclude(".DS_Store") is True
+    assert should_exclude("plugin/__pycache__/foo.cpython-313.pyc") is True
+    assert should_exclude("plugin/.pyspector_cache/data.json") is True
+
+    # Basenames matching .pyspector_baseline.json, .pyc, .pyo, .tpl
+    assert should_exclude("plugin/.pyspector_baseline.json") is True
+    assert should_exclude("extension/description.xml.tpl") is True
+    assert should_exclude("plugin/main.pyc") is True
+    assert should_exclude("plugin/main.pyo") is True
+
+    # Tests directory and test_ components
+    assert should_exclude("plugin/tests/test_foo.py", with_tests=False) is True
+    assert should_exclude("plugin/tests/test_foo.py", with_tests=True) is False
+    assert should_exclude("plugin/foo/test_foo.py", with_tests=False) is True
+    assert should_exclude("plugin/foo/test_foo.py", with_tests=True) is True
+    assert should_exclude("plugin/foo/tests/helper.py", with_tests=False) is True
+    assert should_exclude("plugin/foo/tests/helper.py", with_tests=True) is True
+
+    # Retained files that substring 'test_' or '.git' previously dropped
+    assert should_exclude("contest_entry.py") is False
+    assert should_exclude("latest_thing.py") is False
+    assert should_exclude(".github/workflows/ci.yml") is False
+    assert should_exclude(".gitignore") is False
+
+
 def test_generated_includes_single_dialogs_tree():
     """Lowercase dialogs/ must not be packaged — it collides with Dialogs/ on Windows."""
     assert "build/generated/Dialogs/" in GENERATED_INCLUDES

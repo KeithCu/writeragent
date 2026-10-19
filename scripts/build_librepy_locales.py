@@ -15,7 +15,6 @@ PATH (same reason ``compile_translations.py`` uses polib — GHA 33453184665
 from __future__ import annotations
 
 import ast
-import glob
 import os
 import re
 import shutil
@@ -28,7 +27,7 @@ if PROJECT_ROOT not in sys.path:
 
 import polib
 
-from scripts.build_librepy_oxt import LIBREPY_DIALOG_FILES
+from scripts.build_librepy_oxt import LIBREPY_DIALOG_FILES, LIBREPY_GENERATED_DIALOG_FILES
 from scripts.generate_manifest import _filter_librepy_config
 from scripts.librepy_bundle_paths import collect_librepy_plugin_paths
 
@@ -51,17 +50,14 @@ _XDL_ATTR_PATTERNS = (
 )
 
 
-def _xdl_paths() -> list[str]:
+def _xdl_paths(root: str = PROJECT_ROOT) -> list[str]:
     paths: list[str] = []
-    for rel in LIBREPY_DIALOG_FILES:
+    for rel in (*LIBREPY_DIALOG_FILES, *LIBREPY_GENERATED_DIALOG_FILES):
         if rel.endswith(".xdl"):
-            paths.append(os.path.join(PROJECT_ROOT, rel))
-    for pattern in (
-        os.path.join(PROJECT_ROOT, "build", "generated", "Dialogs", "*.xdl"),
-        os.path.join(PROJECT_ROOT, "build", "generated", "dialogs", "*.xdl"),
-    ):
-        paths.extend(sorted(glob.glob(pattern)))
-    return [p for p in paths if os.path.isfile(p)]
+            p = os.path.join(root, rel)
+            if os.path.isfile(p):
+                paths.append(p)
+    return paths
 
 
 def _extract_xdl_strings(xdl_files: list[str]) -> set[str]:

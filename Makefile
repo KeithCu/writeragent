@@ -441,9 +441,7 @@ manifest:
 	"$(PYTHON)" $(SCRIPTS)/generate_manifest.py
 
 manifest-core:
-	"$(PYTHON)" $(SCRIPTS)/generate_manifest.py --modules scripting vision \
-		--manifest-output build/generated/_manifest_librepy.py \
-		--skip-writeragent-extension --skip-addons
+	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --manifest-only
 
 rdb-core:
 	# Bash-only (no Windows .ps1). CI without unoidl-write reuses the
@@ -453,7 +451,7 @@ rdb-core:
 
 build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (standalone core extension)..."
-	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
+	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT) --skip-manifest
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
 
 build-core-native: native build-core
