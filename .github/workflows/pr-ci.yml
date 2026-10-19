@@ -251,6 +251,9 @@ jobs:
 
       - name: Run mock LLM sidebar tests
         if: ${{ inputs.test_mock_sidebar == true }}
+        env:
+          # Tip: keep the whole run's soffice log (5 MB rotation lost early peer tests).
+          WRITERAGENT_DEBUG_LOG_MAX_MB: "200"
         run: |
           make ensure-uno
           if [ "${{ runner.os }}" = "Linux" ]; then

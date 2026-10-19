@@ -1410,3 +1410,14 @@ def test_log_record_factory_pyuno_str_failure_uses_placeholder() -> None:
     record4 = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(failing,), exc_info=None, func=None, sinfo=None)
     assert record4.args == ("<pyuno>",)
 
+
+
+def test_debug_log_max_bytes_env(monkeypatch):
+    import plugin.framework.logging as logging_mod
+
+    monkeypatch.setenv("WRITERAGENT_DEBUG_LOG_MAX_MB", "200")
+    assert logging_mod._debug_log_max_bytes() == 200 * 1024 * 1024
+    monkeypatch.setenv("WRITERAGENT_DEBUG_LOG_MAX_MB", "junk")
+    assert logging_mod._debug_log_max_bytes() == 5 * 1024 * 1024
+    monkeypatch.delenv("WRITERAGENT_DEBUG_LOG_MAX_MB")
+    assert logging_mod._debug_log_max_bytes() == 5 * 1024 * 1024
