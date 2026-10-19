@@ -183,3 +183,62 @@ def test_new_redlines_since_leaves_a_stack_on_a_user_change_untagged():
     on_agent._props["RedlineSuccessorData"] = (_Layer("RedlineComment", TOKEN_PREFIX + "s:0"),)
     new, ok = new_redlines_since(_KeyedDoc([stacked, on_agent]), before)
     assert ok and new == [on_agent]
+
+
+def test_agent_change_presence_stop_at_first():
+    from plugin.writer.review_scan import agent_change_presence
+
+    calls = []
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            calls.append(1)
+            return self._items.pop(0)
+
+    class _Reds:
+        def getCount(self):
+            return 3
+
+        def createEnumeration(self):
+            return _Enum([
+                _KeyedRl("1", comment=TOKEN_PREFIX + "s:0"),
+                _KeyedRl("2", comment=TOKEN_PREFIX + "s:1"),
+                _KeyedRl("3", comment=TOKEN_PREFIX + "s:2"),
+            ])
+
+    class _Doc:
+        def getRedlines(self):
+            return _Reds()
+
+    count, reliable = agent_change_presence(_Doc(), stop_at_first=True)
+    assert (count, reliable) == (1, True)
+    assert len(calls) == 1
+
+
+def test_agent_change_presence_get_redlines_raises():
+    from plugin.writer.review_scan import agent_change_presence
+
+    class _Doc:
+        def getRedlines(self):
+            raise RuntimeError("redlines boom")
+
+    count, reliable = agent_change_presence(_Doc())
+    assert (count, reliable) == (0, False)
+
+
+def test_agent_change_presence_clean_document():
+    from plugin.writer.review_scan import agent_change_presence
+
+    class _Doc:
+        def getRedlines(self):
+            return _KeyedDoc([]).getRedlines()
+
+    count, reliable = agent_change_presence(_Doc())
+    assert (count, reliable) == (0, True)
+

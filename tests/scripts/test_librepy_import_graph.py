@@ -37,69 +37,16 @@ _FORBIDDEN_CLIENT_ATTRS = frozenset(
 )
 
 
+from scripts.plugin_import_graph import (  # noqa: E402
+    _is_shipped_plugin_module,
+    _module_level_import_nodes,
+    _plugin_mod_to_candidates,
+    _resolved_import_from_module,
+)
+
+
 def _get_shipped_paths() -> set[str]:
     return set(collect_librepy_plugin_paths(str(_REPO_ROOT)))
-
-
-def _plugin_mod_to_candidates(mod: str) -> tuple[str, ...]:
-    rel = mod.replace(".", "/")
-    return (rel + ".py", rel + "/__init__.py")
-
-
-def _is_shipped_plugin_module(mod: str, shipped: set[str]) -> bool:
-    if mod in ("plugin._manifest", "plugin._manifest_librepy"):
-        return True
-    cands = _plugin_mod_to_candidates(mod)
-    return any(c in shipped for c in cands)
-
-
-def _is_type_checking_if(node: ast.If) -> bool:
-    test = node.test
-    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-        return True
-    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
-        return True
-    return False
-
-
-def _module_level_import_nodes(tree: ast.AST) -> list[ast.AST]:
-    nodes: list[ast.AST] = []
-
-    def walk(body: list[ast.stmt]) -> None:
-        for stmt in body:
-            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                nodes.append(stmt)
-            elif isinstance(stmt, ast.If):
-                if _is_type_checking_if(stmt):
-                    continue
-                walk(stmt.body)
-                walk(stmt.orelse)
-            elif isinstance(stmt, ast.Try):
-                handler_names = []
-                for handler in stmt.handlers:
-                    if handler.type is None:
-                        handler_names.append("bare")
-                    elif isinstance(handler.type, ast.Name):
-                        handler_names.append(handler.type.id)
-                    elif isinstance(handler.type, ast.Tuple):
-                        handler_names.extend(
-                            elt.id for elt in handler.type.elts if isinstance(elt, ast.Name)
-                        )
-                # Optional imports (Cython accelerator, generated manifest, etc.)
-                if "ImportError" in handler_names or "ModuleNotFoundError" in handler_names:
-                    walk(stmt.orelse)
-                    walk(stmt.finalbody)
-                    continue
-                walk(stmt.body)
-                for handler in stmt.handlers:
-                    walk(handler.body)
-                walk(stmt.orelse)
-                walk(stmt.finalbody)
-            elif isinstance(stmt, ast.With):
-                walk(stmt.body)
-
-    walk(getattr(tree, "body", []))
-    return nodes
 
 
 def _imported_plugin_modules(path: Path, tree: ast.AST) -> list[str]:
@@ -126,19 +73,6 @@ def _imported_plugin_modules(path: Path, tree: ast.AST) -> list[str]:
                 if mod == "plugin" or mod.startswith("plugin."):
                     found.append(mod)
     return found
-
-
-def _resolved_import_from_module(path: Path, node: ast.ImportFrom) -> str | None:
-    pkg_parts = path.relative_to(_REPO_ROOT).with_suffix("").parts
-    parent_pkg = pkg_parts[:-1]
-    if node.level:
-        if node.level > len(parent_pkg):
-            return None
-        rel_base = parent_pkg[: len(parent_pkg) - node.level + 1]
-        if node.module:
-            return ".".join(rel_base + tuple(node.module.split(".")))
-        return ".".join(rel_base)
-    return node.module
 
 
 def _forbidden_client_attr_hits(path: Path, tree: ast.AST) -> list[str]:

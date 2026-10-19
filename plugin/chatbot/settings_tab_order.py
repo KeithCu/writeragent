@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Deterministic Settings dialog tab order (XDL generation + runtime TabListener)."""
+"""Deterministic Settings dialog tab order and field sources (XDL generation + runtime)."""
 
 from __future__ import annotations
 
@@ -50,9 +50,10 @@ def _build_inline_maps(modules: list[dict[str, Any]]) -> tuple[set[str], dict[st
 
     by_name = {m["name"]: m for m in modules}
     inline_map: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
-    for name in inline_set:
-        target = inline_targets[name]
-        inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
+    for name in inline_targets:
+        if name in inline_set:
+            target = inline_targets[name]
+            inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
 
     return inline_set, inline_map
 
@@ -68,7 +69,8 @@ def _is_settings_tab_module(
         return False
     if name == "launcher":
         return False
-    if m.get("settings_tab") is False:
+    # Standalone dialogs are not Settings pages.
+    if m.get("settings_tab") is False or m.get("config_dialog"):
         return False
 
     config = m.get("config", {})
@@ -98,3 +100,19 @@ def iter_settings_tab_modules(modules: list[dict[str, Any]]) -> Iterator[dict[st
     )
     for name in extras:
         yield by_name[name]
+
+
+def iter_settings_field_modules(modules: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    """Yield modules providing Settings fields (tab modules and their inline children)."""
+    _, inline_map = _build_inline_maps(modules)
+    yielded: set[str] = set()
+    for m in iter_settings_tab_modules(modules):
+        name = m["name"]
+        if name not in yielded:
+            yielded.add(name)
+            yield m
+        for child_m, _ in inline_map.get(name, []):
+            child_name = child_m["name"]
+            if child_name not in yielded:
+                yielded.add(child_name)
+                yield child_m

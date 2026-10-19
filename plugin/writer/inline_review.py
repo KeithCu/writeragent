@@ -24,10 +24,11 @@ This is the model layer; the right-click context menu in ``change_context_menu.p
 
 from __future__ import annotations
 
+from collections import Counter
 import contextlib
 from enum import Enum, auto
 import logging
-from typing import Any, Callable, Iterator, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.i18n import _
@@ -65,12 +66,18 @@ class RedlineRow(NamedTuple):
     end: Any                   # RedlineEnd, or None
     kind: str | None           # RedlineType, or None
     text: Any                  # start.getText() when start is readable, else None
+    identity: tuple[Any, ...] | None = None
 
 
 class RedlineView(NamedTuple):
     reliable: bool             # the scan_redlines bit, once
     total: int
     rows: tuple[RedlineRow, ...]
+
+
+def agent_tokens(view: RedlineView) -> set[str]:
+    """All agent tokens present in view."""
+    return {r.token for r in view.rows if r.token is not None}
 
 
 def _review_message(
@@ -149,43 +156,57 @@ def scan_redline_view(model: Any) -> RedlineView:
                 text = start.getText()
             except Exception:
                 text = None
-        rows.append(RedlineRow(token=token, identifier=identifier, start=start, end=end, kind=kind, text=text))
+        identity = _review_scan.redline_identity_key(rl)
+        rows.append(
+            RedlineRow(
+                token=token,
+                identifier=identifier,
+                start=start,
+                end=end,
+                kind=kind,
+                text=text,
+                identity=identity,
+            )
+        )
         return True
 
     reliable, _seen, total = _review_scan.scan_redlines(model, on_item)
     return RedlineView(reliable=reliable, total=total, rows=tuple(rows))
 
 
-def _agent_change_tokens(model: Any) -> tuple[set[str], bool]:  # pyright: ignore[reportUnusedFunction]  # unit-tested guard
-    view = scan_redline_view(model)
-    return {r.token for r in view.rows if r.token is not None}, view.reliable
-
-
-def _foreign_redline_ids(model: Any) -> tuple[set[str], bool]:  # pyright: ignore[reportUnusedFunction]  # unit-tested guard
-    view = scan_redline_view(model)
-    return {r.identifier for r in view.rows if r.token is None}, view.reliable
-
-
 def has_agent_changes(model: Any) -> bool:
     """True if the document holds any pending AGENT change (gates the review UI entries)."""
-    view = scan_redline_view(model)
-    return any(r.token is not None for r in view.rows)
+    count, _reliable = _review_scan.agent_change_presence(model, stop_at_first=True)
+    return count > 0
 
 
-def resolve_change_at_cursor(model: Any, ctx: Any, accept: bool) -> tuple[bool, str]:
+def resolve_change_at_cursor(
+    model: Any,
+    ctx: Any,
+    accept: bool,
+    *,
+    token: str | None = None,
+    view: RedlineView | None = None,
+) -> tuple[bool, str]:
     """Accept (``accept=True``) or reject the AGENT change under the view cursor, as one unit
     (the whole Delete+Insert pair of a replace).
 
     Only agent changes (wa-review session tokens) are eligible -- the user's own tracked
     changes are left to LibreOffice's native review UI. Returns ``(ok, message)``.
     """
-    token = cursor_in_agent_change(model)
+    if view is None:
+        view = scan_redline_view(model)
     if token is None:
-        if not has_agent_changes(model):
+        token = cursor_in_agent_change(model, view=view)
+    if token is None:
+        if not view.reliable:
+            return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
+        tokens = agent_tokens(view)
+        if not tokens:
             return False, _("No agent changes to review in this document.")
         return False, _("Put the cursor on a highlighted agent change first.")
 
-    res, after_view = resolve_agent_change(model, ctx, token, accept)
+    res, after_view = resolve_agent_change(model, ctx, token, accept, before=view)
     if res.status == ResolveStatus.RESOLVED:
         return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
     if res.status == ResolveStatus.REFUSED_SIBLING:
@@ -243,16 +264,6 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
     )
 
 
-def _all_redlines_are_agent(model: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # unit-tested guard
-    """True only if EVERY tracked change in the document is an agent change AND scan was COMPLETE."""
-    try:
-        if int(model.getRedlines().getCount()) <= 0:
-            return False
-    except Exception:
-        return False
-    return _is_all_redlines_agent(scan_redline_view(model))
-
-
 # --- Agent-self-resolution guard (used by the agent-facing track_changes_* tools) -------------
 # BUG (reported): the agent accepted its OWN edits. wa-review changes are recorded for the HUMAN
 # to accept/reject in the review UI; the agent must never resolve them. HOW IT HAPPENED:
@@ -286,9 +297,9 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
     view = scan_redline_view(model)
     if not view.reliable:
         return _BULK_UNRELIABLE_MSG
-    agent_tokens = {r.token for r in view.rows if r.token is not None}
-    if agent_tokens:
-        return _BULK_AGENT_PRESENT_MSG % len(agent_tokens)
+    tokens = agent_tokens(view)
+    if tokens:
+        return _BULK_AGENT_PRESENT_MSG % len(tokens)
     return None
 
 
@@ -320,6 +331,38 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
     return list(grouped.values())
 
 
+def _row_text(r: RedlineRow) -> Any | None:
+    if r.text is not None:
+        return r.text
+    if r.start is not None:
+        try:
+            return r.start.getText()
+        except Exception:
+            return None
+    return None
+
+
+def _group_rows_by_text(rows: list[RedlineRow]) -> list[tuple[Any, list[RedlineRow]]]:
+    """Group rows by text object identity using uno_same."""
+    groups: list[tuple[Any, list[RedlineRow]]] = []
+    for r in rows:
+        t = _row_text(r)
+        if t is None:
+            continue
+        found = False
+        for g_text, g_rows in groups:
+            try:
+                if uno_same(t, g_text):
+                    g_rows.append(r)
+                    found = True
+                    break
+            except Exception:
+                continue
+        if not found:
+            groups.append((t, [r]))
+    return groups
+
+
 def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> tuple[Any | None, Any | None]:
     """Bounding (start, end) text ranges spanning all redlines of token in view, or (None, None)."""
     if not view.reliable:
@@ -331,11 +374,17 @@ def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> t
     # Half a change (a replace's delete OR insert) must not be resolved: no bounds, caller refuses.
     if any(r.start is None or r.end is None for r in matching):
         return None, None
+
+    groups = _group_rows_by_text(matching)
+    if len(groups) != 1:
+        if len(groups) > 1:
+            log.warning("inline_review: change %s spans multiple text objects; reporting no bounds", token)
+        return None, None
+
+    text, group_rows = groups[0]
     try:
-        first_start = matching[0].start
-        text = first_start.getText()
-        cursor = text.createTextCursorByRange(first_start)
-        for r in matching:
+        cursor = text.createTextCursorByRange(group_rows[0].start)
+        for r in group_rows:
             cursor.gotoRange(r.start, True)
             cursor.gotoRange(r.end, True)
         return cursor.getStart(), cursor.getEnd()
@@ -384,80 +433,86 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
     if not tokens:
         return None
 
-    items: list[tuple[str, Any, Any]] = []
+    # Tip: Build bounds inside each text group. Multi-text tokens get one stop per text object
+    # in enumeration order instead of being dropped entirely.
+    items: list[tuple[str, Any, Any, Any]] = []
     for tok in tokens:
-        # Known gap: changes without readable bounds still count in the toolbar but are skipped here.
-        left, right = _build_bounds_from_view(view, tok)
-        if left is None or right is None:
-            continue
-        try:
-            t = left.getText()
-            items.append((tok, t.createTextCursorByRange(left), t.createTextCursorByRange(right)))
-        except Exception:
-            continue
+        matching = [r for r in view.rows if r.token == tok]
+        groups = _group_rows_by_text(matching)
+        for g_text, g_rows in groups:
+            if any(r.start is None or r.end is None for r in g_rows):
+                continue
+            try:
+                cursor = g_text.createTextCursorByRange(g_rows[0].start)
+                for r in g_rows:
+                    cursor.gotoRange(r.start, True)
+                    cursor.gotoRange(r.end, True)
+                items.append((tok, g_text, cursor.getStart(), cursor.getEnd()))
+            except Exception:
+                continue
+
     if not items:
         return None
     n = len(items)
 
     try:
         vc = model.getCurrentController().getViewCursor()
-        text = vc.getText()
-        cur_start = text.createTextCursorByRange(vc.getStart())
-        cur_end = text.createTextCursorByRange(vc.getEnd())
+        cur_text = vc.getText()
+        cur_start = cur_text.createTextCursorByRange(vc.getStart())
+        cur_end = cur_text.createTextCursorByRange(vc.getEnd())
         cur_collapsed = bool(vc.isCollapsed())
     except Exception:
-        text = None
+        cur_text = None
         cur_start = None
         cur_end = None
         cur_collapsed = True
 
     chosen_idx = None
-    if text is None or cur_start is None:
+    if cur_text is None or cur_start is None:
         chosen_idx = 0 if forward else n - 1
     else:
-        # Reviewing a change? Only when the selection matches the change's WHOLE span -- both its
-        # start AND end. A collapsed caret never counts (so the first change stays reachable), and a
-        # manual partial selection that merely starts at a change's start must not count either, or
-        # Next/Previous would step away from a change the user didn't actually select.
+        # Tip: a selection counts as "reviewing" a change only when it matches the change's whole span
+        # (start and end). A collapsed caret never counts, so the first change stays reachable.
         sel_idx = None
         if not cur_collapsed:
-            for i, (_tok, left, right) in enumerate(items):
+            for i, (_tok, stop_text, left, right) in enumerate(items):
                 try:
-                    if (text.compareRegionStarts(cur_start, left) == 0
+                    if not uno_same(stop_text, cur_text):
+                        continue
+                    if (cur_text.compareRegionStarts(cur_start, left) == 0
                             and cur_end is not None
-                            and text.compareRegionEnds(cur_end, right) == 0):
+                            and cur_text.compareRegionEnds(cur_end, right) == 0):
                         sel_idx = i
                         break
                 except Exception:
                     continue
         if sel_idx is not None:
             chosen_idx = (sel_idx + 1) % n if forward else (sel_idx - 1) % n
-        elif forward:
-            for i, (_tok, left, right) in enumerate(items):
-                try:
-                    if text.compareRegionStarts(cur_start, right) == 1:
-                        chosen_idx = i
-                        break
-                except Exception:
-                    continue
-            if chosen_idx is None:
-                chosen_idx = 0
         else:
-            for i in range(n - 1, -1, -1):
+            anchor = -1
+            for i, (_tok, stop_text, _left, right) in enumerate(items):
                 try:
-                    if text.compareRegionStarts(items[i][1], cur_start) == 1:
-                        chosen_idx = i
-                        break
+                    if not uno_same(stop_text, cur_text):
+                        continue
                 except Exception:
                     continue
-            if chosen_idx is None:
-                chosen_idx = n - 1
+                try:
+                    if cur_text.compareRegionStarts(cur_start, right) != 1:
+                        anchor = i
+                except Exception:
+                    continue
+            if forward:
+                chosen_idx = (anchor + 1) % n
+            else:
+                chosen_idx = anchor % n
 
-    tok, left_range, right_range = items[chosen_idx]
+    tok, _text, left_range, right_range = items[chosen_idx]
     try:
         view_cursor = model.getCurrentController().getViewCursor()
-        view_cursor.gotoRange(left_range.getStart(), False)
-        view_cursor.gotoRange(right_range.getEnd(), True)
+        left_bound = left_range.getStart() if hasattr(left_range, "getStart") else left_range
+        right_bound = right_range.getEnd() if hasattr(right_range, "getEnd") else right_range
+        view_cursor.gotoRange(left_bound, False)
+        view_cursor.gotoRange(right_bound, True)
     except Exception:
         log.debug("inline_review: goto_adjacent_agent_change failed to move cursor", exc_info=True)
         return None
@@ -501,15 +556,21 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
 
 
 def _classify_span_conflicts(
-    rows: tuple[RedlineRow, ...],
+    rows: tuple[RedlineRow, ...] | RedlineView,
     text: Any,
     span: Any,
     target_token: str | None,
     strict_sibling_edges: bool = False,
 ) -> tuple[bool, bool]:
     """Classify redline rows against span. Returns (has_foreign_conflict, has_sibling_conflict)."""
+    if isinstance(rows, RedlineView):
+        if not rows.reliable:
+            return True, False
+        rows_tuple = rows.rows
+    else:
+        rows_tuple = rows
     has_sibling = False
-    for r in rows:
+    for r in rows_tuple:
         if r.token is not None and target_token is not None and r.token == target_token:
             continue
         is_sibling = bool(r.token is not None)
@@ -559,57 +620,6 @@ def _classify_span_conflicts(
     return False, has_sibling
 
 
-def _span_has_redline(model: Any, text: Any, span: Any, consider: Callable[[str | None], bool], strict_edges: bool = False) -> bool:
-    """Compatibility helper for unit tests checking individual spans."""
-    view = scan_redline_view(model)
-    if not view.reliable:
-        return True
-    for r in view.rows:
-        if not consider(r.token):
-            continue
-        # A protected redline with no start/end cannot be proven outside the span.
-        if r.start is None or r.end is None:
-            return True
-        try:
-            rl_span = text.createTextCursorByRange(r.start)
-            rl_span.gotoRange(r.end, True)
-        except Exception:
-            try:
-                r_text = r.text if r.text is not None else r.start.getText()
-                in_other = not uno_same(r_text, text)
-            except Exception:
-                in_other = False
-            if in_other:
-                continue
-            return True
-        try:
-            if strict_edges:
-                overlaps = (text.compareRegionStarts(rl_span.getStart(), span.getEnd()) == 1
-                            and text.compareRegionStarts(span.getStart(), rl_span.getEnd()) == 1)
-            else:
-                overlaps = (_span_contains_point(text, span, rl_span.getStart())
-                            or _span_contains_point(text, span, rl_span.getEnd())
-                            or _span_contains_point(text, rl_span, span.getStart()))
-        except Exception:
-            return True
-        if overlaps:
-            return True
-    return False
-
-
-def _foreign_redline_in_span(model: Any, text: Any, span: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # unit-tested guard
-    return _span_has_redline(model, text, span,
-                             lambda c: c is None or not _review_scan.is_agent_token(c))
-
-
-def _other_agent_redline_in_span(  # pyright: ignore[reportUnusedFunction]  # unit-tested guard
-    model: Any, text: Any, span: Any, token: str, strict_edges: bool = False
-) -> bool:
-    return _span_has_redline(model, text, span,
-                             lambda c: c is None or (_review_scan.is_agent_token(c) and c != token),
-                             strict_edges=strict_edges)
-
-
 def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
     smgr = ctx.getServiceManager()
     dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
@@ -624,12 +634,21 @@ def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
 
 def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], bool]:
     """Calculate (removed_agent_tokens, foreign_safe) between two snapshots."""
-    before_tokens = {r.token for r in before.rows if r.token is not None}
-    after_tokens = {r.token for r in after.rows if r.token is not None}
+    # Tip: RedlineIdentifier reuses the SwRangeRedline object address across PopData
+    # (sw/source/core/unocore/unoredline.cxx), so an identifier set can stay identical
+    # across stacked pops. Compare counts of the full identity key (matching tracking._resolve_outcome).
+    before_tokens = agent_tokens(before)
+    after_tokens = agent_tokens(after)
     removed = before_tokens - after_tokens
-    before_foreign = {r.identifier for r in before.rows if r.token is None}
-    after_foreign = {r.identifier for r in after.rows if r.token is None}
-    foreign_safe = after.reliable and not (before_foreign - after_foreign)
+
+    def _foreign_key(r: RedlineRow) -> tuple[Any, ...]:
+        if r.identity is not None:
+            return r.identity
+        return (r.identifier, r.kind, None, None, r.token)
+
+    before_counts = Counter(_foreign_key(r) for r in before.rows if r.token is None)
+    after_counts = Counter(_foreign_key(r) for r in after.rows if r.token is None)
+    foreign_safe = after.reliable and all(after_counts[k] >= before_counts[k] for k in before_counts)
     return removed, foreign_safe
 
 
@@ -652,8 +671,7 @@ def resolve_agent_change(
         log.warning("inline_review: refusing resolve of %s -- pre-dispatch snapshot unreliable", token)
         return ResolveResult(ResolveStatus.UNRELIABLE), before
 
-    agent_tokens = {r.token for r in before.rows if r.token is not None}
-    if token not in agent_tokens:
+    if token not in agent_tokens(before):
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE), before
 
     left, right = _build_bounds_from_view(before, token)
@@ -734,7 +752,7 @@ def resolve_agent_change(
             return ResolveResult(ResolveStatus.PARTIAL), after
 
         after = scan_redline_view(model)
-        after_tokens = {r.token for r in after.rows if r.token is not None}
+        after_tokens = agent_tokens(after)
         removed, foreign_safe = _token_delta(before, after)
 
         if token not in after_tokens and after.reliable and foreign_safe:
@@ -794,7 +812,7 @@ def _resolve_overlapping_agent_changes(
         before = scan_redline_view(model)
     if not before.reliable:
         return ResolveResult(ResolveStatus.UNRELIABLE, 0)
-    before_tokens = {r.token for r in before.rows if r.token is not None}
+    before_tokens = agent_tokens(before)
     if token not in before_tokens:
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
 
@@ -876,7 +894,7 @@ def _resolve_overlapping_agent_changes(
                 cur_view = now
                 if not now.reliable:
                     break
-                now_tokens = {r.token for r in now.rows if r.token is not None}
+                now_tokens = agent_tokens(now)
                 left_over = pending & now_tokens
                 if not left_over or left_over == pending:
                     break
@@ -907,7 +925,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     if not entry_view.reliable:
         log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable")
         return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
-    entry_tokens = {r.token for r in entry_view.rows if r.token is not None}
+    entry_tokens = agent_tokens(entry_view)
     total = len(entry_tokens)
     if total == 0:
         return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=0, total=0)
@@ -924,7 +942,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
         after = scan_redline_view(model)
         if not after.reliable:
             return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
-        after_tokens = {r.token for r in after.rows if r.token is not None}
+        after_tokens = agent_tokens(after)
         resolved = max(0, total - len(after_tokens))
         if not after_tokens:
             return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
@@ -949,7 +967,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
                     resolved=0,
                     total=total,
                 )
-            cur_tokens = {r.token for r in cur_view.rows if r.token is not None}
+            cur_tokens = agent_tokens(cur_view)
             pending = sorted(t for t in cur_tokens if t not in skip)
             if not pending:
                 break
@@ -969,14 +987,14 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
                     resolved=0,
                     total=total,
                 )
-            after_tokens = {r.token for r in cur_view.rows if r.token is not None}
+            after_tokens = agent_tokens(cur_view)
             if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
                 # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
                 log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
                 skip.add(token)
                 skip_reasons[token] = res.status
 
-    final_tokens = {r.token for r in cur_view.rows if r.token is not None}
+    final_tokens = agent_tokens(cur_view)
     # Tip: count tokens that disappeared; one dispatch can clear several siblings.
     resolved = max(0, total - len(final_tokens))
 

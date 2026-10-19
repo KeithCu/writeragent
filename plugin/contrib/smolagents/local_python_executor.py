@@ -30,6 +30,8 @@ import re
 import string as _stdlib_string
 import _string
 import threading
+import functools
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -76,10 +78,17 @@ _CLASS_CELL_KEY = object()
 
 
 class _Ops:
-    __slots__ = ("count",)
+    __slots__ = ("count", "deadline", "timeout_seconds")
 
-    def __init__(self, count: int = 0):
+    def __init__(
+        self,
+        count: int = 0,
+        deadline: float | None = None,
+        timeout_seconds: int | None = None,
+    ):
         self.count = count
+        self.deadline = deadline
+        self.timeout_seconds = timeout_seconds
 
 
 def print_outputs_from_state(state: dict[Any, Any] | None) -> str:
@@ -192,10 +201,8 @@ def _guarded_setattr(obj: Any, name: str, value: Any) -> None:
     setattr(obj, name, value)
 
 
-def _safe_attrgetter(*attrs: Any) -> Any:
-    # The walker never saw the string, the C helper performed the getattr /
-    # call, and the factory checks the name before building the callable
-    # that higher-order tools (map, starmap, partial) will invoke.
+def _safe_attrgetter(*attrs: Any, authorized_imports: list[str] | None = None) -> Any:
+    # C operator.attrgetter walks past factory checks in one step; walk segments in Python and check each hop.
     if not attrs:
         return operator.attrgetter()
     for attr in attrs:
@@ -204,7 +211,17 @@ def _safe_attrgetter(*attrs: Any) -> Any:
         for segment in attr.split("."):
             if is_forbidden_dunder_attribute(segment):
                 raise InterpreterError(f"Forbidden access to dunder attribute: {segment}")
-    return operator.attrgetter(*attrs)
+
+    def _resolve(obj: Any, attr: str) -> Any:
+        cur = obj
+        for segment in attr.split("."):
+            cur = getattr(cur, segment)
+            _check_dangerous_value(cur, authorized_imports)
+        return cur
+
+    if len(attrs) == 1:
+        return lambda obj: _resolve(obj, attrs[0])
+    return lambda obj: tuple(_resolve(obj, attr) for attr in attrs)
 
 
 def _safe_methodcaller(name: Any, *args: Any, **kwargs: Any) -> Any:
@@ -318,6 +335,23 @@ DANGEROUS_FUNCTIONS = [
     "posix.system",
 ]
 
+_DANGEROUS_CALLABLE_MODULES = frozenset(m for m in DANGEROUS_MODULES if m != "builtins") | {"posix", "nt"}
+_DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
+
+
+def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None) -> None:
+    if isinstance(val, ModuleType):
+        if not check_import_authorized(val.__name__, authorized_imports or []):
+            raise InterpreterError(f"Forbidden access to module: {val.__name__}")
+    elif isinstance(val, (FunctionType, BuiltinFunctionType)):
+        mod = getattr(val, "__module__", None)
+        if mod:
+            root = mod.split(".")[0]
+            if root in _DANGEROUS_CALLABLE_MODULES:
+                raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
+            if root == "builtins" and getattr(val, "__name__", "") in _DANGEROUS_BUILTIN_FUNCTIONS:
+                raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
+
 
 def check_safer_result(result: Any, static_tools: dict[str, Callable] = None, authorized_imports: list[str] = None):
     """
@@ -333,22 +367,11 @@ def check_safer_result(result: Any, static_tools: dict[str, Callable] = None, au
     """
     if result is operator.attrgetter or result is operator.methodcaller:
         raise InterpreterError(f"Forbidden access to operator dispatch type: {getattr(result, '__name__', '')}")
-    if isinstance(result, ModuleType):
-        if not check_import_authorized(result.__name__, authorized_imports):
-            raise InterpreterError(f"Forbidden access to module: {result.__name__}")
-    elif isinstance(result, (importlib.machinery.ModuleSpec, importlib.abc.Loader)):
+    if isinstance(result, (importlib.machinery.ModuleSpec, importlib.abc.Loader)):
         raise InterpreterError(f"Forbidden access to module loader/spec: {type(result).__name__}")
     elif isinstance(result, dict) and isinstance(result.get("__spec__"), importlib.machinery.ModuleSpec):
         raise InterpreterError(f"Forbidden access to module namespace: {result.get('__name__', '')}")
-    elif isinstance(result, (FunctionType, BuiltinFunctionType)):
-        for qualified_function_name in DANGEROUS_FUNCTIONS:
-            module_name, function_name = qualified_function_name.rsplit(".", 1)
-            if (
-                (static_tools is None or function_name not in static_tools)
-                and result.__name__ == function_name
-                and result.__module__ == module_name
-            ):
-                raise InterpreterError(f"Forbidden access to function: {function_name}")
+    _check_dangerous_value(result, authorized_imports)
 
 
 def safer_eval(func: Callable):
@@ -436,7 +459,7 @@ class ExecutionTimeoutError(BaseException):
 
 
 
-def timeout(timeout_seconds: int):
+def timeout(timeout_seconds: Any):
     """
     Decorator to limit the execution time of a function using threading.
 
@@ -484,11 +507,8 @@ def timeout(timeout_seconds: int):
             except (ValueError, AttributeError):
                 # Fallback to ThreadPoolExecutor when SIGALRM cannot be installed
                 # (e.g. not the main thread, or on Windows).
-                # Bugfix: with ThreadPoolExecutor(...) waited on shutdown(wait=True),
-                # blocking the caller until the timed-out thread finished.
-                # Now shutdown(wait=False, cancel_futures=True) returns immediately.
-                # Note: cancel_futures does not stop an already running thread; the caller
-                # returns, and the orphan thread can still touch the shared executor.
+                # The _Ops deadline stops pure-Python loops, but a blocked C call still
+                # runs until it returns; host IPC kill remains the stop for a hung worker.
                 executor = ThreadPoolExecutor(max_workers=1)
                 future = executor.submit(func, *args, **kwargs)
                 try:
@@ -503,14 +523,15 @@ def timeout(timeout_seconds: int):
             try:
                 return func(*args, **kwargs)
             finally:
-                elapsed_whole = int(time.monotonic() - start_time)
+                elapsed = time.monotonic() - start_time
                 signal.signal(signal.SIGALRM, old_handler)
-                # Bugfix: previously signal.alarm(0) cancelled any outer alarm.
-                # Now restore the remaining whole seconds of the outer alarm under
-                # the previous handler, never canceling with 0 when an outer alarm existed.
                 if previous_alarm > 0:
-                    remaining = max(1, previous_alarm - elapsed_whole)
-                    signal.alarm(remaining)
+                    # Tip: restore the outer alarm with its remaining time under the previous handler; never cancel it.
+                    remaining = previous_alarm - elapsed
+                    if remaining > 0:
+                        signal.setitimer(signal.ITIMER_REAL, remaining)
+                    else:
+                        signal.setitimer(signal.ITIMER_REAL, 1e-6)
                 else:
                     signal.alarm(0)
 
@@ -1120,9 +1141,10 @@ def evaluate_call(
         func_name = call.func.attr
         if is_forbidden_dunder_attribute(func_name):
             raise InterpreterError(f"Forbidden access to dunder attribute: {func_name}")
-        if not hasattr(obj, func_name):
+        try:
+            func = getattr(obj, func_name)
+        except AttributeError:
             raise InterpreterError(f"Object {obj} has no attribute {func_name}")
-        func = getattr(obj, func_name)
     elif isinstance(call.func, ast.Name):
         func_name = call.func.id
         if func_name in state:
@@ -1198,6 +1220,7 @@ def evaluate_call(
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
         _reject_numpy_code_exec(func, args, kwargs)
         _reject_pandas_pickle(func, args, kwargs)
+        _check_dangerous_value(func, authorized_imports)
         return func(*args, **kwargs)
 
 
@@ -1531,6 +1554,19 @@ def evaluate_assert(
             raise AssertionError(f"Assertion failed: {test_code}")
 
 
+def _unwind_context_managers(contexts: list[Any], exc: Exception) -> None:
+    # Tip: innermost first; a manager that suppresses resets exc_info so outer managers see no exception.
+    exc_info = (type(exc), exc, exc.__traceback__)
+    for context in reversed(contexts):
+        try:
+            if context.__exit__(*exc_info):
+                exc_info = (None, None, None)
+        except Exception as exit_exc:
+            exc_info = (type(exit_exc), exit_exc, exit_exc.__traceback__)
+    if exc_info[1] is not None:
+        raise exc_info[1].with_traceback(exc_info[2])
+
+
 def evaluate_with(
     with_node: ast.With,
     state: dict[str, Any],
@@ -1549,13 +1585,23 @@ def evaluate_with(
             contexts.append(context_expr)
             if item.optional_vars:
                 set_value(item.optional_vars, enter_result, state, static_tools, custom_tools, authorized_imports)
-    except BaseException:
+    except (
+        InterpreterSignal,
+        FinalAnswerException,
+        ExecutionTimeoutError,
+        KeyboardInterrupt,
+        SystemExit,
+        GeneratorExit,
+    ):
         for context in reversed(contexts):
             try:
                 context.__exit__(None, None, None)
             except Exception:
                 continue
         raise
+    except Exception as e:
+        _unwind_context_managers(contexts, e)
+        return
 
     try:
         for stmt in with_node.body:
@@ -1576,17 +1622,7 @@ def evaluate_with(
                 continue
         raise
     except Exception as e:
-        # exc_info tracks the active exception as we unwind (from innermost context manager)
-        # Resetting it to (None, None, None) signals suppression to the remaining outer managers
-        exc_info = (type(e), e, e.__traceback__)
-        for context in reversed(contexts):
-            try:
-                if context.__exit__(*exc_info):
-                    exc_info = (None, None, None)  # suppressed; outer CMs see no exception
-            except Exception as exit_exc:
-                exc_info = (type(exit_exc), exit_exc, exit_exc.__traceback__)  # new exc replaces active
-        if exc_info[1] is not None:
-            raise exc_info[1].with_traceback(exc_info[2])
+        _unwind_context_managers(contexts, e)
     else:
         for context in reversed(contexts):
             context.__exit__(None, None, None)
@@ -1680,7 +1716,7 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
         # The walker never saw the string, the C helper performed the getattr /
         # call, and the factory checks the name before building the callable
         # that higher-order tools (map, starmap, partial) will invoke.
-        safe_module.attrgetter = _safe_attrgetter
+        safe_module.attrgetter = functools.partial(_safe_attrgetter, authorized_imports=authorized_imports)
         safe_module.methodcaller = _safe_methodcaller
     elif name == "string":
         safe_module.Formatter = _SafeFormatter
@@ -1847,6 +1883,14 @@ def evaluate_ast(
         raise InterpreterError(
             f"Reached the max number of operations of {MAX_OPERATIONS}. Maybe there is an infinite loop somewhere in the code, or you're just asking too many calculations."
         )
+    if (ops.count & 255) == 0 and ops.deadline is not None and time.monotonic() >= ops.deadline:
+        sec = ops.timeout_seconds
+        msg = (
+            f"Code execution exceeded the maximum execution time of {sec} seconds"
+            if sec is not None
+            else "Code execution exceeded the maximum execution time"
+        )
+        raise ExecutionTimeoutError(msg)
     ops.count += 1
     common_params = (state, static_tools, custom_tools, authorized_imports)
     if isinstance(expression, ast.Assign):
@@ -2078,6 +2122,10 @@ def evaluate_python_code(
 
     # Define the actual execution logic
     def _execute_code():
+        ops = state.get(_OPS_KEY)
+        if ops is not None:
+            ops.timeout_seconds = timeout_seconds
+            ops.deadline = (time.monotonic() + timeout_seconds) if timeout_seconds is not None else None
         result = None
         stack = _get_print_stack()
         stack.append(print_container)

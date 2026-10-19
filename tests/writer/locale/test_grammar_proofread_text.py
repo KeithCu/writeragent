@@ -727,3 +727,76 @@ def test_slice_preview_debug_leading_whitespace_run() -> None:
     assert preview == "hello world"
 
 
+def test_utf16_offset_map_bmp_identity() -> None:
+    for text in ("Hello world.", "Café crème.", "日本語のテスト。"):
+        m = gt.Utf16OffsetMap(text)
+        for i in range(len(text) + 1):
+            assert m.py_to_utf16(i) == i
+            assert m.utf16_to_py(i) == i
+        assert m.utf16_span(0, len(text)) == (0, len(text))
+
+
+def test_utf16_offset_map_emoji_before_inside_after() -> None:
+    # 'h'(0), 'i'(1), ' '(2), '👋'(3), ' '(4), 'b'(5), 'a'(6), 'd'(7), ' '(8), ...
+    text = "hi 👋 bad grammar."
+    m = gt.Utf16OffsetMap(text)
+
+    # 1. Emoji before the error ("bad" at Python 5..8)
+    u_start, u_len = m.utf16_span(5, 3)
+    assert u_start == 6  # shifted by 1 UTF-16 unit for 👋
+    assert u_len == 3
+
+    # 2. Emoji inside the error ("👋 bad" at Python 3..8)
+    u_start, u_len = m.utf16_span(3, 5)
+    assert u_start == 3
+    assert u_len == 6  # 5 Python code points + 1 extra unit for emoji
+
+    # 3. Emoji after the error ("hi" at Python 0..2)
+    u_start, u_len = m.utf16_span(0, 2)
+    assert u_start == 0
+    assert u_len == 2
+
+
+def test_utf16_to_py_mid_surrogate() -> None:
+    text = "👋"
+    m = gt.Utf16OffsetMap(text)
+    # UTF-16 unit 0 is high surrogate, 1 is low surrogate; both map to code point 0
+    assert m.utf16_to_py(0) == 0
+    assert m.utf16_to_py(1) == 0
+    assert m.utf16_to_py(2) == 1  # end
+
+
+def test_normalize_errors_harper_skips_break_iterator_creation() -> None:
+    text = "Hello world."
+    items = [
+        {
+            "wrong": "Hello",
+            "correct": "hello",
+            "n_error_start": 0,
+            "n_error_length": 5,
+            "type": "Capitalization",
+            "rule_identifier": "harper||Capitalization",
+        }
+    ]
+    with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale") as mock_get_bi:
+        norms = gt.normalize_errors_for_text(text, 0, len(text), items, ctx=MagicMock(), loc_key="en-US")
+        assert len(norms) == 1
+        mock_get_bi.assert_not_called()
+
+
+def test_normalize_errors_anchor_only_calls_break_iterator_once() -> None:
+    text = "Hello they is here."
+    items = [
+        {"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"},
+        {"wrong": "here", "correct": "there", "type": "grammar", "reason": "word"},
+    ]
+    with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", wraps=gt.get_break_iterator_and_locale) as mock_get_bi:
+        ctx = MagicMock()
+        mock_bi_inst = FakeBI()
+        with patch.object(ctx.ServiceManager, "createInstanceWithContext", return_value=mock_bi_inst):
+            norms = gt.normalize_errors_for_text(text, 0, len(text), items, ctx=ctx, loc_key="en-US")
+            assert len(norms) == 2
+            # Called only on the first item that expands, reused for the second
+            assert mock_get_bi.call_count == 1
+
+

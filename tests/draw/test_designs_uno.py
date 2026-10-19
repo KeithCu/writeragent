@@ -85,6 +85,8 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     assert applied.lower() != "default", out
     assert int(out.get("applied_master_shape_count") or 0) >= 6, out
     assert int(out.get("slides_updated") or 0) == before_count, out
+    assert isinstance(out.get("clone_warnings"), list), out
+    assert isinstance(out.get("clone_warning_count"), int), out
     pages = doc.getDrawPages()
     assert pages.getCount() == before_count, "slide count changed: %s out=%s" % (
         pages.getCount(),

@@ -326,26 +326,10 @@ def _settings_keeps_caption_label(schema: dict) -> bool:
     return True
 
 
-def _iter_settings_field_modules(modules: list[dict]) -> list[dict]:
-    """Tab modules plus config_inline children that land on those pages."""
-    from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
-
-    tabs = list(iter_settings_tab_modules(modules))
-    tab_names = {m["name"] for m in tabs}
-    owners = list(tabs)
-    seen = set(tab_names)
-    for module in modules:
-        target = module.get("config_inline")
-        name = module.get("name")
-        if isinstance(target, str) and target in tab_names and name not in seen:
-            owners.append(module)
-            seen.add(name)
-    return owners
-
-
 def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     """YAML helper (and tooltip: true) is dlg:help-text, not an hlp_* FixedText row."""
     from plugin._manifest import MODULES
+    from plugin.chatbot.settings_tab_order import iter_settings_field_modules
 
     xdl_path, xdl = _generate_settings_xdl(tmp_path)
     tips = _help_text_by_id(xdl_path)
@@ -371,7 +355,7 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     assert not tips.get("audio__test_voice")
 
     wired = 0
-    for module in _iter_settings_field_modules(MODULES):
+    for module in iter_settings_field_modules(MODULES):
         prefix = str(module["name"]).replace(".", "_")
         config = module.get("config") or {}
         for field_name, schema in config.items():
@@ -550,7 +534,7 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
     from unittest.mock import patch
     from plugin._manifest import MODULES
     from plugin.chatbot.settings_fields import build_module_field_specs
-    from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
+    from plugin.chatbot.settings_tab_order import iter_settings_field_modules
 
     xdl_path, _ = _generate_settings_xdl(tmp_path)
     root = ET.parse(xdl_path).getroot()
@@ -560,13 +544,7 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
         if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
     }
 
-    inline_map = _build_inline_maps(MODULES)[1]
-    tab_modules = []
-    for m in iter_settings_tab_modules(MODULES):
-        tab_modules.append(m)
-        if inline_map.get(m["name"]):
-            for child_m, _ in inline_map[m["name"]]:
-                tab_modules.append(child_m)
+    tab_modules = list(iter_settings_field_modules(MODULES))
 
     all_specs_names = set()
     with patch("plugin.chatbot.settings_fields.get_config", return_value=""):

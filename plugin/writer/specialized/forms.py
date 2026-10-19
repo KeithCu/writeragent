@@ -305,6 +305,19 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
     return t
 
 
+_CONTROL_PROPERTIES: dict[str, Any] = {
+    "control": {"type": "string", "enum": list(_CONTROL_TYPE_MAP.keys()), "description": "The type of form control to create."},
+    "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
+    "name": {"type": "string", "description": "Internal name/key for the control."},
+    "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
+    "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox."},
+    "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
+    "default_value": {"type": "string", "description": "Initial value for text or date fields."},
+    "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
+    "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
+}
+
+
 class FormCreateControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
@@ -319,15 +332,7 @@ class FormCreateControl(ToolWriterFormBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox", "button"], "description": "The type of form control to create."},
-            "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
-            "name": {"type": "string", "description": "Internal name/key for the control."},
-            "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
-            "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox."},
-            "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
-            "default_value": {"type": "string", "description": "Initial value for text or date fields."},
-            "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
-            "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
+            **_CONTROL_PROPERTIES,
             "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
         },
         "required": ["control", "name"],
@@ -342,9 +347,9 @@ class FormCreateControl(ToolWriterFormBase):
         name = kwargs.get("name", "Field")
         label = kwargs.get("label", "")
 
-        legal_controls = ("text", "checkbox", "radio", "date", "combobox", "button")
-        if control_type not in legal_controls:
-            return self._tool_error(f"Unknown control type '{control_type}'. Allowed types: {', '.join(legal_controls)}")
+        if control_type not in _CONTROL_TYPE_MAP:
+            legal = ", ".join(_CONTROL_TYPE_MAP.keys())
+            return self._tool_error(f"Unknown control type '{control_type}'. Allowed types: {legal}")
 
         if control_type == "date" and kwargs.get("default_value"):
             date_val = _parse_date_default_value(kwargs["default_value"])
@@ -360,18 +365,7 @@ class FormCreateControl(ToolWriterFormBase):
         else:
             coerced_items = None
 
-        # Map control strings to UNO components
-        component_map = {
-            "text": "TextField",
-            "checkbox": "CheckBox",
-            "radio": "RadioButton",
-            "date": "DateField",
-            "combobox": "ComboBox",
-            "button": "CommandButton",
-        }
-
-        comp_name = component_map[control_type]
-        full_comp_name = f"com.sun.star.form.component.{comp_name}"
+        full_comp_name = _CONTROL_TYPE_MAP[control_type]
 
         try:
             # Create control model
@@ -481,17 +475,7 @@ class FormCreate(ToolWriterFormBase):
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "properties": {
-                        "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox", "button"]},
-                        "label": {"type": "string"},
-                        "name": {"type": "string"},
-                        "group_name": {"type": "string"},
-                        "items": {"type": "array", "items": {"type": "string"}},
-                        "placeholder": {"type": "string"},
-                        "default_value": {"type": "string"},
-                        "width": {"type": "integer"},
-                        "height": {"type": "integer"},
-                    },
+                    "properties": dict(_CONTROL_PROPERTIES),
                     "required": ["control", "name"],
                 },
             }
@@ -500,19 +484,36 @@ class FormCreate(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        fields = kwargs.get("fields", [])
-        results = []
-        creator = FormCreateControl()
-        for field in fields:
-            res = creator._execute_main(ctx, **field)
-            results.append(res)
-            # Call _insert_space only when that field's result is not status="error"
-            if isinstance(res, dict) and res.get("status") != "error":
-                _run_on_main(self._insert_space, ctx)
+        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
-        failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
-        if failure is not None:
-            return failure
+        fields = kwargs.get("fields", [])
+        doc = ctx.doc
+        results: list[Any] = []
+        creator = FormCreateControl()
+
+        def mutate() -> dict[str, Any] | None:
+            for field in fields:
+                res = creator._execute_main(ctx, **field)
+                results.append(res)
+                # Call _insert_space only when that field's result is not status="error"
+                if isinstance(res, dict) and res.get("status") != "error":
+                    self._insert_space(ctx)
+
+            failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
+            if failure is not None:
+                return failure
+            return None
+
+        try:
+            error = commit_or_rollback(doc, "Form Create", mutate)
+            if error is not None:
+                error["rolled_back"] = True
+                return error
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot create form controls atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE",
+            )
 
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
@@ -575,44 +576,67 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
 
             # Get the full document from LLM
-            content = client.chat_completion_sync(messages, max_tokens=2048)
+            content = client.chat_completion_sync(
+                messages,
+                max_tokens=2048,
+                stop_checker=ctx.stop_checker,
+                status_callback=ctx.status_callback,
+            )
 
             # Process the content
-            return self._process_form_content(ctx, content)
+            return _run_on_main(self._process_form_content, ctx, content)
 
         except Exception as e:
             if is_real_disposal(e):
                 raise
+            if getattr(e, "code", None) == "USER_STOPPED":
+                return format_error_payload(e)
             log.exception("Error in form_generate")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
     def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
+        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
+        doc = ctx.doc
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
         creator = FormCreateControl()
         field_results: list[Any] = []
         field_names: list[Any] = []
 
-        for part in parts:
-            if part.startswith("{FIELD:"):
-                params = self._parse_field_tag(part)
-                if params:
-                    res = _run_on_main(creator._execute_main, ctx, **params)
-                    if not isinstance(res, dict):
-                        res = format_error_payload(ToolExecutionError("Form field returned no result."))
-                    field_results.append(res)
-                    field_names.append(params)
+        def mutate() -> dict[str, Any] | None:
+            for part in parts:
+                if part.startswith("{FIELD:"):
+                    params = self._parse_field_tag(part)
+                    if params:
+                        res = creator._execute_main(ctx, **params)
+                        if not isinstance(res, dict):
+                            res = format_error_payload(ToolExecutionError("Form field returned no result."))
+                        field_results.append(res)
+                        field_names.append(params)
+                    else:
+                        snippet = part if len(part) <= 80 else part[:77] + "..."
+                        field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
+                        field_names.append({})
                 else:
-                    snippet = part if len(part) <= 80 else part[:77] + "..."
-                    field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
-                    field_names.append({})
-            else:
-                if part:
-                    _run_on_main(self._insert_text, ctx, part)
+                    if part:
+                        self._insert_text(ctx, part)
 
-        failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
-        if failure is not None:
-            return failure
+            failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
+            if failure is not None:
+                return failure
+            return None
+
+        try:
+            error = commit_or_rollback(doc, "Form Generate", mutate)
+            if error is not None:
+                error["rolled_back"] = True
+                return error
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot generate form controls atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE",
+            )
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 

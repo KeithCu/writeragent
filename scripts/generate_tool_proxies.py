@@ -8,16 +8,24 @@
 # (at your option) any later version.
 """Generate writeragent_api.py — Python proxy module for venv subprocess tool calls.
 
-Usage: python scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py
+Usage:
+    python scripts/generate_tool_proxies.py --output plugin/scripting/writeragent_api.py
+    python scripts/generate_tool_proxies.py --check plugin/scripting/writeragent_api.py
 """
 
+import argparse
+import contextlib
 import keyword
 import os
+import pprint
 import re
 import sys
-import pprint
+import tempfile
+import types
 from collections import defaultdict
 from importlib.abc import Loader, MetaPathFinder
+from typing import TYPE_CHECKING, Any, NamedTuple
+from unittest.mock import MagicMock
 
 # Ensure the project root is in sys.path
 scripts_dir = os.path.dirname(os.path.abspath(__file__))
@@ -25,16 +33,12 @@ root_dir = os.path.dirname(scripts_dir)
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-# Mock UNO before importing plugin modules
-import types
-from unittest.mock import MagicMock
+# Cache mock classes to avoid duplicates and metaclass/MRO issues
+_MOCK_CLASSES: dict[str, type] = {}
 
-# Dictionary to cache mock classes to avoid duplicates but also metaclass/MRO issues
-_MOCK_CLASSES = {}
 
 def get_mock_class(name):
     if name not in _MOCK_CLASSES:
-        # Create a unique class for each name
         class MockBase:
             def __init__(self, *args, **kwargs): pass
             def __getattr__(self, name): return MagicMock()
@@ -45,7 +49,7 @@ def get_mock_class(name):
         _MOCK_CLASSES[name] = MockBase
     return _MOCK_CLASSES[name]
 
-# Universal fallback for sys.modules
+
 class MockModule(types.ModuleType):
     def __init__(self, name):
         super().__init__(name)
@@ -57,26 +61,48 @@ class MockModule(types.ModuleType):
             raise AttributeError(name)
         return get_mock_class(name)
 
-sys.modules["uno"] = MagicMock()
-sys.modules["unohelper"] = MockModule("unohelper")
 
-# Custom finder for com.sun.star hierarchy
 class MockFinder(MetaPathFinder, Loader):
     def find_spec(self, fullname, path, target=None):
         if fullname.startswith("com.") or fullname == "com":
             return self._gen_spec(fullname)
         return None
+
     def _gen_spec(self, fullname):
         from importlib.machinery import ModuleSpec
         return ModuleSpec(fullname, self)
+
     def create_module(self, spec):
         return MockModule(spec.name)
+
     def exec_module(self, module):
         pass
 
-sys.meta_path.insert(0, MockFinder())
 
-from typing import TYPE_CHECKING, Any
+@contextlib.contextmanager
+def _mock_uno():
+    """Install UNO mocks only during generator execution; restore on exit."""
+    prev_uno = sys.modules.get("uno")
+    prev_unohelper = sys.modules.get("unohelper")
+    prev_meta_path = list(sys.meta_path)
+    finder = MockFinder()
+
+    sys.modules["uno"] = MagicMock()
+    sys.modules["unohelper"] = MockModule("unohelper")
+    sys.meta_path.insert(0, finder)
+    try:
+        yield
+    finally:
+        sys.meta_path[:] = prev_meta_path
+        if prev_uno is not None:
+            sys.modules["uno"] = prev_uno
+        else:
+            sys.modules.pop("uno", None)
+        if prev_unohelper is not None:
+            sys.modules["unohelper"] = prev_unohelper
+        else:
+            sys.modules.pop("unohelper", None)
+
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
@@ -105,7 +131,25 @@ def _python_type(schema: dict) -> str:
     the type-checking dialect: ``dict[str, Any]``, ``list[str]`` when items
     are strings, otherwise ``list[Any]``.
     """
-    t = _get_schema_type(schema)
+    t = schema.get("type", "")
+    if isinstance(t, list):
+        types_list = [x for x in t if x != "null"]
+        has_null = "null" in t
+        sub_types: list[str] = []
+        for member in types_list:
+            if member == "array":
+                items = schema.get("items")
+                if isinstance(items, dict) and _get_schema_type(items) == "string":
+                    sub_types.append("list[str]")
+                else:
+                    sub_types.append("list[Any]")
+            else:
+                sub_types.append(JSON_TO_PYTHON.get(str(member), "Any"))
+        deduped = list(dict.fromkeys(sub_types))
+        if has_null:
+            deduped.append("None")
+        return " | ".join(deduped) if deduped else "Any"
+
     if t == "array":
         items = schema.get("items")
         if isinstance(items, dict) and _get_schema_type(items) == "string":
@@ -134,31 +178,102 @@ def _python_param_name(schema_key: str) -> str:
     return schema_key
 
 
-def _iter_params(tool: "ToolBase") -> list[tuple[str, str, dict]]:
-    """Yield (python_name, schema_key, property_schema) in schema order."""
+class ParamRecord(NamedTuple):
+    py_name: str
+    schema_key: str
+    annotation: str
+    required: bool
+    default: str | None
+    doc_line: str
+    is_keyword: bool
+
+
+def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
+    # Read tool.parameters directly, not get_parameters(doc_type). ManageCharts.get_parameters
+    # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
+    # The only other get_parameters overrides are ToolBaseDummy (unregistered) and
+    # run_venv_python_script (in API_EXCLUDED_TOOLS).
     props = (tool.parameters or {}).get("properties", {})
-    return [(_python_param_name(key), key, schema) for key, schema in props.items()]
+    required_set = set((tool.parameters or {}).get("required", []))
+    tool_name = getattr(tool, "name", "") or ""
+
+    records: list[ParamRecord] = []
+    seen_keys: set[str] = set()
+
+    for key, schema in props.items():
+        if not key.isidentifier() or key == "self":
+            raise ValueError(f"Invalid parameter name {key!r} in tool {tool_name!r}")
+        seen_keys.add(key)
+        py_name = _python_param_name(key)
+        is_kw = keyword.iskeyword(key)
+        py_type = _python_type(schema)
+        is_req = key in required_set
+
+        if is_req:
+            annotation = py_type
+            default = None
+        else:
+            if "default" in schema:
+                val = schema["default"]
+                if val is None:
+                    annotation = f"{py_type} | None" if "None" not in py_type.split(" | ") else py_type
+                    default = "None"
+                else:
+                    annotation = py_type
+                    default = _param_default(schema)
+            else:
+                annotation = f"{py_type} | None" if "None" not in py_type.split(" | ") else py_type
+                default = "None"
+
+        doc_line = _format_arg_doc(py_name, schema, required=is_req)
+        records.append(
+            ParamRecord(
+                py_name=py_name,
+                schema_key=key,
+                annotation=annotation,
+                required=is_req,
+                default=default,
+                doc_line=doc_line,
+                is_keyword=is_kw,
+            )
+        )
+
+    # Scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy
+    # even though they are omitted from the LLM/MCP schema (#374 P3).
+    # Tip: scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy even though
+    # they are omitted from the LLM/MCP schema (#374 P3).
+    for extra in sorted(getattr(tool, "scripting_only_parameters", None) or ()):
+        if extra not in seen_keys:
+            if not extra.isidentifier() or extra == "self":
+                raise ValueError(f"Invalid scripting-only parameter name {extra!r} in tool {tool_name!r}")
+            py_name = _python_param_name(extra)
+            is_kw = keyword.iskeyword(extra)
+            records.append(
+                ParamRecord(
+                    py_name=py_name,
+                    schema_key=extra,
+                    annotation="str | None",
+                    required=False,
+                    default="None",
+                    doc_line=f"    {extra} (optional): Scripting-only parameter.",
+                    is_keyword=is_kw,
+                )
+            )
+
+    return records
 
 
 def schema_to_signature(tool: "ToolBase") -> tuple[list[str], list[str]]:
     """Convert a tool's JSON Schema parameters to Python positional and keyword args."""
-    required = set((tool.parameters or {}).get("required", []))
-
-    positional, keyword = [], []
-    for py_name, schema_key, schema in _iter_params(tool):
-        py_type = _python_type(schema)
-        if schema_key in required:
-            positional.append(f"{py_name}: {py_type}")
+    params = _collect_params(tool)
+    positional: list[str] = []
+    keyword_args: list[str] = []
+    for p in params:
+        if p.required:
+            positional.append(f"{p.py_name}: {p.annotation}")
         else:
-            if "default" in schema:
-                default = _param_default(schema)
-                keyword.append(f"{py_name}: {py_type} = {default}")
-            else:
-                # Omit from the wire (see _rpc_call dropping None) so the tool's
-                # own default applies. A boolean default of True was making
-                # apply_document_content(..., dry_run=True) a silent no-op.
-                keyword.append(f"{py_name}: {py_type} | None = None")
-    return positional, keyword
+            keyword_args.append(f"{p.py_name}: {p.annotation} = {p.default}")
+    return positional, keyword_args
 
 
 # Sidebar-only / chat-mode domains: not part of the Python proxy surface. web_research stays.
@@ -230,27 +345,25 @@ def _format_arg_doc(py_name: str, schema: dict, *, required: bool) -> str:
     return f"    {py_name} ({kind}):"
 
 
-def _method_doc_lines(tool: "ToolBase") -> list[str]:
+def _method_doc_lines(tool: "ToolBase", params: list[ParamRecord] | None = None) -> list[str]:
     """Full tool description plus Args. Empty when the tool has neither."""
+    if params is None:
+        params = _collect_params(tool)
+
     lines: list[str] = []
     for index, paragraph in enumerate(_doc_paragraphs(getattr(tool, "description", "") or "")):
         if index:
             lines.append("")
         lines.append(paragraph)
 
-    required = set((tool.parameters or {}).get("required", []))
-    params = _iter_params(tool)
-    ordered = [item for item in params if item[1] in required]
-    ordered.extend(item for item in params if item[1] not in required)
     arg_lines: list[str] = []
-    seen: set[str] = set()
-    for py_name, schema_key, schema in ordered:
-        seen.add(schema_key)
-        arg_lines.append(_format_arg_doc(py_name, schema, required=schema_key in required))
-    # Same extras the signature appends (e.g. set_style number_format).
-    for extra in sorted(getattr(tool, "scripting_only_parameters", None) or ()):
-        if extra not in seen:
-            arg_lines.append(f"    {extra} (optional): Scripting-only parameter.")
+    for p in params:
+        if p.required:
+            arg_lines.append(p.doc_line)
+    for p in params:
+        if not p.required:
+            arg_lines.append(p.doc_line)
+
     if arg_lines:
         if lines:
             lines.append("")
@@ -274,7 +387,11 @@ def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
         return
     escaped = [_py_doc_escape(line) for line in doc_lines]
     if len(escaped) == 1:
-        lines.append(f'        """{escaped[0]}"""')
+        if escaped[0].endswith('"'):
+            lines.append(f'        """{escaped[0]}')
+            lines.append('        """')
+        else:
+            lines.append(f'        """{escaped[0]}"""')
         return
     lines.append(f'        """{escaped[0]}')
     for line in escaped[1:]:
@@ -284,6 +401,8 @@ def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
 
 def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"]]]:
     """Group tools by namespace prefix, stripping the prefix from method names."""
+    from plugin.scripting.host_rpc import singularize_domain
+
     groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
     for tool in tools:
         name = tool.name or ""
@@ -341,7 +460,6 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
             rest = name
 
         # Singularize namespace for nicer usage: footnote.insert instead of footnotes.insert
-        from plugin.scripting.host_rpc import singularize_domain
         namespace = singularize_domain(namespace)
 
         # Catch hyphen/underscore spellings that only show up as the namespace key.
@@ -480,6 +598,16 @@ def generate_module(tools: list["ToolBase"]) -> str:
     lines.append("")
     lines.append("")
 
+    seen_namespaces: dict[str, str] = {}
+    for ns in sorted(groups.keys()):
+        safe_ns = _proxy_namespace_attr(ns)
+        prev = seen_namespaces.get(safe_ns)
+        if prev is not None and prev != ns:
+            raise ValueError(
+                f"proxy namespace collision: {ns!r} and {prev!r} both map to attribute {safe_ns!r}"
+            )
+        seen_namespaces[safe_ns] = ns
+
     for namespace in sorted(groups.keys()):
         tool_list = groups[namespace]
         # Emit a class that acts as a namespace. Domain names may hold characters that are invalid
@@ -494,35 +622,28 @@ def generate_module(tools: list["ToolBase"]) -> str:
         for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
             # domain_verb strip can yield a Python keyword (style_import -> import).
             short_name = _proxy_method_name(short_name)
-            # Generate method
-            pos, kw = schema_to_signature(tool)
-            # Add self
+            params = _collect_params(tool)
+
+            pos = [f"{p.py_name}: {p.annotation}" for p in params if p.required]
+            kw = [f"{p.py_name}: {p.annotation} = {p.default}" for p in params if not p.required]
+
             all_params_list = ["self"] + pos
             if kw:
                 all_params_list.append("*")
                 all_params_list.extend(kw)
-            
             all_params = ", ".join(all_params_list)
 
-            rpc_pairs = [(schema_key, py_name) for py_name, schema_key, _schema in _iter_params(tool)]
-            # Scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy
-            # even though they are omitted from the LLM/MCP schema (#374 P3).
-            scripting_only = sorted(getattr(tool, "scripting_only_parameters", None) or ())
-            seen_schema = {schema_key for schema_key, _py in rpc_pairs}
-            for extra in scripting_only:
-                if extra not in seen_schema:
-                    rpc_pairs.append((extra, extra))
-                    if "*" not in all_params_list:
-                        all_params_list.append("*")
-                    all_params_list.append(f'{extra}: str | None = None')
-            all_params = ", ".join(all_params_list)
-            if rpc_pairs:
-                kwargs_body = ", " + ", ".join(f"{schema_key}={py_name}" for schema_key, py_name in rpc_pairs)
-            else:
-                kwargs_body = ""
+            rpc_args: list[str] = []
+            for p in params:
+                if p.is_keyword:
+                    rpc_args.append(f'**{{"{p.schema_key}": {p.py_name}}}')
+                else:
+                    rpc_args.append(f"{p.schema_key}={p.py_name}")
+
+            kwargs_body = (", " + ", ".join(rpc_args)) if rpc_args else ""
 
             lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
-            _append_docstring(lines, _method_doc_lines(tool))
+            _append_docstring(lines, _method_doc_lines(tool, params=params))
             lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
             lines.append("")
 
@@ -531,7 +652,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
         lines.append("")
         lines.append("")
 
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 def _config_in_scratch_dir(tmp_dir: str) -> None:
@@ -548,38 +669,75 @@ def _config_in_scratch_dir(tmp_dir: str) -> None:
     config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
 
 
-def main():
-    import tempfile
+def validate_generated(code: str) -> None:
+    """Ensure the generated module compiles and contains core tools."""
+    compiled = compile(code, "<generated>", "exec")
+    ns: dict[str, Any] = {}
+    exec(compiled, ns)
+    domain_tools = ns.get("DOMAIN_TOOLS")
+    if not isinstance(domain_tools, dict) or not domain_tools:
+        raise ValueError("Validation failed: DOMAIN_TOOLS is empty")
+    core_tools = domain_tools.get("core", [])
+    if "list_open_documents" not in core_tools:
+        raise ValueError("Validation failed: DOMAIN_TOOLS['core'] missing 'list_open_documents'")
 
-    # Bootstrap the registry
-    from plugin.main import get_tools
 
-    with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
-        _config_in_scratch_dir(tmp_dir)
-        registry = get_tools()
+def _atomic_write(target_path: str, content: str) -> None:
+    target_dir = os.path.dirname(os.path.abspath(target_path))
+    os.makedirs(target_dir, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=target_dir, delete=False, encoding="utf-8") as f:
+        temp_path = f.name
+        f.write(content)
+    try:
+        os.replace(temp_path, target_path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
 
-        # Get all tools, regardless of doc type or tier
-        # filter_doc_type=False ensures we see all tools even without a live document
-        # specialized_control is the inner chat loop (including specialized_workflow_finished).
-        # Venv scripts do not run that loop, so the whole tier stays off the proxy.
-        all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
-        all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control"]
 
-        seen_tools: dict[str, Any] = {}
-        for t in all_tools:
-            if t.name in seen_tools:
-                prev = seen_tools[t.name]
-                if getattr(prev, "parameters", None) != getattr(t, "parameters", None):
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "Tool %r registered with differing parameters across classes (%s vs %s)",
-                        t.name,
-                        type(prev).__name__,
-                        type(t).__name__,
-                    )
-            seen_tools[t.name] = t
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Generate writeragent_api.py tool proxies.")
+    parser.add_argument("--output", help="Write generated module to PATH atomically")
+    parser.add_argument("--check", help="Verify PATH matches generated output")
+    args = parser.parse_args(argv)
 
-        print(generate_module(all_tools))
+    with _mock_uno():
+        from plugin.main import get_tools
+
+        with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
+            _config_in_scratch_dir(tmp_dir)
+            registry = get_tools()
+            all_tools = registry.get_tools(
+                filter_doc_type=False,
+                exclude_tiers=frozenset({"specialized_control"}),
+            )
+            code = generate_module(all_tools)
+
+    try:
+        validate_generated(code)
+    except Exception as exc:
+        sys.stderr.write(f"generate_tool_proxies: {exc}\n")
+        sys.exit(1)
+
+    if args.check:
+        if not os.path.exists(args.check):
+            sys.stderr.write(f"generate_tool_proxies: --check target {args.check!r} does not exist\n")
+            sys.exit(1)
+        with open(args.check, encoding="utf-8") as f:
+            target_content = f.read()
+        if target_content != code:
+            sys.stderr.write(
+                f"generate_tool_proxies: --check failed for {args.check!r} (run make proxy-stubs to regenerate)\n"
+            )
+            sys.exit(1)
+        return
+
+    if args.output:
+        _atomic_write(args.output, code)
+        return
+
+    print(code, end="")
 
 
 if __name__ == "__main__":

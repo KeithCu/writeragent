@@ -189,6 +189,7 @@ def test_windows_profile_and_env(
     uno_env = run_calls[-1]["env"]
     assert uno_env["APPDATA"] == str(home)
     assert uno_env.get("USERPROFILE") != str(home)
+    assert uno_env["UserInstallation"] == expected_profile.as_uri()
 
 
 def test_execution_order_and_pytest_argv(

@@ -295,11 +295,17 @@ def test_fields_insert_search_locked_undo_does_not_delete(mock_ctx, monkeypatch)
 
 
 def _one_field_doc(doc, field):
-    fields, enum = MagicMock(), MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = field
-    fields.createEnumeration.return_value = enum
+    fields = MagicMock()
+
+    def make_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, False]
+        enum.nextElement.return_value = field
+        return enum
+
+    fields.createEnumeration.side_effect = make_enum
     doc.getTextFields.return_value = fields
+
 
 
 def test_fields_list_reports_where_each_field_is(mock_ctx, monkeypatch):
@@ -365,5 +371,74 @@ def test_fields_disposal_is_document_disposed(mock_ctx):
     res = FieldsList().execute_safe(mock_ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_fields_delete_with_matching_snapshot_succeeds(mock_ctx):
+    field = MagicMock()
+    field.supportsService.return_value = False
+    field.getPresentation.return_value = "Page 1"
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor = field.getAnchor.return_value
+    _one_field_doc(mock_ctx.doc, field)
+
+    list_res = FieldsList().execute(mock_ctx)
+    assert list_res["status"] == "ok"
+    snapshot = list_res["snapshot"]
+
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1], snapshot=snapshot)
+    assert del_res["status"] == "ok"
+    assert del_res["deleted_count"] == 1
+    anchor.setString.assert_called_with("")
+
+
+def test_fields_delete_with_stale_snapshot_fails(mock_ctx):
+    field1 = MagicMock()
+    field1.supportsService.return_value = False
+    field1.getPresentation.return_value = "Page 1"
+    field1.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor1 = field1.getAnchor.return_value
+
+    _one_field_doc(mock_ctx.doc, field1)
+    list_res = FieldsList().execute(mock_ctx)
+    assert list_res["status"] == "ok"
+    snapshot = list_res["snapshot"]
+
+    # Simulate document modification by having 2 fields now
+    field2 = MagicMock()
+    field2.supportsService.return_value = False
+    field2.getPresentation.return_value = "Title"
+    field2.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+
+    fields = MagicMock()
+
+    def make_two_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, False]
+        enum.nextElement.side_effect = [field1, field2]
+        return enum
+
+    fields.createEnumeration.side_effect = make_two_enum
+    mock_ctx.doc.getTextFields.return_value = fields
+
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1], snapshot=snapshot)
+    assert del_res["status"] == "error"
+    assert del_res["code"] == "FIELD_LIST_STALE"
+    assert del_res["deleted_count"] == 0
+    anchor1.setString.assert_not_called()
+
+
+def test_fields_delete_without_snapshot_succeeds(mock_ctx):
+    field = MagicMock()
+    field.supportsService.return_value = False
+    field.getPresentation.return_value = "Page 1"
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor = field.getAnchor.return_value
+    _one_field_doc(mock_ctx.doc, field)
+
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1])
+    assert del_res["status"] == "ok"
+    assert del_res["deleted_count"] == 1
+    anchor.setString.assert_called_with("")
+
 
 

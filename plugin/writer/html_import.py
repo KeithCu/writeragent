@@ -128,6 +128,17 @@ def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
     return len(prefix.getString() or "")
 
 
+def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
+    """Character count before *cursor* when *spans* is non-empty, else 0.
+
+    Building the prefix cursor and calling ``getString()`` reads the entire
+    text before the insert point, which is wasted when there is no ruby.
+    """
+    if not spans or text_obj is None or cursor is None:
+        return 0
+    return _prefix_char_count(text_obj, cursor)
+
+
 def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
     """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
 
@@ -362,7 +373,12 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 
 
 
-def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
+def _resolve_paragraph_style_token(
+    model: Any,
+    fam: Any,
+    token: str,
+    element_names: list[str] | tuple[str, ...] | None = None,
+) -> str:
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
 
     A candidate is any paragraph style whose name equals the token (covers space-free names
@@ -373,9 +389,17 @@ def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
     from . import format as format_mod
-    if fam is not None:
+    names = element_names
+    if names is None and fam is not None:
+        names = uno_read(lambda: list(fam.getElementNames()), [])
+    if names:
         # dict.fromkeys keeps first-seen order and drops duplicates.
-        candidates: list[str] = uno_read(lambda: list(dict.fromkeys(n for n in fam.getElementNames() if n == token or xhtml_post.compact_lo_style_name(n) == token)), [])
+        candidates: list[str] = list(
+            dict.fromkeys(
+                n for n in names
+                if n == token or xhtml_post.compact_lo_style_name(n) == token
+            )
+        )
         if len(candidates) == 1:
             return candidates[0]
         if len(candidates) > 1:
@@ -398,42 +422,8 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
     from . import format as format_mod
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
-
-    if isinstance(start, int):
-        # Enumeration fallback when start paragraph index is given directly (unit test mocks).
-        paras: list[Any] = []
-        e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-        if e is not _FAILED and e is not None:
-            i = 0
-            guard = 0
-            while e.hasMoreElements() and guard < 200000 and len(paras) < len(styles):
-                guard += 1
-                try:
-                    el = e.nextElement()
-                except Exception:
-                    break
-                if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
-                    continue
-                if i >= start:
-                    if end is not None and text_obj.compareRegionStarts(el.getStart(), end) != 1:
-                        break
-                    paras.append(el)
-                i += 1
-            style_cache: dict[Any, Any] = {}
-            for para_el, style in zip(paras, styles):
-                if not style:
-                    continue
-                resolved = _resolve_paragraph_style_token(model, fam, style)
-                try:
-                    cur = text_obj.createTextCursorByRange(para_el.getStart())
-                    cur.gotoEndOfParagraph(True)
-                    format_mod.apply_paragraph_style_preserving_direct_char(
-                        model, cur, resolved, style_cache=style_cache,
-                    )
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
-        return
+    element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
+    token_cache: dict[str, str] = {}
 
     try:
         start_range = start.getStart() if hasattr(start, "getStart") else start
@@ -443,7 +433,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         reraise_if_disposed(exc)
         return
 
-    style_cache = {}
+    style_cache: dict[Any, Any] = {}
     for style in styles:
         # Stop at the first paragraph that does not start before the parked end cursor.
         try:
@@ -453,7 +443,10 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
             break
 
         if style:
-            resolved = _resolve_paragraph_style_token(model, fam, style)
+            resolved = token_cache.get(style)
+            if resolved is None:
+                resolved = _resolve_paragraph_style_token(model, fam, style, element_names=element_names)
+                token_cache[style] = resolved
             try:
                 cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                 cur.gotoEndOfParagraph(True)
@@ -831,7 +824,7 @@ def _insert_mixed_html_and_math_at_cursor(
             chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
 
             sub = _ensure_html_linebreaks(chunk)
-            seg_ruby_skip = _prefix_char_count(cursor.getText(), cursor)
+            seg_ruby_skip = _ruby_skip(cursor.getText(), cursor, seg_ruby)
             _insert_starwriter_html_at_cursor(model, cursor, sub, config_svc=config_svc)
             if seg_ruby:
                 _apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
@@ -872,6 +865,22 @@ def _insert_start_from_anchor(text_obj: Any, anchor: Any, cursor: Any) -> Any:
         return cursor
 
 
+def _paragraph_before(text_obj: Any, cursor: Any) -> Any:
+    """Cursor at the start of the paragraph before *cursor*'s, or None in the first one."""
+    cur = text_obj.createTextCursorByRange(cursor.getStart())
+    cur.gotoStartOfParagraph(False)
+    return cur if cur.gotoPreviousParagraph(False) else None
+
+
+def _paragraph_after(text_obj: Any, before_para: Any) -> Any:
+    """Start of the paragraph after *before_para* (the text start when it is None)."""
+    if before_para is None:
+        return text_obj.createTextCursorByRange(text_obj.getStart())
+    cur = text_obj.createTextCursorByRange(before_para.getStart())
+    cur.gotoNextParagraph(False)
+    return cur
+
+
 def _insert_mixed_or_plain_html(
     model: Any,
     ctx: Any,
@@ -899,12 +908,14 @@ def _insert_mixed_or_plain_html(
         ruby_spans = []
     styled = apply_styles and any(block_styles)
     text_obj = cursor.getText()
-    ruby_skip = _prefix_char_count(text_obj, cursor) if not has_math else 0
+    ruby_skip = _ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
+    # The math path moves *cursor* past each segment, so keep the paragraph before the insert.
+    before_para = _paragraph_before(text_obj, cursor) if styled and has_math else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
     # content, so anchor one character to the left and step back right after the import.
-    start_anchor = _insert_start_anchor(text_obj, cursor) if styled else None
+    start_anchor = _insert_start_anchor(text_obj, cursor) if styled and not has_math else None
 
     if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
@@ -923,7 +934,11 @@ def _insert_mixed_or_plain_html(
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
         # still looked like a finished insert.
-        _apply_block_lo_styles(model, text_obj, _insert_start_from_anchor(text_obj, start_anchor, cursor), block_styles, end=imported_end)
+        if has_math:
+            start = _paragraph_after(text_obj, before_para)
+        else:
+            start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
+        _apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     if not has_math:
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
@@ -1050,7 +1065,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
     trail = inline_html[len(inline_html.rstrip()):]
     text = cursor.getText()
-    ruby_skip = _prefix_char_count(text, cursor)
+    ruby_skip = _ruby_skip(text, cursor, ruby_spans)
     if lead:
         text.insertString(cursor, lead, False)
     if trail:
@@ -1256,8 +1271,9 @@ def _replace_single_range_with_content(
         # INSERTED content (not the document end), so [anchor, cursor] bounds it.
         inline_html = prepared.replace("\\n", "\n").replace("\\t", "\t")
         inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
+        ruby_skip = _ruby_skip(text_obj, anchor, ruby_spans)
         insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
-        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=_prefix_char_count(text_obj, anchor))
+        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
         # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
         # Skip it while Track Changes is recording: setString("") above leaves the old text in
         # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -1688,10 +1704,12 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
     restored as live fields after import. *model* is the owning document
-    (needed to create fields and to find placeholders).
+    (needed to create fields, enter the undo context, and find placeholders).
 
-    The clear happens only for the import attempt. If that import raises,
-    the previous text is written back (see ``_restore_xtext_string``).
+    When *model* is provided, the clear and import are protected by a document
+    undo context: any failure rolls back to the previous state, preserving
+    graphics and fields. When *model* is None, a failed import falls back to
+    plain-text restore, which cannot rebuild fields or graphics.
     """
     if text_obj is None:
         raise ToolExecutionError("No text object to import into.")
@@ -1703,7 +1721,28 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    original = uno_read(lambda: cursor.getString(), None)
+
+    mgr = None
+    title = None
+    if model is not None:
+        from .edit_review import next_agent_edit_undo_title
+
+        title = next_agent_edit_undo_title()
+        try:
+            candidate = model.getUndoManager()
+            # `is True`: MagicMock isLocked() is truthy and must not look locked.
+            if candidate is not None and candidate.isLocked() is not True:
+                candidate.enterUndoContext(title)
+                mgr = candidate
+        except Exception:
+            mgr = None
+        if mgr is None:
+            raise ToolExecutionError("Could not enter undo context for header/footer import.")
+
+    original = None
+    if mgr is None:
+        original = uno_read(lambda: cursor.getString(), None)
+
     cleared = False
     try:
         cursor.setString("")
@@ -1712,13 +1751,40 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False, config_svc=config_svc, model=None,
         )
-    except Exception:
+        _apply_ruby_spans(text_obj, ruby_spans)
+        if model is not None:
+            _restore_field_placeholders(model, text_obj)
+    except Exception as exc:
+        if mgr is not None:
+            left = False
+            undone = False
+            try:
+                mgr.leaveUndoContext()
+                left = True
+            except Exception:
+                log.exception("replace_xtext_with_html: leaveUndoContext failed")
+            if left:
+                try:
+                    titles = mgr.getAllUndoActionTitles()
+                    if titles and titles[0] == title:
+                        mgr.undo()
+                        undone = True
+                except Exception:
+                    log.exception("replace_xtext_with_html: undo failed")
+            if not undone:
+                raise ToolExecutionError(
+                    f"the header/footer was written and could not be rolled back: {exc}"
+                ) from exc
+            raise
         if cleared and original is not None:
             _restore_xtext_string(text_obj, original)
         raise
-    _apply_ruby_spans(text_obj, ruby_spans)
-    if model is not None:
-        _restore_field_placeholders(model, text_obj)
+
+    if mgr is not None:
+        try:
+            mgr.leaveUndoContext()
+        except Exception:
+            log.exception("replace_xtext_with_html: leaveUndoContext failed")
 
     # Issue #1424: HTML import can leave a trailing empty paragraph.
     # If there is more than one paragraph and the last one is entirely empty, remove it.

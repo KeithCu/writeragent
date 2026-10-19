@@ -863,6 +863,20 @@ class TestRichControlListenerInit:
             second._begin_deferred_init()
         mock_post.assert_called_once()
 
+    def test_disposing_clears_cell_link_spans(self):
+        from plugin.calc.navigation import cell_link_registry, register_cell_link_span
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        root = MagicMock()
+        ctrl = MagicMock()
+        listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+        listener.rich_control = ctrl
+        register_cell_link_span(ctrl, 0, 5, "A1")
+        assert cell_link_registry.lookup(ctrl, 2) == "A1"
+
+        listener.disposing(MagicMock())
+        assert cell_link_registry.lookup(ctrl, 2) is None
+
 
 class TestControlTextLength:
     def test_exception_returns_none(self):

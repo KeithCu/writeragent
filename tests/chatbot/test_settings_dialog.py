@@ -120,6 +120,7 @@ def test_update_lru_for_audio_stt_model(value, value_2, value_3, value_4):
     assert _lru_rows_for_key(value, value_2, "https://openrouter.ai/api") == [
         (value_3, value_4, "https://openrouter.ai/api"),
     ]
+    assert _lru_rows_for_key("image_model", "flux-dev", "https://openrouter.ai/api") == []
 
 
 def test_apply_settings_skips_model_combobox_placeholders():

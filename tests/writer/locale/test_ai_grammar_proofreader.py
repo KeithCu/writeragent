@@ -72,22 +72,30 @@ setattr(uno_mod, "getComponentContext", MagicMock())
 class FakeBI:
     def getWordBoundary(self, text, pos, locale, wordType, bDirection):
         import re
+        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
+
+        m_u16 = Utf16OffsetMap(text)
+        py_pos = m_u16.utf16_to_py(pos)
         res = MagicMock()
-        m = re.compile(r"\w+|\W+").match(text, pos)
+        m = re.compile(r"\w+|\W+").match(text, py_pos)
         if m:
-            res.startPos = pos + m.start()
-            res.endPos = pos + m.end()
+            res.startPos = m_u16.py_to_utf16(m.start())
+            res.endPos = m_u16.py_to_utf16(m.end())
         else:
             res.startPos = pos
-            res.endPos = len(text)
+            res.endPos = m_u16.py_to_utf16(len(text))
         return res
-        
+
     def endOfSentence(self, text, pos, locale):
         import re
-        m = re.search(r'[.!?]', text[pos:])
+        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
+
+        m_u16 = Utf16OffsetMap(text)
+        py_pos = m_u16.utf16_to_py(pos)
+        m = re.search(r'[.!?]', text[py_pos:])
         if m:
-            return pos + m.end()
-        return len(text)
+            return m_u16.py_to_utf16(py_pos + m.end())
+        return m_u16.py_to_utf16(len(text))
 
 @pytest.fixture(autouse=True)
 def mock_bi():
@@ -122,6 +130,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
     count_nonspace_chars,
     looks_complete_sentence,
 )
+from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
 from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
@@ -1545,6 +1554,186 @@ def test_ignore_rule_resolves_doc_id_from_map(mock_config_fixture, mock_locale_f
         mock_ignore.assert_called_once_with(pr.ctx, "doc-42", "test-rule")
 
 
+def test_emoji_shifts_cached_error_offsets(mock_config_fixture, mock_locale_fixture) -> None:
+    pr = _make_proofreader()
+    text = "👋 they is fine."
+    # Python offsets: '👋' is 0, ' ' is 1, 'they is' is [2:9].
+    # In UTF-16: '👋' is 0..2, ' ' is 2, 'they is' is [3:10].
+    gc.cache_put_sentence(
+        "en-US",
+        text,
+        [{
+            "n_error_start": 2,
+            "n_error_length": 7,
+            "suggestions": ("they are",),
+            "short_comment": "agr",
+            "full_comment": "agr",
+            "rule_identifier": "wa_g_rule||agr",
+        }],
+        ctx=pr.ctx,
+        doc_id="doc-emoji",
+    )
+    res = pr.doProofreading("doc-emoji", text, mock_locale_fixture, 0, len(text), ())
+    assert res is not None
+    errs = tuple(res.aErrors)
+    assert len(errs) == 1
+    e0 = errs[0]
+    assert e0.nErrorStart == 3
+    assert e0.nErrorLength == 7
+    u16_encoded = text.encode("utf-16le")
+    u16_slice = u16_encoded[e0.nErrorStart * 2 : (e0.nErrorStart + e0.nErrorLength) * 2].decode("utf-16le")
+    assert u16_slice == "they is"
+
+
+def test_nonzero_start_after_emoji_selects_sentence(mock_config_fixture, mock_locale_fixture) -> None:
+    pr = _make_proofreader()
+    text = "👋 Hello. Next sentence."
+    # "👋 Hello. " in UTF-16 has length 11. "Next sentence." starts at UTF-16 offset 11.
+    gc.cache_put_sentence(
+        "en-US",
+        "Next sentence.",
+        [{
+            "n_error_start": 0,
+            "n_error_length": 4,
+            "suggestions": ("Previous",),
+            "short_comment": "test",
+            "full_comment": "test",
+            "rule_identifier": "wa_g_rule||test",
+        }],
+        ctx=pr.ctx,
+        doc_id="doc-emoji-next",
+    )
+    res = pr.doProofreading("doc-emoji-next", text, mock_locale_fixture, 11, 25, ())
+    assert res is not None
+    errs = tuple(res.aErrors)
+    assert len(errs) == 1
+
+
+def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_config_fixture) -> None:
+    pr = _make_proofreader()
+    pr._provider = "harper"
+    pr._checker_identity = "harper"
+    work_spans = [(0, 15, "They is fine.")]
+    combined: list[Any] = []
+    norm_err = NormalizedProofError(
+        n_error_start=0,
+        n_error_length=7,
+        suggestions=("They are",),
+        short_comment="agr",
+        full_comment="agr",
+        rule_identifier="harper||agr",
+    )
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": [{"wrong": "They is"}]}),
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
+        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
+        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+    ):
+        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined) is True
+        mock_put.assert_called_once()
+        cached_payload = mock_put.call_args[0][2]
+        # Raw error is stored in cache despite being ignored
+        assert len(cached_payload) == 1
+        assert cached_payload[0]["rule_identifier"] == "harper||agr"
+        # Status text reports 0 issues
+        assert any(call[1].get("result") == "0 issues" for call in mock_status.call_args_list)
+
+
+def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(
+    mock_config_fixture, mock_locale_fixture
+) -> None:
+    pr = _make_proofreader()
+    text = "Hello they is fine."
+    rid = "wa_g_rule||agr"
+    gc.cache_put_sentence(
+        "en-US",
+        text,
+        [{
+            "n_error_start": 6,
+            "n_error_length": 7,
+            "suggestions": ("they are",),
+            "short_comment": "agr",
+            "full_comment": "agr",
+            "rule_identifier": rid,
+        }],
+        ctx=pr.ctx,
+        doc_id="doc-reset",
+    )
+    listener = MagicMock()
+    pr.addLinguServiceEventListener(listener)
+
+    with patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-reset"):
+        pr.ignoreRule(rid, mock_locale_fixture)
+
+    # With rule ignored, doProofreading returns empty aErrors
+    res1 = pr.doProofreading("doc-reset", text, mock_locale_fixture, 0, len(text), ())
+    assert len(tuple(res1.aErrors)) == 0
+
+    with (
+        patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-reset"),
+        patch.object(pr, "_try_harper_fast_path") as mock_harper,
+        patch.object(pr, "_enqueue_misses") as mock_enqueue,
+    ):
+        pr.resetIgnoreRules()
+        # Broadcasts PROOFREAD_AGAIN to listeners
+        assert listener.processLinguServiceEvent.call_count == 1
+        event = listener.processLinguServiceEvent.call_args[0][0]
+        assert event.nEvent == 8
+
+        # Next call returns cached error without running provider or enqueuing
+        res2 = pr.doProofreading("doc-reset", text, mock_locale_fixture, 0, len(text), ())
+        assert len(tuple(res2.aErrors)) == 1
+        mock_harper.assert_not_called()
+        mock_enqueue.assert_not_called()
+
+
+def test_reset_ignore_rules_with_no_listeners_sets_pending() -> None:
+    pr = _make_proofreader()
+    assert pr._pending_proofread_again is False
+    with patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-nolistener"):
+        pr.resetIgnoreRules()
+    assert pr._pending_proofread_again is True
+
+
+def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
+    # Tip: mock the queue; a real enqueue starts background LLM work that leaks persistence into later tests.
+    pr = _make_proofreader()
+    text1 = "This is a paragraph. Second sentence."
+    text2 = "This is a paragraph! Second sentence."
+    with patch(
+        "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
+        wraps=proofreader.candidate_sentence_spans_for_proofreading,
+    ) as mock_split:
+        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
+        assert mock_split.call_count == 1
+
+        # Second call with identical paragraph text reuses the memo
+        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
+        assert mock_split.call_count == 1
+
+        # Changed text calls candidate_sentence_spans_for_proofreading again
+        pr.doProofreading("doc-memo", text2, mock_locale_fixture, 0, len(text2), ())
+        assert mock_split.call_count == 2
+
+
+def test_bind_timeout_backs_off() -> None:
+    pr = _make_proofreader()
+    with patch("plugin.writer.locale.ai_grammar_proofreader._run_on_main_thread", side_effect=TimeoutError()) as mock_run:
+        pr._ensure_document_bound("doc-timeout")
+        assert mock_run.call_count == 1
+        assert "doc-timeout" in pr._failed_bind_deadlines
+
+        # Within 1.5s, does not hop again
+        pr._ensure_document_bound("doc-timeout")
+        assert mock_run.call_count == 1
+
+        # Past the deadline, hops again
+        pr._failed_bind_deadlines["doc-timeout"] = time.monotonic() - 1.0
+        pr._ensure_document_bound("doc-timeout")
+        assert mock_run.call_count == 2
 def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, mock_locale_fixture) -> None:
     pr = _make_proofreader()
     full_sentence = "word1 word2 word3 word4 word5."

@@ -28,7 +28,7 @@ from plugin.framework.client.model_fetcher import get_image_model, get_text_mode
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import normalize_endpoint_url
 
-from typing import Any, cast
+from typing import Any
 
 import logging
 
@@ -133,15 +133,14 @@ def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
     try:
         from plugin._manifest import MODULES
         from plugin.chatbot.settings_fields import build_module_field_specs
+        from typing import cast
 
-        for raw in MODULES:
-            m = cast("dict[str, Any]", raw)
+        from plugin.chatbot.settings_tab_order import iter_settings_field_modules
+
+        # core is excluded by iter_settings_field_modules so future public core fields
+        # cannot be saved without an explicit Settings control.
+        for m in iter_settings_field_modules(cast("list[dict[str, Any]]", MODULES)):
             m_name = str(m.get("name", ""))
-            if m_name in ("main", "ai"):
-                continue
-            if m.get("settings_tab") is False or m.get("config_dialog"):
-                continue
-
             field_specs.extend(
                 build_module_field_specs(m_name, ctx=ctx, control_ids="prefixed")
             )
@@ -344,6 +343,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
                     image_model_lru = val
 
         pending[save_key] = val
+        # image_model_lru is staged separately; exclude from ordinary_lru to keep one writer.
         if val and save_key != "image_model":
             ordinary_lru.append((key, val, save_key))
 
@@ -421,9 +421,7 @@ def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> N
 def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[Any, str, str]]:
     """``(value, lru list name, endpoint)`` for one settings field.
 
-    Empty when this field has no list. Image models are sanitized the same
-    way ``set_image_model`` sanitizes them: the settings batch already stored
-    the id, so this only names the list, it does not write ``image_model`` again.
+    Empty when this field has no list.
     """
     if not val:
         return []
@@ -431,13 +429,6 @@ def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[A
         return [(val, "audio_model_lru", current_endpoint)]
     if key == "audio.tts_model":
         return [(val, "tts_model_lru", current_endpoint)]
-    if key == "image_model":
-        from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
-
-        sanitized = _sanitize_stored_model_value(val)
-        if not sanitized:
-            return []
-        return [(sanitized, "image_model_lru", current_endpoint)]
     if key == "additional_instructions":
         return [(val, "prompt_lru", "")]
     if key == "image_base_size":

@@ -100,6 +100,47 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
     return reliable, seen, total
 
 
+def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[int, bool]:
+    """Check for agent changes without building a full view. Returns ``(count, reliable)``.
+
+    When ``stop_at_first`` is True, returns ``(1, True)`` on the first agent comment seen
+    without enumerating further. A full walk with no agent changes returns ``(0, True)``.
+    Any enumeration or property read error returns ``(count_so_far, False)``.
+    """
+    try:
+        redlines = model.getRedlines()
+        total = int(redlines.getCount())
+        enum = redlines.createEnumeration()
+    except Exception:
+        return 0, False
+    if total < 0:
+        return 0, False
+
+    seen = 0
+    tokens: set[str] = set()
+    while seen < total:
+        try:
+            if not enum.hasMoreElements():
+                break
+            rl = enum.nextElement()
+        except Exception:
+            return len(tokens), False
+        seen += 1
+        try:
+            raw = rl.getPropertyValue("RedlineComment")
+            comment = str(raw) if raw is not None else None
+            if comment and is_agent_token(comment):
+                tokens.add(comment)
+                if stop_at_first:
+                    return 1, True
+        except Exception:
+            return len(tokens), False
+
+    reliable = (seen == total)
+    return len(tokens), reliable
+
+
+
 def redline_identity_key(rl: Any) -> tuple[Any, ...]:
     """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
 

@@ -81,7 +81,7 @@ class TestHamburgerMenu:
             dispatch.assert_called_once_with(action)
             invoke.assert_not_called()
 
-    def test_writer_hamburger_loads_jupyter_icon(self):
+    def test_plain_writer_hamburger_has_gear_icon_and_no_notebook_items(self):
         ctx = MagicMock()
         smgr = MagicMock()
         popup = MagicMock()

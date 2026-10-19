@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import tempfile
 import threading
 from typing import TYPE_CHECKING, Callable
 import zipfile
@@ -82,9 +83,15 @@ def find_child(parent: ET.Element, name: str) -> ET.Element | None:
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
     """Parse XML bytes into an ElementTree root, returning all in-scope namespaces."""
     ns_map: dict[str, str] = {}
-    for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
-        ns_map[prefix] = uri
-    root = ET.fromstring(data)
+    root: ET.Element | None = None
+    for event, item in ET.iterparse(io.BytesIO(data), events=["start-ns", "end"]):
+        if event == "start-ns":
+            prefix, uri = item  # type: ignore[assignment]
+            ns_map[prefix] = uri
+        elif event == "end":
+            root = item
+    if root is None:
+        raise ValueError("empty or invalid XML document")
     return root, ns_map
 
 
@@ -246,14 +253,20 @@ def rewrite_zip(
     """Rewrite a ZIP file atomically from *src* to *dst*, cleaning up temporary files on exception."""
     src_path = Path(src)
     dst_path = Path(dst)
-    tmp_path = dst_path.with_suffix(dst_path.suffix + temp_suffix)
+    dst_dir = dst_path.parent
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(delete=False, dir=dst_dir, prefix=f"{dst_path.stem}_", suffix=".tmp") as tmp_file:
+        tmp_path = Path(tmp_file.name)
     try:
         with zipfile.ZipFile(src_path, "r") as zin, zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
             transform(zin, zout)
         tmp_path.replace(dst_path)
     finally:
         if tmp_path.exists():
-            tmp_path.unlink()
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 # Backward-compatible private aliases

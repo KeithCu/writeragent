@@ -24,61 +24,28 @@ from plugin.writer.inline_review import (
     RedlineView,
     ResolveResult,
     ResolveStatus,
-    _agent_change_tokens,
-    _all_redlines_are_agent,
     _change_bounds,
-    _foreign_redline_ids,
-    _foreign_redline_in_span,
-    _other_agent_redline_in_span,
+    _classify_span_conflicts,
+    _is_all_redlines_agent,
     _resolve_all_agent_changes,
     _resolve_overlapping_agent_changes,
     _span_contains_point,
     agent_changes,
     agent_self_resolution_block_reason,
+    agent_tokens,
     goto_adjacent_agent_change,
     pending_agent_change_count,
     resolve_agent_change,
     resolve_all_agent_changes,
     resolve_all_with_feedback,
     resolve_change_at_cursor,
+    scan_redline_view,
 )
 from plugin.writer.review_scan import TOKEN_PREFIX, redline_is_agent_change
 
 
 def _sign(n):
     return (n > 0) - (n < 0)
-
-
-class FakeRange:
-    """A [s, e] range over a shared text, identified by integer positions."""
-
-    def __init__(self, s, e):
-        self.s = s
-        self.e = e
-
-    def getStart(self):
-        return FakeRange(self.s, self.s)
-
-    def getEnd(self):
-        return FakeRange(self.e, self.e)
-
-    def getText(self):
-        return FakeText()
-
-    def gotoRange(self, other, expand):
-        if expand:
-            self.s = min(self.s, other.s)
-            self.e = max(self.e, other.e)
-        else:
-            self.s = self.e = other.s
-
-    def gotoStartOfParagraph(self, expand):
-        if not expand:
-            self.e = self.s
-
-    def gotoEndOfParagraph(self, expand):
-        if not expand:
-            self.s = self.e
 
 
 class FakeText:
@@ -99,6 +66,42 @@ class FakeText:
         if self.raise_compare:
             raise RuntimeError("compare boom")
         return _sign(r2.e - r1.e)
+
+
+_DEFAULT_TEXT = FakeText()
+
+
+class FakeRange:
+    """A [s, e] range over a shared text, identified by integer positions."""
+
+    def __init__(self, s, e, text=None):
+        self.s = s
+        self.e = e
+        self.text = text
+
+    def getStart(self):
+        return FakeRange(self.s, self.s, text=self.text)
+
+    def getEnd(self):
+        return FakeRange(self.e, self.e, text=self.text)
+
+    def getText(self):
+        return self.text if self.text is not None else _DEFAULT_TEXT
+
+    def gotoRange(self, other, expand):
+        if expand:
+            self.s = min(self.s, other.s)
+            self.e = max(self.e, other.e)
+        else:
+            self.s = self.e = other.s
+
+    def gotoStartOfParagraph(self, expand):
+        if not expand:
+            self.e = self.s
+
+    def gotoEndOfParagraph(self, expand):
+        if not expand:
+            self.s = self.e
 
 
 class FakeRedline:
@@ -176,32 +179,37 @@ def test_span_contains_point_raises_on_compare_error():
 def test_foreign_redline_overlap_detected():
     span = FakeRange(10, 20)
     model = FakeModel(FakeRedlines([FakeRedline("", 15, 25)]))  # user redline (no token) overlaps
-    assert _foreign_redline_in_span(model, FakeText(), span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is True
 
 
 def test_foreign_redline_no_overlap():
     span = FakeRange(10, 20)
     model = FakeModel(FakeRedlines([FakeRedline("", 30, 40)]))  # user redline far away
-    assert _foreign_redline_in_span(model, FakeText(), span) is False
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is False
 
 
 def test_foreign_redline_ours_is_not_foreign():
     span = FakeRange(10, 20)
     # Our own agent redline overlapping must be skipped BEFORE any comparison (not "foreign").
     model = FakeModel(FakeRedlines([FakeRedline(TOKEN_PREFIX + "s:1", 15, 25)]))
-    assert _foreign_redline_in_span(model, FakeText(), span) is False
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is False
 
 
 def test_foreign_redline_fails_closed_on_enum_error():
     model = FakeModel(FakeRedlines([], raise_enum=True))
-    assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), FakeRange(10, 20), None)
+    assert has_foreign is True
 
 
 
 def test_foreign_redline_fails_closed_on_compare_error():
     span = FakeRange(10, 20)
     model = FakeModel(FakeRedlines([FakeRedline("", 15, 25)]))
-    assert _foreign_redline_in_span(model, FakeText(raise_compare=True), span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(raise_compare=True), span, None)
+    assert has_foreign is True
 
 
 def test_foreign_redline_fails_closed_on_silent_truncation():
@@ -209,7 +217,8 @@ def test_foreign_redline_fails_closed_on_silent_truncation():
     # enumeration did NOT yield -- it could overlap in the unscanned tail -> fail closed.
     span = FakeRange(10, 20)
     model = FakeModel(FakeRedlines([FakeRedline("", 30, 40)], count=2))  # 1 enumerated, count says 2
-    assert _foreign_redline_in_span(model, FakeText(), span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is True
 
 
 def test_foreign_redline_with_no_bounds_fails_closed():
@@ -219,7 +228,8 @@ def test_foreign_redline_with_no_bounds_fails_closed():
     rl = FakeRedline("", 15, 25)
     rl._props["RedlineStart"] = None
     model = FakeModel(FakeRedlines([rl]))
-    assert _foreign_redline_in_span(model, FakeText(), span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is True
 
 
 def test_foreign_redline_in_other_text_object_is_skipped():
@@ -245,7 +255,8 @@ def test_foreign_redline_in_other_text_object_is_skipped():
     rl._props["RedlineStart"] = ForeignRange(15, 15)   # ... but living inside the text box
     rl._props["RedlineEnd"] = ForeignRange(25, 25)
     model = FakeModel(FakeRedlines([rl]))
-    assert _foreign_redline_in_span(model, BodyText(), span) is False
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), BodyText(), span, None)
+    assert has_foreign is False
 
 
 def test_redline_mapping_failure_in_same_text_fails_closed():
@@ -267,7 +278,8 @@ def test_redline_mapping_failure_in_same_text_fails_closed():
     rl._props["RedlineStart"] = SameTextRange(15, 15)
     rl._props["RedlineEnd"] = SameTextRange(25, 25)
     model = FakeModel(FakeRedlines([rl]))
-    assert _foreign_redline_in_span(model, body, span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), body, span, None)
+    assert has_foreign is True
 
 
 # --------------------------------------------------------------------- other-agent (sibling) guard
@@ -277,7 +289,8 @@ def test_other_agent_overlap_detected():
     target = TOKEN_PREFIX + "s:1"
     sibling = TOKEN_PREFIX + "s:2"
     model = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
-    assert _other_agent_redline_in_span(model, FakeText(), span, target) is True
+    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target)
+    assert has_sibling is True
 
 
 def test_other_agent_touching_edge_strict_only_when_requested():
@@ -285,30 +298,36 @@ def test_other_agent_touching_edge_strict_only_when_requested():
     target = TOKEN_PREFIX + "s:1"
     sibling = TOKEN_PREFIX + "s:2"
     touching = FakeModel(FakeRedlines([FakeRedline(sibling, 20, 30)]))
-    assert _other_agent_redline_in_span(touching, FakeText(), span, target, strict_edges=True) is False
-    assert _other_agent_redline_in_span(touching, FakeText(), span, target) is True
+    _, has_strict = _classify_span_conflicts(scan_redline_view(touching), FakeText(), span, target, strict_sibling_edges=True)
+    assert has_strict is False
+    _, has_touching = _classify_span_conflicts(scan_redline_view(touching), FakeText(), span, target)
+    assert has_touching is True
     overlapping = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
-    assert _other_agent_redline_in_span(overlapping, FakeText(), span, target, strict_edges=True) is True
+    _, has_overlapping = _classify_span_conflicts(scan_redline_view(overlapping), FakeText(), span, target, strict_sibling_edges=True)
+    assert has_overlapping is True
 
 
 def test_foreign_touching_edge_stays_inclusive():
     # A user Delete that stacks over the agent's inserted text only touches the agent span.
     model = FakeModel(FakeRedlines([FakeRedline("", 20, 30)]))
-    assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), FakeRange(10, 20), None)
+    assert has_foreign is True
 
 
 def test_other_agent_same_token_not_flagged():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 15, 25)]))  # the target itself, not a sibling
-    assert _other_agent_redline_in_span(model, FakeText(), span, target) is False
+    _, has_sibling = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target)
+    assert has_sibling is False
 
 
 def test_other_agent_fails_closed_on_error():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([], raise_enum=True))
-    assert _other_agent_redline_in_span(model, FakeText(), span, target) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, target)
+    assert has_foreign is True
 
 
 # --------------------------------------------------------- resolve targets exactly the change
@@ -319,12 +338,15 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
     token_side = [t if isinstance(t, tuple) else (set(t), True) for t in token_sets]
     def _mk_foreign(fs):
         if fs is None:
-            return (set(), True)
-        return fs if isinstance(fs, tuple) else (set(fs), True)
+            return ([], True)
+        if isinstance(fs, tuple):
+            items, ok = fs
+            return (list(items), ok)
+        return (list(fs), True)
     if foreign_sets is not None:
         foreign_side = [_mk_foreign(fs) for fs in foreign_sets]
     else:
-        foreign_side = [(set(), True)]
+        foreign_side = [([], True)]
 
     state = {"i": 0}
     def _fake_scan(m):
@@ -340,8 +362,13 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
                 rows.append(RedlineRow(token=t, identifier=t, start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()))
             else:
                 rows.append(RedlineRow(token=t, identifier=t, start=FakeRange(30 + 10 * i, 35 + 10 * i), end=FakeRange(35 + 10 * i, 40 + 10 * i), kind="Insert", text=FakeText()))
-        for j, f in enumerate(sorted(frn)):
-            rows.append(RedlineRow(token=None, identifier=f, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind="Insert", text=FakeText()))
+        for j, f in enumerate(frn):
+            if isinstance(f, RedlineRow):
+                rows.append(f)
+            elif isinstance(f, tuple):
+                rows.append(RedlineRow(token=None, identifier=f[0], start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind=f[1] if len(f) > 1 else "Insert", text=FakeText(), identity=f))
+            else:
+                rows.append(RedlineRow(token=None, identifier=f, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind="Insert", text=FakeText()))
         return RedlineView(reliable=reliable, total=len(rows), rows=tuple(rows))
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=_fake_scan), \
@@ -418,6 +445,27 @@ def test_resolve_paragraph_path_refuses_when_user_redline_lost():
     ) == ResolveStatus.PARTIAL
 
 
+def test_resolve_stacked_delete_pop_reported_as_partial():
+    # Same foreign identifier before and after, identity changes from Delete to Insert (stacked pop).
+    # Exact path must be PARTIAL.
+    key_del = ("user-1", "Delete", "Author", None, None)
+    key_ins = ("user-1", "Insert", "Author", None, None)
+    assert _resolve("T", [{"T", "S"}, {"S"}], foreign_sets=[([key_del], True), ([key_ins], True)]) == ResolveStatus.PARTIAL
+
+
+def test_resolve_duplicate_foreign_identity_key_lost_reported_as_partial():
+    # Two foreign rows with the same full key, one gone after. PARTIAL.
+    key = ("user-1", "Delete", "Author", None, None)
+    assert _resolve("T", [{"T", "S"}, {"S"}], foreign_sets=[([key, key], True), ([key], True)]) == ResolveStatus.PARTIAL
+
+
+def test_resolve_foreign_split_piece_added_stays_resolved():
+    # Before key kept and a second key added (split piece). Still RESOLVED when the agent token is the only token removed.
+    key_orig = ("user-1", "Insert", "Author", (2026, 1, 1, 0, 0, 0, 0), None)
+    key_split = ("user-2", "Insert", "Author", (2026, 1, 1, 0, 0, 0, 0), None)
+    assert _resolve("T", [{"T", "S"}, {"S"}], foreign_sets=[([key_orig], True), ([key_orig, key_split], True)]) == ResolveStatus.RESOLVED
+
+
 # ----------------------------------------------------------------- _all_redlines_are_agent
 
 def _agent_rl():
@@ -430,34 +478,34 @@ def _user_rl():
 
 def test_all_redlines_are_agent_true_when_complete_and_all_agent():
     model = FakeModel(FakeRedlines([_agent_rl(), _agent_rl()]))
-    assert _all_redlines_are_agent(model) is True
+    assert _is_all_redlines_agent(scan_redline_view(model)) is True
 
 
 def test_all_redlines_are_agent_false_with_a_user_redline():
     model = FakeModel(FakeRedlines([_agent_rl(), _user_rl()]))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 def test_all_redlines_are_agent_false_on_silent_truncation():
     # The enumeration yields only the two leading agent redlines but getCount() reports 3 (a user
     # redline sits in the unscanned tail). Count cross-check must fail closed.
     model = FakeModel(FakeRedlines([_agent_rl(), _agent_rl()], count=3))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 def test_all_redlines_are_agent_false_on_enum_error():
     model = FakeModel(FakeRedlines([_agent_rl()], raise_enum=True))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 def test_all_redlines_are_agent_false_on_count_error():
     model = FakeModel(FakeRedlines([_agent_rl()], raise_count=True))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 def test_all_redlines_are_agent_false_on_empty_document():
     model = FakeModel(FakeRedlines([]))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 
@@ -465,42 +513,42 @@ def test_all_redlines_are_agent_false_on_empty_document():
 
 def test_agent_change_tokens_reliable_when_complete():
     model = FakeModel(FakeRedlines([_agent_rl(), _user_rl()]))
-    tokens, reliable = _agent_change_tokens(model)
-    assert reliable is True and tokens == {TOKEN_PREFIX + "s:1"}
+    view = scan_redline_view(model)
+    assert view.reliable is True and agent_tokens(view) == {TOKEN_PREFIX + "s:1"}
 
 
 def test_agent_change_tokens_unreliable_on_silent_truncation():
     # The enumeration yields 1 redline but getCount() reports 2 (a redline silently dropped) -> the
     # token snapshot can't be trusted for a "removed == {token}" comparison -> reliable False.
     model = FakeModel(FakeRedlines([_agent_rl()], count=2))
-    tokens, reliable = _agent_change_tokens(model)
-    assert reliable is False
+    view = scan_redline_view(model)
+    assert view.reliable is False
 
 
 def test_agent_change_tokens_unreliable_on_count_error():
     model = FakeModel(FakeRedlines([_agent_rl()], raise_count=True))
-    unused_tokens, reliable = _agent_change_tokens(model)
-    assert reliable is False
+    view = scan_redline_view(model)
+    assert view.reliable is False
 
 
 def test_foreign_redline_ids_reliable_when_complete():
     model = FakeModel(FakeRedlines([_agent_rl(), _user_rl()]))
-    ids, reliable = _foreign_redline_ids(model)
-    assert reliable is True  # the user redline (no token) is the only foreign id, scan complete
+    view = scan_redline_view(model)
+    assert view.reliable is True  # the user redline (no token) is the only foreign id, scan complete
 
 
 def test_foreign_redline_ids_unreliable_on_silent_truncation():
     # getCount() says 3 but only 2 redlines enumerated -> a user redline may sit in the unscanned
     # tail; we must not later read "no user redline lost" off this incomplete set -> reliable False.
     model = FakeModel(FakeRedlines([_agent_rl(), _user_rl()], count=3))
-    unused_ids, reliable = _foreign_redline_ids(model)
-    assert reliable is False
+    view = scan_redline_view(model)
+    assert view.reliable is False
 
 
 def test_foreign_redline_ids_unreliable_on_count_error():
     model = FakeModel(FakeRedlines([_user_rl()], raise_count=True))
-    unused_ids, reliable = _foreign_redline_ids(model)
-    assert reliable is False
+    view = scan_redline_view(model)
+    assert view.reliable is False
 
 
 # --------------------------------------------------- _change_bounds fail-closed
@@ -743,13 +791,13 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     reason = agent_self_resolution_block_reason(model)
     assert reason is not None and "reliably" in reason
 
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
     assert _change_bounds(model, token) == (None, None)
-    assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
-    tokens, ok = _agent_change_tokens(model)
-    assert tokens == set() and ok is False
-    _ids, foreign_ok = _foreign_redline_ids(model)
-    assert foreign_ok is False
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), FakeRange(10, 20), None)
+    assert has_foreign is True
+    view = scan_redline_view(model)
+    assert agent_tokens(view) == set() and view.reliable is False
+    assert view.reliable is False
 
 
 # Per-redline read failures (e.g. the document closed mid-scan) still fail closed:
@@ -759,12 +807,13 @@ def test_foreign_redline_fails_closed_on_per_redline_error():
     span = FakeRange(10, 20)
     # A user redline whose RedlineStart read blows up -> can't tell if it overlaps -> refuse.
     model = FakeModel(FakeRedlines([FakeRedline("", 15, 25, raise_on={"RedlineStart"})]))
-    assert _foreign_redline_in_span(model, FakeText(), span) is True
+    has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), span, None)
+    assert has_foreign is True
 
 
 def test_all_redlines_are_agent_false_on_unreadable_comment():
     model = FakeModel(FakeRedlines([_agent_rl(), FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
-    assert _all_redlines_are_agent(model) is False
+    assert _is_all_redlines_agent(scan_redline_view(model)) is False
 
 
 def test_change_bounds_fail_closed_on_unreadable_comment():
@@ -930,7 +979,42 @@ def test_scan_count_resolve_change_at_cursor_exact_success():
     with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
         ok, _ = resolve_change_at_cursor(model, MagicMock(), True)
     assert ok is True
-    assert model._rl.enums == 3
+    assert model._rl.enums == 2
+
+
+def test_scan_count_resolve_change_at_cursor_with_provided_view():
+    from plugin.writer.inline_review import cursor_in_agent_change
+
+    t = TOKEN_PREFIX + "s:1"
+    items = [FakeRedline(t, 10, 20)]
+
+    class CountingRedlines:
+        def __init__(self):
+            self.enums = 0
+        def createEnumeration(self):
+            self.enums += 1
+            return FakeEnum(list(items))
+        def getCount(self):
+            return len(items)
+
+    model = _ViewModel(CountingRedlines())
+    vc = MagicMock()
+    vc.getText.return_value = FakeText()
+    vc.getStart.return_value = FakeRange(15, 15)
+    model.controller.getViewCursor.return_value = vc
+
+    def fake_dispatch(ctx, ctrl, accept):
+        items.clear()
+
+    view = scan_redline_view(model)
+    assert model._rl.enums == 1
+    token = cursor_in_agent_change(model, view=view)
+    assert token == t
+
+    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
+        ok, _ = resolve_change_at_cursor(model, MagicMock(), True, token=token, view=view)
+    assert ok is True
+    assert model._rl.enums == 2
 
 
 def test_scan_count_two_change_group_cleared_in_one_dispatch():
@@ -1108,4 +1192,47 @@ def test_scan_count_click_popup_enumerates_once():
 
     assert model._rl.enums == 1
     mock_popup.execute.assert_called_once()
+
+
+def test_fast_travel_next_visits_across_different_text_objects():
+    # A headless test with two FakeText identities: body change, cell change, later body change,
+    # caret in the body between the two body changes, Next returns the cell token.
+    body_text = FakeText()
+    cell_text = FakeText()
+
+    class CellRange(FakeRange):
+        def getText(self):
+            return cell_text
+
+    class BodyRange(FakeRange):
+        def getText(self):
+            return body_text
+
+    t_body1 = TOKEN_PREFIX + "s:1"
+    t_cell = TOKEN_PREFIX + "s:2"
+    t_body2 = TOKEN_PREFIX + "s:3"
+
+    rl1 = FakeRedline(t_body1, 10, 15)
+    rl1._props["RedlineStart"] = BodyRange(10, 10)
+    rl1._props["RedlineEnd"] = BodyRange(15, 15)
+
+    rl2 = FakeRedline(t_cell, 5, 10)
+    rl2._props["RedlineStart"] = CellRange(5, 5)
+    rl2._props["RedlineEnd"] = CellRange(10, 10)
+
+    rl3 = FakeRedline(t_body2, 30, 35)
+    rl3._props["RedlineStart"] = BodyRange(30, 30)
+    rl3._props["RedlineEnd"] = BodyRange(35, 35)
+
+    model = _ViewModel(FakeRedlines([rl1, rl2, rl3]))
+    vc = MagicMock()
+    vc.getText.return_value = body_text
+    vc.isCollapsed.return_value = True
+    vc.getStart.return_value = BodyRange(20, 20)
+    vc.getEnd.return_value = BodyRange(20, 20)
+    model.controller.getViewCursor.return_value = vc
+
+    next_tok = goto_adjacent_agent_change(model, forward=True)
+    assert next_tok == t_cell
+
 

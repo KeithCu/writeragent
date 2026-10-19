@@ -87,7 +87,7 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
     anchor_r, anchor_c = parsed if parsed is not None else (0, 0)
     cells = getattr(ws, "_cells", None)
     if not isinstance(cells, dict):
-        return
+        raise ValueError("openpyxl worksheet._cells is not a dict")
     for (r, c), cell in list(cells.items()):
         if row1 <= r <= row2 and col1 <= c <= col2 and (r, c) != (anchor_r, anchor_c):
             cell.value = None
@@ -185,6 +185,7 @@ def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, o
     tmp_path = out_path.with_name(f"{out_path.name}.tmp_{os.getpid()}")
     try:
         sheet_by_key = {ws.title: ws for ws in wb.worksheets}
+        sheet_by_key_lower = {t.lower(): w for t, w in sheet_by_key.items()}
         errors: list[str] = []
 
         bank, bank_warnings = collect_script_bank(report)
@@ -197,11 +198,7 @@ def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         for cell in report.cells:
             if not cell.converted or not cell.converted_code:
                 continue
-            ws = sheet_by_key.get(cell.sheet)
-            if ws is None:
-                # Case-insensitive title match if exact title was not found.
-                lower = {t.lower(): w for t, w in sheet_by_key.items()}
-                ws = lower.get(cell.sheet.lower())
+            ws = sheet_by_key.get(cell.sheet) or sheet_by_key_lower.get(cell.sheet.lower())
             if ws is None:
                 errors.append(f"unmapped sheet {cell.sheet!r} for cell {cell.cell}")
                 continue
@@ -342,7 +339,8 @@ class _WorksheetCellIndex:
         current_col_num = 0
         for idx, c in enumerate(list(row_el)):
             if local_name(c.tag) != "c":
-                continue
+                insert_col_idx = idx
+                break
             c_r = c.attrib.get("r")
             if c_r:
                 parsed_c = _a1_row_col(c_r)
@@ -385,7 +383,13 @@ def _set_cell_xlws_formula(
     f = find_child(cell, "f")
     if f is None:
         f_tag = f"{{{SSML_NS}}}f" if cell.tag.startswith("{") else "f"
-        f = ET.SubElement(cell, f_tag)
+        f = ET.Element(f_tag)
+        insert_idx = len(cell)
+        for idx, child in enumerate(list(cell)):
+            if local_name(child.tag) in ("v", "is", "extLst"):
+                insert_idx = idx
+                break
+        cell.insert(insert_idx, f)
     body = formula[1:] if formula.startswith("=") else formula
     f.text = body
     if "si" in f.attrib:
@@ -402,7 +406,7 @@ def _set_cell_xlws_formula(
             del f.attrib["ref"]
 
 
-def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str) -> None:
+def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str, index: _WorksheetCellIndex | None = None) -> None:
     """Clear cached/array result cells in *array_ref* from XML, keeping the anchor."""
     if not array_ref:
         return
@@ -412,6 +416,26 @@ def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str) -> None:
     (col1, row1), (col2, row2) = bounds
     anchor_parsed = _a1_row_col(anchor)
     anchor_r, anchor_c = anchor_parsed if anchor_parsed is not None else (0, 0)
+
+    if index is not None:
+        for r in range(row1, row2 + 1):
+            row_el = index.rows.get(r)
+            if row_el is None:
+                continue
+            row_cells = index.cells_by_row.get(row_el)
+            if not row_cells:
+                continue
+            for col in range(col1, col2 + 1):
+                if (r, col) == (anchor_r, anchor_c):
+                    continue
+                c = row_cells.get(col)
+                if c is not None:
+                    for child in list(c):
+                        if local_name(child.tag) in ("f", "v", "is"):
+                            c.remove(child)
+                    if "t" in c.attrib:
+                        del c.attrib["t"]
+        return
 
     for c in find_all(ws_root, "c"):
         c_r = c.attrib.get("r")
@@ -594,18 +618,33 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
     if not scripts or not any(c.converted and c.script_index >= 0 for c in report.cells):
         raise ValueError("write_excel_python_xlsx: no converted Excel PY cells to write")
 
-    by_sheet: dict[str, list[ConvertedCell]] = {}
-    for cell in report.cells:
-        if not cell.converted or cell.script_index < 0:
-            continue
-        by_sheet.setdefault(cell.sheet, []).append(cell)
-
     errors: list[str] = []
 
     with xml_namespace_lock(), zipfile.ZipFile(source_xlsx, "r") as zin:
+        names = set(zin.namelist())
+        if "xl/workbook.xml" not in names:
+            raise ValueError("package missing required part: xl/workbook.xml")
+        if "xl/_rels/workbook.xml.rels" not in names:
+            raise ValueError("package missing required part: xl/_rels/workbook.xml.rels")
+
         sheets = workbook_sheets(zin)
         title_to_part = {s.title: s.part_name for s in sheets if s.part_name}
         title_to_part_l = {s.title.lower(): s.part_name for s in sheets if s.part_name}
+
+        by_part: dict[str, list[ConvertedCell]] = {}
+        seen_part_cells: set[tuple[str, str]] = set()
+        for cell in report.cells:
+            if not cell.converted or cell.script_index < 0:
+                continue
+            part = title_to_part.get(cell.sheet) or title_to_part_l.get(cell.sheet.lower(), "")
+            if not part:
+                errors.append(f"unmapped sheet {cell.sheet!r}")
+                continue
+            norm_a1 = cell.cell.replace("$", "").upper()
+            if (part, norm_a1) in seen_part_cells:
+                raise ValueError(f"duplicate cell {norm_a1} for part {part!r} ({cell.sheet!r})")
+            seen_part_cells.add((part, norm_a1))
+            by_part.setdefault(part, []).append(cell)
 
         # 1. Scan worksheet formulas for _xlws.PY not in report's write set
         report_write_set: set[tuple[str, str]] = {
@@ -671,22 +710,19 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         # 3. Pre-parse and patch worksheet roots
         patched: dict[str, ET.Element] = {}
         original_namespaces: dict[str, dict[str, str]] = {}
-        for sheet_title, cells in by_sheet.items():
-            part = title_to_part.get(sheet_title) or title_to_part_l.get(sheet_title.lower(), "")
-            if not part:
-                errors.append(f"unmapped sheet {sheet_title!r}")
-                continue
+        for part, cells in by_part.items():
             root = patched.get(part)
             if root is None:
                 try:
                     root, ns_map = parse_and_extract_namespaces(zin.read(part))
                     original_namespaces[part] = ns_map
                 except KeyError:
-                    errors.append(f"missing worksheet part {part!r} for {sheet_title!r}")
+                    errors.append(f"missing worksheet part {part!r}")
                     continue
 
             ws_index = _WorksheetCellIndex(root)
             sheet_write_set = {cell.cell.replace("$", "").upper() for cell in cells}
+            sheet_title = cells[0].sheet
 
             # Shared formula unsharing
             shared_groups: dict[str, list[tuple[str, ET.Element, ET.Element]]] = {}
@@ -755,7 +791,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             for cell in cells:
                 try:
                     if cell.array_ref:
-                        _clear_spill_xml(root, cell.cell, cell.array_ref)
+                        _clear_spill_xml(root, cell.cell, cell.array_ref, index=ws_index)
                     formula = xlws_py_formula(cell.script_index, cell.return_type, deps_for_xlws_export(cell))
                     _set_cell_xlws_formula(root, cell.cell, formula, array_ref=cell.array_ref, index=ws_index)
                 except Exception as exc:

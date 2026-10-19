@@ -125,6 +125,16 @@ def test_insert_text_appends_plain_label_on_text_cell(monkeypatch):
     cell.setString.assert_called_once_with("HiName ")
 
 
+def _mock_form_ctx(doc=None):
+    if doc is None:
+        doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.return_value = ["Form Create", "Form Generate"]
+    doc.getUndoManager.return_value = mgr
+    return SimpleNamespace(doc=doc, ctx=MagicMock())
+
+
 def _patch_field_creator(monkeypatch, failing_name):
     def _execute(self, ctx, **kwargs):
         if kwargs.get("name") == failing_name:
@@ -139,7 +149,7 @@ def test_form_create_reports_field_failures(monkeypatch):
     tool = FormCreate()
     monkeypatch.setattr(tool, "_insert_space", lambda ctx: None)
 
-    res = tool.execute(MagicMock(), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
+    res = tool.execute(_mock_form_ctx(), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
 
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
@@ -154,7 +164,7 @@ def test_form_create_ok_when_every_field_succeeds(monkeypatch):
     tool = FormCreate()
     monkeypatch.setattr(tool, "_insert_space", lambda ctx: None)
 
-    res = tool.execute(MagicMock(), fields=[{"control": "text", "name": "ok1"}])
+    res = tool.execute(_mock_form_ctx(), fields=[{"control": "text", "name": "ok1"}])
 
     assert res["status"] == "ok"
     assert res["results"][0]["control_name"] == "ok1"
@@ -166,7 +176,7 @@ def test_form_generate_reports_field_failures(monkeypatch):
     tool = FormGenerate()
     monkeypatch.setattr(tool, "_insert_text", lambda ctx, text: None)
 
-    res = tool._process_form_content(MagicMock(), "Hello {FIELD:control='text',name='bad',label='X'} tail")
+    res = tool._process_form_content(_mock_form_ctx(), "Hello {FIELD:control='text',name='bad',label='X'} tail")
 
     assert res["status"] == "error"
     assert "bad: no draw page" in res["message"]
@@ -177,7 +187,7 @@ def test_form_generate_reports_unparsed_field_tag():
     tool = FormGenerate()
     tool._insert_text = lambda ctx, text: None
 
-    res = tool._process_form_content(MagicMock(), "Intro {FIELD:broken} end")
+    res = tool._process_form_content(_mock_form_ctx(), "Intro {FIELD:broken} end")
 
     assert res["status"] == "error"
     assert "Could not parse form field tag" in res["message"]
@@ -189,10 +199,11 @@ def test_form_generate_ok_when_fields_succeed(monkeypatch):
     inserted = []
     monkeypatch.setattr(tool, "_insert_text", lambda ctx, text: inserted.append(text))
 
-    res = tool._process_form_content(MagicMock(), "Hello {FIELD:control='text',name='nm',label='Name'} tail")
+    res = tool._process_form_content(_mock_form_ctx(), "Hello {FIELD:control='text',name='nm',label='Name'} tail")
 
     assert res == {"status": "ok", "message": "Form generation completed and inserted."}
     assert inserted == ["Hello ", " tail"]
+
 
 def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
     tool = FormGenerate()
@@ -378,6 +389,83 @@ def test_form_create_control_date_default_value_applied():
     res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="2026-10-18")
     assert res["status"] == "ok"
     assert hasattr(model, "Date") or hasattr(model, "DefaultDate")
+
+
+def test_form_create_second_field_failure_triggers_undo(monkeypatch):
+    _patch_field_creator(monkeypatch, "bad")
+    tool = FormCreate()
+    monkeypatch.setattr(tool, "_insert_space", lambda ctx: None)
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.return_value = ["Form Create"]
+    doc.getUndoManager.return_value = mgr
+
+    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
+
+    assert res["status"] == "error"
+    assert res.get("rolled_back") is True
+    mgr.enterUndoContext.assert_called_once_with("Form Create")
+    mgr.leaveUndoContext.assert_called_once()
+    mgr.undo.assert_called_once()
+
+
+def test_form_create_locked_undo_manager_rejects(monkeypatch):
+    tool = FormCreate()
+    called = []
+    monkeypatch.setattr("plugin.writer.specialized.forms.FormCreateControl._execute_main", lambda *a, **k: called.append(True))
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = True
+    doc.getUndoManager.return_value = mgr
+
+    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "ok1"}])
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    assert len(called) == 0
+    mgr.enterUndoContext.assert_not_called()
+
+
+def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch):
+    from plugin.framework.errors import WriterAgentException
+
+    tool = FormGenerate()
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+
+    mock_client = MagicMock()
+    stop_checker = MagicMock()
+    status_callback = MagicMock()
+
+    stopped_exc = WriterAgentException("User cancelled", code="USER_STOPPED")
+    mock_client.chat_completion_sync.side_effect = stopped_exc
+
+    ctx = MagicMock()
+    ctx.stop_checker = stop_checker
+    ctx.status_callback = status_callback
+
+    with patch("plugin.framework.config.get_api_config"), \
+         patch("plugin.framework.client.llm_client.LlmClient", return_value=mock_client):
+        res = tool.execute(ctx, description="test form")
+
+        assert res["status"] == "error"
+        assert res["code"] == "USER_STOPPED"
+        assert res["message"] == "User cancelled"
+        mock_client.chat_completion_sync.assert_called_once()
+        _, kwargs = mock_client.chat_completion_sync.call_args
+        assert kwargs.get("stop_checker") is stop_checker
+        assert kwargs.get("status_callback") is status_callback
+
+
+def test_form_create_and_control_schemas_match_control_type_map():
+    from plugin.writer.specialized.forms import _CONTROL_TYPE_MAP
+
+    expected_keys = sorted(_CONTROL_TYPE_MAP.keys())
+    assert sorted(FormCreateControl.parameters["properties"]["control"]["enum"]) == expected_keys
+    assert sorted(FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]) == expected_keys
+
 
 
 

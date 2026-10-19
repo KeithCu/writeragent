@@ -181,12 +181,13 @@ Delete and Insert as two independent rows. WriterAgent adds:
    menu, accept/reject-all.
 2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
    **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
-   agent changes exist; hidden when the count drops to zero. Menu actions `review_prev` /
-   `review_next` call `goto_adjacent_agent_change`. Counting follows the count-without-previews rule:
-   `pending_agent_change_count` scans distinct agent tokens from a `RedlineView` without reading
-   text previews with `XTextCursor.getString()`. Its per-document modify listener queues recount
-   per burst with `post_to_main_thread`, which runs on a later main-loop turn so it does not walk
-   redlines inside the modify notification.
+   agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
+   `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
+   unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
+   follows the count-without-previews rule: `pending_agent_change_count` scans distinct agent tokens
+   from a `RedlineView` without reading text previews with `XTextCursor.getString()`. Its per-document
+   modify listener queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
+   turn so it does not walk redlines inside the modify notification.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.
 
@@ -195,7 +196,9 @@ It is strictly token-scoped — only `wa-review` changes are listed or resolved.
 On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bounds and dispatching
 `.uno:AcceptTrackedChange` / `.uno:RejectTrackedChange` resolves **only that change**. Several
 agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
-checks refuse when a **user** redline or another **agent** change overlaps the exact span.
+checks refuse when a **user** redline or another **agent** change overlaps the exact span;
+post-dispatch safety requires that no foreign `redline_identity_key` count dropped (the same rule
+as `manage_tracked_changes`).
 
 Single-change resolve returns an honest `ResolveStatus`:
 * `RESOLVED`: Success message ("Change accepted." / "Change rejected.").
@@ -237,7 +240,8 @@ resolve-all returns user-facing messages when verification fails.
   full-timeout spin). A change that never gets an anchor bookmark is **not** registered as a
   reviewable agent edit.
 * **Toolbar fast-travel** skips changes whose bounds cannot be read (`_change_bounds` fails); the
-  pending counter may still include them.
+  pending counter may still include them. Stops with unreadable bounds are omitted from Next/Previous;
+  a change with bounds in another text object is visited in redline-table order.
 * **Second window, same document:** toolbar visibility is per-window; a rare stale toolbar can appear
   in a secondary window (documented in `review_toolbar.py`).
 

@@ -66,7 +66,6 @@ def _engine(current: int, pages: int) -> tuple[Any, _Pages, _Bridge]:
     eng.current_slide = current
     eng.pages = deck
     eng.bridge = bridge
-    eng._selection_mode = "none"
     return eng, deck, bridge
 
 
@@ -286,73 +285,32 @@ def test_move_slide_rollback_error_propagates_from_engine() -> None:
     assert eng.applied == []
 
 
-class _MultiParaCursor:
-    def __init__(self, paragraphs: list[str]) -> None:
-        self.paras = list(paragraphs)
-        self.pos_p = 0
-        self.pos_c = 0
-        self.anchor_p = 0
-        self.anchor_c = 0
+class _OffsetCursor:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.pos = 0
+        self.anchor = 0
         self.props: dict[str, object] = {}
 
     def gotoStart(self, expand: bool) -> None:
-        self.pos_p = 0
-        self.pos_c = 0
+        self.pos = 0
         if not expand:
-            self.anchor_p = 0
-            self.anchor_c = 0
+            self.anchor = 0
 
     def gotoEnd(self, expand: bool) -> None:
-        self.pos_p = len(self.paras) - 1
-        self.pos_c = len(self.paras[self.pos_p])
+        self.pos = len(self.text)
         if not expand:
-            self.anchor_p = self.pos_p
-            self.anchor_c = self.pos_c
+            self.anchor = self.pos
 
-    def gotoStartOfParagraph(self, expand: bool) -> None:
-        self.pos_c = 0
+    def goRight(self, count: int, expand: bool) -> None:
+        self.pos = min(len(self.text), self.pos + count)
         if not expand:
-            self.anchor_p = self.pos_p
-            self.anchor_c = 0
-
-    def gotoEndOfParagraph(self, expand: bool) -> None:
-        self.pos_c = len(self.paras[self.pos_p])
-        if not expand:
-            self.anchor_p = self.pos_p
-            self.anchor_c = self.pos_c
-
-    def gotoNextParagraph(self, expand: bool) -> bool:
-        if self.pos_p + 1 < len(self.paras):
-            self.pos_p += 1
-            self.pos_c = 0
-            if not expand:
-                self.anchor_p = self.pos_p
-                self.anchor_c = 0
-            return True
-        return False
-
-    def goRight(self, n: int, expand: bool) -> None:
-        self.pos_c += n
-        if not expand:
-            self.anchor_p = self.pos_p
-            self.anchor_c = self.pos_c
+            self.anchor = self.pos
 
     def getString(self) -> str:
-        if self.anchor_p == self.pos_p:
-            start = min(self.anchor_c, self.pos_c)
-            end = max(self.anchor_c, self.pos_c)
-            return self.paras[self.pos_p][start:end]
-        if self.anchor_p < self.pos_p:
-            p_start, c_start = self.anchor_p, self.anchor_c
-            p_end, c_end = self.pos_p, self.pos_c
-        else:
-            p_start, c_start = self.pos_p, self.pos_c
-            p_end, c_end = self.anchor_p, self.anchor_c
-        parts = [self.paras[p_start][c_start:]]
-        for mid in range(p_start + 1, p_end):
-            parts.append(self.paras[mid])
-        parts.append(self.paras[p_end][:c_end])
-        return "\n".join(parts)
+        start = min(self.anchor, self.pos)
+        end = max(self.anchor, self.pos)
+        return self.text[start:end]
 
     def setPropertyValue(self, name: str, value: object) -> None:
         self.props[name] = value
@@ -400,7 +358,6 @@ def test_set_text_object_index_and_getText_requirement() -> None:
     eng.current_slide = 0
     eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: _PageWithShapes())
     eng.bridge = bridge
-    eng._selection_mode = "none"
 
     eng._set_text_index(0, "attempt on obj0")
     assert obj0.text == ""
@@ -421,48 +378,50 @@ def test_select_text_forms_and_caret_bold() -> None:
     eng, calls, controller = _dispatch_engine()
     eng.applied = []
     paragraphs = ["first paragraph", "second paragraph", "third paragraph"]
+    full_text = "\n".join(paragraphs)
+    xtext = SimpleNamespace(getString=lambda: full_text)
 
     # [] selects whole text
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [])
-    assert cursor.getString() == "first paragraph\nsecond paragraph\nthird paragraph"
-    assert eng._selection_mode == "all"
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [])
+    assert cursor.getString() == full_text
+    assert mode == "all"
 
     # [para] selects that paragraph
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [1])
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [1])
     assert cursor.getString() == "second paragraph"
-    assert eng._selection_mode == "range"
+    assert mode == "range"
 
     # [para, char] moves to caret and selects nothing
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [0, 6])
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [0, 6])
     assert cursor.getString() == ""
-    assert eng._selection_mode == "caret"
+    assert mode == "caret"
 
     # [para, char, endPara] selects from [para, char] through end of endPara
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [0, 6, 1])
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [0, 6, 1])
     assert cursor.getString() == "paragraph\nsecond paragraph"
-    assert eng._selection_mode == "range"
+    assert mode == "range"
 
     # [para, char, endPara, endChar] on same paragraph: absolute span (endChar - char)
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [0, 6, 0, 15])
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [0, 6, 0, 15])
     assert cursor.getString() == "paragraph"
-    assert eng._selection_mode == "range"
+    assert mode == "range"
 
     # [para, char, endPara, endChar] across paragraphs
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [0, 6, 1, 6])
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [0, 6, 1, 6])
     assert cursor.getString() == "paragraph\nsecond"
-    assert eng._selection_mode == "range"
+    assert mode == "range"
 
     # Caret plus .uno:Bold does not dispatch and does not set CharWeight
-    cursor = _MultiParaCursor(paragraphs)
-    eng._select_text(SimpleNamespace(), cursor, [0, 6])
-    shape = _Shape("first paragraph\nsecond paragraph\nthird paragraph")
-    res = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode=eng._selection_mode)
+    cursor = _OffsetCursor(full_text)
+    _, mode = eng._select_text(xtext, cursor, [0, 6])
+    shape = _Shape(full_text)
+    res = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode=mode)
     assert res is False
     assert calls == []
     assert controller.selected == []
@@ -588,8 +547,9 @@ def test_top_level_uno_updates_current_slide_before_commands() -> None:
     eng.pages = deck
     eng.bridge = bridge
 
-    def _mock_top_uno(spec: object) -> None:
+    def _mock_top_uno(spec: object) -> bool:
         bridge.active_page = 3
+        return True
 
     setattr(eng, "_apply_top_level_uno", _mock_top_uno)
     res = eng.apply(
@@ -617,8 +577,8 @@ def test_top_level_uno_without_current_page_preserves_active_page_index() -> Non
     eng.pages = deck
     eng.bridge = bridge
 
-    def _mock_top_uno(spec: object) -> None:
-        pass
+    def _mock_top_uno(spec: object) -> bool:
+        return True
 
     setattr(eng, "_apply_top_level_uno", _mock_top_uno)
     res = eng.apply(
@@ -899,6 +859,231 @@ def test_slide_level_uno_command_failure_stops_sequence() -> None:
     assert res["status"] == "error"
     assert res["failed_at"] == 0
     assert "UnoCommand:" not in str(res["applied"])
+
+
+def test_select_text_valid_then_bogus_stops_sequence_and_does_not_format_old_range() -> None:
+    # Valid SelectText then ["bogus"] then .uno:Bold: cursor props stay empty,
+    # result is error, failed_at is that command.
+    cursor = _OffsetCursor("first paragraph\nsecond paragraph")
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"SelectText": [0]},
+                            {"SelectText": ["bogus"]},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert "CharWeight" not in cursor.props
+    assert "EditTextObject.0" not in res["applied"]
+
+
+def test_insert_text_raises_stops_sequence_and_char_weight_unset() -> None:
+    # InsertText raises then .uno:Bold: CharWeight is unset.
+    class _FailingSetStringCursor(_OffsetCursor):
+        def setString(self, val: str) -> None:
+            raise RuntimeError("cannot insert text")
+
+    cursor = _FailingSetStringCursor("initial text")
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"InsertText": "new text"},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert "CharWeight" not in cursor.props
+
+
+def test_get_string_raises_in_selection_mode_none_does_not_dispatch() -> None:
+    eng, calls, controller = _dispatch_engine()
+
+    class _RaisingStringCursor:
+        def __init__(self) -> None:
+            self.props: dict[str, Any] = {}
+
+        def getString(self) -> str:
+            raise RuntimeError("read error")
+
+        def setPropertyValue(self, name: str, value: Any) -> None:
+            self.props[name] = value
+
+    cursor = _RaisingStringCursor()
+    shape = _Shape("some text")
+
+    res_none = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="none")
+    assert res_none is False
+    assert calls == []
+    assert controller.selected == []
+    assert any("failed to read text cursor" in w for w in eng.warnings)
+
+    res_range = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="range")
+    assert res_range is True
+    assert cursor.props.get("CharWeight") == 150.0
+    assert calls == []
+    assert controller.selected == []
+
+
+def test_first_bad_subcommand_stops_following_subcommands() -> None:
+    cursor = _OffsetCursor("Hello world")
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"UnknownSubCommand": 123},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert "CharWeight" not in cursor.props
+
+
+def test_top_level_uno_missing_controller_returns_error_and_skips_commands() -> None:
+    deck = _Pages(2)
+    bridge = _Bridge(deck)
+    tctx = SimpleNamespace(
+        doc=SimpleNamespace(getCurrentController=lambda: None),
+        active_page_index=0,
+        ctx=SimpleNamespace(ServiceManager=None),
+    )
+    eng: Any = SlideCommandEngine.__new__(SlideCommandEngine)
+    eng.tctx = tctx
+    eng.doc = tctx.doc
+    eng.pages = deck
+    eng.bridge = bridge
+    eng.applied = []
+    eng.warnings = []
+    eng.current_slide = 0
+
+    res = eng.apply(
+        {
+            "UnoCommand": ".uno:Save",
+            "Transforms": {
+                "SlideCommands": [{"MoveSlide": 1}],
+            },
+        }
+    )
+    assert res["status"] == "error"
+    assert "failed_at" not in res
+    assert bridge.moved is None
+    assert any("no active controller" in w for w in res["warnings"])
+
+
+def test_change_layout_setter_exception_reports_failed_at() -> None:
+    deck = _Pages(1)
+    bridge = _Bridge(deck)
+
+    class _ExplodingPage:
+        @property
+        def Layout(self) -> int:
+            return 0
+
+        @Layout.setter
+        def Layout(self, val: int) -> None:
+            raise RuntimeError("layout setter failed")
+
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: _ExplodingPage())
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [{"ChangeLayout": 1}],
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert any("ChangeLayout failed:" in w for w in res["warnings"])
+
+
+def test_delete_slide_exception_reports_failed_at() -> None:
+    eng, deck, bridge = _engine(0, 2)
+
+    def _boom_delete(idx: int) -> None:
+        raise RuntimeError("delete explosion")
+
+    setattr(bridge, "delete_slide", _boom_delete)
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [{"DeleteSlide": 0}],
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert any("DeleteSlide failed:" in w for w in res["warnings"])
+
+
+def test_move_slide_rollback_error_caught_in_apply() -> None:
+    from plugin.draw.bridge import PageExchangeRollbackError
+
+    eng, deck, bridge = _engine(0, 2)
+
+    def _boom_move(from_idx: int, to_idx: int) -> bool:
+        raise PageExchangeRollbackError("temporary page swap failed")
+
+    setattr(bridge, "move_slide", _boom_move)
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [{"MoveSlide": 1}],
+            }
+        }
+    )
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert any("MoveSlide failed:" in w for w in res["warnings"])
+
+
+def test_uno_command_invalid_json_arguments_warns_and_does_not_dispatch() -> None:
+    eng, calls, controller = _dispatch_engine()
+    res = eng._dispatch_uno_string(".uno:Color {not-json}")
+    assert res is False
+    assert calls == []
+    assert any("invalid JSON arguments" in w for w in eng.warnings)
 
 
 

@@ -155,3 +155,35 @@ def test_char_index_at_point_returns_none_on_exception():
         assert _char_index_at_point(control, 10, 20) is None
 
 
+def test_attach_calc_cell_link_listener_disposing_clears_control_spans():
+    try:
+        import uno  # noqa: F401
+        from com.sun.star.awt import XMouseListener  # noqa: F401
+    except ImportError:
+        import pytest
+
+        pytest.skip("PyUNO XMouseListener unavailable")
+
+    from plugin.calc.navigation import (
+        attach_calc_cell_link_listener,
+        cell_link_registry,
+        register_cell_link_span,
+    )
+
+    ctrl = MagicMock()
+    listeners = []
+    ctrl.addMouseListener.side_effect = listeners.append
+
+    ctx = MagicMock()
+    attach_calc_cell_link_listener(ctx, ctrl, lambda: None)
+    assert len(listeners) == 1
+    listener = listeners[0]
+
+    register_cell_link_span(ctrl, 0, 5, "A1")
+    assert cell_link_registry.lookup(ctrl, 2) == "A1"
+
+    listener.disposing(MagicMock())
+    assert cell_link_registry.lookup(ctrl, 2) is None
+
+
+

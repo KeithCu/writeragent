@@ -24,3 +24,8 @@ For LibrePy (`make manifest-core`), a slim manifest is produced containing only 
 - `extension/Dialogs/dialog.xlb`: Catalog of dialog IDs updated to include standalone dialogs.
 - `extension/description.xml`: Extension description containing current version from `plugin/version.py`.
 - `extension/META-INF/manifest.xml`: UNO component registration entries (WriterAgent build only).
+
+## Settings Tabs and Saved Fields
+
+Settings tabs and saved fields come from `iter_settings_tab_modules` / `iter_settings_field_modules`. Exclusions are `core`, `main`, `ai`, `launcher`, `config_inline` children, `settings_tab: false`, and `config_dialog`. Field specs are the tab modules plus inline children of those tabs. Standalone dialogs do not use this list.
+

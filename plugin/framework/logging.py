@@ -194,7 +194,18 @@ def _redact_sensitive_inplace(o: Any) -> None:
 
 
 FLUSH_INTERVAL_SEC = 1.0
-_MAX_DEBUG_LOG_BYTES = 5 * 1024 * 1024
+
+
+def _debug_log_max_bytes() -> int:
+    # Tip: CI mock runs set WRITERAGENT_DEBUG_LOG_MAX_MB so a long run keeps early tests.
+    try:
+        mb = int(os.environ.get("WRITERAGENT_DEBUG_LOG_MAX_MB", "") or 5)
+    except ValueError:
+        mb = 5
+    return max(1, mb) * 1024 * 1024
+
+
+_MAX_DEBUG_LOG_BYTES = _debug_log_max_bytes()
 _debug_log_flush_lock = threading.Lock()
 _debug_log_last_flush = 0.0
 # Import-time binding so tests that patch time.monotonic (e.g. LLM pacing) are not affected by flush rate limiting.

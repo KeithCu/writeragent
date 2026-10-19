@@ -16,12 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer image generation and editing tools.
 
-Alternative (not implemented): consolidate the document image tools
-(ImageList, ImageGetInfo, ImageSetProperties, ImageDownload, ImageInsert,
-ImageDelete, ImageReplace) into a single manage_image tool with
-action: list | info | set_properties | download | insert | delete | replace
-and action-specific parameters. Would reduce 7 tools to 1 but yield a
-larger single schema.
+The seven image tools stay separate; an action-union schema is not the plan.
 """
 
 import hashlib
@@ -52,6 +47,10 @@ def _run_on_main(
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
+
+# Queue pickup bound for document mutations when bytes are already in hand.
+# Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
+_DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from .image_utils import (
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
@@ -262,8 +261,20 @@ class ImageGenerate(ToolWriterImageBase):
         base_size = args.get("base_size", get_config_int("image_base_size"))
 
         if is_edit:
-            width = args.get("width", edit_width)
-            height = args.get("height", edit_height)
+            arg_w = args.get("width")
+            arg_h = args.get("height")
+            if arg_w is not None and arg_h is not None:
+                width = arg_w
+                height = arg_h
+            elif arg_w is not None:
+                width = arg_w
+                height = round(arg_w * edit_height / edit_width) if edit_width > 0 else edit_height
+            elif arg_h is not None:
+                height = arg_h
+                width = round(arg_h * edit_width / edit_height) if edit_height > 0 else edit_width
+            else:
+                width = edit_width
+                height = edit_height
             wire_ratio = None
         else:
             aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
@@ -342,7 +353,7 @@ class ImageGenerate(ToolWriterImageBase):
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
         # Stop after the download must not turn a finished insert into an error.
         try:
-            msg = _run_on_main(_insert_or_replace, timeout=mt_timeout, bound_scope=None)
+            msg = _run_on_main(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
             from plugin.writer.images.image_utils import _unlink_temp_paths
 
@@ -479,8 +490,12 @@ class ImageList(ToolWriterImageBase):
         doc_svc = getattr(ctx.services, "document", None)
         para_ranges = None
         text_obj = None
+        entries = None
         if not is_calc and not is_draw and doc_svc:
             para_ranges = doc_svc.get_paragraph_ranges(doc)
+            from plugin.doc.paragraph_search import paragraph_entries
+
+            entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
 
         images = []
@@ -491,7 +506,8 @@ class ImageList(ToolWriterImageBase):
         vc_saved_attempted = False
 
         try:
-            for name, graphic in graphics_names:
+            for item in graphics_names:
+                name, graphic = item[0], item[1]
                 try:
                     size = _object_size(graphic)
                     title = _optional_property(graphic, "Title", "")
@@ -503,8 +519,13 @@ class ImageList(ToolWriterImageBase):
                     if not is_calc and not is_draw:
                         try:
                             anchor = graphic.getAnchor()
-                            if doc_svc and anchor is not None:
-                                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                            if doc_svc and anchor is not None and para_ranges is not None:
+                                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                                from plugin.doc.paragraph_search import confirm_paragraph_index
+
+                                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                                if placed is not None:
+                                    paragraph_index = placed
                         except Exception as exc:
                             reraise_if_disposed(exc)
 
@@ -548,6 +569,13 @@ class ImageList(ToolWriterImageBase):
                         entry_pos = {}
 
                     entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
+                    if is_calc:
+                        s_idx = getattr(item, "sheet_index", getattr(graphic, "_calc_sheet_index", None))
+                        s_name = getattr(item, "sheet_name", getattr(graphic, "_calc_sheet_name", None))
+                        if s_idx is not None:
+                            entry["sheet_index"] = s_idx
+                        if s_name is not None:
+                            entry["sheet_name"] = s_name
                     if page is not None:
                         entry["page"] = page
                     if is_draw:
@@ -575,8 +603,8 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str) -> Any | None:
-    return visual_helpers.get_graphic_object_by_name(doc, image_name)
+def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str, sheet_index: int | None = None) -> Any | None:
+    return visual_helpers.get_graphic_object_by_name(doc, image_name, sheet_index=sheet_index)
 
 
 def _object_size(obj: typing.Any) -> Any:
@@ -593,13 +621,25 @@ class ImageGetInfo(ToolWriterImageBase):
     name: str | None = "image_get_info"
     intent: str | None = "media"
     description: str = "Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name of the image (from image_list)."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
+        },
+        "required": ["name"],
+    }
 
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
+        sheet_index = kwargs.get("sheet_index")
 
-        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        try:
+            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+        except ValueError as exc:
+            sheets = getattr(exc, "sheet_indices", None)
+            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
@@ -648,14 +688,19 @@ class ImageGetInfo(ToolWriterImageBase):
 
         # Paragraph index via anchor
         paragraph_index = -1
-        is_calc = visual_helpers.get_visual_doc_type(ctx.doc) == "calc"
-        if not is_calc:
+        is_writer = visual_helpers.get_visual_doc_type(ctx.doc) in ("writer", "web")
+        if is_writer:
             try:
                 anchor = graphic.getAnchor()
                 doc_svc = ctx.services.document
                 para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
                 text_obj = ctx.doc.getText()
-                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                from plugin.doc.paragraph_search import confirm_paragraph_index
+
+                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                if placed is not None:
+                    paragraph_index = placed
             except Exception as exc:
                 reraise_if_disposed(exc)
 
@@ -770,6 +815,7 @@ class ImageSetProperties(ToolWriterImageBase):
             "crop_bottom_mm": {"type": "number", "description": "Millimetres to crop off the BOTTOM edge."},
             "crop_left_mm": {"type": "number", "description": "Millimetres to crop off the LEFT edge."},
             "crop_right_mm": {"type": "number", "description": "Millimetres to crop off the RIGHT edge."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
         "required": ["name"],
     }
@@ -796,7 +842,12 @@ class ImageSetProperties(ToolWriterImageBase):
                 parameter="anchor_type",
             )
 
-        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        sheet_index = kwargs.get("sheet_index")
+        try:
+            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+        except ValueError as exc:
+            sheets = getattr(exc, "sheet_indices", None)
+            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
@@ -962,6 +1013,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             },
             "units": {"type": "string", "enum": ["px", "percent"], "description": "Units of every box (default px)."},
             "width_mm": {"type": "number", "description": "Display width in millimetres (default: keep the current width)."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
         "required": ["name"],
     }
@@ -970,7 +1022,12 @@ class ImageCropAndHighlight(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
-        obj = _get_graphic_object(ctx, ctx.doc, image_name)
+        sheet_index = kwargs.get("sheet_index")
+        try:
+            obj = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+        except ValueError as exc:
+            sheets = getattr(exc, "sheet_indices", None)
+            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
         if not obj:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
         crop_box = kwargs.get("crop_box")
@@ -998,7 +1055,12 @@ class ImageCropAndHighlight(ToolWriterImageBase):
 
         size = _object_size(obj)
         width_mm = kwargs.get("width_mm")
-        width_100mm = int(round(width_mm * 100)) if width_mm else int(size.Width)
+        if width_mm is not None:
+            if isinstance(width_mm, bool) or not isinstance(width_mm, (int, float)) or int(round(width_mm * 100)) < 1:
+                return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+            width_100mm = int(round(width_mm * 100))
+        else:
+            width_100mm = int(size.Width)
         region_w, region_h = region[2], region[3]
         height_100mm = max(1, int(round(width_100mm * region_h / region_w)))
         # Bake failures propagate. The picture is not written until bake returns.
@@ -1008,10 +1070,12 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
             obj.setPropertyValue("Graphic", baked)
             # The old crop referred to the old picture; the region is already cut out of the new one.
-            visual_helpers.safe_set_property(obj, "GraphicCrop", GraphicCrop())
+            if visual_helpers.has_uno_property(obj, "GraphicCrop"):
+                if not visual_helpers.safe_set_property(obj, "GraphicCrop", GraphicCrop()):
+                    return self._tool_error("Failed to reset image crop.", code="SET_CROP_FAILED")
             new_size = Size(width_100mm, height_100mm)
-            if not visual_helpers.safe_set_property(obj, "Size", new_size):
-                visual_helpers.safe_try_method(obj, "setSize", new_size)
+            if not (visual_helpers.safe_set_property(obj, "Size", new_size) or visual_helpers.safe_try_method(obj, "setSize", new_size)):
+                return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
         return {
             "status": "ok",
             "image_name": image_name,
@@ -1034,9 +1098,13 @@ class ImageDownload(ToolWriterImageBase):
     name: str | None = "image_download"
     intent: str | None = "media"
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
+    scripting_only_parameters: frozenset[str] = frozenset({"verify_ssl"})
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: true)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
+        "properties": {
+            "url": {"type": "string", "description": "URL of the image to download."},
+            "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."},
+        },
         "required": ["url"],
     }
 
@@ -1067,17 +1135,16 @@ class ImageDownload(ToolWriterImageBase):
 
 
 def _graphic_pixel_size_from_path(ctx: Any, image_path: str) -> tuple[int | None, int | None]:
+    # Probe reads pixel size (or vector fallback). The probed XGraphic is not reused
+    # for insertion because _create_embedded_graphic prefers GraphicURL and keeps Graphic
+    # only as a fallback.
     try:
         from plugin.writer.images.image_tools import _file_url_for_path, _graphic_from_provider
 
         file_url = _file_url_for_path(image_path)
         xgraphic = _graphic_from_provider(ctx, file_url)
         if xgraphic is not None:
-            px = visual_helpers.safe_get_property(xgraphic, "SizePixel")
-            if px is None and hasattr(xgraphic, "getPropertyValue"):
-                px = xgraphic.getPropertyValue("SizePixel")
-            if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
-                return int(px.Width), int(px.Height)
+            return visual_helpers.graphic_pixel_size(xgraphic)
     except Exception as ex:
         log.debug("_graphic_pixel_size_from_path failed: %s", ex)
     return None, None
@@ -1276,7 +1343,7 @@ class ImageInsert(ToolWriterImageBase):
             image_name = graphic.getName() if hasattr(graphic, "getName") else ""
             return {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
 
-        return _run_on_main(_place, timeout=float(get_config_int("request_timeout")))
+        return _run_on_main(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC)
 
 
 # ------------------------------------------------------------------
@@ -1297,6 +1364,7 @@ class ImageDelete(ToolWriterImageBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the image to delete (from image_list)."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
         "required": ["name"],
     }
@@ -1305,8 +1373,13 @@ class ImageDelete(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
+        sheet_index = kwargs.get("sheet_index")
 
-        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        try:
+            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+        except ValueError as exc:
+            sheets = getattr(exc, "sheet_indices", None)
+            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
@@ -1343,6 +1416,7 @@ class ImageReplace(ToolWriterImageBase):
             "path": {"type": "string", "description": "Local file path or URL of the replacement image."},
             "width_mm": {"type": "number", "description": "New width in millimetres. If height_mm is omitted, height scales to keep the current aspect ratio."},
             "height_mm": {"type": "number", "description": "New height in millimetres. If width_mm is omitted, width scales to keep the current aspect ratio."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
         "required": ["name", "path"],
     }
@@ -1356,6 +1430,7 @@ class ImageReplace(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
         new_image_path = kwargs.get("path", "")
+        sheet_index = kwargs.get("sheet_index")
 
         width_mm_val = kwargs.get("width_mm")
         if width_mm_val is not None and width_mm_val <= 0:
@@ -1368,7 +1443,12 @@ class ImageReplace(ToolWriterImageBase):
 
         if is_url:
             # Existence is UNO. Do not hold the graphic proxy across the download.
-            if not _run_on_main(lambda: _get_graphic_object(ctx, ctx.doc, image_name) is not None):
+            try:
+                exists = _run_on_main(lambda: _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index) is not None)
+            except ValueError as exc:
+                sheets = getattr(exc, "sheet_indices", None)
+                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
+            if not exists:
                 return self._tool_error(
                     "Image '%s' not found or document does not support graphic objects." % image_name,
                     code="IMAGE_NOT_FOUND",
@@ -1383,7 +1463,11 @@ class ImageReplace(ToolWriterImageBase):
                 return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
 
         def _apply() -> dict[str, Any]:
-            graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+            try:
+                graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+            except ValueError as exc:
+                sheets = getattr(exc, "sheet_indices", None)
+                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
             if not graphic:
                 return self._tool_error(
                     "Image '%s' not found or document does not support graphic objects." % image_name,
@@ -1407,7 +1491,7 @@ class ImageReplace(ToolWriterImageBase):
                 return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
             return {"status": "ok", "image_name": image_name}
 
-        return _run_on_main(_apply, timeout=float(get_config_int("request_timeout")))
+        return _run_on_main(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC)
 
 
 # ------------------------------------------------------------------
@@ -1419,7 +1503,24 @@ IMAGE_CACHE_MAX_AGE_SECONDS = 24 * 3600
 IMAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024
 
 
+def _unlink_stale_partials(cache_dir: str) -> None:
+    now = time.time()
+    cutoff_age = max(600, get_config_int("request_timeout") + 30)
+    try:
+        for entry in os.scandir(cache_dir):
+            if entry.is_file() and entry.name.endswith(".partial"):
+                try:
+                    st = entry.stat()
+                    if now - st.st_mtime > cutoff_age:
+                        os.unlink(entry.path)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
 def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
+    _unlink_stale_partials(cache_dir)
     now = time.time()
     keep_real = os.path.realpath(keep_path)
     entries: list[tuple[float, int, str]] = []
@@ -1481,6 +1582,7 @@ def _download_image_to_cache(
 
     cache_dir = image_tools._image_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
+    _unlink_stale_partials(cache_dir)
 
     # Derive a stable filename from the URL
     url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
