@@ -377,7 +377,7 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
 # Ensure scripts/ is on path for manifest_xdl and manifest_registry
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
 
-from scripts.manifest_xdl import generate_standalone_config_dialogs, update_dialog_xlb
+from scripts.manifest_xdl import generate_standalone_config_dialogs, generate_xdl_files, update_dialog_xlb
 from scripts.manifest_registry import (
     generate_settings_dialog_tabs,
     generate_manifest_xml,
@@ -455,20 +455,14 @@ def main():
     manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path, librepy_flavor=librepy_flavor)
 
-    # 2. XDL standalone dialog pages and dialog.xlb
+    # 2. XDL dialog pages (single Dialogs/ tree — lowercase dialogs/ collides on Windows)
+    dialogs_dir = os.path.join(build_dir, "Dialogs")
+    generate_xdl_files(sorted_modules, dialogs_dir)
     standalone_dialog_ids = generate_standalone_config_dialogs(sorted_modules, build_dir)
     wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "Dialogs")
     wa_dialogs_gen = os.path.join(build_dir, "Dialogs")
     update_dialog_xlb(wa_dialogs_ext, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
     update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
-
-    # Clean stale XDLs in build/generated/Dialogs
-    dialogs_dir = os.path.join(build_dir, "Dialogs")
-    allowed_basenames = {"SettingsDialog.xdl"} | {f"{did}.xdl" for did in standalone_dialog_ids}
-    if os.path.isdir(dialogs_dir):
-        for fname in os.listdir(dialogs_dir):
-            if fname.endswith(".xdl") and fname not in allowed_basenames:
-                os.remove(os.path.join(dialogs_dir, fname))
 
     # 3. META-INF/manifest.xml
     if not args.skip_writeragent_extension:
