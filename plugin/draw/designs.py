@@ -81,7 +81,7 @@ def _decode_odf_name(name: str) -> str:
 
 def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
     """Read styles.xml and collect draw:image/@xlink:href for the named master page."""
-    import xml.etree.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml  # shipped .otp styles.xml, size-capped by _read_member
 
     styles_name = ""
     for n in zf.namelist():
