@@ -352,3 +352,69 @@ def test_derive_otp_look_caches_and_invalidates_on_mtime(tmp_path):
         assert look3 == look1
         mock_zip.assert_called_once()
 
+
+def test_decode_png_rgb_rejects_illegal_bit_depth_for_color_types():
+    for ct in (2, 4, 6):
+        ihdr = struct.pack(">IIBBBBB", 8, 8, 1, ct, 0, 0, 0)
+        png = (
+            b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", ihdr)
+            + _chunk(b"IDAT", zlib.compress(b"\x00" * 64, 9))
+            + _chunk(b"IEND", b"")
+        )
+        assert decode_png_rgb(png) is None
+
+
+def test_decode_png_rgb_sampling_matches_downsample_oracle(tmp_path):
+    width, height = 64, 32  # 2048 pixels > 1024
+    total = width * height
+    pix = [((i * 17) % 256, (i * 31) % 256, (i * 73) % 256) for i in range(total)]
+    png = _rgb_png(pix, width, height)
+
+    decoded = decode_png_rgb(png)
+    assert decoded is not None
+    step = max(1, total // 1024)
+    expected = pix[::step][:1024]
+    assert decoded == expected
+
+    # derive_otp_look produces the exact same mood/accents as full oracle
+    path = _write_otp(tmp_path, thumb=png)
+    look = derive_otp_look(path)
+    from plugin.draw.design_look import _mood_and_accents
+    expected_mood, expected_accents = _mood_and_accents(expected)
+    if expected_mood:
+        assert expected_mood in look
+    for accent in expected_accents:
+        assert accent in look
+
+
+def test_decode_png_rgb_1024x1024_tracemalloc_stays_bounded():
+    width = height = 1024
+    # All dark blue pixels. Raw scanlines are 1024 * (1 + 1024 * 3) ~ 3.1 MB.
+    # Deflated IDAT is small due to uniform color.
+    raw_row = b"\x00" + (bytes((20, 40, 120)) * width)
+    raw_data = raw_row * height
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw_data, 1))
+        + _chunk(b"IEND", b"")
+    )
+
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        decoded = decode_png_rgb(png)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert decoded is not None
+    assert len(decoded) == 1024
+    # 1 million 3-tuples would alone take ~80MB. With sampling in the row loop,
+    # peak stays under 12MB (including the inflated ~3MB raw scanline buffer).
+    assert peak < 12 * 1024 * 1024
+
+

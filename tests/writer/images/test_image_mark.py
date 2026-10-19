@@ -3,9 +3,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for image_mark's pure helpers (no LibreOffice required). Baking itself was checked live."""
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+for mod_name in [
+    "com.sun.star.drawing",
+    "com.sun.star.drawing.FillStyle",
+    "com.sun.star.drawing.LineStyle",
+]:
+    if mod_name not in sys.modules:
+        m = ModuleType(mod_name)
+        m.NONE = 0
+        sys.modules[mod_name] = m
 
 from plugin.writer.images import image_mark
 
@@ -164,3 +176,80 @@ def test_multiply_bmp_rejects_other_layouts():
 def test_multiply_bmp_rejects_missing_bitmap():
     with pytest.raises(RuntimeError, match="did not write a bitmap"):
         image_mark.multiply_bmp(bytearray(), [((0, 0, 1, 1), "highlight", 0xFFEB3B)])
+
+
+def test_bake_scratch_draw_none_raises():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = None
+    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    graphic = _graphic()
+    with pytest.raises(RuntimeError, match="could not open a scratch Draw document"):
+        image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
+
+
+def test_bake_scratch_draw_close_error_does_not_hide_success():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    draw = MagicMock()
+    draw.close.side_effect = RuntimeError("close failed")
+    desktop.loadComponentFromURL.return_value = draw
+
+    export_filter = MagicMock()
+    provider = MagicMock()
+
+    def _create(service, c):
+        if "Desktop" in service:
+            return desktop
+        if "GraphicExportFilter" in service:
+            return export_filter
+        if "GraphicProvider" in service:
+            return provider
+        return MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    graphic = _graphic()
+    created_files = []
+
+    with (
+        patch("uno.invoke", return_value=True),
+        patch("plugin.writer.images.image_mark._load", return_value="baked_graphic"),
+        patch("tempfile.mkstemp", side_effect=lambda **kw: (999, "/tmp/test_scratch_draw.png")),
+        patch("os.close"),
+        patch("os.remove", side_effect=lambda p: created_files.append(p)),
+    ):
+        result = image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
+    assert result == "baked_graphic"
+    draw.close.assert_called_once_with(True)
+    assert "/tmp/test_scratch_draw.png" in created_files
+
+
+def test_bake_scratch_draw_close_error_preserves_export_failure():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    draw = MagicMock()
+    draw.close.side_effect = RuntimeError("close failed")
+    desktop.loadComponentFromURL.return_value = draw
+
+    export_filter = MagicMock()
+
+    def _create(service, c):
+        if "Desktop" in service:
+            return desktop
+        if "GraphicExportFilter" in service:
+            return export_filter
+        return MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    graphic = _graphic()
+
+    with (
+        patch("uno.invoke", return_value=False),
+        patch("tempfile.mkstemp", return_value=(999, "/tmp/test_scratch_draw.png")),
+        patch("os.close"),
+        patch("os.remove"),
+    ):
+        with pytest.raises(RuntimeError, match="GraphicExportFilter returned false"):
+            image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
+    draw.close.assert_called_once_with(True)
+

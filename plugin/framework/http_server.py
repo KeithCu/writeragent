@@ -238,6 +238,63 @@ def format_bind_failure(host: str, port: int | str, exc: BaseException, service_
     return "\n".join(lines)
 
 
+_BENIGN_ACCEPT_ERRNOS: frozenset[int] = frozenset(
+    code
+    for code in (
+        getattr(errno, "ECONNABORTED", None),
+        getattr(errno, "ECONNRESET", None),
+        getattr(errno, "EINTR", None),
+        getattr(errno, "EAGAIN", None),
+        getattr(errno, "EWOULDBLOCK", None),
+        getattr(errno, "EPROTO", None),
+        10053,  # WSAECONNABORTED
+        10054,  # WSAECONNRESET
+        10004,  # WSAEINTR
+        10035,  # WSAEWOULDBLOCK
+    )
+    if code is not None
+)
+
+_RESOURCE_ACCEPT_ERRNOS: frozenset[int] = frozenset(
+    code
+    for code in (
+        getattr(errno, "EMFILE", None),
+        getattr(errno, "ENFILE", None),
+        getattr(errno, "ENOBUFS", None),
+        getattr(errno, "ENOMEM", None),
+        10024,  # WSAEMFILE
+        10055,  # WSAENOBUFS
+    )
+    if code is not None
+)
+
+
+def _accept_errno(exc: BaseException) -> int | None:
+    """Extract socket errno or winerror from an accept exception."""
+    if isinstance(exc, OSError):
+        err = getattr(exc, "errno", None)
+        winerr = getattr(exc, "winerror", None)
+        if winerr in _BENIGN_ACCEPT_ERRNOS or winerr in _RESOURCE_ACCEPT_ERRNOS:
+            return winerr
+        if isinstance(err, int):
+            return err
+        if isinstance(winerr, int):
+            return winerr
+    return None
+
+
+def _drain_wake_socket(sock: Socket) -> None:
+    while True:
+        try:
+            chunk = sock.recv(128)
+            if not chunk:
+                break
+        except (BlockingIOError, InterruptedError):
+            break
+        except OSError:
+            break
+
+
 class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or one host) using a bounded daemon pool.
 
@@ -259,6 +316,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
     _serving: bool
+    _wake_write: Socket | None = None
+    _accept_pause_until: float = 0.0
+    _accept_backoff_sec: float = 0.05
+    _last_accept_error_warn: float = 0.0
     executor: _RequestThreads
     _queued_lock: threading.Lock
     _last_queue_full_warn: float = 0.0
@@ -284,6 +345,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
         self._serving = False
+        self._wake_write = None
+        self._accept_pause_until = 0.0
+        self._accept_backoff_sec = 0.05
+        self._last_accept_error_warn = 0.0
         self._last_queue_full_warn = 0.0
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
@@ -473,25 +538,26 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         super().handle_error(request, client_address)
 
     def _accept_one(self, ready_sock: Socket) -> None:
-        """Accept one connection, wrap it, and hand it to the pool.
-
-        What was wrong: accept and TLS wrap shared one ``except OSError``.
-        ``ssl.SSLError`` is an ``OSError``, so a failed wrap was logged as an
-        accept error, slept 50 ms, and left the accepted socket open.
-        How: the sleep is for a failing ``accept`` (EMFILE and similar). One
-        bad client then held a file descriptor and stalled the accept thread.
-        Why: close ``raw_conn`` on wrap failure and do not sleep. ``close``
-        on a socket whose fd was already detached does not close that fd.
-        """
+        """Accept one connection, wrap it, and hand it to the pool."""
         try:
             raw_conn, client_address = ready_sock.accept()
         except OSError as e:
-            log.warning("Accept error: %s; backing off", e)
-            time.sleep(0.05)
+            err_no = _accept_errno(e)
+            if err_no in _BENIGN_ACCEPT_ERRNOS:
+                return
+            now = time.monotonic()
+            if now - self._last_accept_error_warn >= 1.0:
+                self._last_accept_error_warn = now
+                log.warning("Accept error (errno %s): %s; backing off", err_no, e)
+            self._accept_pause_until = now + self._accept_backoff_sec
+            self._accept_backoff_sec = min(1.0, self._accept_backoff_sec * 2.0)
             return
+        self._accept_backoff_sec = 0.05
+        self._accept_pause_until = 0.0
         try:
             conn, client_address = self._wrap_accepted_socket(raw_conn, client_address)
         except OSError as e:
+            # Tip: close raw_conn on wrap failure without backoff; only accept failures back off.
             try:
                 raw_conn.close()
             except OSError:
@@ -510,24 +576,66 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # Do not clear _dual_shutdown_request here. shutdown() before this
         # thread enters leaves the flag set, so a stop that won the race does
         # not start listening again.
+        wake_read: Socket | None = None
+        wake_write: Socket | None = None
         try:
+            wake_read, wake_write = socket.socketpair()
+            wake_read.setblocking(False)
+            wake_write.setblocking(False)
+            _drain_wake_socket(wake_read)
+            self._wake_write = wake_write
             with selectors.DefaultSelector() as selector:
-                for sock in self.sockets:
-                    selector.register(sock, selectors.EVENT_READ)
+                selector.register(wake_read, selectors.EVENT_READ)
+                listeners_registered = False
 
                 while not self._dual_shutdown_request:
-                    ready = selector.select(poll_interval)
+                    now = time.monotonic()
+                    if now < self._accept_pause_until:
+                        # Tip: while paused on resource error, unregister listeners so readable sockets do not busy-spin.
+                        if listeners_registered:
+                            for sock in self.sockets:
+                                try:
+                                    selector.unregister(sock)
+                                except (KeyError, ValueError):
+                                    pass
+                            listeners_registered = False
+                        timeout = min(poll_interval, max(0.0, self._accept_pause_until - now))
+                    else:
+                        if not listeners_registered:
+                            for sock in self.sockets:
+                                try:
+                                    selector.register(sock, selectors.EVENT_READ)
+                                except (KeyError, ValueError):
+                                    pass
+                            listeners_registered = True
+                        timeout = poll_interval
+
+                    ready = selector.select(timeout)
                     if self._dual_shutdown_request:
                         break
                     for key, _unused in ready:
-                        ready_sock = key.fileobj
-                        # Only listener sockets are registered. The check
-                        # narrows fileobj for the type checker.
-                        if not isinstance(ready_sock, socket.socket):
-                            continue
-                        self._accept_one(ready_sock)
+                        if self._dual_shutdown_request:
+                            break
+                        fileobj = key.fileobj
+                        if fileobj is wake_read:
+                            _drain_wake_socket(wake_read)
+                        elif isinstance(fileobj, socket.socket):
+                            self._accept_one(fileobj)
+                            if time.monotonic() < self._accept_pause_until:
+                                break
                     self.service_actions()
         finally:
+            self._wake_write = None
+            if wake_read is not None:
+                try:
+                    wake_read.close()
+                except OSError:
+                    pass
+            if wake_write is not None:
+                try:
+                    wake_write.close()
+                except OSError:
+                    pass
             self._serving = False
             self._dual_shutdown_request = False
             self._dual_is_shut_down.set()
@@ -539,7 +647,14 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         serve_forever returns immediately. That is the stop-before-listen
         race. Clearing the flag at the start of serve_forever would undo it.
         """
+        # Tip: signal the wake pipe to unblock selector.select immediately.
         self._dual_shutdown_request = True
+        wake_write = self._wake_write
+        if wake_write is not None:
+            try:
+                wake_write.send(b"\x00")
+            except OSError:
+                pass
         if self._serving:
             self._dual_is_shut_down.wait()
 

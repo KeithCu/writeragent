@@ -283,7 +283,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 ## Lifecycle & Signal Handling
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
-- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), a background thread asks the accept loop to stop. `serve_forever` returns within one poll (0.5s), and the listening sockets close in that `finally`. The server then waits up to 30s for requests already taken to drain, terminates worker subprocesses, and cleans up resources. A handler still running in the pool can keep the process up after that wait, because those threads outlive the drain. A cell still running at the end of the wait is abandoned.
+- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), a background thread asks the accept loop to stop. `serve_forever` returns immediately via a wake self-pipe, and the listening sockets close in that `finally`. The server then waits up to 30s for requests already taken to drain, terminates worker subprocesses, and cleans up resources. A handler still running in the pool can keep the process up after that wait, because those threads outlive the drain. A cell still running at the end of the wait is abandoned.
 
 ---
 

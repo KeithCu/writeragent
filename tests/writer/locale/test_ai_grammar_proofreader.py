@@ -1733,3 +1733,37 @@ def test_bind_timeout_backs_off() -> None:
         pr._failed_bind_deadlines["doc-timeout"] = time.monotonic() - 1.0
         pr._ensure_document_bound("doc-timeout")
         assert mock_run.call_count == 2
+def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, mock_locale_fixture) -> None:
+    pr = _make_proofreader()
+    full_sentence = "word1 word2 word3 word4 word5."
+    prefix = "word1 word2 word3"
+    with patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20):
+        gc.cache_put_sentence(
+            "en-US",
+            prefix,
+            [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r1"}],
+            ctx=pr.ctx,
+            doc_id="test-doc",
+            checker_identity="llm:model-x",
+        )
+
+        assert gc.cache_get_sentence("en-US", full_sentence, ctx=pr.ctx, doc_id="test-doc", checker_identity="llm:model-x") is None
+
+        combined, uncached = pr._process_cache_hits("test-doc", "en-US", [(0, len(full_sentence), full_sentence)], checker_identity="llm:model-x")
+        assert len(combined) == 1
+        assert combined[0]["n_error_start"] == 0
+        assert uncached == []
+
+        gc.cache_put_sentence(
+            "en-US",
+            full_sentence,
+            [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r2"}],
+            ctx=pr.ctx,
+            doc_id="test-doc",
+            checker_identity="harper",
+        )
+        harper_combined, harper_uncached = pr._process_cache_hits("test-doc", "en-US", [(0, len(full_sentence), full_sentence)], checker_identity="harper")
+        assert len(harper_combined) == 1
+        assert harper_combined[0]["rule_identifier"] == "r2"
+        assert harper_uncached == []
+

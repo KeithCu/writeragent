@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, cast
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
 from plugin.framework.tool import ToolBaseDummy
@@ -283,7 +283,6 @@ def _validate_headers_and_rows(headers: Any, rows: Any) -> tuple[bool, str | Non
                 return False, f"Value at row {r_idx}, column {c_idx} ({val!r}) must be a number"
 
     return True, None
-
 
 
 def _validate_chart_action(kwargs: dict[str, Any], doc_type: str | None = None) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
@@ -693,7 +692,6 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     return warnings
 
 
-
 def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
     """Set chart data programmatically via XChartDataArray for Writer/Draw."""
     if not headers or not rows:
@@ -818,26 +816,42 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
     return None, None
 
 
-def _ole2_shape_at(page: Any, index: int, doc: Any = None) -> Any | None:
-    """OLE2 shape at *index*, or None when it is another type or a dead shape.
-
-    One disposed shape on a live page is skipped so later shapes still list.
-    getByIndex on a closed document raises the same DisposedException; returning
-    None made ListCharts return status ok with a partial list. When *doc* is
-    passed and that document is disposed, re-raise. Other errors still propagate.
-    """
+def _iter_page_shapes(container: Any, doc: Any = None) -> Iterator[Any]:
+    """Yield all shapes in a draw page or group shape, descending into nested groups."""
+    # Tip: a disposed shape on a live page is skipped so later shapes still list; on a closed
+    # document re-raise, or ListCharts would return status ok with a partial list.
     try:
-        shape = page.getByIndex(index)
-        if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
-            return None
-        return shape
+        count = container.getCount()
     except Exception as exc:
-        # Live page, dead shape: skip. Closed document: propagate.
         if is_disposed_exception(exc):
             if doc is not None and is_document_disposed(doc):
                 raise
-            return None
+            return
         raise
+
+    for i in range(count):
+        try:
+            shape = container.getByIndex(i)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                if doc is not None and is_document_disposed(doc):
+                    raise
+                continue
+            raise
+
+        try:
+            shape_type = shape.getShapeType()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                if doc is not None and is_document_disposed(doc):
+                    raise
+                continue
+            shape_type = None
+
+        yield shape
+
+        if shape_type and "GroupShape" in str(shape_type):
+            yield from _iter_page_shapes(shape, doc)
 
 
 def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None, *, with_container: bool = False) -> Any:
@@ -859,11 +873,10 @@ def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None, *, 
                 raise
         try:
             page = doc.getDrawPage()
-            for j in range(page.getCount()):
-                shape = _ole2_shape_at(page, j, doc)
-                if shape is None:
-                    continue
+            for shape in _iter_page_shapes(page, doc):
                 try:
+                    if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
+                        continue
                     if (shape.Name or "") == chart_name and _is_chart_host(shape, is_embed=False):
                         return (shape, page, "writer_draw_page") if with_container else shape
                 except Exception as exc:
@@ -878,11 +891,10 @@ def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None, *, 
         draw_pages = doc.getDrawPages()
         for i in range(draw_pages.getCount()):
             page = draw_pages.getByIndex(i)
-            for j in range(page.getCount()):
-                shape = _ole2_shape_at(page, j, doc)
-                if shape is None:
-                    continue
+            for shape in _iter_page_shapes(page, doc):
                 try:
+                    if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
+                        continue
                     if shape.Name == chart_name and _is_chart_host(shape, is_embed=False):
                         return (shape, page, "draw_page") if with_container else shape
                 except Exception as exc:
@@ -955,10 +967,9 @@ class ListCharts(ToolBaseDummy):
                         _chart_list_failure(doc, exc, errors, source="embedded", name=name)
             try:
                 page = doc.getDrawPage()
-                for j in range(page.getCount()):
+                for j, shape in enumerate(_iter_page_shapes(page, doc)):
                     try:
-                        shape = _ole2_shape_at(page, j, doc)
-                        if shape is None:
+                        if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
                             continue
                         if _is_chart_host(shape, is_embed=False):
                             nm = shape.Name or f"Chart_{j}"
@@ -982,19 +993,20 @@ class ListCharts(ToolBaseDummy):
             for i in range(pages_count):
                 try:
                     page = pages.getByIndex(i)
-                    shapes_count = page.getCount()
                 except Exception as exc:
                     _chart_list_failure(doc, exc, errors, page=i)
                     continue
-                for j in range(shapes_count):
-                    try:
-                        shape = _ole2_shape_at(page, j, doc)
-                        if shape is None:
-                            continue
-                        if _is_chart_host(shape, is_embed=False):
-                            result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
-                    except Exception as exc:
-                        _chart_list_failure(doc, exc, errors, page=i, index=j)
+                try:
+                    for j, shape in enumerate(_iter_page_shapes(page, doc)):
+                        try:
+                            if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
+                                continue
+                            if _is_chart_host(shape, is_embed=False):
+                                result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
+                        except Exception as exc:
+                            _chart_list_failure(doc, exc, errors, page=i, index=j)
+                except Exception as exc:
+                    _chart_list_failure(doc, exc, errors, page=i)
 
         out: dict[str, Any] = {"status": "ok", "charts": result, "count": len(result)}
         if errors:
@@ -1093,6 +1105,19 @@ class GetChartInfo(ToolBaseDummy):
             log.debug("get_chart_info error: %s", e)
 
         return info
+
+
+def _writer_body_has_no_text(text: Any) -> bool:
+    """Return True if the text body has no content (empty or single empty paragraph)."""
+    enum = text.createEnumeration()
+    if not enum.hasMoreElements():
+        return True
+    first = enum.nextElement()
+    if enum.hasMoreElements():
+        return False
+    if hasattr(first, "getString"):
+        return first.getString() == ""
+    return False
 
 
 class UpsertChart(ToolBaseDummy):
@@ -1338,7 +1363,6 @@ class UpsertChart(ToolBaseDummy):
         """
         doc = ctx.doc
         text = doc.getText()
-        log.info("Creating Writer chart. Current text length: %d", len(text.getString()))
 
         # 1. Resolve cursor position
         try:
@@ -1378,18 +1402,19 @@ class UpsertChart(ToolBaseDummy):
                 raise
         try:
             page = doc.getDrawPage()
-            for j in range(page.getCount()):
+            for s in _iter_page_shapes(page, doc):
                 try:
-                    s = page.getByIndex(j)
                     nm = getattr(s, "Name", None)
                     if nm:
                         existing_names.add(nm)
                 except Exception as exc:
-                    if is_real_disposal(exc):
-                        raise
+                    if is_disposed_exception(exc):
+                        continue
+                    raise
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
+            raise
         name = _unique_chart_name(existing_names)
 
         # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
@@ -1419,7 +1444,7 @@ class UpsertChart(ToolBaseDummy):
         # 3. Insert into document
         try:
             # Ensure we are at a valid insertion point if the doc is empty
-            if text.getString() == "":
+            if _writer_body_has_no_text(text):
                 try:
                     PARAGRAPH_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
                     text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
@@ -1484,21 +1509,18 @@ class UpsertChart(ToolBaseDummy):
                 log.debug("Last ditch effort failed: %s", e)
                 pass
 
+        warnings: list[str] = []
         # 5. Configure Diagram
         if chart_doc:
             try:
                 diagram = chart_doc.createInstance(service)
-                if diagram:
-                    chart_doc.setDiagram(diagram)
-                    log.info("Set chart diagram: %s", service)
-                else:
-                    log.error("Failed to create diagram instance for service: %s", service)
-            except Exception:
-                log.exception("Failed to set chart diagram")
-
-            try:
+                if not diagram:
+                    raise RuntimeError(f"Failed to create diagram instance for service: {service}")
+                chart_doc.setDiagram(diagram)
+                log.info("Set chart diagram: %s", service)
                 warnings = _apply_chart_styling(chart_doc, **kwargs)
             except Exception:
+                # Diagram installation and styling must succeed or the embed is rolled back.
                 _drop_writer_chart_insert(doc, text, chart_obj, name)
                 raise
         else:
@@ -1553,15 +1575,15 @@ class UpsertChart(ToolBaseDummy):
             shape.CLSID = CHART_CLSID_DRAW_OLE
 
             existing_names: set[str] = set()
-            for j in range(page.getCount()):
-                try:
-                    s = page.getByIndex(j)
-                    if s is not shape:
+            for s in _iter_page_shapes(page, doc):
+                if s is not shape:
+                    try:
                         nm = getattr(s, "Name", None)
                         if nm:
                             existing_names.add(nm)
-                except Exception as exc:
-                    if is_real_disposal(exc):
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            continue
                         raise
             name = _unique_chart_name(existing_names)
             shape.Name = name

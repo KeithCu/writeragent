@@ -24,11 +24,14 @@ extension's Python.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from typing import Any, cast
 
 from plugin.doc import visual_helpers
+
+log = logging.getLogger(__name__)
 
 STYLES = ("highlight", "box", "underline")
 # The highlight color is what white paper turns into; black ink stays black.
@@ -173,6 +176,8 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
 
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     draw = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, (_pv("Hidden", True),))
+    if draw is None:
+        raise RuntimeError("LibreOffice could not open a scratch Draw document.")
     tmp_path = None
     try:
         page = draw.getDrawPages().getByIndex(0)
@@ -229,7 +234,11 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
             result = _paint_highlights(provider, result, highlights, tmp_path)
         return result
     finally:
-        draw.close(True)
+        if draw is not None:
+            try:
+                draw.close(True)
+            except Exception as close_ex:
+                log.debug("Failed to close scratch Draw document: %s", close_ex)
         if tmp_path:
             for path in (tmp_path, tmp_path + ".bmp"):
                 try:

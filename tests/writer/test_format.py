@@ -716,6 +716,135 @@ def test_replace_preserving_format_special_portion_keeps_one_step_loop():
     assert writes == ["Y"]
 
 
+def test_replace_preserving_format_200_char_plain_issues_one_setstring():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi
+
+    writes = []
+    moves = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            moves.append((n, expand))
+            return True
+        def setString(self, val):
+            writes.append(val)
+        def getEnd(self):
+            return object()
+        def gotoRange(self, _end, _expand):
+            pass
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return _Cursor()
+        def insertString(self, *_args):
+            pass
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Portion:
+        def __init__(self, text):
+            self.TextPortionType = "Text"
+            self._text = text
+        def getString(self):
+            return self._text
+
+    class _Para:
+        def __init__(self, portions):
+            self._portions = portions
+        def createEnumeration(self):
+            return _Enum(self._portions)
+
+    old_str = "A" * 200
+    new_str = "B" * 200
+
+    class _Range:
+        def getText(self):
+            return _Text()
+        def getString(self):
+            return old_str
+        def getStart(self):
+            return object()
+        def createEnumeration(self):
+            return _Enum([_Para([_Portion(old_str)])])
+
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _Range(), new_str)
+
+    assert writes == [new_str]
+    assert len(writes) == 1
+
+
+def test_replace_preserving_format_two_portions_issue_two_setstrings():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi
+
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            return True
+        def setString(self, val):
+            writes.append(val)
+        def getEnd(self):
+            return object()
+        def gotoRange(self, _end, _expand):
+            pass
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return _Cursor()
+        def insertString(self, *_args):
+            pass
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Portion:
+        def __init__(self, text, is_bold=False):
+            self.TextPortionType = "Text"
+            self._text = text
+            self.is_bold = is_bold
+        def getString(self):
+            return self._text
+
+    p1 = _Portion("plain text ", is_bold=False)
+    p2 = _Portion("bold text", is_bold=True)
+    old_str = "plain text bold text"
+    new_str = "plain word BOLD TEXT"
+
+    class _Para:
+        def createEnumeration(self):
+            return _Enum([p1, p2])
+
+    class _Range:
+        def getText(self):
+            return _Text()
+        def getString(self):
+            return old_str
+        def getStart(self):
+            return object()
+        def createEnumeration(self):
+            return _Enum([_Para()])
+
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _Range(), new_str)
+
+    assert len(writes) == 2
+    assert writes == ["word", "BOLD TEXT"]
+
+
 def test_replace_preserving_format_equal_string_is_noop():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi

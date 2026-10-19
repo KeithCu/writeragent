@@ -35,25 +35,27 @@ _handler_cls: Any = None
 def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> None:
     """Runs on the main thread AFTER the click was processed by the view."""
     try:
-        from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
+        from plugin.framework.uno_context import get_ctx
         from plugin.writer.inline_review import (
             cursor_in_agent_change,
             goto_agent_change,
             resolve_change_at_cursor,
+            scan_redline_view,
             show_review_message,
         )
 
         ctx = get_ctx()
         if ctx is None:
             return
-        token = cursor_in_agent_change(model)
+        view = scan_redline_view(model)
+        token = cursor_in_agent_change(model, view=view)
         if token is None:
             return
 
         # Select the whole edited region so it's highlighted while the user decides -- mirrors
         # the native Manage Changes dialog, where picking a change selects it in the document.
-        goto_agent_change(model, token)
+        goto_agent_change(model, token, view=view)
 
         from com.sun.star.awt import Rectangle
 

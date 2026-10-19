@@ -24,10 +24,13 @@ This is the model layer; the right-click context menu in ``change_context_menu.p
 
 from __future__ import annotations
 
+import contextlib
 from enum import Enum, auto
 import logging
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, Iterator, NamedTuple
 
+from plugin.framework.errors import is_real_disposal
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
 from plugin.writer import review_scan as _review_scan
 
@@ -49,6 +52,12 @@ class ResolveResult(NamedTuple):
     resolved_count: int = 0
 
 
+class ResolveAllResult(NamedTuple):
+    status: ResolveStatus
+    resolved: int
+    total: int
+
+
 class RedlineRow(NamedTuple):
     token: str | None          # full wa-review comment, or None
     identifier: Any            # raw RedlineIdentifier; do not str() it
@@ -64,21 +73,61 @@ class RedlineView(NamedTuple):
     rows: tuple[RedlineRow, ...]
 
 
-# Shown when a conservative resolve refuses because the change shares a paragraph with the
-# user's own tracked change (or another agent change). Surfaced via show_review_message() so a
-# click that resolves nothing on purpose isn't silent.
-_RESOLVE_REFUSED_HINT = (
-    "Could not resolve this change here -- it may share a paragraph with one of"
-    " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
-)
-_RESOLVE_UNRELIABLE_HINT = (
-    "Couldn't read this document's tracked changes reliably just now -- nothing was"
-    " changed. Please try again."
-)
-_RESOLVE_PARTIAL_HINT = (
-    "Started resolving changes but couldn't confirm the result -- some may have been"
-    " resolved. Please review remaining changes in Edit > Track Changes > Manage."
-)
+def _review_message(
+    status: ResolveStatus,
+    accept: bool = True,
+    resolved: int = 0,
+    total: int = 0,
+    is_all: bool = False,
+    group_count: int = 0,
+) -> str:
+    if is_all and total == 0 and status != ResolveStatus.UNRELIABLE:
+        return _("No agent changes to review in this document.")
+
+    if status == ResolveStatus.RESOLVED:
+        if is_all:
+            return ""
+        if group_count > 0:
+            if accept:
+                return _("%d overlapping agent changes accepted together.") % group_count
+            return _("%d overlapping agent changes rejected together.") % group_count
+        return _("Change accepted.") if accept else _("Change rejected.")
+
+    if status == ResolveStatus.UNRELIABLE:
+        return _(
+            "Couldn't read this document's tracked changes reliably just now -- nothing was"
+            " changed. Please try again."
+        )
+
+    if status == ResolveStatus.PARTIAL:
+        return _(
+            "Started resolving changes but couldn't confirm the result -- some may have been"
+            " resolved. Please review remaining changes in Edit > Track Changes > Manage."
+        )
+
+    if status == ResolveStatus.NO_OP:
+        return _("Nothing was changed. Resolve remaining changes from Edit > Track Changes > Manage.")
+
+    if status in (ResolveStatus.REFUSED_FOREIGN, ResolveStatus.REFUSED_SIBLING, ResolveStatus.NOT_ELIGIBLE):
+        if is_all:
+            if resolved == 0:
+                return _(
+                    "None could be resolved here -- each shares a paragraph with one of your own"
+                    " tracked changes. Resolve them from Edit > Track Changes > Manage."
+                )
+            return _(
+                "Resolved %d of %d. The rest share a paragraph with your own tracked changes --"
+                " resolve those from Edit > Track Changes > Manage."
+            ) % (resolved, total)
+        return _(
+            "Could not resolve this change here -- it may share a paragraph with one of"
+            " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
+        )
+
+    return _(
+        "Could not resolve this change here -- it may share a paragraph with one of"
+        " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
+    )
 
 
 def scan_redline_view(model: Any) -> RedlineView:
@@ -133,44 +182,39 @@ def resolve_change_at_cursor(model: Any, ctx: Any, accept: bool) -> tuple[bool, 
     token = cursor_in_agent_change(model)
     if token is None:
         if not has_agent_changes(model):
-            return False, "No agent changes to review in this document."
-        return False, "Put the cursor on a highlighted agent change first."
+            return False, _("No agent changes to review in this document.")
+        return False, _("Put the cursor on a highlighted agent change first.")
 
     res, after_view = resolve_agent_change(model, ctx, token, accept)
     if res.status == ResolveStatus.RESOLVED:
-        return True, "Change accepted." if accept else "Change rejected."
+        return True, _review_message(ResolveStatus.RESOLVED, accept=accept)
     if res.status == ResolveStatus.REFUSED_SIBLING:
         group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
         if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
-            return True, "%d overlapping agent changes %s together." % (
-                group_res.resolved_count, "accepted" if accept else "rejected"
-            )
+            return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
         if group_res.status == ResolveStatus.PARTIAL:
-            return False, _RESOLVE_PARTIAL_HINT
-        return False, _RESOLVE_REFUSED_HINT
+            return False, _review_message(ResolveStatus.PARTIAL, accept=accept)
+        return False, _review_message(ResolveStatus.REFUSED_SIBLING, accept=accept)
     if res.status == ResolveStatus.UNRELIABLE:
-        return False, _RESOLVE_UNRELIABLE_HINT
+        return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
     if res.status == ResolveStatus.PARTIAL:
-        return False, _RESOLVE_PARTIAL_HINT
-    return False, _RESOLVE_REFUSED_HINT
+        return False, _review_message(ResolveStatus.PARTIAL, accept=accept)
+    if res.status == ResolveStatus.NO_OP:
+        return False, _review_message(ResolveStatus.NO_OP, accept=accept)
+    return False, _review_message(res.status, accept=accept)
 
 
 def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, str]:
     """Accept/reject all agent changes; return ``(count_resolved, message)``."""
-    n, total = _resolve_all_agent_changes(model, ctx, accept)
-    if n == _RESOLVE_ALL_UNRELIABLE:
-        return 0, _RESOLVE_UNRELIABLE_HINT
-    if n == _RESOLVE_ALL_UNCONFIRMED:
-        return 0, _RESOLVE_PARTIAL_HINT
-    if total == 0:
-        return 0, "No agent changes to review in this document."
-    if n >= total:
-        return n, ""
-    if n == 0:
-        return 0, ("None could be resolved here -- each shares a paragraph with one of your own"
-                   " tracked changes. Resolve them from Edit > Track Changes > Manage.")
-    return n, ("Resolved %d of %d. The rest share a paragraph with your own tracked changes --"
-               " resolve those from Edit > Track Changes > Manage." % (n, total))
+    result = _resolve_all_agent_changes(model, ctx, accept)
+    msg = _review_message(
+        result.status,
+        accept=accept,
+        resolved=result.resolved,
+        total=result.total,
+        is_all=True,
+    )
+    return max(0, result.resolved), msg
 
 
 def show_review_message(ctx: Any, message: str) -> None:
@@ -179,7 +223,7 @@ def show_review_message(ctx: Any, message: str) -> None:
         return
     from plugin.chatbot.dialogs import msgbox
 
-    msgbox(ctx, "Review agent changes", message)
+    msgbox(ctx, _("Review agent changes"), message)
 
 
 # --- agent-change helpers (used by the click popup and the context menu) -------------------
@@ -307,9 +351,9 @@ def _change_bounds(model: Any, token: str | frozenset[str], view: RedlineView | 
     return _build_bounds_from_view(view, token)
 
 
-def goto_agent_change(model: Any, token: str) -> bool:
+def goto_agent_change(model: Any, token: str, view: RedlineView | None = None) -> bool:
     """Move the view cursor to (and select) the given change so the user sees it."""
-    left, right = _change_bounds(model, token)
+    left, right = _change_bounds(model, token, view=view)
     if left is None or right is None:
         return False
     try:
@@ -416,6 +460,7 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
         view_cursor.gotoRange(right_range.getEnd(), True)
     except Exception:
         log.debug("inline_review: goto_adjacent_agent_change failed to move cursor", exc_info=True)
+        return None
     return tok
 
 
@@ -565,12 +610,27 @@ def _other_agent_redline_in_span(  # pyright: ignore[reportUnusedFunction]  # un
                              strict_edges=strict_edges)
 
 
-def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
-    """Drive the native accept/reject dispatch on the controller's current selection."""
+def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
     smgr = ctx.getServiceManager()
     dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
     dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
+
+
+def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
+    """Drive the native accept/reject dispatch on the controller's current selection."""
+    command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
+    _execute_dispatch(ctx, controller, command)
+
+
+def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], bool]:
+    """Calculate (removed_agent_tokens, foreign_safe) between two snapshots."""
+    before_tokens = {r.token for r in before.rows if r.token is not None}
+    after_tokens = {r.token for r in after.rows if r.token is not None}
+    removed = before_tokens - after_tokens
+    before_foreign = {r.identifier for r in before.rows if r.token is None}
+    after_foreign = {r.identifier for r in after.rows if r.token is None}
+    foreign_safe = after.reliable and not (before_foreign - after_foreign)
+    return removed, foreign_safe
 
 
 def resolve_agent_change(
@@ -600,6 +660,7 @@ def resolve_agent_change(
     if left is None or right is None:
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE), before
 
+    dispatched = False
     try:
         text = left.getText()
         controller = model.getCurrentController()
@@ -623,6 +684,7 @@ def resolve_agent_change(
             view_cursor.gotoRange(left, False)
             view_cursor.gotoRange(right, True)
             try:
+                dispatched = True
                 _dispatch_resolve(ctx, controller, accept)
             except Exception:
                 log.exception("inline_review: exact dispatch failed for %s", token)
@@ -630,11 +692,7 @@ def resolve_agent_change(
                 return ResolveResult(ResolveStatus.PARTIAL), after
 
             after = scan_redline_view(model)
-            after_tokens = {r.token for r in after.rows if r.token is not None}
-            removed = agent_tokens - after_tokens
-            before_foreign = {r.identifier for r in before.rows if r.token is None}
-            after_foreign = {r.identifier for r in after.rows if r.token is None}
-            foreign_safe = after.reliable and not (before_foreign - after_foreign)
+            removed, foreign_safe = _token_delta(before, after)
 
             if removed == {token} and after.reliable and foreign_safe:
                 return ResolveResult(ResolveStatus.RESOLVED, 1), after
@@ -668,6 +726,7 @@ def resolve_agent_change(
         view_cursor.gotoRange(start.getStart(), False)
         view_cursor.gotoRange(end.getEnd(), True)
         try:
+            dispatched = True
             _dispatch_resolve(ctx, controller, accept)
         except Exception:
             log.exception("inline_review: paragraph dispatch failed for %s", token)
@@ -676,18 +735,55 @@ def resolve_agent_change(
 
         after = scan_redline_view(model)
         after_tokens = {r.token for r in after.rows if r.token is not None}
-        before_foreign = {r.identifier for r in before.rows if r.token is None}
-        after_foreign = {r.identifier for r in after.rows if r.token is None}
-        foreign_safe = after.reliable and not (before_foreign - after_foreign)
+        removed, foreign_safe = _token_delta(before, after)
 
         if token not in after_tokens and after.reliable and foreign_safe:
             return ResolveResult(ResolveStatus.RESOLVED, 1), after
-        if token in after_tokens and after.reliable and foreign_safe and agent_tokens == after_tokens:
+        if token in after_tokens and after.reliable and foreign_safe and not removed:
             return ResolveResult(ResolveStatus.NO_OP), after
         return ResolveResult(ResolveStatus.PARTIAL), after
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc) and not dispatched:
+            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
+            return ResolveResult(ResolveStatus.UNRELIABLE), before
         log.exception("inline_review: resolve_agent_change failed")
-        return ResolveResult(ResolveStatus.PARTIAL), before
+        return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
+
+
+@contextlib.contextmanager
+def _grouped_resolve_undo(model: Any) -> Iterator[None]:
+    """Group dispatches into one undo step; keeps landed edits on failure."""
+    um = None
+    entered = False
+    try:
+        if hasattr(model, "getUndoManager"):
+            candidate = model.getUndoManager()
+            if candidate is not None:
+                is_locked = False
+                if hasattr(candidate, "isLocked"):
+                    try:
+                        is_locked = bool(candidate.isLocked())
+                    except Exception:
+                        is_locked = False
+                if not is_locked:
+                    try:
+                        candidate.enterUndoContext(_("Resolve agent changes"))
+                        um = candidate
+                        entered = True
+                    except Exception:
+                        log.warning("inline_review: enterUndoContext failed, undo grouping skipped", exc_info=True)
+                else:
+                    log.warning("inline_review: undo manager is locked, undo grouping skipped")
+    except Exception:
+        log.warning("inline_review: could not access undo manager, undo grouping skipped", exc_info=True)
+    try:
+        yield
+    finally:
+        if entered and um is not None:
+            try:
+                um.leaveUndoContext()
+            except Exception:
+                log.warning("inline_review: leaveUndoContext failed", exc_info=True)
 
 
 def _resolve_overlapping_agent_changes(
@@ -702,10 +798,15 @@ def _resolve_overlapping_agent_changes(
     if token not in before_tokens:
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
 
+    token_bounds: dict[str, tuple[Any, Any]] = {}
+    for tok in before_tokens:
+        b_left, b_right = _build_bounds_from_view(before, tok)
+        if b_left is None or b_right is None:
+            return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
+        token_bounds[tok] = (b_left, b_right)
+
     group = frozenset([token])
-    left, right = _build_bounds_from_view(before, group)
-    if left is None or right is None:
-        return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
+    left, right = token_bounds[token]
 
     dispatched = False
     has_foreign = False
@@ -718,9 +819,7 @@ def _resolve_overlapping_agent_changes(
             if left is None or right is None:
                 return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
             for other in sorted(before_tokens - group):
-                o_left, o_right = _build_bounds_from_view(before, other)
-                if o_left is None or o_right is None:
-                    return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
+                o_left, o_right = token_bounds[other]
                 try:
                     # Strict overlap (shared text, not just a touching edge): an independent
                     # agent change right next to this one is not resolved along with it.
@@ -744,7 +843,7 @@ def _resolve_overlapping_agent_changes(
 
         span = text.createTextCursorByRange(left)
         span.gotoRange(right, True)
-        has_foreign, _ = _classify_span_conflicts(before.rows, text, span, None)
+        has_foreign, _unused_sibling = _classify_span_conflicts(before.rows, text, span, None)
         if has_foreign:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN, 0)
 
@@ -753,43 +852,40 @@ def _resolve_overlapping_agent_changes(
         pending = group
         cur_view = before
 
-        # A Delete stacked on an Insert is undone one layer per dispatch: rejecting it first
-        # restores the inserted text, which still carries the other change -- dispatch again
-        # over what is left of the group while each pass makes progress (checked live).
-        for _unused in range(len(group) + 1):
-            left, right = _build_bounds_from_view(cur_view, pending)
-            if left is None or right is None:
-                break
-            pass_span = text.createTextCursorByRange(left)
-            pass_span.gotoRange(right, True)
-            has_foreign, _ = _classify_span_conflicts(cur_view.rows, text, pass_span, None)
-            if has_foreign:
-                break
-            view_cursor.gotoRange(left, False)
-            view_cursor.gotoRange(right, True)
-            try:
-                _dispatch_resolve(ctx, controller, accept)
-                dispatched = True
-            except Exception:
-                break
-            now = scan_redline_view(model)
-            cur_view = now
-            if not now.reliable:
-                break
-            now_tokens = {r.token for r in now.rows if r.token is not None}
-            left_over = pending & now_tokens
-            if not left_over or left_over == pending:
-                break
-            pending = frozenset(left_over)
+        with _grouped_resolve_undo(model):
+            # A Delete stacked on an Insert is undone one layer per dispatch: rejecting it first
+            # restores the inserted text, which still carries the other change -- dispatch again
+            # over what is left of the group while each pass makes progress (checked live).
+            for _unused in range(len(group) + 1):
+                left, right = _build_bounds_from_view(cur_view, pending)
+                if left is None or right is None:
+                    break
+                pass_span = text.createTextCursorByRange(left)
+                pass_span.gotoRange(right, True)
+                has_foreign, _unused_pass_sibling = _classify_span_conflicts(cur_view.rows, text, pass_span, None)
+                if has_foreign:
+                    break
+                view_cursor.gotoRange(left, False)
+                view_cursor.gotoRange(right, True)
+                try:
+                    dispatched = True
+                    _dispatch_resolve(ctx, controller, accept)
+                except Exception:
+                    break
+                now = scan_redline_view(model)
+                cur_view = now
+                if not now.reliable:
+                    break
+                now_tokens = {r.token for r in now.rows if r.token is not None}
+                left_over = pending & now_tokens
+                if not left_over or left_over == pending:
+                    break
+                pending = frozenset(left_over)
 
         now = cur_view
-        now_tokens = {r.token for r in now.rows if r.token is not None}
-        removed = before_tokens - now_tokens
-        before_foreign = {r.identifier for r in before.rows if r.token is None}
-        now_foreign = {r.identifier for r in now.rows if r.token is None}
-        foreign_lost = bool(before_foreign - now_foreign)
+        removed, foreign_safe = _token_delta(before, now)
 
-        if removed == group and now.reliable and not foreign_lost:
+        if removed == group and now.reliable and foreign_safe:
             return ResolveResult(ResolveStatus.RESOLVED, len(group))
 
         if dispatched:
@@ -797,84 +893,103 @@ def _resolve_overlapping_agent_changes(
                         token, removed, group)
             return ResolveResult(ResolveStatus.PARTIAL, 0)
         return ResolveResult(ResolveStatus.REFUSED_FOREIGN if has_foreign else ResolveStatus.REFUSED_SIBLING, 0)
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc) and not dispatched:
+            log.warning("inline_review: overlapping resolve aborted on disposed document for %s", token)
+            return ResolveResult(ResolveStatus.UNRELIABLE, 0)
         log.exception("inline_review: resolving overlapping agent changes of %s failed", token)
-        return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.REFUSED_SIBLING, 0)
+        return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE, 0)
 
 
-# Sentinels (negative so they never collide with a real resolved-count):
-_RESOLVE_ALL_UNRELIABLE = -1   # snapshot unreliable BEFORE any dispatch -> nothing was changed
-_RESOLVE_ALL_UNCONFIRMED = -2  # a dispatch already ran but the final state couldn't be confirmed
-
-
-def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> tuple[int, int]:
-    """Accept/reject all agent changes; returns (count_resolved, total_tokens)."""
+def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAllResult:
+    """Accept/reject all agent changes; returns ResolveAllResult."""
     entry_view = scan_redline_view(model)
     if not entry_view.reliable:
         log.warning("inline_review: resolve-all aborted -- redline snapshot unreliable")
-        return _RESOLVE_ALL_UNRELIABLE, 0
+        return ResolveAllResult(status=ResolveStatus.UNRELIABLE, resolved=0, total=0)
     entry_tokens = {r.token for r in entry_view.rows if r.token is not None}
     total = len(entry_tokens)
     if total == 0:
-        return 0, 0
+        return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=0, total=0)
 
     if _is_all_redlines_agent(entry_view):
         try:
             controller = model.getCurrentController()
-            smgr = ctx.getServiceManager()
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
             command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
-            after = scan_redline_view(model)
-            if not after.reliable:
-                return _RESOLVE_ALL_UNCONFIRMED, total
-            after_tokens = {r.token for r in after.rows if r.token is not None}
-            return max(0, total - len(after_tokens)), total
+            _execute_dispatch(ctx, controller, command)
         except Exception:
             log.exception("inline_review: resolve-all global dispatch failed")
-            return _RESOLVE_ALL_UNCONFIRMED, total
+            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+
+        after = scan_redline_view(model)
+        if not after.reliable:
+            return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
+        after_tokens = {r.token for r in after.rows if r.token is not None}
+        resolved = max(0, total - len(after_tokens))
+        if not after_tokens:
+            return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
+        if len(after_tokens) == total:
+            return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
+        return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
 
     skip: set[str] = set()
+    skip_reasons: dict[str, ResolveStatus] = {}
     dispatched = False
     cur_view = entry_view
-    # No fixed cap: each pass either resolves the head change (a token leaves the snapshot) or skips
-    # it (added to `skip`), so the pending set -- tokens minus skip -- strictly shrinks and the loop
-    # always terminates. The snapshot is RE-READ reliably each pass; an unreliable read aborts the
-    # whole operation -- UNCONFIRMED once we've dispatched (changes may already be resolved), else
-    # UNRELIABLE -- rather than terminate early and silently leave changes pending.
-    while True:
-        if not cur_view.reliable:
-            log.warning("inline_review: resolve-all aborted mid-pass -- redline snapshot unreliable")
-            return (_RESOLVE_ALL_UNCONFIRMED if dispatched else _RESOLVE_ALL_UNRELIABLE), total
-        cur_tokens = {r.token for r in cur_view.rows if r.token is not None}
-        pending = sorted(t for t in cur_tokens if t not in skip)
-        if not pending:
-            break
-        token = pending[0]
-        before_count = len(cur_tokens)
-        # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
-        res, next_view = resolve_agent_change(
-            model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False, before=cur_view
-        )
-        if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
-            dispatched = True
-        cur_view = next_view
-        if not cur_view.reliable:
-            return (_RESOLVE_ALL_UNCONFIRMED if dispatched else _RESOLVE_ALL_UNRELIABLE), total
-        after_tokens = {r.token for r in cur_view.rows if r.token is not None}
-        if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
-            # Refused (a user redline shares its paragraph), failed, or cleared nothing: skip it so
-            # the rest still resolve and a stuck change can't spin the loop -- the user handles the
-            # skipped one via the native review UI.
-            log.debug("inline_review: skipping %s in resolve-all (foreign redline or no change)", token)
-            skip.add(token)
+
+    with _grouped_resolve_undo(model):
+        # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip`, so pending
+        # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
+        # instead of silently leaving changes pending.
+        while True:
+            if not cur_view.reliable:
+                log.warning("inline_review: resolve-all aborted mid-pass -- redline snapshot unreliable")
+                return ResolveAllResult(
+                    status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
+                    resolved=0,
+                    total=total,
+                )
+            cur_tokens = {r.token for r in cur_view.rows if r.token is not None}
+            pending = sorted(t for t in cur_tokens if t not in skip)
+            if not pending:
+                break
+            token = pending[0]
+            before_count = len(cur_tokens)
+            # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
+            res, next_view = resolve_agent_change(
+                model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False, before=cur_view
+            )
+            # A dispatch was attempted once status is in this set.
+            if res.status in (ResolveStatus.RESOLVED, ResolveStatus.NO_OP, ResolveStatus.PARTIAL):
+                dispatched = True
+            cur_view = next_view
+            if not cur_view.reliable:
+                return ResolveAllResult(
+                    status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
+                    resolved=0,
+                    total=total,
+                )
+            after_tokens = {r.token for r in cur_view.rows if r.token is not None}
+            if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
+                # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
+                log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
+                skip.add(token)
+                skip_reasons[token] = res.status
 
     final_tokens = {r.token for r in cur_view.rows if r.token is not None}
-    # Count tokens that disappeared, not +1 per pass: one dispatch can clear several siblings.
-    return max(0, total - len(final_tokens)), total
+    # Tip: count tokens that disappeared; one dispatch can clear several siblings.
+    resolved = max(0, total - len(final_tokens))
+
+    if resolved == total:
+        return ResolveAllResult(status=ResolveStatus.RESOLVED, resolved=total, total=total)
+    if skip_reasons and all(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
+        return ResolveAllResult(status=ResolveStatus.REFUSED_FOREIGN, resolved=resolved, total=total)
+    if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
+        return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
+    return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
 
 
 def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
     """Accept/reject every pending agent change (the user's own redlines stay untouched)."""
-    resolved, _total = _resolve_all_agent_changes(model, ctx, accept)
-    return resolved
+    result = _resolve_all_agent_changes(model, ctx, accept)
+    return max(0, result.resolved)

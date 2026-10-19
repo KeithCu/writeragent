@@ -24,13 +24,13 @@ from plugin.writer.inline_review import (
     RedlineView,
     ResolveResult,
     ResolveStatus,
-    _RESOLVE_ALL_UNRELIABLE,
     _agent_change_tokens,
     _all_redlines_are_agent,
     _change_bounds,
     _foreign_redline_ids,
     _foreign_redline_in_span,
     _other_agent_redline_in_span,
+    _resolve_all_agent_changes,
     _resolve_overlapping_agent_changes,
     _span_contains_point,
     agent_changes,
@@ -728,7 +728,8 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     token = TOKEN_PREFIX + "s:1"
     with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
         assert resolve_agent_change(model, ctx, token, True)[0].status == ResolveStatus.UNRELIABLE
-        assert resolve_all_agent_changes(model, ctx, True) == _RESOLVE_ALL_UNRELIABLE
+        assert _resolve_all_agent_changes(model, ctx, True).status == ResolveStatus.UNRELIABLE
+        assert resolve_all_agent_changes(model, ctx, True) == 0
         assert _resolve_overlapping_agent_changes(model, ctx, token, True).status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
     # Global AcceptAll/RejectAll uses the service manager, not _dispatch_resolve.
@@ -820,7 +821,6 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
 
 
 def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_next_unreliable():
-    # Pre-dispatch refusal followed by unreliable snapshot returns _RESOLVE_ALL_UNRELIABLE (-1)
     rows = (RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),)
     entry_view = RedlineView(reliable=True, total=1, rows=rows)
     unreliable_view = RedlineView(reliable=False, total=1, rows=rows)
@@ -828,8 +828,9 @@ def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_n
          patch("plugin.writer.inline_review.resolve_agent_change",
                return_value=(ResolveResult(ResolveStatus.REFUSED_FOREIGN), unreliable_view)), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
-    assert n == _RESOLVE_ALL_UNRELIABLE
+        res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+    assert res.status == ResolveStatus.UNRELIABLE
+    assert res.resolved == 0
 
 
 def test_getString_raises_still_counts_and_navigates_without_getString_calls():
@@ -1025,3 +1026,86 @@ def test_scan_count_resolve_all_mixed_three_changes_with_user_redline():
         n = resolve_all_agent_changes(model, ctx, True)
     assert n == 3
     assert model._rl.enums == 4
+
+
+def test_resolve_agent_change_gotorange_raises_before_dispatch():
+    t = TOKEN_PREFIX + "s:1"
+    items = [FakeRedline(t, 10, 20)]
+
+    class ThrowingGotoModel(_ViewModel):
+        def __init__(self, redlines):
+            super().__init__(redlines)
+            vc = MagicMock()
+            vc.getText.return_value = FakeText()
+            vc.getStart.return_value = FakeRange(15, 15)
+            vc.gotoRange.side_effect = RuntimeError("gotoRange boom")
+            self.controller.getViewCursor.return_value = vc
+
+    model = ThrowingGotoModel(FakeRedlines(items))
+    ctx = MagicMock()
+    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+        res, _ = resolve_agent_change(model, ctx, t, True)
+        assert res.status == ResolveStatus.UNRELIABLE
+        dispatch.assert_not_called()
+
+        ok, msg = resolve_change_at_cursor(model, ctx, True)
+        assert ok is False
+        assert "some may have been resolved" not in msg
+        assert "nothing was changed" in msg.lower()
+
+
+def test_goto_adjacent_agent_change_returns_none_when_gotorange_raises():
+    t1 = TOKEN_PREFIX + "s:1"
+    rl = FakeRedline(t1, 10, 20)
+    redlines = FakeRedlines([rl])
+
+    class ThrowingGotoDoc(_ViewModel):
+        def __init__(self, redlines):
+            super().__init__(redlines)
+            vc = MagicMock()
+            vc.getText.return_value = FakeText()
+            vc.getStart.return_value = FakeRange(0, 0)
+            vc.getEnd.return_value = FakeRange(0, 0)
+            vc.isCollapsed.return_value = True
+            vc.gotoRange.side_effect = RuntimeError("gotoRange failed")
+            self.controller.getViewCursor.return_value = vc
+
+    doc = ThrowingGotoDoc(redlines)
+    tok = goto_adjacent_agent_change(doc, True)
+    assert tok is None
+
+
+def test_scan_count_click_popup_enumerates_once():
+    from plugin.writer.review_click_popup import _show_popup_and_resolve
+
+    t = TOKEN_PREFIX + "s:1"
+    items = [FakeRedline(t, 10, 20)]
+
+    class CountingRedlines:
+        def __init__(self):
+            self.enums = 0
+        def createEnumeration(self):
+            self.enums += 1
+            return FakeEnum(list(items))
+        def getCount(self):
+            return len(items)
+
+    model = _ViewModel(CountingRedlines())
+    vc = MagicMock()
+    vc.getText.return_value = FakeText()
+    vc.getStart.return_value = FakeRange(15, 15)
+    model.controller.getViewCursor.return_value = vc
+
+    mock_popup = MagicMock()
+    mock_popup.execute.return_value = 0
+    mock_smgr = MagicMock()
+    mock_smgr.createInstanceWithContext.return_value = mock_popup
+    mock_ctx = MagicMock()
+    mock_ctx.getServiceManager.return_value = mock_smgr
+
+    with patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx):
+        _show_popup_and_resolve(model, MagicMock(), 100, 100)
+
+    assert model._rl.enums == 1
+    mock_popup.execute.assert_called_once()
+

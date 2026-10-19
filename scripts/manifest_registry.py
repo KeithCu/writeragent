@@ -391,16 +391,19 @@ def generate_accelerators_xcu(modules, output_path):
 def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_flavor=False):
     """Auto-generate tabs and pages for SettingsDialog.xdl using a template."""
     if not os.path.exists(tpl_path):
-        return
+        raise FileNotFoundError(f"Template not found: {tpl_path}")
 
     with open(tpl_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    tab_marker = "<!-- AUTO_GENERATED_TABS -->"
-    page_marker = "<!-- AUTO_GENERATED_PAGES -->"
+    tab_start = "<!-- AUTO_GENERATED_TABS -->"
+    tab_end = "<!-- END AUTO_GENERATED_TABS -->"
+    page_start = "<!-- AUTO_GENERATED_PAGES -->"
+    page_end = "<!-- END AUTO_GENERATED_PAGES -->"
 
-    if tab_marker not in content or page_marker not in content:
-        return
+    for marker in (tab_start, tab_end, page_start, page_end):
+        if marker not in content:
+            raise ValueError(f"Required marker {marker!r} missing from {tpl_path}")
 
     from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
 
@@ -579,27 +582,33 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
         pages.append(f"  <!-- === Page {page_num}: {name.title()} Settings === -->\n{page_str}")
         page_num += 1
 
-    # Replace markers
-    # For tabs, we keep everything before tab_marker, and everything starting with "<!-- === Page 1:"
-    # For pages, we keep everything up to page_marker, and everything starting with "\n  <!-- OK Button" or "</dlg:bulletinboard>"
-    
-    before_tabs, rest1 = content.split(tab_marker, 1)
-    idx_p1 = rest1.find("<!-- === Page 1:")
-    after_tabs = rest1[idx_p1:] if idx_p1 != -1 else rest1
-    
-    # We now split the remaining text with page_marker
-    if page_marker in after_tabs:
-        middle, rest2 = after_tabs.split(page_marker, 1)
-        # Find the OK button or </dlg:bulletinboard> to mark the end of generated pages
-        idx_ok = rest2.find("<!-- OK Button")
-        if idx_ok == -1:
-            idx_ok = rest2.find("</dlg:bulletinboard>")
-        rest2 = rest2[idx_ok:] if idx_ok != -1 else rest2
-    else:
-        middle = after_tabs
-        rest2 = ""
+    # Splicing between begin/end marker pairs
+    before_tabs, rest_after_tab_start = content.split(tab_start, 1)
+    _old_tabs, after_tab_end = rest_after_tab_start.split(tab_end, 1)
 
-    new_content = before_tabs + tab_marker + "\n" + "\n".join(tabs) + "\n\n  " + middle + page_marker + "\n" + "\n".join(pages) + "\n\n  " + rest2
+    if page_start not in after_tab_end or page_end not in after_tab_end:
+        raise ValueError(f"Page markers missing after tab markers in {tpl_path}")
+
+    between_sections, rest_after_page_start = after_tab_end.split(page_start, 1)
+    _old_pages, after_page_end = rest_after_page_start.split(page_end, 1)
+
+    tabs_str = ("\n" + "\n".join(tabs) + "\n  ") if tabs else "\n  "
+    pages_str = ("\n" + "\n".join(pages) + "\n\n  ") if pages else "\n  "
+
+    new_content = (
+        before_tabs
+        + tab_start
+        + tabs_str
+        + tab_end
+        + between_sections
+        + page_start
+        + pages_str
+        + page_end
+        + after_page_end
+    )
+
+    # Validate that generated XML is well-formed before writing
+    ET.fromstring(new_content)
 
     _write_if_changed(output_path, new_content)
     print(f"  Injected {len(tabs)} tabs into {os.path.basename(output_path)}")
@@ -665,8 +674,7 @@ def patch_description_xml(extension_dir):
     desc_path = os.path.join(extension_dir, "description.xml")
 
     if not os.path.exists(tpl_path):
-        print("  WARNING: description.xml.tpl not found, skipping")
-        return
+        raise FileNotFoundError(f"description.xml.tpl not found in {extension_dir}")
 
     with open(tpl_path) as f:
         content = f.read()

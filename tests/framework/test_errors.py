@@ -193,6 +193,53 @@ class TestErrorHandling:
         assert "Request Timeout" not in formula
         assert "formula evaluation timed out" in formula
 
+    def test_format_error_message_socket_timeout_vs_host_timeout(self):
+        import socket
+        from plugin.framework.errors import format_error_message
+
+        # Socket / HTTP timeouts produce the Settings sentence
+        assert "Request Timed Out" in format_error_message(TimeoutError("timed out"))
+        assert "Settings" in format_error_message(TimeoutError("timed out"))
+        assert "Request Timed Out" in format_error_message(socket.timeout("timed out"))
+        assert "Settings" in format_error_message(socket.timeout("timed out"))
+
+        # Non-socket host timeouts keep their original message and do not mention Settings
+        host_messages = [
+            "Main-thread execution of _workbook_session_id_impl timed out after 30.0s",
+            "Harper LSP operation timed out",
+            "marshal post timed out: AsyncCallback unavailable",
+        ]
+        for msg in host_messages:
+            res = format_error_message(TimeoutError(msg))
+            assert res == msg
+            assert "Request Timed Out" not in res
+            assert "Settings" not in res
+
+        runtime_harper = format_error_message(RuntimeError("Harper LSP operation timed out"))
+        assert runtime_harper == "Harper LSP operation timed out"
+        assert "Request Timed Out" not in runtime_harper
+        assert "Settings" not in runtime_harper
+
+        os_timeout = format_error_message(OSError("connection timed out"))
+        assert "Request Timed Out" in os_timeout
+        assert "Settings" in os_timeout
+
+    def test_http_status_message_matches_urllib_and_client_response(self):
+        import urllib.error
+        from email.message import Message
+        from plugin.framework.client.errors import _format_http_error_response
+        from plugin.framework.errors import format_error_message, http_status_message
+
+        for status in (401, 403, 404, 429):
+            msg = http_status_message(status)
+            assert msg is not None
+            http_err = urllib.error.HTTPError("http://example.com", status, "Error", Message(), None)
+            assert format_error_message(http_err) == msg
+            assert _format_http_error_response(status, "Error", "") == msg
+
+        assert http_status_message(500) is None
+        assert http_status_message(200) is None
+
     def test_writeragent_exception_subclasses_and_details_unification(self):
         from plugin.framework.errors import (
             AgentParsingError,
@@ -728,26 +775,6 @@ def test_safe_call_reraises_writer_agent_exception():
     assert exc_info.value.code == "PERMISSION_DENIED"
 
 
-def test_handle_errors_uses_class_code_and_reraises_writer_agent_exception():
-    from plugin.framework.errors import ToolExecutionError, ToolPermissionError, handle_errors
-
-    @handle_errors("probe")
-    def _fail_val():
-        raise ValueError("invalid value")
-
-    with pytest.raises(ToolExecutionError) as exc_info:
-        _fail_val()
-    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
-
-    @handle_errors("probe")
-    def _fail_perm():
-        raise ToolPermissionError("Not allowed")
-
-    with pytest.raises(ToolPermissionError) as exc_info2:
-        _fail_perm()
-    assert exc_info2.value.code == "PERMISSION_DENIED"
-
-
 def test_reraise_if_disposed_leaves_runtime_exception():
     from plugin.framework.errors import DocumentDisposedError, reraise_if_disposed
 
@@ -864,8 +891,8 @@ def test_format_error_message_uses_uno_message_attribute():
     assert "sheet is protected" in msg
 
 
-def test_handle_errors_and_safe_call_use_uno_message():
-    from plugin.framework.errors import ToolExecutionError, UnoObjectError, handle_errors, safe_call
+def test_safe_call_uses_uno_message():
+    from plugin.framework.errors import UnoObjectError, safe_call
 
     class CustomUnoException(Exception):
         def __init__(self, message: str):
@@ -881,30 +908,14 @@ def test_handle_errors_and_safe_call_use_uno_message():
 
     exc = CustomUnoException("sheet is protected")
 
-    @handle_errors("insert")
-    def _fail_insert():
-        raise exc
-
-    with pytest.raises(ToolExecutionError) as exc_info:
-        _fail_insert()
-    assert "sheet is protected" in str(exc_info.value)
-    assert exc_info.value.details["error"] == "sheet is protected"
-
     def _raise_exc():
         raise exc
 
-    with pytest.raises(UnoObjectError) as exc_info2:
+    with pytest.raises(UnoObjectError) as exc_info:
         safe_call(_raise_exc, "insert")
-    assert "sheet is protected" in str(exc_info2.value)
+    assert "sheet is protected" in str(exc_info.value)
 
     runtime_exc = RuntimeException()
-
-    @handle_errors("insert")
-    def _fail_runtime():
-        raise runtime_exc
-
-    with pytest.raises(ToolExecutionError):
-        _fail_runtime()
 
     def _raise_runtime():
         raise runtime_exc

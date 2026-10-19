@@ -104,3 +104,65 @@ def test_apply_ruby_with_math_creates_ruby_on_both_bases_uno(ctx: Any, doc: Any)
     assert any(kind == "Text" and text == "東" for kind, text, _reading in kinds), kinds
     assert any(kind == "Text" and text == "西" for kind, text, _reading in kinds), kinds
 
+
+@native_test
+@with_native_doc("writer")
+def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
+    """Compare scratch getString() with html_to_search_text after ruby strip."""
+    skip_windows_leftover_hidden_load("html_to_search_text oracle swriter")
+    from plugin.framework.html_stripper import html_to_search_text
+    from plugin.writer.html_import import extract_and_strip_ruby, insert_html_fragment_at_cursor
+
+    fixtures = [
+        "<p>First paragraph</p><p>Second paragraph</p>",
+        "<p>Line 1<br>Line 2</p>",
+        "<h1>Heading</h1><p>Body paragraph with <b>bold</b> text.</p>",
+        "<p><ruby>漢字<rt>かんじ</rt></ruby> text</p>",
+    ]
+    text = doc.getText()
+    for html in fixtures:
+        text.setString("")
+        cur = text.createTextCursor()
+        base_html, _unused = extract_and_strip_ruby(html)
+        insert_html_fragment_at_cursor(cur, base_html)
+        scratch_text = text.getString().strip().replace("\r\n", "\n")
+        search_text = html_to_search_text(base_html).strip()
+        assert scratch_text == search_text
+
+
+@native_test
+@with_native_doc("writer")
+def test_styled_insert_at_end_cursor_walk_uno(ctx: Any, doc: Any) -> None:
+    """Twenty leading paragraphs, a one-paragraph data-lo-style insert at the end."""
+    skip_windows_leftover_hidden_load("styled_insert_at_end_cursor_walk_uno swriter")
+    from plugin.writer.html_import import _insert_mixed_or_plain_html
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for i in range(20):
+        text.insertString(cur, f"Paragraph {i}", False)
+        text.insertControlCharacter(cur, 0, False)
+
+    insert_cur = text.createTextCursor()
+    insert_cur.gotoEnd(False)
+    _insert_mixed_or_plain_html(
+        doc, ctx, insert_cur,
+        '<h1 data-lo-style="Heading1">New Heading</h1>',
+        apply_styles=True,
+    )
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    assert len(paras) >= 21
+    # Check that leading paragraphs did not receive Heading 1
+    assert paras[0].getPropertyValue("ParaStyleName") != "Heading 1"
+    # Check that the inserted heading paragraph did receive Heading 1
+    assert paras[20].getPropertyValue("ParaStyleName") == "Heading 1"
+
+

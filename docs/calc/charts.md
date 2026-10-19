@@ -8,7 +8,7 @@ Charts live in different container structures depending on the host application:
 
 - **Calc sheets (`calc_sheet`)**: Charts are embedded table charts (`ScChartObj`) belonging to an individual sheet's `XTableCharts` collection. Deletion is performed via `sheet.getCharts().removeByName(name)`.
 - **Writer body text (`writer_embed`)**: Charts inserted into Writer documents are inline `TextEmbeddedObject` instances in the text body. Deletion removes the text content from the document text via `doc.getText().removeTextContent(host)`.
-- **Writer and Draw draw pages (`writer_draw_page`, `draw_page`)**: OLE2 shape charts on draw pages are removed from their parent page via `page.remove(shape)`.
+- **Writer and Draw draw pages (`writer_draw_page`, `draw_page`)**: OLE2 shape charts on draw pages are removed from their parent page via `page.remove(shape)`. Page scans descend `GroupShape`.
 
 ## Data Representation: Calc vs. Writer/Draw
 

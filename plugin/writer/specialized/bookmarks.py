@@ -165,25 +165,27 @@ class BookmarkService(ServiceBase):
             except Exception:
                 log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
-    def get_mcp_bookmark_map(
+    def _read_mcp_bookmark_map_and_names(
         self, doc: Any, para_ranges: list[Any] | None = None, strict: bool = False
-    ) -> dict[int, str]:
-        """Return {para_index: bookmark_name} for all _mcp_ bookmarks.
+    ) -> tuple[dict[int, str], list[str]]:
+        """Return ({para_index: bookmark_name}, all_bookmark_names).
 
-        A failed read returns {} unless *strict*; ensure_heading_bookmarks reads
-        strictly so a bad read does not insert or prune locators.
+        A failed read returns ({}, []) unless *strict*; callers reading strictly
+        abort without modifying locators.
         """
         result: dict[int, str] = {}
+        names_list: list[str] = []
         try:
             bookmarks = doc.getBookmarks()
             names = bookmarks.getElementNames()
             if not names:
-                return result
+                return result, names_list
+            names_list = [n for n in names if isinstance(n, str)]
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
             text_obj = doc.getText()
-            for name in names:
-                if not (isinstance(name, str) and name.startswith("_mcp_")):
+            for name in names_list:
+                if not name.startswith("_mcp_"):
                     continue
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
@@ -199,10 +201,21 @@ class BookmarkService(ServiceBase):
             reraise_if_disposed(exc)
             log.exception("Failed to get MCP bookmark map")
             if not strict:
-                return {}
+                return {}, []
             raise
 
-        return result
+        return result, names_list
+
+    def get_mcp_bookmark_map(
+        self, doc: Any, para_ranges: list[Any] | None = None, strict: bool = False
+    ) -> dict[int, str]:
+        """Return {para_index: bookmark_name} for all _mcp_ bookmarks.
+
+        A failed read returns {} unless *strict*; ensure_heading_bookmarks reads
+        strictly so a bad read does not insert or prune locators.
+        """
+        bm_map, _ = self._read_mcp_bookmark_map_and_names(doc, para_ranges=para_ranges, strict=strict)
+        return bm_map
 
     def ensure_heading_bookmarks(
         self,
@@ -219,7 +232,11 @@ class BookmarkService(ServiceBase):
         if key not in _ACTIVE_SAVE_HOOK_KEYS:
             self._restore_abandoned(doc)
         try:
-            existing_map = self.get_mcp_bookmark_map(doc, para_ranges=para_ranges, strict=True)
+            if para_ranges is None:
+                para_ranges = get_paragraph_ranges(doc)
+            existing_map, all_names = self._read_mcp_bookmark_map_and_names(
+                doc, para_ranges=para_ranges, strict=True
+            )
         except Exception as exc:
             reraise_if_disposed(exc)
             log.warning("heading bookmark map unreadable; leaving locators unchanged")
@@ -230,18 +247,13 @@ class BookmarkService(ServiceBase):
         needs_bookmark = []
 
         if heading_para_indices is not None:
-            if para_ranges is None:
-                para_ranges = get_paragraph_ranges(doc)
             for para_index in heading_para_indices:
                 if para_index in existing_map:
                     bookmark_map[para_index] = existing_map[para_index]
                 elif 0 <= para_index < len(para_ranges):
                     needs_bookmark.append((para_index, para_ranges[para_index].getStart()))
         else:
-            enum = text.createEnumeration()
-            para_index = 0
-            while enum.hasMoreElements():
-                element = enum.nextElement()
+            for para_index, element in enumerate(para_ranges):
                 if element.supportsService("com.sun.star.text.Paragraph"):
                     outline_level = 0
                     try:
@@ -253,12 +265,11 @@ class BookmarkService(ServiceBase):
                             bookmark_map[para_index] = existing_map[para_index]
                         else:
                             needs_bookmark.append((para_index, element.getStart()))
-                para_index += 1
 
         # Names already on a current heading. New inserts are not in the
         # document yet, so they cannot appear in this stale list.
         kept = set(bookmark_map.values())
-        stale = self._demoted_mcp_names(doc, kept) if key not in _ACTIVE_SAVE_HOOK_KEYS else []
+        stale = self._demoted_mcp_names(all_names, kept) if key not in _ACTIVE_SAVE_HOOK_KEYS else []
 
         if needs_bookmark or stale:
             with self._untracked(doc):
@@ -293,14 +304,8 @@ class BookmarkService(ServiceBase):
         self._ensure_save_listener(doc)
         return bookmark_map
 
-    def _demoted_mcp_names(self, doc: Any, kept: set[str]) -> list[str]:
+    def _demoted_mcp_names(self, names: list[str] | tuple[str, ...], kept: set[str]) -> list[str]:
         """``_mcp_`` names that are not on a current heading."""
-        try:
-            names = doc.getBookmarks().getElementNames()
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.exception("Failed to list heading bookmarks for prune")
-            return []
         stale: list[str] = []
         for name in names:
             if isinstance(name, str) and name.startswith("_mcp_") and name not in kept:

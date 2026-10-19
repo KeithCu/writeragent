@@ -3,12 +3,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
+import base64
 import os
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.tests.testing_utils import TestingFactory
 
@@ -147,7 +151,7 @@ def test_image_generate_forwards_stop_checker():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
         patch("plugin.writer.images.images.get_config_int", return_value=1024),
@@ -173,10 +177,10 @@ def test_image_generate_inserts_even_if_stopped_after_download():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image") as mock_insert,
-        patch("plugin.writer.images.images.replace_image_in_place"),
+        patch("plugin.writer.images.images.replace_graphic_source"),
         patch("plugin.writer.images.images.get_config_int", return_value=1024),
         patch("plugin.writer.images.images.get_config_bool", return_value=False),
         patch("plugin.writer.images.images.get_config_str", return_value="square"),
@@ -211,16 +215,22 @@ def test_image_generate_omitted_source_edits_when_selected():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
+    target_obj = MagicMock()
+    graphic_model = MagicMock()
+    graphic_model.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
+    frame_size = MagicMock(Width=6400, Height=4800)
+
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value="b64sel"),
-        patch("plugin.writer.images.images.get_selected_image_pixel_size", return_value=(1024, 1024)),
-        patch("plugin.writer.images.images.get_selected_image_dimensions_px", return_value=(640, 480)),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
+        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
+        patch("plugin.writer.images.images._object_size", return_value=frame_size),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_image_in_place", return_value=True) as replace,
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
         patch("plugin.writer.images.images.get_config_int", return_value=512),
         patch("plugin.writer.images.images.get_config_bool", return_value=False),
@@ -230,15 +240,20 @@ def test_image_generate_omitted_source_edits_when_selected():
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
-    assert svc.generate_image.call_args.kwargs.get("source_image") == "b64sel"
+    assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
     assert svc.generate_image.call_args.kwargs.get("width") == 1024
     assert svc.generate_image.call_args.kwargs.get("height") == 1024
 
-    replace_args = replace.call_args[0]
-    assert replace_args[3] == 640 # width
-    assert replace_args[4] == 480 # height
-
-    replace.assert_called_once()
+    replace.assert_called_once_with(
+        ctx.ctx,
+        ctx.doc,
+        target_obj,
+        "/tmp/edited.png",
+        6400,
+        4800,
+        title="make it look like a wizard",
+        description="Edited by endpoint",
+    )
     insert.assert_not_called()
 
 
@@ -248,16 +263,21 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
+    target_obj = MagicMock()
+    frame_size = MagicMock(Width=6400, Height=4800)
+
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value="b64sel"),
-        patch("plugin.writer.images.images.get_selected_image_pixel_size", return_value=(None, None)),
-        patch("plugin.writer.images.images.get_selected_image_dimensions_px", return_value=(640, 480)),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
+        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
+        patch("plugin.writer.images.images._object_size", return_value=frame_size),
+        patch("plugin.doc.visual_helpers.units_to_px", return_value=(640, 480)),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_image_in_place", return_value=True) as replace,
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
         patch("plugin.writer.images.images.get_config_int", return_value=512),
         patch("plugin.writer.images.images.get_config_bool", return_value=False),
@@ -266,15 +286,20 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
 
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
-    assert svc.generate_image.call_args.kwargs.get("source_image") == "b64sel"
+    assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
     assert svc.generate_image.call_args.kwargs.get("width") == 640
     assert svc.generate_image.call_args.kwargs.get("height") == 480
 
-    replace_args = replace.call_args[0]
-    assert replace_args[3] == 640 # width
-    assert replace_args[4] == 480 # height
-
-    replace.assert_called_once()
+    replace.assert_called_once_with(
+        ctx.ctx,
+        ctx.doc,
+        target_obj,
+        "/tmp/edited.png",
+        6400,
+        4800,
+        title="make it look like a wizard",
+        description="Edited by endpoint",
+    )
     insert.assert_not_called()
 
 
@@ -288,9 +313,9 @@ def test_image_generate_omitted_source_creates_when_no_selection():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_image_in_place") as replace,
+        patch("plugin.writer.images.images.replace_graphic_source") as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
         patch("plugin.writer.images.images.get_config_int", return_value=512),
         patch("plugin.writer.images.images.get_config_bool", return_value=False),
@@ -450,7 +475,7 @@ def test_image_generate_marshals_insert_unscoped():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_track_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
         patch("plugin.writer.images.images.get_config_int", return_value=1024),
@@ -630,7 +655,8 @@ def test_image_generate_export_failure_is_tool_execution_error():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", side_effect=RuntimeError("export")),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=MagicMock()),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", side_effect=RuntimeError("export")),
     ):
         res = ImageGenerate().execute_safe(ctx, prompt="make it purple", source_image="selection")
     assert res["status"] == "error"
@@ -1056,7 +1082,8 @@ def test_image_generate_export_disposal_propagates():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", side_effect=DocumentDisposedError("closed")),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=MagicMock()),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", side_effect=DocumentDisposedError("closed")),
     ):
         with pytest.raises(DocumentDisposedError):
             ImageGenerate().execute(ctx, prompt="make it purple", source_image="selection")
@@ -1313,7 +1340,7 @@ def test_image_generate_temp_files_cleaned_up_after_insert():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
     ):
@@ -1339,7 +1366,7 @@ def test_image_generate_temp_files_cleaned_up_on_insert_exception():
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image", side_effect=RuntimeError("insert boom")),
     ):
@@ -1422,3 +1449,282 @@ def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported()
         assert res2["status"] != "ok"
         assert res2.get("code") == "UNSUPPORTED_DOC_TYPE"
         mock_insert.assert_not_called()
+
+
+def test_image_generate_preserves_large_frame_units_without_capping():
+    """Frame sizes like 16,934 x 12,698 and 13,500 x 10,125 must not be capped to 135 mm on edit."""
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/edited.png"], None)
+
+    for w_units, h_units in [(16934, 12698), (13500, 10125), (100, 100)]:
+        target_obj = MagicMock()
+        frame_size = MagicMock(Width=w_units, Height=h_units)
+
+        def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+            return fn(*args, **kwargs)
+
+        with (
+            patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+            patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
+            patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
+            patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
+            patch("plugin.writer.images.images._object_size", return_value=frame_size),
+            patch("plugin.writer.images.images.ImageService", return_value=svc),
+            patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
+            patch("plugin.writer.images.images.insert_image") as insert,
+            patch("plugin.writer.images.images.get_config_int", return_value=512),
+            patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        ):
+            res = ImageGenerate().execute(ctx, prompt="test")
+        assert res["status"] == "ok"
+        replace.assert_called_once_with(
+            ctx.ctx,
+            ctx.doc,
+            target_obj,
+            "/tmp/edited.png",
+            w_units,
+            h_units,
+            title="test",
+            description="Edited by endpoint",
+        )
+        insert.assert_not_called()
+
+
+def test_image_generate_replaces_original_target_even_if_selection_changed():
+    """If a different graphic is selected while generate_image runs, the original target is still replaced."""
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    original_target = MagicMock(name="original_target")
+    different_target = MagicMock(name="different_target")
+
+    current_selection = [original_target]
+
+    def _mock_generate(*args, **kwargs):
+        # Selection changed while generating
+        current_selection[0] = different_target
+        return (["/tmp/edited.png"], None)
+
+    svc.generate_image.side_effect = _mock_generate
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    frame_size = MagicMock(Width=5000, Height=3000)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", side_effect=lambda doc: current_selection[0]),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
+        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
+        patch("plugin.writer.images.images._object_size", return_value=frame_size),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="wizard")
+
+    assert res["status"] == "ok"
+    assert replace.call_args[0][2] is original_target
+
+
+def test_image_insert_sizing_rules():
+    ctx = TestingFactory.create_context(doc_type="writer")
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    inserted_sizes = []
+
+    def _mock_insert(context, doc, path, width_mm=None, height_mm=None, **kwargs):
+        inserted_sizes.append((width_mm, height_mm))
+        return MagicMock()
+
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
+    ):
+        # 1. 200x100 PNG with both sizes omitted lands at 80 x 40 mm
+        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+            inserted_sizes.clear()
+            res = ImageInsert().execute(ctx, path="/tmp/test.png")
+            assert res["status"] == "ok"
+            assert inserted_sizes == [(80.0, 40.0)]
+
+        # 2. 100x200 PNG with both sizes omitted lands at 40 x 80 mm
+        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(100, 200)):
+            inserted_sizes.clear()
+            res = ImageInsert().execute(ctx, path="/tmp/test.png")
+            assert res["status"] == "ok"
+            assert inserted_sizes == [(40.0, 80.0)]
+
+        # 3. Only width_mm=40 scales height proportionally (200x100 -> 40 x 20 mm)
+        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+            inserted_sizes.clear()
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=40)
+            assert res["status"] == "ok"
+            assert inserted_sizes == [(40.0, 20.0)]
+
+        # 4. Both 30 and 50 stay 30 and 50 mm (even if stretching)
+        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+            inserted_sizes.clear()
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=30, height_mm=50)
+            assert res["status"] == "ok"
+            assert inserted_sizes == [(30.0, 50.0)]
+
+        # 5. Unreadable pixels (e.g. None or 0) stay 80 x 80 mm
+        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(None, None)):
+            inserted_sizes.clear()
+            res = ImageInsert().execute(ctx, path="/tmp/test.svg")
+            assert res["status"] == "ok"
+            assert inserted_sizes == [(80.0, 80.0)]
+
+        # 6. Header insert uses derived size
+        with (
+            patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)),
+            patch("plugin.writer.images.images.insert_image_into_header_footer") as mock_hf,
+        ):
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", target="header")
+            assert res["status"] == "ok"
+            assert mock_hf.call_args.kwargs["width_mm"] == 80.0
+            assert mock_hf.call_args.kwargs["height_mm"] == 40.0
+
+
+def test_tools_reject_non_positive_sizes():
+    ctx = TestingFactory.create_context(doc_type="writer")
+
+    # ImageInsert rejects width_mm / height_mm <= 0
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAMETER"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAMETER"
+
+    # ImageReplace rejects width_mm / height_mm <= 0
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAMETER"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAMETER"
+
+    # ImageSetProperties rejects width_mm / height_mm <= 0
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAMETER"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAMETER"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAMETER"
+
+    # ImageGenerate rejects base_size, width, height <= 0
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAMETER"
+
+
+def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
+    import plugin.writer.images.images as images_mod
+    from plugin.writer.images.images import _download_image_to_cache, _DownloadStopped
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    stopped = [False]
+
+    class _ChunkResp:
+        def __init__(self):
+            self.headers = {"Content-Type": "image/png"}
+
+        def read(self, size=-1):
+            stopped[0] = True
+            return b"somepngdata"
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _ChunkResp())
+
+    with pytest.raises(_DownloadStopped):
+        _download_image_to_cache("https://example.com/test.png", stop_checker=lambda: stopped[0])
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_download_for_tool_stop_returns_user_stopped():
+    import plugin.writer.images.images as images_mod
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.stop_checker = lambda: True
+
+    with patch("plugin.writer.images.images._download_image_to_cache", side_effect=images_mod._DownloadStopped):
+        res = ImageDownload().execute(ctx, url="https://example.com/pic.png")
+    assert res["status"] != "ok"
+    assert res.get("code") == "USER_STOPPED"
+
+
+def test_download_image_to_cache_expired_after_24h(tmp_path, monkeypatch):
+    import plugin.writer.images.images as images_mod
+    from plugin.writer.images.images import _download_image_to_cache
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+
+    class _Resp:
+        def __init__(self):
+            self.headers = {"Content-Type": "image/png"}
+            self._data = [png_bytes]
+
+        def read(self, size=-1):
+            return self._data.pop(0) if self._data else b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    downloads = {"count": 0}
+
+    def _fake_urlopen(req, context=None, timeout=None):
+        downloads["count"] += 1
+        return _Resp()
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _fake_urlopen)
+
+    path1 = _download_image_to_cache("https://example.com/exp.png")
+    assert downloads["count"] == 1
+    assert path1.endswith(".png")
+
+    path2 = _download_image_to_cache("https://example.com/exp.png")
+    assert downloads["count"] == 1
+    assert path1 == path2
+
+    old_time = time.time() - (25 * 3600)
+    os.utime(path1, (old_time, old_time))
+
+    _download_image_to_cache("https://example.com/exp.png")
+    assert downloads["count"] == 2
+
+
+def test_prune_image_cache_drops_oldest(tmp_path):
+    from plugin.writer.images.images import _prune_image_cache
+
+    f1 = tmp_path / "img1.png"
+    f2 = tmp_path / "img2.png"
+    f1.write_bytes(b"x" * 1000)
+    f2.write_bytes(b"y" * 1000)
+    os.utime(str(f1), (1000, 1000))
+    os.utime(str(f2), (2000, 2000))
+
+    with patch("plugin.writer.images.images.IMAGE_CACHE_MAX_BYTES", 1500):
+        _prune_image_cache(str(tmp_path), keep_path=str(f2))
+
+    assert not f1.exists()
+    assert f2.exists()
+

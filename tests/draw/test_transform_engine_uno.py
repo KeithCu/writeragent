@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from plugin.draw.transform_engine import _apply_cursor_uno_format
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from tests.testing_utils import with_native_doc
 
 
 @native_test
@@ -61,3 +61,54 @@ def test_select_text_same_paragraph_absolute_span(ctx, doc):
     selected = eng._select_text(xtext, cursor, [0, 1, 0, 3])
     # Absolute span from index 1 to 3 covers 'el' (length 2), not 'ell' (length 3).
     assert selected.getString() == "el"
+
+
+@native_test
+@with_native_doc("impress")
+def test_insert_text_leaves_selection_for_formatting(ctx, doc):
+    """InsertText leaves text selected so subsequent .uno:Bold and .uno:Italic format it."""
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc, ctx, "impress", None, "test")
+    eng = SlideCommandEngine(tctx)
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"ChangeLayoutByName": "AUTOLAYOUT_TITLE_CONTENT"},
+                    {"SetText.1": "First line\nSecond line"},
+                    {
+                        "EditTextObject.1": [
+                            {"SelectParagraph": 0},
+                            {"InsertText": "Revenue grew 15% YoY"},
+                            {"UnoCommand": ".uno:Bold"},
+                            {"UnoCommand": ".uno:Italic"},
+                        ]
+                    },
+                ]
+            }
+        }
+    )
+    assert res.get("status") == "ok", res
+    page = doc.getDrawPages().getByIndex(0)
+    shape = page.getByIndex(1)
+    if hasattr(shape, "IsEmptyPresentationObject"):
+        assert shape.IsEmptyPresentationObject is False
+
+    xtext = shape.getText()
+    first, second = "Revenue grew 15% YoY", "Second line"
+    assert xtext.getString().replace("\r\n", "\n").split("\n")[:2] == [first, second]
+    cursor = xtext.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.goRight(len(first), True)
+    assert cursor.getString() == first
+    assert float(cursor.CharWeight) >= 150.0
+    assert str(cursor.CharPosture.value) == "ITALIC"
+
+    cursor.gotoStart(False)
+    cursor.goRight(len(first) + 1, False)
+    cursor.goRight(len(second), True)
+    assert cursor.getString() == second
+    assert str(cursor.CharPosture.value) != "ITALIC"
+

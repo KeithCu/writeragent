@@ -58,7 +58,7 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 
 **Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
 
-**Entry points (v1):** [`document_to_content()`](../../plugin/writer/format.py) (implemented in [`html_export.py`](../../plugin/writer/html_export.py)) calls `_export_xhtml` + `_autostyle_parents`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `_extract_block_lo_styles` → StarWriter import → `_apply_block_lo_styles`. Callers still import from `plugin.writer.format`.
+**Entry points (v1):** [`document_to_content()`](../../plugin/writer/format.py) (implemented in [`html_export.py`](../../plugin/writer/html_export.py)) calls `_export_xhtml` + `_autostyle_parents`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `_extract_block_lo_styles` → StarWriter import → `_apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers still import from `plugin.writer.format`.
 
 **v1 cost:** Two full `storeToURL` exports on every `get_document_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
 

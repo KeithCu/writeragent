@@ -200,16 +200,18 @@ checks refuse when a **user** redline or another **agent** change overlaps the e
 Single-change resolve returns an honest `ResolveStatus`:
 * `RESOLVED`: Success message ("Change accepted." / "Change rejected.").
 * `REFUSED_SIBLING`: Attempts to resolve overlapping agent changes together as a group.
-* `REFUSED_FOREIGN`, `NOT_ELIGIBLE`, `NO_OP`: Refusal hint directing to *Edit ▸ Track Changes ▸ Manage*.
+* `REFUSED_FOREIGN`, `NOT_ELIGIBLE`: Refusal hint directing to *Edit ▸ Track Changes ▸ Manage*.
+* `NO_OP`: Reports that nothing was changed ("Nothing was changed. Resolve remaining changes from Edit > Track Changes > Manage.").
 * `UNRELIABLE`: Reports unreadability and that nothing changed.
-* `PARTIAL`: Reported with `ok=False` ("Started resolving changes but couldn't confirm the result -- some may have been resolved. Please review remaining changes in Edit > Track Changes > Manage."). The document is left in its partially resolved state rather than attempting undo.
+* `PARTIAL`: Reported with `ok=False` ("Started resolving changes but couldn't confirm the result -- some may have been resolved. Please review remaining changes in Edit > Track Changes > Manage."). Only returned after a dispatch was attempted and follow-up scan could not confirm the result. The document is left in its partially resolved state rather than attempting undo.
 
 When the only thing in the way is other **agent** changes (e.g. the agent deleted a word from a
 sentence it had inserted earlier, stacking a Delete on its own Insert), the click resolves that
 whole overlapping group together instead of refusing (`_resolve_overlapping_agent_changes`). A user
 redline in the group still refuses. Reject undoes a stacked Delete one layer per dispatch, so the
 dispatch repeats over what is left of the group while each pass makes progress; success is claimed
-only when exactly the group is gone.
+only when exactly the group is gone. Multi-dispatch resolves (overlapping groups and mixed resolve-all
+loops) are wrapped in a compound undo context so undo restores all resolved edits together in one step.
 
 On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
 paragraph-wide selection (which resolves every redline in range) and refuses when foreign or

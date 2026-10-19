@@ -62,6 +62,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     # first on plugin.__path__. Omitting this file is the
     # "No module named 'plugin.framework.module_base'" update-check miss.
     "plugin/framework/module_base.py",
+    "plugin/framework/module_graph.py",
     "plugin/framework/uno_bootstrap.py",
     "plugin/framework/logging.py",
     "plugin/framework/uno_context.py",

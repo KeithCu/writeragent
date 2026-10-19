@@ -57,6 +57,8 @@ def _make_item(
     locale: str = "en-US",
     seq: int = 1,
     inflight_key: str = "",
+    provider: str = "",
+    checker_identity: str = "",
 ) -> GrammarWorkItem:
     """Helper to build a work item with sensible defaults."""
     if not inflight_key:
@@ -69,6 +71,8 @@ def _make_item(
         doc_id=doc_id,
         inflight_key=inflight_key,
         enqueue_seq=seq,
+        provider=provider,
+        checker_identity=checker_identity,
     )
 
 
@@ -563,10 +567,19 @@ def test_filter_stale_and_group_groups_by_doc_locale() -> None:
     b = _make_item("S2.", doc_id="doc_b", locale="fr-FR", seq=2, inflight_key="b1")
     c = _make_item("S3.", doc_id="doc_a", locale="en-US", seq=3, inflight_key="a2")
     groups = filter_stale_and_group([a, b, c], lambda _: False)
-    assert ("doc_a", "en-US") in groups
-    assert ("doc_b", "fr-FR") in groups
-    assert len(groups[("doc_a", "en-US")]) == 2
-    assert len(groups[("doc_b", "fr-FR")]) == 1
+    assert ("doc_a", "en-US", "", "") in groups
+    assert ("doc_b", "fr-FR", "", "") in groups
+    assert len(groups[("doc_a", "en-US", "", "")]) == 2
+    assert len(groups[("doc_b", "fr-FR", "", "")]) == 1
+
+
+def test_filter_stale_and_group_splits_harper_and_llm() -> None:
+    h = _make_item("S1.", doc_id="doc_a", locale="en-US", seq=1, inflight_key="h1", provider="harper", checker_identity="harper")
+    llm_item = _make_item("S2.", doc_id="doc_a", locale="en-US", seq=2, inflight_key="l1", provider="llm", checker_identity="llm:model-x")
+    groups = filter_stale_and_group([h, llm_item], lambda _: False)
+    assert ("doc_a", "en-US", "harper", "harper") in groups
+    assert ("doc_a", "en-US", "llm", "llm:model-x") in groups
+    assert len(groups) == 2
 
 
 def test_filter_stale_and_group_all_stale_returns_empty() -> None:

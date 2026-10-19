@@ -9,6 +9,7 @@
 
 import logging
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,8 +29,8 @@ from plugin.chatbot.rich_text_paste import (
     _resolve_portion_char_color,
     _TABLE_V_PAD_MM100,
     _tab_stop_positions_twips,
-    append_rich_messages_via_clipboard,
-    append_rich_text_via_clipboard,
+    append_formatted_rows,
+    append_formatted_row,
     fold_transcript_chunk,
     paint_message_items,
     iter_history_message_batches,
@@ -127,7 +128,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.append_rich_text") as mock_append, \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)) as mock_copy:
-            append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
+            append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
 
         mock_create.assert_called_once_with(ctx)
         mock_cfg.assert_called_once_with(doc)
@@ -148,7 +149,34 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=42), \
              patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
-            append_rich_text_via_clipboard(
+            append_formatted_row(
+                ctx,
+                control,
+                "<p>hello</p>",
+                role="user",
+                on_after_insert=seen.append,
+            )
+
+        assert seen == [42]
+        doc.close.assert_called_once_with(True)
+
+    def test_plain_insert_skips_hidden_writer(self):
+        control = MagicMock()
+        model = MagicMock(Text="")
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        seen = []
+        inserts = []
+
+        def record_insert(_model, _cursor, text, char_color=None, bold=None, **_k):
+            inserts.append((text, bold))
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer") as mock_create, \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=record_insert), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=15):
+            ok = append_formatted_row(
                 ctx,
                 control,
                 "hello",
@@ -156,8 +184,10 @@ class TestAppendRichTextViaClipboard:
                 on_after_insert=seen.append,
             )
 
-        assert seen == [42]
-        doc.close.assert_called_once_with(True)
+        assert ok is True
+        mock_create.assert_not_called()
+        assert seen == [15]
+        assert any(txt.startswith("You:") and bold is True for txt, bold in inserts)
 
     def test_trailing_break_restores_through_the_frame_session_callback(self):
         """BUG A fix 3: the paint path's focus_preserved must use the gated callback."""
@@ -180,8 +210,8 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _recording_focus), \
              patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
-            append_rich_text_via_clipboard(
-                MagicMock(), control, "hello", role="user", restore=query, restore_focus=restore_focus,
+            append_formatted_row(
+                MagicMock(), control, "<p>hello</p>", role="user", restore=query, restore_focus=restore_focus,
             )
 
         assert calls, "user row should restore focus around the trailing break"
@@ -219,7 +249,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+            ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is False
         assert "kept" in inserted
@@ -257,7 +287,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+            ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is True
         assert "plain" in inserted
@@ -289,7 +319,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+            ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is False
 
@@ -366,14 +396,14 @@ class TestHistoryMessageBatching:
         control.getModel.return_value = MagicMock(Text="")
         ctx = MagicMock()
         doc = MagicMock()
-        items = [("user", f"msg{i}") for i in range(10)]
+        items = [("user", f"<p>msg{i}</p>") for i in range(10)]
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc") as mock_render, \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=(True, None)) as mock_copy, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail") as mock_scroll:
-            append_rich_messages_via_clipboard(ctx, control, items)
+            append_formatted_rows(ctx, control, items)
 
         mock_create.assert_called_once_with(ctx)
         mock_cfg.assert_called_once_with(doc)
@@ -391,11 +421,12 @@ class TestHistoryMessageBatching:
         ctx = MagicMock()
         doc = MagicMock()
         items = [("user", "<p>Hello</p>"), ("assistant", "<p>it's done</p>")]
-        written: list[str] = []
+        written: list[tuple[str, Any, Any]] = []
         theme = MagicMock(user_color=1, assistant_color=2)
 
-        def _capture(_control, text, auto_scroll=False, style_window=None, ctx=None, query=None, char_color=None, restore_focus=None):
-            written.append((text, char_color))
+        def _capture(_model, _cursor, text, char_color=None, bold=None, **_kw):
+            written.append((text, char_color, bold))
+            model.Text = (model.Text or "") + text
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
@@ -403,12 +434,13 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=(False, "failed")), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk", side_effect=_capture), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
              patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
-            append_rich_messages_via_clipboard(ctx, control, items)
+            append_formatted_rows(ctx, control, items)
 
         mock_trunc.assert_called_once_with(control, 5)
-        assert written == [("You: Hello", 1), ("Assistant: it's done", 2)]
+        content_writes = [w for w in written if w[0] != "\n\n"]
+        assert content_writes == [("You: ", 1, True), ("Hello", 1, False), ("Assistant: ", 2, True), ("it's done", 2, False)]
         doc.close.assert_called_once_with(True)
 
     def test_unknown_length_skips_rollback(self):
@@ -416,20 +448,20 @@ class TestHistoryMessageBatching:
         control.getModel.return_value = MagicMock(Text="prior")
         ctx = MagicMock()
         doc = MagicMock()
-        items = [("assistant", "kept")]
+        items = [("assistant", "<p>kept</p>")]
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=(False, "failed")), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=None), \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain, \
              patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
-            append_rich_messages_via_clipboard(ctx, control, items)
+            append_formatted_rows(ctx, control, items)
 
         mock_trunc.assert_not_called()
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == "Assistant: kept"
+        assert mock_plain.call_args.args[1] == items
 
     def test_html_import_failure_plain_appends(self):
         control = MagicMock()
@@ -445,13 +477,13 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=False), \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
+            ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is True
         mock_copy.assert_not_called()
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == "Assistant: Hi"
+        assert mock_plain.call_args.args[1] == [("assistant", "<p>Hi</p>")]
         doc.close.assert_called_once_with(True)
 
     def test_append_user_message_scrolls_tail_after_trailing_break(self):
@@ -471,10 +503,10 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail") as mock_scroll, \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=100):
-            append_rich_text_via_clipboard(ctx, control, "hello", role="user", auto_scroll=True)
+            append_formatted_row(ctx, control, "<p>hello</p>", role="user", auto_scroll=True)
 
         mock_trailing.assert_called_once_with(control)
-        assert mock_scroll.call_count >= 1
+        assert mock_scroll.call_count == 1
         doc.close.assert_called_once_with(True)
 
     def test_append_rich_messages_scrolls_tail_after_each_batch(self):
@@ -482,7 +514,7 @@ class TestHistoryMessageBatching:
         control.getModel.return_value = MagicMock(Text="")
         ctx = MagicMock()
         doc = MagicMock()
-        chunk = "x" * 10000
+        chunk = "<p>" + "x" * 10000 + "</p>"
         items = [("user", chunk), ("assistant", chunk)]
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
@@ -490,36 +522,69 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc") as mock_render, \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=(True, None)) as mock_copy, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail") as mock_scroll:
-            append_rich_messages_via_clipboard(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
+            append_formatted_rows(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
 
         assert mock_create.call_count == 2
         assert mock_render.call_count == 2
         assert mock_copy.call_count == 2
-        assert mock_scroll.call_count == 2
+        assert mock_scroll.call_count == 1
         assert doc.close.call_count == 2
+
+    def test_blank_line_ensured_between_batches(self):
+        control = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        model.Text = ""
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        chunk = "<p>" + "x" * 10000 + "</p>"
+        items = [("user", chunk), ("assistant", chunk)]
+        inserted_separators = []
+
+        def _copy(_doc, _ctrl, _ctx, **_kw):
+            model.Text = "batch_text"
+            return True, None
+
+        def _separate(ctrl):
+            m = ctrl.getModel()
+            if m.Text and not m.Text.endswith("\n\n"):
+                inserted_separators.append("\n\n")
+                m.Text += "\n\n"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", side_effect=_copy), \
+             patch("plugin.chatbot.rich_text_paste._ensure_message_separator", side_effect=_separate), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            append_formatted_rows(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
+
+        assert inserted_separators == ["\n\n"]
 
     def test_failed_hidden_writer_batch_does_not_skip_later_batches(self):
         control = MagicMock()
         control.getModel.return_value = MagicMock(Text="")
         ctx = MagicMock()
         doc = MagicMock()
-        chunk = "x" * 10000
+        chunk = "<p>" + "x" * 10000 + "</p>"
         items = [("user", chunk), ("assistant", chunk)]
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", side_effect=[None, doc]) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc") as mock_render, \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=(True, None)) as mock_copy, \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
-            append_rich_messages_via_clipboard(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
+            append_formatted_rows(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
 
         assert mock_create.call_count == 2
         mock_cfg.assert_called_once_with(doc)
         mock_render.assert_called_once()
         mock_copy.assert_called_once()
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == "You: " + chunk
+        assert mock_plain.call_args.args[1] == [("user", chunk)]
         doc.close.assert_called_once_with(True)
 
 
@@ -608,6 +673,21 @@ class TestListPrefix:
         assert _list_prefix_for_paragraph(para4, counters) == "1. "
         assert _list_prefix_for_paragraph(para4, counters) == "2. "
 
+    def test_missing_type_and_no_bullet_char_returns_number_prefix(self):
+        rules = MagicMock()
+        rules.getByIndex.return_value = []
+        para = self._para(
+            {"NumberingIsNumber": True, "NumberingLevel": 0, "ListId": "L1", "ListLabelString": ""},
+            rules,
+        )
+        assert _list_prefix_for_paragraph(para, {}) == "1. "
+
+    def test_not_number_with_large_margin_returns_empty(self):
+        para = self._para(
+            {"NumberingIsNumber": False, "ParaLeftMargin": 1000},
+            None,
+        )
+        assert _list_prefix_for_paragraph(para, {}) == ""
 
 
 class TestRichInsertFallbackLogging:
@@ -626,7 +706,7 @@ class TestRichInsertFallbackLogging:
                  return_value=(False, "no_content_inserted"),
              ), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10):
-            append_rich_text_via_clipboard(ctx, control, "<p>x</p>", role="assistant")
+            append_formatted_row(ctx, control, "<p>x</p>", role="assistant")
 
         joined = " ".join(r.message for r in caplog.records)
         assert "formatted copy failed direct_copy_reason=no_content_inserted" in joined
@@ -656,7 +736,7 @@ class TestRichInsertFallbackLogging:
                  return_value=(False, "no_content_inserted"),
              ), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_grow):
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>x</p>", role="assistant")
+            ok = append_formatted_row(ctx, control, "<p>x</p>", role="assistant")
 
         assert ok is False
         model.createTextCursor.return_value.setString.assert_called_with("")
@@ -677,12 +757,12 @@ class TestRichInsertFallbackLogging:
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=None), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_grow), \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
-            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi &amp; you</p>", role="assistant")
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
+            ok = append_formatted_row(ctx, control, "<p>Hi &amp; you</p>", role="assistant")
 
         assert ok is True
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == "Assistant: Hi & you"
+        assert mock_plain.call_args.args[1] == [("assistant", "<p>Hi &amp; you</p>")]
         model.createTextCursor.return_value.setString.assert_called_with("")
 
 
@@ -703,16 +783,16 @@ class TestPaintMessageItems:
             model.Text = "PARTIAL_NOT_IN_MESSAGES"
             return False
 
-        def _plain(_control, text, **_kwargs):
+        def _capture(_model, _cursor, text, **_kwargs):
             written.append(text)
             model.Text = (model.Text or "") + text
 
-        items = [("user", "keep me"), ("assistant", "second")]
+        items = [("user", "<p>keep me</p>"), ("assistant", "<p>second</p>")]
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", side_effect=_copy), \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk", side_effect=_plain), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             paint_message_items(ctx, control, items)
 
@@ -731,17 +811,21 @@ class TestPaintMessageItems:
         ctx = MagicMock()
         doc = MagicMock()
         doc.getText.return_value.getString.return_value = "Assistant: <script>alert(1)</script>"
+        written: list[str] = []
+
+        def _capture(_model, _cursor, text, **_kwargs):
+            written.append(text)
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control") as mock_copy, \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             paint_message_items(ctx, control, [("assistant", "<p>Hi</p><script>alert(1)</script>")])
 
         mock_copy.assert_not_called()
-        mock_plain.assert_called_once()
-        assert "<script>" not in mock_plain.call_args.args[1]
+        assert any("Hi" in row for row in written)
+        assert not any("<script>" in row for row in written)
         doc.close.assert_called_once_with(True)
 
     def test_generic_token_in_the_hidden_doc_is_copied(self):
@@ -762,12 +846,31 @@ class TestPaintMessageItems:
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True) as mock_copy, \
-             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
-            paint_message_items(ctx, control, [("assistant", "List<String> <user@example.com>")])
+            paint_message_items(ctx, control, [("assistant", "<p>List<String> <user@example.com></p>")])
 
         mock_copy.assert_called_once()
         mock_plain.assert_not_called()
+        doc.close.assert_called_once_with(True)
+
+    def test_mixed_paint_creates_hidden_writer_once(self):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "You: hello\n\nAssistant: bold"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True), \
+             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            items = [("user", "hello"), ("assistant", "<p><b>bold</b></p>")]
+            paint_message_items(ctx, control, items)
+
+        mock_create.assert_called_once_with(ctx)
         doc.close.assert_called_once_with(True)
 
     def test_stop_text_folds_like_any_other_chunk(self):
@@ -895,6 +998,19 @@ class TestFlattenTextTableCopy:
         old = int(round((11 * 10.0 * 0.5 + 8.0) * 20))  # previous 0.5em + 8pt slack
         assert stops[0] < old
         assert stops[1] - stops[0] < old
+
+    def test_cjk_emoji_and_combining_widths(self):
+        # CJK characters (W) add 1.0 em each; ASCII adds ~0.55 em each
+        cjk_width = _cell_width_em("中文")
+        ascii_width = _cell_width_em("ab")
+        assert cjk_width == 2.0
+        assert ascii_width < cjk_width
+
+        # Combining mark (Mn) adds 0 width
+        assert _cell_width_em("e\u0301") == _cell_width_em("e")
+
+        # Emoji with East Asian width W adds 1.0 em
+        assert _cell_width_em("😀") == 1.0
 
     def test_copy_flattens_table_between_paragraphs(self):
         control = MagicMock()
@@ -1193,7 +1309,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"),
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
         ):
-            assert paint_message_items(ctx, control, [("assistant", "Hi")]) is True
+            assert paint_message_items(ctx, control, [("assistant", "<p>Hi</p>")]) is True
         doc.close.assert_called_once_with(True)
 
         doc = _doc()
@@ -1205,7 +1321,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
         ):
-            append_rich_messages_via_clipboard(ctx, control, [("assistant", "Hi")])
+            append_formatted_rows(ctx, control, [("assistant", "<p>Hi</p>")])
         doc.close.assert_called_once_with(True)
 
         doc = _doc()
@@ -1217,14 +1333,14 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"),
         ):
-            assert append_rich_text_via_clipboard(ctx, control, "Hi", role="assistant") is True
+            assert append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant") is True
         doc.close.assert_called_once_with(True)
 
     close_records = [r for r in caplog.records if "hidden writer close failed" in r.message]
     assert len(close_records) == 3
     assert any("paint_message_items: hidden writer close failed" in r.message for r in close_records)
-    assert any("append_rich_messages_via_clipboard: hidden writer close failed" in r.message for r in close_records)
-    assert any("append_rich_text_via_clipboard: hidden writer close failed" in r.message for r in close_records)
+    assert any("append_formatted_rows: hidden writer close failed" in r.message for r in close_records)
+    assert any("append_formatted_row: hidden writer close failed" in r.message for r in close_records)
     for record in close_records:
         assert record.exc_info is not None
         assert record.exc_info[0] is RuntimeError

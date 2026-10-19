@@ -645,113 +645,34 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
 
 
 # ---------------------------------------------------------------------------
-# Pipeline implementations live in html_export / html_import. Wrappers keep
-# plugin.writer.format as the public import path without a circular
-# format <-> html_* import at module load.
+# Re-exports from html_export and html_import.
 # ---------------------------------------------------------------------------
 
+from .html_export import (
+    _apply_image_export_options as _apply_image_export_options,
+    document_to_content as document_to_content,
+    strip_embedded_image_data as strip_embedded_image_data,
+    xtext_to_content as xtext_to_content,
+)
+from .html_import import (
+    _content_has_block_markup as _content_has_block_markup,
+    _ensure_html_linebreaks as _ensure_html_linebreaks,
+    _insert_mixed_html_and_math_at_cursor as _insert_mixed_html_and_math_at_cursor,
+    _insert_mixed_or_plain_html as _insert_mixed_or_plain_html,
+    _insert_starwriter_html_at_cursor as _insert_starwriter_html_at_cursor,
+    content_has_markup as content_has_markup,
+    html_to_plain_text as html_to_plain_text,
+    insert_content_at_position as insert_content_at_position,
+    insert_html_at_cursor as insert_html_at_cursor,
+    insert_html_fragment_at_cursor as insert_html_fragment_at_cursor,
+    insert_inline_at_cursor as insert_inline_at_cursor,
+    replace_full_document as replace_full_document,
+    replace_preserving_format as replace_preserving_format,
+    replace_single_range_with_content as replace_single_range_with_content,
+    replace_xtext_with_html as replace_xtext_with_html,
+    rewrite_exported_field_spans as rewrite_exported_field_spans,
+)
 
-def strip_embedded_image_data(html: str) -> str:
-    from .html_export import strip_embedded_image_data as impl
-    return impl(html)
+content_has_block_markup = _content_has_block_markup
 
-
-def _apply_image_export_options(content: str, *, include_images: bool) -> str:  # pyright: ignore[reportUnusedFunction]
-    from .html_export import _apply_image_export_options as impl
-    return impl(content, include_images=include_images)
-
-
-def document_to_content(model: Any, ctx: Any, services: Any, max_chars: int | None = None, scope: str = "full", range_start: int | None = None, range_end: int | None = None, *, include_images: bool = False, walk_warnings: list[str] | None = None) -> str:
-    from .html_export import document_to_content as impl
-    return impl(model, ctx, services, max_chars, scope, range_start, range_end, include_images=include_images, walk_warnings=walk_warnings)
-
-
-def xtext_to_content(text_obj: Any, model: Any, ctx: Any, services: Any = None, *, include_images: bool = True, max_chars: int | None = None) -> str:
-    from .html_export import xtext_to_content as impl
-    return impl(text_obj, model, ctx, services, include_images=include_images, max_chars=max_chars)
-
-
-def _ensure_html_linebreaks(content: str) -> str:  # pyright: ignore[reportUnusedFunction]
-    from .html_import import _ensure_html_linebreaks as impl
-    return impl(content)
-
-
-def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> str:
-    from .html_import import html_to_plain_text as impl
-    return impl(html_string, ctx, config_svc)
-
-
-def insert_html_fragment_at_cursor(cursor: Any, html_fragment: str, *, extra_css: str | None = None, wrap: bool = True, config_svc: Any = None, model: Any = None) -> None:
-    from .html_import import insert_html_fragment_at_cursor as impl
-    return impl(cursor, html_fragment, extra_css=extra_css, wrap=wrap, config_svc=config_svc, model=model)
-
-
-def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str, config_svc: Any = None) -> None:  # pyright: ignore[reportUnusedFunction]
-    from .html_import import _insert_starwriter_html_at_cursor as impl
-    return impl(model, cursor, prepared_html, config_svc)
-
-
-def _insert_mixed_html_and_math_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped: str, config_svc: Any = None) -> None:  # pyright: ignore[reportUnusedFunction]
-    from .html_import import _insert_mixed_html_and_math_at_cursor as impl
-    return impl(model, ctx, cursor, unescaped, config_svc)
-
-
-def _insert_mixed_or_plain_html(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True) -> None:  # pyright: ignore[reportUnusedFunction]
-    from .html_import import _insert_mixed_or_plain_html as impl
-    return impl(model, ctx, cursor, unescaped_content, config_svc, apply_styles)
-
-
-def insert_html_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True) -> None:
-    from .html_import import insert_html_at_cursor as impl
-    return impl(model, ctx, cursor, unescaped_content, config_svc, apply_styles)
-
-
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
-    from .html_import import insert_content_at_position as impl
-    return impl(model, ctx, content, position, config_svc)
-
-
-def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
-    from .html_import import replace_full_document as impl
-    return impl(model, ctx, content, config_svc)
-
-
-def replace_single_range_with_content(model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None) -> None:
-    from .html_import import replace_single_range_with_content as impl
-    return impl(model, text_range, content, ctx, config_svc)
-
-
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
-    from .html_import import replace_xtext_with_html as impl
-    return impl(text_obj, html, config_svc, model)
-
-
-def rewrite_exported_field_spans(html: str) -> str:
-    from .html_import import rewrite_exported_field_spans as impl
-    return impl(html)
-
-
-def content_has_markup(content: str) -> bool:
-    from .html_import import content_has_markup as impl
-    return impl(content)
-
-
-def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
-    from .html_import import insert_inline_at_cursor as impl
-    return impl(model, ctx, cursor, content, config_svc)
-
-
-def content_has_block_markup(content: str) -> bool:
-    from .html_import import _content_has_block_markup as impl
-    return impl(content)
-
-
-def _content_has_block_markup(content: str | None) -> bool:  # pyright: ignore[reportUnusedFunction]
-    from .html_import import _content_has_block_markup as impl
-    return impl(content)
-
-
-def replace_preserving_format(model: Any, target_range: Any, new_text: str, ctx: Any = None, in_undo_context: bool = False, split_author: bool = True) -> None:
-    from .html_import import replace_preserving_format as impl
-    return impl(model, target_range, new_text, ctx, in_undo_context, split_author)
 

@@ -137,3 +137,37 @@ def test_leading_list_numbers_every_item(ctx):
         assert "\u200b" not in doc.getText().getString()
     finally:
         doc.close(True)
+
+
+@native_test
+def test_list_and_quote_paragraph_properties(ctx):
+    """Probe paragraph properties of imported lists, blockquotes, and preformatted blocks."""
+    from plugin.chatbot import rich_text
+
+    doc = _hidden_writer(ctx)
+    try:
+        assert rich_text.append_rich_text(doc, "first question", role="user")
+        assert rich_text.append_rich_text(
+            doc,
+            "<ul><li>alpha</li></ul><blockquote><p>quoted</p></blockquote><pre>code</pre>",
+            role="assistant",
+        )
+        props: list[dict[str, Any]] = []
+        paras = doc.getText().createEnumeration()
+        while paras.hasMoreElements():
+            para = paras.nextElement()
+            text = para.getString().strip()
+            if text:
+                props.append({
+                    "text": text,
+                    "NumberingIsNumber": para.getPropertyValue("NumberingIsNumber"),
+                    "ListId": para.getPropertyValue("ListId"),
+                    "ListLabelString": para.getPropertyValue("ListLabelString"),
+                    "ParaStyleName": para.getPropertyValue("ParaStyleName"),
+                    "ParaLeftMargin": para.getPropertyValue("ParaLeftMargin"),
+                })
+        assert any(p["text"] == "alpha" for p in props)
+        assert any(p["text"] == "quoted" for p in props)
+        assert any(p["text"] == "code" for p in props)
+    finally:
+        doc.close(True)

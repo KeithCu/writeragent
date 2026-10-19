@@ -195,6 +195,7 @@ def _dispatch_engine() -> tuple[Any, list[str], _Controller]:
 
     eng: Any = SlideCommandEngine.__new__(SlideCommandEngine)
     eng.warnings = []
+    eng.applied = []
     eng.doc = _Doc()
     eng.tctx = SimpleNamespace(ctx=SimpleNamespace(ServiceManager=_Smgr()))
     return eng, calls, controller
@@ -549,8 +550,9 @@ def test_change_layout_invalid_id_does_not_set_layout() -> None:
 
 def test_jump_to_slide_bool_does_not_land_on_slide_one() -> None:
     eng, _deck, _bridge = _engine(0, 4)
-    res = eng.apply({"Transforms": {"SlideCommands": [{"JumpToSlide": True}]}})
-    assert res["status"] == "ok"
+    res = eng.apply({"Transforms": {"SlideCommands": [{"JumpToSlide": True}, {"SetText.0": "no"}]}})
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
     assert eng.current_slide == 0
     assert any("Invalid JumpToSlide" in w for w in eng.warnings)
 
@@ -576,8 +578,9 @@ def test_top_level_uno_updates_current_slide_before_commands() -> None:
     deck = _Pages(4)
     bridge = _Bridge(deck)
     bridge.active_page = 0
+    controller = SimpleNamespace(getCurrentPage=lambda: SimpleNamespace())
     tctx = SimpleNamespace(
-        doc=SimpleNamespace(getDrawPages=lambda: deck, getCurrentController=lambda: None),
+        doc=SimpleNamespace(getDrawPages=lambda: deck, getCurrentController=lambda: controller),
         active_page_index=0,
         ctx=SimpleNamespace(ServiceManager=None),
     )
@@ -599,4 +602,303 @@ def test_top_level_uno_updates_current_slide_before_commands() -> None:
     )
     assert res["status"] == "ok"
     assert bridge.moved == (3, 0)
+
+
+def test_top_level_uno_without_current_page_preserves_active_page_index() -> None:
+    deck = _Pages(4)
+    bridge = _Bridge(deck)
+    bridge.active_page = 0
+    tctx = SimpleNamespace(
+        doc=SimpleNamespace(getDrawPages=lambda: deck, getCurrentController=lambda: None),
+        active_page_index=2,
+        ctx=SimpleNamespace(ServiceManager=None),
+    )
+    eng: Any = SlideCommandEngine(tctx)  # type: ignore
+    eng.pages = deck
+    eng.bridge = bridge
+
+    def _mock_top_uno(spec: object) -> None:
+        pass
+
+    setattr(eng, "_apply_top_level_uno", _mock_top_uno)
+    res = eng.apply(
+        {
+            "UnoCommand": ".uno:SomeCommand",
+            "Transforms": {
+                "SlideCommands": [{"MoveSlide": 0}],
+            },
+        }
+    )
+    assert res["status"] == "ok"
+    assert bridge.moved == (2, 0)
+
+
+class _CollapsingCursor:
+    def __init__(self) -> None:
+        self.text = ""
+        self._sel = ""
+        self.props: dict[str, Any] = {}
+        self.go_left_called = False
+
+    def getString(self) -> str:
+        return self._sel
+
+    def setString(self, val: str) -> None:
+        self.text = val
+        self._sel = ""
+
+    def goLeft(self, n: int, expand: bool) -> None:
+        self.go_left_called = True
+        if expand:
+            self._sel = self.text[-n:] if n <= len(self.text) else self.text
+
+    def setPropertyValue(self, name: str, value: Any) -> None:
+        self.props[name] = value
+
+
+class _NonCollapsingCursor:
+    def __init__(self) -> None:
+        self.text = ""
+        self._sel = ""
+        self.props: dict[str, Any] = {}
+        self.go_left_called = False
+
+    def getString(self) -> str:
+        return self._sel
+
+    def setString(self, val: str) -> None:
+        self.text = val
+        self._sel = val
+
+    def goLeft(self, n: int, expand: bool) -> None:
+        self.go_left_called = True
+
+    def setPropertyValue(self, name: str, value: Any) -> None:
+        self.props[name] = value
+
+
+class _FailingCursor(_CollapsingCursor):
+    def setPropertyValue(self, name: str, value: Any) -> None:
+        raise RuntimeError("property write failed")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in ("text", "_sel", "props", "go_left_called"):
+            super().__setattr__(name, value)
+            return
+        raise RuntimeError("property write failed")
+
+
+
+class _MockShapeWithCursor:
+    def __init__(self, cursor: Any, text: str = "") -> None:
+        self.cursor = cursor
+        self.text = text
+        self.IsEmptyPresentationObject = True
+
+    def getText(self) -> Any:
+        return self
+
+    def createTextCursor(self) -> Any:
+        return self.cursor
+
+    def getString(self) -> str:
+        return self.cursor.text or self.text
+
+    def setString(self, val: str) -> None:
+        self.text = val
+
+
+class _MockPageWithShapes:
+    def __init__(self, shapes: list[Any]) -> None:
+        self.shapes = shapes
+
+    def getCount(self) -> int:
+        return len(self.shapes)
+
+    def getByIndex(self, idx: int) -> Any:
+        return self.shapes[idx]
+
+
+def test_insert_text_collapsing_cursor_bold_and_italic() -> None:
+    cursor = _CollapsingCursor()
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    deck = _Pages(1)
+    bridge = _Bridge(deck)
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"InsertText": "Revenue grew 15% YoY"},
+                            {"UnoCommand": ".uno:Bold"},
+                            {"UnoCommand": ".uno:Italic"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "ok"
+    assert cursor.go_left_called is True
+    assert cursor.getString() == "Revenue grew 15% YoY"
+    assert cursor.props.get("CharWeight") == 150.0
+    assert cursor.props.get("CharPosture") == 2
+    assert shape.IsEmptyPresentationObject is False
+    assert "EditTextObject.0" in res["applied"]
+
+
+def test_insert_text_non_collapsing_cursor_skips_go_left() -> None:
+    cursor = _NonCollapsingCursor()
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    deck = _Pages(1)
+    bridge = _Bridge(deck)
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"InsertText": "Revenue grew 15% YoY"},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "ok"
+    assert cursor.go_left_called is False
+    assert cursor.props.get("CharWeight") == 150.0
+    assert shape.IsEmptyPresentationObject is False
+
+
+def test_edit_text_object_failed_subcommand_yields_error() -> None:
+    cursor = _FailingCursor()
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    deck = _Pages(1)
+    bridge = _Bridge(deck)
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"InsertText": "Revenue grew 15% YoY"},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert "EditTextObject.0" not in res["applied"]
+
+
+def test_set_text_out_of_range_stops_sequence() -> None:
+    shape0 = _MockShapeWithCursor(_CollapsingCursor())
+    page = _MockPageWithShapes([shape0])
+    deck = _Pages(1)
+    bridge = _Bridge(deck)
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"SetText.0": "x"},
+                    {"SetText.9": "y"},
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["failed_at"] == 1
+    assert shape0.getString() == "x"
+    assert res["applied"] == ["SetText.0"]
+
+
+def test_delete_or_duplicate_slide_invalid_stops_sequence() -> None:
+    shape0 = _MockShapeWithCursor(_CollapsingCursor())
+    page = _MockPageWithShapes([shape0])
+    deck = _Pages(2)
+    bridge = _Bridge(deck)
+    eng, _, _ = _engine(0, 2)
+    eng.pages = SimpleNamespace(getCount=lambda: 2, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res_del = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"DeleteSlide": 99},
+                    {"SetText.0": "no"},
+                ]
+            }
+        }
+    )
+    assert res_del["status"] == "error"
+    assert res_del["failed_at"] == 0
+    assert shape0.getString() == ""
+    assert res_del["applied"] == []
+
+    res_dup = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"DuplicateSlide": 99},
+                    {"SetText.0": "no"},
+                ]
+            }
+        }
+    )
+    assert res_dup["status"] == "error"
+    assert res_dup["failed_at"] == 0
+    assert shape0.getString() == ""
+    assert res_dup["applied"] == []
+
+
+def test_deferred_and_unknown_commands_fail_at_zero() -> None:
+    eng, _deck, _bridge = _engine(0, 2)
+    res_gen = eng.apply({"Transforms": {"SlideCommands": [{"GenerateImage.0": "x"}]}})
+    assert res_gen["status"] == "error"
+    assert res_gen["failed_at"] == 0
+
+    res_unknown = eng.apply({"Transforms": {"SlideCommands": [{"NoSuch": 1}]}})
+    assert res_unknown["status"] == "error"
+    assert res_unknown["failed_at"] == 0
+
+
+def test_slide_level_uno_command_failure_stops_sequence() -> None:
+    eng, calls, controller = _dispatch_engine()
+    eng.current_slide = 0
+    eng.bridge = _Bridge(_Pages(1))
+    eng.pages = _Pages(1)
+
+    # Empty command returns False from _dispatch_uno_string
+    res = eng.apply({"Transforms": {"SlideCommands": [{"UnoCommand": ""}]}})
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert "UnoCommand:" not in str(res["applied"])
+
+
 

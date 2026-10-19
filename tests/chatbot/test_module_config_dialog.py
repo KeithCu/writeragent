@@ -249,3 +249,64 @@ def test_disposing_without_window_closing_pops_active_dialogs():
         dlg.dispose.assert_not_called()
         assert "vision" not in _active_dialogs
         assert dialog._closed is True
+
+
+def test_disposing_from_old_dialog_does_not_evict_replacement():
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, _active_dialogs
+
+    ctx = MagicMock()
+    dlg_a = MagicMock()
+    dlg_b = MagicMock()
+    dlg_c = MagicMock()
+    _active_dialogs.clear()
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", side_effect=[(dlg_a, ""), (dlg_b, ""), (dlg_c, "")]),
+        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+    ):
+        # 1. show() A, windowClosing on A. Registry is empty, dispose() was not called.
+        ModuleConfigDialog.show(ctx, "vision")
+        dialog_a = _active_dialogs["vision"]
+        listener_a = dialog_a._top_listener
+        assert listener_a is not None
+
+        listener_a.windowClosing(MagicMock())
+        assert "vision" not in _active_dialogs
+        dlg_a.dispose.assert_not_called()
+
+        # 2. show() B. Registry is B.
+        ModuleConfigDialog.show(ctx, "vision")
+        assert _active_dialogs.get("vision") is not None
+        dialog_b = _active_dialogs["vision"]
+        assert dialog_b is not dialog_a
+
+        # 3. disposing on A. Registry is still B, B is not _closed, B's dialog was not disposed.
+        listener_a.disposing(MagicMock())
+        assert _active_dialogs.get("vision") is dialog_b
+        assert dialog_b._closed is False
+        dlg_b.dispose.assert_not_called()
+
+        # 4. show() C. Closes B and leaves C registered.
+        ModuleConfigDialog.show(ctx, "vision")
+        dialog_c = _active_dialogs["vision"]
+        assert dialog_c is not dialog_b
+        assert dialog_b._closed is True
+        dlg_b.dispose.assert_called_once()
+        dlg_c.dispose.assert_not_called()
+
+
+def test_close_does_not_evict_different_registered_dialog():
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, _active_dialogs
+
+    ctx = MagicMock()
+    dialog_other = ModuleConfigDialog(ctx, "vision")
+    _active_dialogs["vision"] = dialog_other
+
+    dialog_a = ModuleConfigDialog(ctx, "vision")
+    dialog_a._dlg = MagicMock()
+    assert dialog_a._closed is False
+
+    dialog_a.close()
+    assert dialog_a._closed is True
+    assert _active_dialogs.get("vision") is dialog_other

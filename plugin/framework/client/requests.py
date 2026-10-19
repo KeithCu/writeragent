@@ -31,6 +31,7 @@ def sync_request(
     stop_checker: Any = None,
     status_callback: Any = None,
     include_meta: bool = False,
+    max_bytes: int | None = None,
 ) -> Any:
     """Blocking HTTP GET or POST on the shared transport.
 
@@ -85,6 +86,7 @@ def sync_request(
             stop_checker=stop_checker,
             status_callback=status_callback,
             parse_json=parse_json,
+            max_bytes=max_bytes,
         )
     finally:
         transport.close()

@@ -23,8 +23,8 @@ cap is rejected before one RGB tuple is allocated per pixel (a few-KB
 4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
 tuples). ZIP member reads do not trust the declared uncompressed size:
 ``ZipFile.read`` with no length inflates up to ``ZipExtFile.MAX_N`` (~1 GiB)
-before slicing to that size. Thumbnail, ``styles.xml``, and ``Pictures/*.svg``
-are copied in small reads and dropped past ``_MAX_MEMBER_BYTES``. The
+before slicing to that size. Member reads are handled by ``otp_zip`` in
+small chunks up to ``MAX_MEMBER_BYTES``. The
 XML/SVG fallback also refuses to open every ``Pictures/*.svg`` or keep
 every hex hit: a missing thumbnail must not turn listing into an
 unbounded scan. 1/2/4-bit grayscale samples are scaled to 0–255 so an
@@ -44,15 +44,15 @@ import zipfile
 import zlib
 from typing import Iterable
 
+from plugin.draw.otp_zip import (
+    MAX_MEMBER_BYTES as _MAX_MEMBER_BYTES,
+    find_member,
+    norm_zip_name as _norm_zip_name,
+    read_member as _read_member,
+)
+
 log = logging.getLogger("writeragent.draw.design_look")
 
-# Caps so a hostile/corrupt user ``.otp`` cannot inflate listing.
-_MAX_MEMBER_BYTES = 2 * 1024 * 1024
-# ZipExtFile.read(n) passes n through as zlib max_length, then slices to
-# the header file_size. One read(limit) still builds that whole buffer
-# before the slice, so a forged file_size of 64 still costs ~limit bytes.
-# Chunks keep each inflate request small; the loop enforces the real cap.
-_ZIP_READ_CHUNK = 64 * 1024
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024
 # One tuple per pixel, not scanline bytes. 4096×4096 1-bit stays under
@@ -128,10 +128,6 @@ def _format_look(mood: str, accents: list[str], pic_tag: str) -> str:
     return "; ".join(parts)
 
 
-def _norm_zip_name(name: str) -> str:
-    return name.replace("\\", "/").lstrip("./").lower()
-
-
 def _picture_tag(names: Iterable[str]) -> str:
     pics = [n for n in names if _norm_zip_name(n).startswith("pictures/") and not _norm_zip_name(n).endswith("/") and _norm_zip_name(n).rsplit("/", 1)[-1]]
     images = [n for n in pics if _norm_zip_name(n).endswith(_IMAGE_EXT)]
@@ -143,53 +139,8 @@ def _picture_tag(names: Iterable[str]) -> str:
     return ""
 
 
-def _read_member(zf: zipfile.ZipFile, name: str, limit: int = _MAX_MEMBER_BYTES) -> bytes | None:
-    """Return one member's bytes, or None if missing, corrupt, or over *limit*.
-
-    ``ZipInfo.file_size`` is not a read bound. That value is the
-    uncompressed size in the central directory; the local file
-    header stores the same field and both are forgeable.
-    ``ZipExtFile.read`` with no size inflates via
-    ``decompress(..., MAX_N)`` (~1 GiB) and only then slices to
-    ``file_size``. A 64KB ``.otp`` whose declared size is 64 bytes
-    still expands by ~100MB before a post-read cap can see the real
-    length. ``list_designs`` → ``derive_otp_look`` does this on the
-    main thread for every discovered template, including
-    user-writable dirs (thumbnail, ``styles.xml``, and
-    ``Pictures/*.svg``). A declared size above *limit* is skipped,
-    but a small declared size is not the read bound. Chunks pass
-    ``_ZIP_READ_CHUNK`` as zlib's ``max_length``, and the loop drops
-    the member once more than *limit* bytes have been produced.
-    """
-    try:
-        info = zf.getinfo(name)
-    except KeyError:
-        return None
-    # Honest huge members are not opened. A forged *small* file_size
-    # falls through; the sized loop below is what stops the inflate.
-    if info.file_size > limit:
-        return None
-    buf = bytearray()
-    try:
-        with zf.open(info, "r") as src:
-            while len(buf) <= limit:
-                piece = src.read(_ZIP_READ_CHUNK)
-                if not piece:
-                    break
-                if len(buf) + len(piece) > limit:
-                    return None
-                buf.extend(piece)
-    except (zipfile.BadZipFile, EOFError, zlib.error):
-        return None
-    return bytes(buf)
-
-
 def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
-    thumb_name = ""
-    for n in names:
-        if _norm_zip_name(n) == "thumbnails/thumbnail.png":
-            thumb_name = n
-            break
+    thumb_name = find_member(zf, "thumbnails/thumbnail.png")
     if not thumb_name:
         return []
     raw = _read_member(zf, thumb_name)
@@ -198,7 +149,7 @@ def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
     pixels = decode_png_rgb(raw)
     if not pixels:
         return []
-    return _downsample(pixels)
+    return pixels
 
 
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
@@ -218,14 +169,11 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
     remaining members are not opened.
     """
     samples: list[tuple[int, int, int]] = []
-    styles_name = ""
+    styles_name = find_member(zf, "styles.xml") or ""
     svgs: list[str] = []
     for n in names:
         norm = _norm_zip_name(n)
-        if norm == "styles.xml":
-            if not styles_name:
-                styles_name = n
-        elif norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
+        if norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
             svgs.append(n)
     to_read: list[str] = []
     if styles_name:
@@ -256,14 +204,6 @@ def _hex_colors(blob: bytes, limit: int) -> list[tuple[int, int, int]]:
         if len(out) >= limit:
             break
     return out
-
-
-def _downsample(pixels: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
-    n = len(pixels)
-    if n <= _MAX_SAMPLED_PIXELS:
-        return pixels
-    step = max(1, n // _MAX_SAMPLED_PIXELS)
-    return pixels[::step][:_MAX_SAMPLED_PIXELS]
 
 
 def _mood_and_accents(samples: list[tuple[int, int, int]]) -> tuple[str, list[str]]:
@@ -384,7 +324,7 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     # After the raw-byte cap, building one RGB tuple per pixel still
     # blows up. A valid 4096×4096 1-bit thumbnail is a few KB and
     # under _MAX_RAW_PNG, then ~16.7M tuples (~1GB) before
-    # _downsample. list_designs / apply_design feed
+    # sampling. list_designs / apply_design feed
     # Thumbnails/thumbnail.png from discovered .otp files, including
     # the user-writable template dir. Reject on width*height before
     # inflate and before the pixel list. Mood falls back to
@@ -396,6 +336,8 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     if color_type not in (0, 2, 3, 4, 6):
         return None
     if bit_depth not in (1, 2, 4, 8):
+        return None
+    if color_type in (2, 4, 6) and bit_depth != 8:
         return None
     if color_type == 3 and not palette:
         return None
@@ -410,10 +352,13 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     if len(raw) < expected:
         return None
     bpp = max(1, (bit_depth * spp + 7) // 8)
+    total_pixels = width * height
+    step = max(1, total_pixels // _MAX_SAMPLED_PIXELS)
     pixels: list[tuple[int, int, int]] = []
     prior = bytes(row_bytes - 1)
     pos = 0
     rows_left = height
+    pixel_idx = 0
     while rows_left:
         rows_left -= 1
         filt = raw[pos]
@@ -428,7 +373,13 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         unpacked = _unpack_row(row, width, bit_depth, color_type, palette, trans)
         if unpacked is None:
             return None
-        pixels.extend(unpacked)
+        if len(pixels) < _MAX_SAMPLED_PIXELS:
+            for x, pix in enumerate(unpacked):
+                if (pixel_idx + x) % step == 0:
+                    pixels.append(pix)
+                    if len(pixels) >= _MAX_SAMPLED_PIXELS:
+                        break
+        pixel_idx += len(unpacked)
     return pixels
 
 

@@ -358,6 +358,16 @@ jobs:
         run: |
           uv sync --frozen --dev
 
+      # Windows: keep a minidump if soffice.bin crashes during the UNO stage.
+      - name: Enable soffice crash dumps (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\soffice.bin'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value "$env:RUNNER_TEMP\dumps" -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
+
       - name: Run release verification
         run: |
           export MPLCONFIGDIR="${RUNNER_TEMP}/matplotlib"
@@ -370,4 +380,29 @@ jobs:
           fi
           "$PY" -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot"
           make release-verify
+
+      - name: Show soffice crash dumps (Windows)
+        if: ${{ failure() && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          # LibreOffice's own signal handler can end the process before WER writes
+          # a dump, but Application Error / WER events still name the fault.
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddHours(-2) } -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting', 'Application Hang') } |
+            Format-List TimeCreated, ProviderName, Id, Message
+          $dumps = Get-ChildItem "$env:RUNNER_TEMP\dumps" -Filter *.dmp -ErrorAction SilentlyContinue
+          if (-not $dumps) { Write-Output "no soffice.bin dumps"; exit 0 }
+          $cdb = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue
+          foreach ($d in $dumps) {
+            Write-Output "=== $($d.FullName)"
+            if ($cdb) { & $cdb.FullName -z $d.FullName -c ".ecxr; kn 40; q" }
+          }
+
+      - name: Upload soffice crash dumps (Windows)
+        if: ${{ failure() && runner.os == 'Windows' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: soffice-dumps-${{ github.run_id }}
+          path: ${{ runner.temp }}/dumps/
+          if-no-files-found: ignore
 

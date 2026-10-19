@@ -870,10 +870,18 @@ class DrawBridge:
         return True
 
     def rename_slide(self, index: int, name: str) -> bool:
-        page = self.get_pages().getByIndex(index)
-        if hasattr(page, "Name"):
-            page.Name = name
-            return True
+        try:
+            pages = self.get_pages()
+            if index < 0 or index >= pages.getCount():
+                return False
+            page = pages.getByIndex(index)
+            if hasattr(page, "Name"):
+                page.Name = name
+                return True
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("rename_slide failed: %s", exc)
         return False
 
     def set_current_page_index(self, index: int) -> bool:

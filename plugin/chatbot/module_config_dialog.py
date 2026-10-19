@@ -90,11 +90,17 @@ class ModuleConfigDialog:
         dialog._open()
         _active_dialogs[module_name] = dialog
 
+    def _forget_active(self) -> None:
+        # Pop only if this instance is still registered; windowClosing returns before
+        # toolkit disposing, so a show() in between must stay registered.
+        if _active_dialogs.get(self._module_name) is self:
+            _active_dialogs.pop(self._module_name, None)
+
     def close(self, *, toolkit_teardown: bool = False) -> None:
         if self._closed:
             return
         self._closed = True
-        _active_dialogs.pop(self._module_name, None)
+        self._forget_active()
         dlg = self._dlg
         self._dlg = None
         if dlg is None:
@@ -133,7 +139,7 @@ class ModuleConfigDialog:
 
                 def on_disposing(self, Source: Any) -> None:
                     owner._closed = True
-                    _active_dialogs.pop(owner._module_name, None)
+                    owner._forget_active()
                     owner._dlg = None
 
             self._top_listener = _TopWindowListener()

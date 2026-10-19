@@ -23,6 +23,7 @@ from plugin.calc.charts import (
     _find_calc_chart_and_sheet,
     _format_chart_exception_msg,
     _get_all_calc_chart_names,
+    _writer_body_has_no_text,
 )
 
 
@@ -270,6 +271,52 @@ def test_calc_diagram_failure_after_insert_removes_chart():
     assert result["status"] == "error"
     added = charts.addNewByName.call_args[0][0]
     charts.removeByName.assert_called_once_with(added)
+
+
+def test_writer_diagram_failure_after_insert_removes_chart():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    chart_doc = MagicMock()
+    chart_doc.createInstance.return_value = MagicMock()
+    chart_doc.setDiagram.side_effect = _UnoRuntimeException("diagram rejected")
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_CREATE_ERROR"
+    assert "diagram rejected" in res["message"]
+    drop_mock.assert_called_once()
+    styling_mock.assert_not_called()
+
+
+def test_writer_diagram_create_instance_none_removes_chart():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    chart_doc = MagicMock()
+    chart_doc.createInstance.return_value = None
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_CREATE_ERROR"
+    drop_mock.assert_called_once()
+    styling_mock.assert_not_called()
 
 
 def test_missing_calc_chart_model_removes_insert():
@@ -566,6 +613,117 @@ def test_create_data_apply_failure_removes_chart_and_errors():
     assert res.get("code") == "CHART_CREATE_ERROR"
     assert "setData failed" in res["message"]
     drop_mock.assert_called_once()
+
+
+def test_writer_create_two_paragraphs_skips_control_char():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    text = doc.getText.return_value
+    p1 = MagicMock()
+    p2 = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True]
+    enum.nextElement.side_effect = [p1, p2]
+    text.createEnumeration.return_value = enum
+
+    chart_doc = MagicMock()
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "ok"
+    text.getString.assert_not_called()
+    text.insertControlCharacter.assert_not_called()
+    assert text.insertTextContent.call_count >= 1
+
+
+def test_writer_create_non_empty_paragraph_skips_control_char():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    text = doc.getText.return_value
+    p1 = MagicMock()
+    p1.getString.return_value = "hello"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = p1
+    text.createEnumeration.return_value = enum
+
+    chart_doc = MagicMock()
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "ok"
+    text.getString.assert_not_called()
+    text.insertControlCharacter.assert_not_called()
+
+
+def test_writer_create_single_empty_paragraph_inserts_break_and_content():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    text = doc.getText.return_value
+    p1 = MagicMock()
+    p1.getString.return_value = ""
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = p1
+    text.createEnumeration.return_value = enum
+
+    chart_doc = MagicMock()
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts.uno.getConstantByName", return_value=123),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    assert res["status"] == "ok"
+    text.getString.assert_not_called()
+    text.insertControlCharacter.assert_called_once()
+    assert text.insertTextContent.call_count >= 1
+
+
+def test_writer_create_enumeration_disposed_propagates():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    text = doc.getText.return_value
+    text.createEnumeration.side_effect = DisposedException("teardown")
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        pytest.raises(DisposedException),
+    ):
+        UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+
+    text.insertControlCharacter.assert_not_called()
+    text.insertTextContent.assert_not_called()
+
+
+def test_writer_default_mock_enumeration_skips_break():
+    text = MagicMock()
+    assert _writer_body_has_no_text(text) is False
+    text.getString.assert_not_called()
 
 
 def test_edit_data_apply_failure_returns_error_and_does_not_remove_chart():

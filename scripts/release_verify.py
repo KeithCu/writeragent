@@ -80,6 +80,34 @@ def _make_uno_env(
     return env
 
 
+def _add_windows_office_logs(env: dict[str, str], seed_dir: Path) -> Path | None:
+    """On Windows, send soffice's PyUNO log to files we can print.
+
+    Tip: soffice.exe has no usable stderr on Windows, so a Python addin that
+    kills the office leaves nothing in the job log without these.
+    """
+    if sys.platform != "win32":
+        return None
+    diag_dir = seed_dir / "diag"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+    # SAL_LOG is compiled out of release LibreOffice; PyUNO's log is not.
+    # PYUNO_LOGTARGET must be a file URL; pyuno appends ".<pid>".
+    env["PYUNO_LOGLEVEL"] = "CALL"
+    env["PYUNO_LOGTARGET"] = (diag_dir / "pyuno").as_uri()
+    return diag_dir
+
+
+def _print_office_logs(diag_dir: Path, max_lines: int = 60) -> None:
+    for path in sorted(diag_dir.iterdir()):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        print("=== %s (last %d of %d lines) ===" % (path.name, min(max_lines, len(lines)), len(lines)))
+        for line in lines[-max_lines:]:
+            print(line)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Verify release bundle in a clean temporary tree.")
     parser.add_argument(
@@ -181,8 +209,13 @@ def main(argv: list[str]) -> int:
 
         uno_cmd = [lo_python, "-u", "-m", "plugin.testing_runner"]
         uno_env = _make_uno_env(lo_python, root, home=home, profile=profile)
+        diag_dir = _add_windows_office_logs(uno_env, seed_dir)
         proc = subprocess.run(uno_cmd, cwd=str(root), env=uno_env, check=False)
         if proc.returncode != 0:
+            if diag_dir is not None:
+                # Before the finally kill: is soffice still up after the bridge died?
+                print("office pids after UNO failure: %s" % (lo_kill.office_pids(None),))
+                _print_office_logs(diag_dir)
             return proc.returncode
 
         return 0

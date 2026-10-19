@@ -264,7 +264,8 @@ def render_config_schema_markdown(
 
 
 def load_sorted_modules() -> list[dict[str, Any]]:
-    from generate_manifest import find_modules, topo_sort
+    from generate_manifest import find_modules
+    from plugin.framework.module_graph import topo_sort
 
     try:
         import yaml

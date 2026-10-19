@@ -6,6 +6,7 @@
 
 from concurrent.futures import Future
 import errno
+import os
 import socket
 import ssl
 import threading
@@ -54,17 +55,84 @@ def test_reuseaddr_follows_allow_reuse_address() -> None:
         off.server_close()
 
 
-def test_accept_error_backs_off(monkeypatch) -> None:
+def test_accept_benign_error_returns_without_sleep_or_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     listener = MagicMock()
-    listener.accept.side_effect = OSError(24, "Too many open files")
+    listener.accept.side_effect = OSError(errno.ECONNABORTED, "Software caused connection abort")
+    slept: list[float] = []
+    monkeypatch.setattr("plugin.framework.http_server.time.sleep", lambda secs: slept.append(secs))
+    caplog.set_level("WARNING", logger="plugin.framework.http_server")
+    try:
+        server._accept_one(listener)
+        assert slept == []
+        assert server._accept_pause_until == 0.0
+        assert caplog.text == ""
+    finally:
+        server.server_close()
+
+
+def test_accept_resource_error_backs_off_and_caps(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    listener = MagicMock()
+    listener.accept.side_effect = OSError(errno.EMFILE, "Too many open files")
+    slept: list[float] = []
+    monkeypatch.setattr("plugin.framework.http_server.time.sleep", lambda secs: slept.append(secs))
+    fixed_time = 1000.0
+    monkeypatch.setattr("plugin.framework.http_server.time.monotonic", lambda: fixed_time)
+    caplog.set_level("WARNING", logger="plugin.framework.http_server")
+    pauses: list[float] = []
+    try:
+        for _ in range(10):
+            server._accept_one(listener)
+            pauses.append(server._accept_pause_until)
+        assert slept == []
+        assert pauses == [
+            fixed_time + 0.05,
+            fixed_time + 0.1,
+            fixed_time + 0.2,
+            fixed_time + 0.4,
+            fixed_time + 0.8,
+            fixed_time + 1.0,
+            fixed_time + 1.0,
+            fixed_time + 1.0,
+            fixed_time + 1.0,
+            fixed_time + 1.0,
+        ]
+        assert server._accept_backoff_sec == 1.0
+        warnings = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "Accept error" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert str(errno.EMFILE) in warnings[0].getMessage()
+    finally:
+        server.server_close()
+
+
+def test_successful_accept_resets_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    listener = MagicMock()
+    listener.accept.side_effect = OSError(errno.EMFILE, "Too many open files")
     slept: list[float] = []
     monkeypatch.setattr("plugin.framework.http_server.time.sleep", lambda secs: slept.append(secs))
     try:
         server._accept_one(listener)
+        assert server._accept_pause_until > 0.0
+        assert server._accept_backoff_sec == 0.1
+
+        mock_conn = MagicMock()
+        listener.accept.side_effect = None
+        listener.accept.return_value = (mock_conn, ("127.0.0.1", 12345))
+        server._accept_one(listener)
+        assert server._accept_backoff_sec == 0.05
+        assert server._accept_pause_until == 0.0
+        assert slept == []
     finally:
         server.server_close()
-    assert slept == [0.05]
 
 
 def test_wrap_failure_closes_socket_without_backoff(monkeypatch) -> None:
@@ -564,5 +632,76 @@ def test_shutdown_before_serve_forever_returns_immediately_and_clears_flag() -> 
         assert not serve_thread2.is_alive()
     finally:
         server.server_close()
+
+
+def test_shutdown_wakes_serve_forever_immediately_without_fd_leak() -> None:
+    fd_dir = "/proc/self/fd"
+    has_proc_fd = os.path.exists(fd_dir)
+    fds_before = set(os.listdir(fd_dir)) if has_proc_fd else set()
+
+    for _ in range(20):
+        server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+        try:
+            serve_thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 5.0}, daemon=True)
+            serve_thread.start()
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not server._serving:
+                time.sleep(0.001)
+            assert server._serving
+            t0 = time.monotonic()
+            server.shutdown()
+            elapsed = time.monotonic() - t0
+            assert elapsed < 0.1
+            serve_thread.join(timeout=1.0)
+            assert not serve_thread.is_alive()
+        finally:
+            server.server_close()
+        assert server._wake_write is None
+
+    if has_proc_fd:
+        fds_after = set(os.listdir(fd_dir))
+        assert len(fds_after - fds_before) == 0
+
+
+def test_serve_forever_paused_accept_shutdown_wakes_in_under_100ms(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    slept: list[float] = []
+    # Tip: patching http_server.time.sleep replaces the global time.sleep, so poll with the real one.
+    real_sleep = time.sleep
+    monkeypatch.setattr("plugin.framework.http_server.time.sleep", lambda secs: slept.append(secs))
+
+    orig_accept = socket.socket.accept
+
+    def _mock_accept(self_sock: socket.socket) -> tuple[socket.socket, Any]:
+        if self_sock in server.sockets:
+            raise OSError(errno.EMFILE, "Too many open files")
+        return orig_accept(self_sock)
+
+    monkeypatch.setattr(socket.socket, "accept", _mock_accept)
+
+    serve_thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 5.0}, daemon=True)
+    try:
+        serve_thread.start()
+        port = server.server_address[1]
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                pass
+        except OSError:
+            pass
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and server._accept_pause_until == 0.0:
+            real_sleep(0.005)
+        assert server._accept_pause_until > 0.0
+
+        t0 = time.monotonic()
+        server.shutdown()
+        elapsed = time.monotonic() - t0
+        assert elapsed < 0.1
+        serve_thread.join(timeout=1.0)
+        assert not serve_thread.is_alive()
+        assert slept == []
+    finally:
+        server.server_close()
+
 
 

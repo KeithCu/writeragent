@@ -1,5 +1,7 @@
 """Shared XML dialog widget creation helpers for LibreOffice XDL generation."""
 
+import os
+import tempfile
 import xml.etree.ElementTree as ET
 
 _DLG_NS = "http://openoffice.org/2000/dialog"
@@ -144,15 +146,40 @@ def require_widget(schema, allowed: frozenset[str], *, where: str) -> str:
 
 
 def write_if_changed(path, content, mode="w", encoding="utf-8"):
-    """Write content to path only if the file does not exist or the content has changed."""
-    import os
+    """Write content to path only if the file does not exist or the content has changed.
+
+    Writes atomically via a temporary file in the target directory to avoid partial writes.
+    """
+    is_binary = "b" in mode
+    read_mode = "rb" if is_binary else "r"
+    file_encoding = None if is_binary else encoding
+
     if os.path.exists(path):
-        try:
-            with open(path, "r" if "b" not in mode else "rb", encoding=encoding if "b" not in mode else None) as f:
-                if f.read() == content:
-                    return
-        except Exception:
-            pass
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, mode, encoding=encoding if "b" not in mode else None) as f:
-        f.write(content)
+        with open(path, read_mode, encoding=file_encoding) as f:
+            if f.read() == content:
+                return
+
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode=mode,
+            dir=dir_name or None,
+            encoding=file_encoding,
+            delete=False,
+        ) as f:
+            temp_path = f.name
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass

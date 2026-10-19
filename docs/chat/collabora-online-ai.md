@@ -84,6 +84,8 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 *   **Collabora's Path**: `DocumentToolDescriptions.hpp` + kit `transformdocumentstructure` + `AIChatSession.cpp`.
 *   **WriterAgent Path**: Unified transform engine (appendix C summarizes schema; full spec in upstream header). See roadmap P2.
 
+    A command that does not apply returns `status: "error"` and `failed_at`; earlier commands in `applied` stay in the document under one `WriterCompoundUndo` step; `InsertText` selects the inserted text so a following `.uno:Bold` / `.uno:Italic` formats that text (`drviews2.cxx`); invalid layout names and out-of-range ids error.
+
 ### 4. Progressive Slide Layout & Image Sequencing
 
 *   **The Feature**: Placeholders applied immediately; `GenerateImage` completions hot-swapped asynchronously.

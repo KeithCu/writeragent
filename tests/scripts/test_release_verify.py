@@ -338,3 +338,17 @@ def test_seed_runtime_error_returns_1_and_cleans_up(
     assert code == 1
     kill_mock.assert_called_once()
     assert rmtree_mock.call_count == 2
+
+
+def test_windows_office_logs_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scripts.release_verify as rv
+
+    env: dict[str, str] = {}
+    monkeypatch.setattr(rv.sys, "platform", "linux")
+    assert rv._add_windows_office_logs(env, tmp_path) is None
+    assert env == {}
+    monkeypatch.setattr(rv.sys, "platform", "win32")
+    diag = rv._add_windows_office_logs(env, tmp_path)
+    assert diag == tmp_path / "diag" and diag.is_dir()
+    assert env["PYUNO_LOGLEVEL"] == "CALL"
+    assert env["PYUNO_LOGTARGET"] == (diag / "pyuno").as_uri()

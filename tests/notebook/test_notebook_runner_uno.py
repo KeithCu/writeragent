@@ -173,7 +173,6 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
         form_run_listeners,
         get_control_view_for_model,
         prune_dead_listeners,
-        wired_run_listener_count,
     )
 
     model = find_form_control_model_by_name(doc, f"nb_run_{hex_id}")
@@ -190,9 +189,8 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     evt.Source = control
     evt.ActionCommand = str(getattr(model, "Name", "") or "")
     prune_dead_listeners()
-    n = wired_run_listener_count(hex_id, doc)
     matched = form_run_listeners(doc)
-    assert len(matched) == 1, f"form listener list mismatch: {len(matched)} (count={n})"
+    assert len(matched) == 1, f"form listener list mismatch: {len(matched)}"
     # Fire the shared listener — a real click delivers one ActionEvent with Source=button.
     for lis in matched:
         lis.actionPerformed(evt)
@@ -204,7 +202,7 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
 def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
     """Import must attach one form-level listener, not N controller.getControl(model)."""
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
-    from plugin.notebook.notebook_controls import form_run_listeners, wired_run_listener_count
+    from plugin.notebook.notebook_controls import form_run_listeners
     from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
 
     ipynb = _tiny_ipynb_path()
@@ -217,7 +215,6 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
         assert state is not None and len(state.code_cells) == 1
         hex_id = cell_id_to_hex(state.code_cells[0].cell_id)
         assert len(form_run_listeners(doc)) == 1
-        assert wired_run_listener_count(hex_id, doc) == 1
 
         fake_result = {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}
         runs: list[str] = []
@@ -238,7 +235,6 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
         wire_all_notebook_run_buttons(ctx, doc)
         wire_all_notebook_run_buttons(ctx, doc)
         assert len(form_run_listeners(doc)) == 1
-        assert wired_run_listener_count(hex_id, doc) == 1
         runs.clear()
         with (
             patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
@@ -490,8 +486,8 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import (
         ensure_form_design_mode_off,
+        form_run_listeners,
         wire_all_notebook_run_buttons,
-        wired_run_listener_count,
     )
     from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
 
@@ -517,8 +513,8 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
         ensure_form_design_mode_off(doc)
         wire_all_notebook_run_buttons(ctx, doc)
         wire_all_notebook_run_buttons(ctx, doc)
-        assert wired_run_listener_count(hex_id, doc) == 1, (
-            f"extra wire_all attached duplicate listeners: {wired_run_listener_count(hex_id, doc)}"
+        assert len(form_run_listeners(doc)) == 1, (
+            f"extra wire_all attached duplicate listeners: {len(form_run_listeners(doc))}"
         )
         _assert_controls_present(doc, cell)
 

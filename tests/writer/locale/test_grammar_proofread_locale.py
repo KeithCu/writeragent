@@ -318,3 +318,13 @@ def test_grammar_bcp47_tags_match() -> None:
     assert not grammar_bcp47_tags_match("ja-JP", "zh-CN")
 
 
+def test_checked_grammar_text() -> None:
+    assert gl.checked_grammar_text("short text", 20) == "short text"
+    assert gl.checked_grammar_text("exact length", 12) == "exact length"
+    assert gl.checked_grammar_text("word1 word2 word3 word4", 20) == "word1 word2 word3"
+    text_early_space = "word1 " + "a" * 25
+    assert gl.checked_grammar_text(text_early_space, 20) == text_early_space[:20]
+    assert gl.checked_grammar_text("a" * 30, 20) == "a" * 20
+
+
+

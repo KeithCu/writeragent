@@ -225,7 +225,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
-         patch.object(html_export.format_mod, "_with_temp_buffer") as buf, \
+         patch("plugin.writer.format._with_temp_buffer") as buf, \
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"

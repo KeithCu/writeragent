@@ -35,7 +35,7 @@ When the setting is off, behavior reverts to the legacy plain-text sidebar; mode
 
 During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `contains_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
 
-After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `_HTML_TAG_RE`), the sidebar **re-renders only the tail** of that message: it truncates from `_assistant_stream_start_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
+After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it truncates from `_assistant_stream_start_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
 
 Producer-side **250 ms batching** of stream chunks reduces UI stutter; see [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
 
@@ -145,7 +145,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 - Implements **`com.sun.star.text.TextRange`** and character/paragraph properties — not a mini Writer document and not a general HTML layout engine.
 - **Not** available from XDL (`dlg:textfield` has no `richtext` attribute in [dialog.dtd](https://github.com/LibreOffice/core/blob/master/xmlscript/dtd/dialog.dtd)); the control is created in Python and registered as `response_rich`.
-- Supported HTML for detection and prompts is the constrained set in `_HTML_TAG_RE` and `RICH_CHAT_SIDEBAR_INSTRUCTIONS` — not arbitrary web HTML.
+- Supported HTML for detection and prompts is the constrained set checked by `contains_html_tag` and `RICH_CHAT_SIDEBAR_INSTRUCTIONS` — not arbitrary web HTML.
 
 ---
 
@@ -165,10 +165,10 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 ## Limitations and backlog
 
 - **Shipped (do not re-open):** Mid-stream raw HTML flash — fixed via `StreamingHTMLStripper` on the append path; see [Streaming experience](#streaming-experience). Still open below is *formatted* HTML during stream (vs plain stripped text + end-of-stream rerender), which is a different feature.
-- **Rerender only when tags match `_HTML_TAG_RE`** — Plain-text-looking HTML or unusual tags may skip formatted rerender.
+- **HTML tag detection via `contains_html_tag`** — Unrecognized markup or plain-text-looking tokens that do not look like real HTML tags skip formatted rerender.
 - **Form component caveat** — `RichTextControl` is designed around database forms; extension dialogs use form components without a bound DB, but edge cases on some LO builds are possible ([forum discussion](https://forum.openoffice.org/en/forum/viewtopic.php?t=92134)).
 - **Calc/Draw QA** — Same wiring as Writer deck; verify formatted paste and resize on non-Writer sidebars when changing behavior.
-- **Native UNO HTML paste test** — `_disabled_test_rich_text_control_html_clipboard_paste` in `test_rich_text_control_uno.py` is skipped via `SKIP_NATIVE_RUN_ALL`; re-enable when headless clipboard path is stable.
+- **Native UNO HTML paste test** — `test_rich_text_control_append_formatted_row` in `test_rich_text_control_uno.py` verifies direct copy formatting without clipboard transfer or idle pumping.
 
 ---
 
@@ -194,7 +194,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `apply_rich_control_para_margins` | EditEngine horizontal inset for sidebar density |
 | `configure_hidden_writer_for_chat` | Standard style zero margins, `zxx` locale, font names on hidden import doc |
 | `append_rich_text` | HTML filter import + list tightening |
-| `get_theme_colors`, `_HTML_TAG_RE` | Theme-aware role colors; HTML detection for rerender |
+| `get_theme_colors` | Theme-aware role colors |
 
 ### Key APIs (`rich_text_control.py`)
 
@@ -223,16 +223,16 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 | Function | Role |
 |----------|------|
-| `paint_message_items` | Replace the control with a paint of the message list |
+| `paint_message_items` | Replace the control with a paint of the message list (used for history reload) |
 | `fold_transcript_chunk` | Record a chunk or the Stop line on `session.messages` before that paint |
-| `append_rich_text_via_clipboard` | Single message formatted copy (not the transcript source of truth) |
-| `append_rich_messages_via_clipboard` | Batched history restore used by older callers |
+| `append_formatted_row` | Single message formatted copy (not the transcript source of truth) |
+| `append_formatted_rows` | Turn-end tail formatted batch copy |
 | `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
 The stream appends the new suffix of an open row without stripping the row again. A batch render isolates one bad message into plain text while keeping formatted rendering for the rest of the batch. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
-Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `_HTML_TAG_RE`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
+Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
 

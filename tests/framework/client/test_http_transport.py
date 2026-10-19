@@ -977,3 +977,53 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     assert "Cookie" in same_headers
     assert "Proxy-Authorization" in same_headers
 
+
+def test_exchange_omitting_max_bytes_uses_single_read():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.read.return_value = b"entire-body"
+    response.getheader.return_value = None
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        return response
+
+    result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False)
+    assert result.body == b"entire-body"
+    response.read.assert_called_once_with()
+
+
+def test_exchange_with_max_bytes_uses_chunked_read():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.read.side_effect = [b"chunk1", b"chunk2", b""]
+    response.getheader.return_value = None
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        return response
+
+    result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=1000)
+    assert result.body == b"chunk1chunk2"
+    assert response.read.call_count == 3
+
+
+def test_exchange_with_max_bytes_exceeded_raises_network_error():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.read.side_effect = [b"x" * 50, b"x" * 60]
+    response.getheader.return_value = None
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        return response
+
+    with pytest.raises(NetworkError) as exc_info:
+        transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=100)
+    assert exc_info.value.code == "HTTP_ERROR"
+    assert "exceeded 100 bytes" in str(exc_info.value)
+
+

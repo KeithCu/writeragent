@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.i18n import _
-from plugin.framework.errors import format_error_message
+from plugin.framework.errors import format_error_message, http_status_message
 
 _ZAI_CODING_PLAN_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 
@@ -82,18 +82,12 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     # 401/403/404 sentences never run. An empty body uses those sentences;
     # a present body still appends the provider detail.
     if not err_body or not err_body.strip():
-        if status == 401:
-            return _("Invalid API Key. Please check your settings.")
-        if status == 403:
-            return _("API access Forbidden. Your key may lack permissions for this model.")
-        if status == 404:
-            return _("Endpoint not found (404). Check your URL and Model name.")
-        if status == 429:
-            return _("Rate limited (429). Wait a moment and try again.")
+        mapped = http_status_message(status)
+        if mapped is not None:
+            return mapped
         return _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
-    if status == 429:
-        base = _("Rate limited (429). Wait a moment and try again.")
-    else:
+    base = http_status_message(status) if status == 429 else None
+    if base is None:
         base = _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
     from plugin.framework.errors import safe_json_loads
 

@@ -59,7 +59,7 @@ def test_filter_stale_and_group_emits_batch_stats_for_stale_skips() -> None:
     items = [_item(key="a", seq=1), _item(key="b", seq=2)]
     with patch("plugin.writer.locale.grammar_work_queue.grammar_obs") as mock_obs:
         groups = filter_stale_and_group(items, lambda it: it.inflight_key == "a")
-    assert groups == {("d1", "en-US"): [items[1]]}
+    assert groups == {("d1", "en-US", items[1].provider, items[1].checker_identity): [items[1]]}
     mock_obs.assert_any_call("batch_stats", sentences_stale_skipped=1, survivor_count=1)
     mock_obs.assert_any_call("queue_stale_skip", doc_id="d1", locale="en-US", seq=1, inflight_key="a")
 

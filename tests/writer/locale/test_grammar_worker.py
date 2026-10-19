@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 import pytest
 from unittest.mock import ANY, MagicMock, patch
 
 from plugin.writer.locale.grammar_worker import (
+    _detect_lang_instruction,
     GrammarWorkerContext,
     LangRequeueAction,
-    _worker_build_chunks,
     build_grammar_system_prompt,
     call_grammar_llm,
     decide_grammar_completion,
@@ -37,6 +38,8 @@ def _item(
     grammar_bcp47: str = "en-US",
     partial_sentence: bool = False,
     original_bcp47: str = "",
+    provider: str = "",
+    checker_identity: str = "",
 ) -> GrammarWorkItem:
     return GrammarWorkItem(
         ctx=MagicMock(),
@@ -47,6 +50,8 @@ def _item(
         inflight_key=inflight_key,
         enqueue_seq=seq,
         original_bcp47=original_bcp47,
+        provider=provider,
+        checker_identity=checker_identity,
     )
 
 
@@ -70,75 +75,12 @@ def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> Ma
     return ec
 
 
-def test_worker_build_chunks_batch_and_single_preserves_text() -> None:
-    long_a = "A" * 100
-    long_b = "B" * 80
-    batch_items = [
-        (_item(long_a, seq=1, inflight_key="a"), long_a),
-        (_item(long_b, seq=2, inflight_key="b"), long_b),
-    ]
-    plain_chunks, detect_chunks, _instr = _worker_build_chunks(
-        batch_items, MagicMock(), batch_size=8, detect_lang_enabled=False
-    )
-    assert len(plain_chunks) == 1 and len(plain_chunks[0]) == 2
-    assert plain_chunks[0][0][1] == "A" * 100
-    assert plain_chunks[0][1][1] == "B" * 80
-    assert detect_chunks == []
-
-    single_plain, single_detect, _instr = _worker_build_chunks(
-        [(_item(long_a), long_a)], MagicMock(), batch_size=8, detect_lang_enabled=False
-    )
-    assert len(single_plain) == 1
-    assert single_plain[0][0][1] == "A" * 100
-    assert single_detect == []
-
-    short = "Hi."
-    short_plain, short_detect, _instr = _worker_build_chunks(
-        [(_item(short), short), (_item("Bye.", inflight_key="k2"), "Bye.")],
-        MagicMock(),
-        batch_size=8,
-        detect_lang_enabled=False,
-    )
-    assert short_plain[0][0][1] == "Hi."
-    assert short_plain[0][1][1] == "Bye."
-    assert short_detect == []
-
-
-def test_worker_build_chunks_detect_prefilter_before_truncate() -> None:
-    long_partial = "x" * 100
-    items = [(_item(long_partial, partial_sentence=True), long_partial)]
-    plain_chunks, detect_chunks, instr = _worker_build_chunks(
-        items, MagicMock(), batch_size=8, detect_lang_enabled=True
-    )
-    assert len(plain_chunks) == 1 and len(plain_chunks[0]) == 1
-    assert plain_chunks[0][0][1] == long_partial
-    assert detect_chunks == []
-    assert instr == ""
-
-
-def test_worker_build_chunks_detect_prompt_recorded_locales() -> None:
-    from plugin.writer.locale.grammar_persistence import grammar_registry
-    grammar_registry.record_enqueued_locale("doc-prompt", "de-DE")
-    try:
-        item = _item("Bonjour le monde.", doc_id="doc-prompt", grammar_bcp47="fr-FR")
-        _plain, _detect, instr = _worker_build_chunks(
-            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, detect_lang_enabled=True
-        )
-        assert "de-DE" in instr
-        assert "fr-FR" in instr
-        assert "en-US" not in instr
-    finally:
-        grammar_registry.clear_for_doc("doc-prompt")
-
-
-def test_worker_build_chunks_french_only_no_en_us() -> None:
+def test_detect_lang_instruction_french_only_no_en_us() -> None:
     from plugin.writer.locale.grammar_persistence import grammar_registry
     grammar_registry.clear_for_doc("doc-fr")
     try:
         item = _item("Bonjour le monde.", doc_id="doc-fr", grammar_bcp47="fr-FR")
-        _plain, _detect, instr = _worker_build_chunks(
-            [(item, "Bonjour le monde.")], MagicMock(), batch_size=8, detect_lang_enabled=True
-        )
+        instr = _detect_lang_instruction([(item, "Bonjour le monde.")])
         assert "fr-FR" in instr
         assert "en-US" not in instr
     finally:
@@ -177,8 +119,9 @@ def test_call_grammar_llm_batch() -> None:
          patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(a, a.text), (b, b.text)], "en-US", ec)
     assert len(results) == 2
-    args, _ = client.chat_completion_sync.call_args
+    args, kwargs = client.chat_completion_sync.call_args
     assert "1. A.\n2. B." in args[0][1]["content"]
+    assert kwargs.get("max_tokens") == ec.max_tok
 
 
 def test_call_grammar_llm_passes_minimal_reasoning() -> None:
@@ -1168,5 +1111,277 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         # Status text summary excludes the ignored rule (0 issues)
         mock_done.assert_called_once()
         assert "0 issues" in mock_done.call_args[1]["result"]
+def test_call_grammar_llm_and_cache_cap_prefix() -> None:
+    """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    full_text = "word1 word2 word3 word4 word5."
+    prefix = "word1 word2 word3"
+
+    ctx = MagicMock()
+    item = _item(
+        full_text,
+        seq=1,
+        inflight_key="k1",
+        grammar_bcp47="en-US",
+        original_bcp47="fr-FR",
+        provider="llm",
+        checker_identity="llm:model-x",
+    )
+    item = replace(item, ctx=ctx)
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="off"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put,
+        patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=True) as mock_apply,
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+    ):
+        mock_client = mock_llm_client.return_value
+        mock_client.chat_completion_sync.return_value = '{"errors": []}'
+
+        run_llm_and_cache_batch([item])
+
+        args, _ = mock_client.chat_completion_sync.call_args
+        assert args[0][1]["content"] == prefix
+
+        assert any(call.args[1] == prefix for call in mock_cache_put.call_args_list)
+        assert not any(call.args[1] == full_text for call in mock_cache_put.call_args_list)
+
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args[0][2] == full_text
+
+
+def test_worker_runs_model_from_checker_identity() -> None:
+    """Keeper 2: LLM group sets model from checker_identity and writes cache under that identity."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    ctx = MagicMock()
+    item = _item(
+        "Hello world.",
+        provider="llm",
+        checker_identity="llm:model-a",
+    )
+    item = replace(item, ctx=ctx)
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="off"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put,
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="model-b"),
+        patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+    ):
+        mock_client = mock_llm_client.return_value
+        mock_client.chat_completion_sync.return_value = '{"errors": []}'
+
+        run_llm_and_cache_batch([item])
+
+        args, kwargs = mock_client.chat_completion_sync.call_args
+        assert kwargs.get("model") == "model-a"
+
+        mock_cache_put.assert_called_once()
+        assert mock_cache_put.call_args.kwargs.get("checker_identity") == "llm:model-a"
+
+
+def test_worker_batch_gates_provider_rules() -> None:
+    """Keeper 2: Queued LanguageTool still runs after live provider is off; empty-provider batch does not."""
+    from plugin.writer.locale.grammar_worker import _worker_batch_gates
+
+    item_lt = _item("Hello.", provider="languagetool")
+    item_empty = _item("Hello.", provider="")
+
+    with patch("plugin.framework.config.is_grammar_enabled", return_value=False):
+        assert _worker_batch_gates(None, [item_lt]) is True
+        assert _worker_batch_gates(None, [item_empty]) is False
+
+
+def test_worker_detection_superseded_drops_item() -> None:
+    """Keeper 4: Detection enqueues a newer generation for the same key before returning; grammar runner not called."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkQueue
+
+    gq = GrammarWorkQueue()
+    item = _item("Hello world.", doc_id="d1", seq=1, inflight_key="k1", grammar_bcp47="en-US")
+    gq.note_inflight_generation("k1", 1)
+
+    def _detect_side_effect(*args, **kwargs):
+        gq.note_inflight_generation("k1", 2)
+        return ["en-US"]
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_detect_side_effect),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run_grammar,
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+    ):
+        run_llm_and_cache_batch([item], grammar_queue_instance=gq)
+
+    mock_run_grammar.assert_not_called()
+
+
+def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> None:
+    """Keeper 4: Detection returns fr-FR, fr-FR cache is primed, grammar runner not called, apply_language_change called with fr-FR."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    ctx = MagicMock()
+    item = _item("Bonjour le monde.", doc_id="d1", seq=1, inflight_key="k1", grammar_bcp47="en-US")
+    item = replace(item, ctx=ctx)
+
+    def _cache_get(locale, text, **kwargs):
+        if locale == "fr-FR":
+            return []
+        return None
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", side_effect=_cache_get),
+        patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=True) as mock_apply,
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", return_value=["fr-FR"]),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run_grammar,
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+    ):
+        run_llm_and_cache_batch([item])
+
+    mock_run_grammar.assert_not_called()
+    mock_apply.assert_called_once_with(ctx, "d1", item.text, "fr-FR", start_pos=0, paragraph_text="")
+
+
+def test_multi_item_requeue_does_not_cache_clean_row_for_rejected_locale() -> None:
+    """Keeper 4: Multi-item mismatch requeues individual item and does not store a clean row for rejected locale."""
+    from plugin.writer.locale.grammar_worker import _run_language_validation, GrammarWorkerContext
+
+    a = _item("Bonjour le monde.", seq=1, inflight_key="k1", grammar_bcp47="en-US")
+    b = _item("Hello world.", seq=2, inflight_key="k2", grammar_bcp47="en-US")
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        gq=MagicMock(),
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=512,
+    )
+
+    with (
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", return_value=["fr-FR", "en-US"]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
+        patch("plugin.writer.locale.grammar_worker.requeue_individual_item") as mock_requeue,
+    ):
+        decision = _run_language_validation([(a, a.text), (b, b.text)], "en-US", "", ec)
+
+    assert decision is not None
+    assert len(decision.requeues) == 1
+    assert decision.requeues[0].new_bcp47 == "fr-FR"
+    mock_put.assert_not_called()
+    mock_requeue.assert_called_once()
+    assert mock_requeue.call_args.kwargs.get("cache_placeholder") is False
+
+
+def test_detect_once_per_group_eight_items_batch_1() -> None:
+    """Keeper 5: Eight complete items, detection mode llm, batch size 1, exactly one detect call then grammar calls."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    items = [_item(f"Sentence number {i}.", seq=i, inflight_key=f"k{i}", grammar_bcp47="en-US") for i in range(1, 9)]
+
+    detect_call_count = 0
+    grammar_call_count = 0
+
+    def _mock_detect(chunk, instr, ec, **kwargs):
+        nonlocal detect_call_count
+        detect_call_count += 1
+        res = ["en-US"] * len(chunk)
+        if len(chunk) == 8:
+            res[7] = "fr-FR"
+        return res
+
+    def _mock_grammar_check(chunk, current_bcp47, orig_bcp47, ec):
+        nonlocal grammar_call_count
+        grammar_call_count += 1
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_mock_detect),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check", side_effect=_mock_grammar_check),
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+    ):
+        run_llm_and_cache_batch(items)
+
+    assert detect_call_count == 1
+    assert grammar_call_count == 8
+
+
+def test_detect_batch_parse_failure_affects_only_that_chunk() -> None:
+    """Keeper 5: A detect-batch parse failure affects only that detect chunk."""
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    items = [_item(f"Sentence {i}.", seq=i, inflight_key=f"k{i}", grammar_bcp47="en-US") for i in range(1, 10)]
+
+    chunks_seen = []
+
+    def _mock_detect(chunk, instr, ec, **kwargs):
+        chunks_seen.append(len(chunk))
+        if len(chunk) == 8:
+            return [None] * len(chunk)
+        return ["en-US"]
+
+    grammar_locales = []
+
+    def _mock_grammar_check(chunk, current_bcp47, orig_bcp47, ec):
+        grammar_locales.append((len(chunk), current_bcp47))
+
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_mock_detect),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check", side_effect=_mock_grammar_check),
+        patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
+        patch("plugin.writer.locale.grammar_worker.grammar_obs"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+    ):
+        run_llm_and_cache_batch(items)
+
+    assert chunks_seen == [8, 1]
+    assert len(grammar_locales) == 9
+    assert all(loc == "en-US" for _, loc in grammar_locales)
+
+
+def test_lang_detect_cache_normalizes_trailing_whitespace() -> None:
+    """Keeper 5: 'Hello.' and 'Hello. ' share a lang-detect entry; 'Hello' and 'Hello.' do not."""
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+
+    grammar_registry.lang_detect_cache.clear()
+    grammar_registry.put_cached_language("Hello.", "en-US")
+
+    assert grammar_registry.get_cached_language("Hello. ") == "en-US"
+    assert grammar_registry.get_cached_language("Hello.\n\t ") == "en-US"
+
+    assert grammar_registry.get_cached_language("Hello") is None
 
 

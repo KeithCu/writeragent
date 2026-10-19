@@ -13,7 +13,6 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
 
@@ -29,111 +28,154 @@ except ImportError:
     sys.exit(1)
 
 
-def find_modules(modules_dir, filter_names=None):
+from plugin.framework.module_graph import topo_sort
+
+SKIP_DIRS = {"lib", "contrib", "tests", "__pycache__"}
+
+VALID_WIDGETS = {
+    "text", "button", "checkbox", "combo", "number", "password",
+    "select", "separator", "textarea", "list_detail",
+}
+
+
+def validate_modules(manifests, project_root=None):
+    """Validate parsed module manifests, raising ValueError naming file and key on error."""
+    if project_root is None:
+        project_root = PROJECT_ROOT
+
+    seen_names = set()
+    seen_provides = set()
+    known_providers = {"main"}
+
+    for m in manifests:
+        yp = m.get("_yaml_path", m.get("name", "unknown"))
+        name = m["name"]
+        if name in seen_names:
+            raise ValueError(f"{yp}: name: duplicate module name {name!r}")
+        seen_names.add(name)
+        known_providers.add(name)
+        for svc in m.get("provides_services", []):
+            if svc in seen_provides:
+                raise ValueError(f"{yp}: provides_services: duplicate service {svc!r}")
+            seen_provides.add(svc)
+            known_providers.add(svc)
+
+    for m in manifests:
+        yp = m.get("_yaml_path", m.get("name", "unknown"))
+        for req in m.get("requires", []):
+            if req not in known_providers:
+                raise ValueError(f"{yp}: requires: unresolved requirement {req!r}")
+
+        for action_name, action_def in m.get("actions", {}).items():
+            if isinstance(action_def, dict) and "icon" in action_def:
+                icon = action_def["icon"]
+                icon_path = os.path.join(project_root, "extension", "assets", f"{icon}_16.png")
+                if not os.path.isfile(icon_path):
+                    raise ValueError(f"{yp}: actions.{action_name}.icon: icon file not found at {icon_path}")
+
+        config = m.get("config", {})
+        if isinstance(config, dict):
+            for fname, schema in config.items():
+                if not isinstance(schema, dict):
+                    continue
+                widget = schema.get("widget", "text")
+                if widget not in VALID_WIDGETS:
+                    raise ValueError(f"{yp}: config.{fname}.widget: invalid widget {widget!r}")
+                if widget == "select":
+                    if not schema.get("options") and not schema.get("options_provider"):
+                        raise ValueError(f"{yp}: config.{fname}.options: widget select requires options or options_provider")
+                if "min" in schema and "max" in schema:
+                    if schema["min"] > schema["max"]:
+                        raise ValueError(f"{yp}: config.{fname}.min: min {schema['min']} > max {schema['max']}")
+                stype = schema.get("type")
+                if stype == "bool":
+                    stype = "boolean"
+                if "default" in schema and stype:
+                    def_val = schema["default"]
+                    if stype == "int":
+                        if isinstance(def_val, bool) or not isinstance(def_val, int):
+                            raise ValueError(f"{yp}: config.{fname}.default: expected int, got {def_val!r}")
+                    elif stype == "float":
+                        if isinstance(def_val, bool) or not isinstance(def_val, (int, float)):
+                            raise ValueError(f"{yp}: config.{fname}.default: expected float, got {def_val!r}")
+                    elif stype == "boolean":
+                        if not isinstance(def_val, bool):
+                            raise ValueError(f"{yp}: config.{fname}.default: expected bool, got {def_val!r}")
+
+    # Check cycles via shared topo_sort
+    topo_sort(manifests)
+
+
+def find_modules(modules_dir, filter_names=None, project_root=None):
     """Find all module.yaml files recursively and return parsed manifests.
 
     Module name comes from the ``name`` field in module.yaml.
     Directory convention: dots map to underscores (tunnel.bore -> tunnel_bore/).
     Falls back to directory-derived name if ``name`` is absent.
     """
-    manifests = []
+    if project_root is None:
+        project_root = PROJECT_ROOT
+
+    all_manifests = []
     for dirpath, dirnames, filenames in os.walk(modules_dir):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
         if "module.yaml" not in filenames:
             continue
-        # Build dotted module name from relative path
-        rel = os.path.relpath(dirpath, modules_dir)
-        module_name = rel.replace(os.sep, ".")
-
-        if filter_names:
-            top_level = module_name.split(".")[0]
-            if module_name not in filter_names and top_level not in filter_names:
-                continue
-
         yaml_path = os.path.join(dirpath, "module.yaml")
-        with open(yaml_path) as f:
+        with open(yaml_path, encoding="utf-8") as f:
             manifest = yaml.safe_load(f)
+        if not isinstance(manifest, dict):
+            continue
+        rel = os.path.relpath(dirpath, modules_dir)
+        path_name = rel.replace(os.sep, ".")
+        first_segment = rel.split(os.sep)[0]
+        declared_name = manifest.get("name")
+        module_name = declared_name or path_name
         manifest.setdefault("name", module_name)
-        manifests.append(manifest)
+        manifest["_yaml_path"] = yaml_path
+        manifest["_match_keys"] = {module_name, path_name, first_segment}
+        all_manifests.append(manifest)
 
-    manifests.sort(key=lambda m: m["name"])
-    return manifests
+    # Validate all discovered modules before filtering
+    validate_modules(all_manifests, project_root=project_root)
 
+    if filter_names:
+        filter_set = set(filter_names)
+        matched_tokens = set()
+        matched_manifests = []
+        for m in all_manifests:
+            keys = m.get("_match_keys", {m["name"]})
+            intersect = keys & filter_set
+            if intersect:
+                matched_tokens.update(intersect)
+                matched_manifests.append(m)
+        unmatched = [tok for tok in filter_names if tok not in matched_tokens]
+        if unmatched:
+            raise ValueError(f"Unknown module filter token: {unmatched[0]!r}")
+        result = matched_manifests
+    else:
+        result = all_manifests
 
-def topo_sort(modules):
-    """Sort modules by dependency order (core first)."""
-    by_name = {m["name"]: m for m in modules}
-    provides = {}
-    for m in modules:
-        for svc in m.get("provides_services", []):
-            provides[svc] = m["name"]
-
-    visited = set()
-    order = []
-
-    def visit(name):
-        if name in visited:
-            return
-        visited.add(name)
-        m = by_name.get(name)
-        if m is None:
-            return
-        for req in m.get("requires", []):
-            provider = provides.get(req, req)
-            if provider in by_name:
-                visit(provider)
-        order.append(m)
-
-    if "core" in by_name:
-        visit("core")
-    for name in sorted(by_name):
-        visit(name)
-
-    return order
+    result.sort(key=lambda m: m["name"])
+    return result
 
 
 
-def _json_to_python(text):
-    """Convert JSON literals to Python literals (true->True, false->False, null->None)."""
-    # Only replace JSON keywords when they appear as values, not inside strings
-    result = []
-    in_string = False
-    escape = False
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if escape:
-            result.append(ch)
-            escape = False
-            i += 1
-            continue
-        if ch == '\\' and in_string:
-            result.append(ch)
-            escape = True
-            i += 1
-            continue
-        if ch == '"':
-            in_string = not in_string
-            result.append(ch)
-            i += 1
-            continue
-        if in_string:
-            result.append(ch)
-            i += 1
-            continue
-        # Outside string: replace JSON keywords
-        for jval, pyval in (("true", "True"), ("false", "False"), ("null", "None")):
-            if text[i:i+len(jval)] == jval:
-                # Check it's a whole word (not part of a larger identifier)
-                before_ok = (i == 0 or not text[i-1].isalnum())
-                after_ok = (i + len(jval) >= len(text) or not text[i+len(jval)].isalnum())
-                if before_ok and after_ok:
-                    result.append(pyval)
-                    i += len(jval)
-                    break
-        else:
-            result.append(ch)
-            i += 1
-    return "".join(result)
+import math
+import pprint
+
+
+def _check_finite(obj, path=""):
+    """Reject non-finite floats (NaN/Inf) that cannot be safely serialized."""
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            raise ValueError(f"Non-finite float {obj} at {path}")
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            _check_finite(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(obj, (list, tuple)):
+        for idx, item in enumerate(obj):
+            _check_finite(item, f"{path}[{idx}]")
 
 
 def _filter_librepy_config(config):
@@ -148,40 +190,24 @@ def _filter_librepy_config(config):
 
 
 def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
-    """Generate _manifest.py with module descriptors and pre-computed config defaults."""
-    from plugin.version import EXTENSION_VERSION
+    """Generate _manifest.py containing the MODULES list."""
     from manifest_common import write_if_changed
 
     lines = [
-        '"""Auto-generated module manifest. DO NOT EDIT."""',
+        '"""Auto-generated module manifest. DO NOT EDIT.',
         "",
-        "VERSION = %r" % EXTENSION_VERSION,
+        "Extension version lives in plugin/version.py.",
+        '"""',
         "",
         "MODULES = [",
     ]
-    config_defaults = {}
-    config_schemas = {}
-    dotted_fallbacks = {}
 
     for m in modules:
         config = m.get("config", {})
         if librepy_flavor:
             config = _filter_librepy_config(config)
-        mod_name = m.get("name", "")
-        if isinstance(config, dict) and mod_name:
-            for fname, schema in config.items():
-                if isinstance(schema, dict):
-                    full_key = "%s.%s" % (mod_name, fname)
-                    if "default" in schema:
-                        config_defaults[full_key] = schema["default"]
-                        if fname not in config_defaults:
-                            config_defaults[fname] = schema["default"]
-                    config_schemas[full_key] = schema
-                    if fname not in config_schemas:
-                        config_schemas[fname] = schema
-                    dotted_fallbacks.setdefault(fname, []).append(full_key)
 
-        # Clean repr — only keep runtime-relevant keys
+        # Clean dict — only keep runtime-relevant keys
         entry = {
             "name": m["name"],
             "title": m.get("title", ""),
@@ -189,26 +215,28 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
             "provides_services": m.get("provides_services", []),
             "config": config,
             "config_inline": m.get("config_inline"),
-            "actions": list(m.get("actions", {}).keys()),
-            "action_icons": {k: v["icon"] for k, v in m.get("actions", {}).items() if v.get("icon")},
+            "action_icons": {
+                k: v["icon"]
+                for k, v in m.get("actions", {}).items()
+                if isinstance(v, dict) and v.get("icon")
+            },
         }
         if m.get("settings_tab") is False:
             entry["settings_tab"] = False
         if m.get("config_dialog"):
             entry["config_dialog"] = m["config_dialog"]
-        # json.dumps then convert true/false/null to Python True/False/None
-        json_text = json.dumps(entry, indent=8, ensure_ascii=False)
-        lines.append("    %s," % _json_to_python(json_text))
+
+        _check_finite(entry)
+        entry_text = pprint.pformat(entry, indent=4, sort_dicts=False)
+        indented = "\n".join("    " + ln for ln in entry_text.splitlines())
+        lines.append(f"{indented},")
+
     lines.append("]")
     lines.append("")
-    lines.append("CONFIG_DEFAULTS = %s" % _json_to_python(json.dumps(config_defaults, indent=4, ensure_ascii=False)))
-    lines.append("")
-    lines.append("CONFIG_SCHEMAS = %s" % _json_to_python(json.dumps(config_schemas, indent=4, ensure_ascii=False)))
-    lines.append("")
-    lines.append("DOTTED_FALLBACKS = %s" % _json_to_python(json.dumps(dotted_fallbacks, indent=4, ensure_ascii=False)))
-    lines.append("")
 
-    write_if_changed(output_path, "\n".join(lines))
+    source = "\n".join(lines)
+    compile(source, output_path, "exec")
+    write_if_changed(output_path, source)
     print("  Generated %s (%d modules)" % (output_path, len(modules)))
 
 
@@ -261,7 +289,11 @@ def main():
         print("  Loaded framework config: plugin/plugin.yaml")
 
     print("Scanning modules in %s..." % modules_dir)
-    manifests = find_modules(modules_dir, args.modules)
+    try:
+        manifests = find_modules(modules_dir, args.modules)
+    except Exception as e:
+        print("ERROR: %s" % e, file=sys.stderr)
+        return 1
     
     if not manifests:
         print("  No modules found!")

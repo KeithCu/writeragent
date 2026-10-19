@@ -27,8 +27,10 @@ larger single schema.
 import hashlib
 import logging
 import os
+import socket
 import ssl
 import tempfile
+import time
 import typing
 from typing import Any
 import urllib.parse
@@ -65,14 +67,12 @@ from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc import visual_helpers
 from .image_tools import (
+    add_image_to_gallery,
+    export_graphic_object_to_bytes,
     insert_image,
     insert_image_at_locator,
     insert_image_into_header_footer,
     replace_graphic_source,
-    replace_image_in_place,
-    get_selected_image_base64,
-    get_selected_image_dimensions_px,
-    get_selected_image_pixel_size,
 )
 
 log = logging.getLogger("writeragent.writer")
@@ -138,13 +138,13 @@ class ImageGenerate(ToolWriterImageBase):
             "base_size": {
                 "type": "integer",
                 "description": (
-                    "Generate resolution in pixels (default 1024). "
+                    "Generate resolution in pixels (> 0, default 1024). "
                     "On-page display is capped independently (~135mm longer edge)."
                 ),
                 "default": DEFAULT_IMAGE_BASE_SIZE,
             },
-            "width": {"type": "integer", "description": "Override calculated width"},
-            "height": {"type": "integer", "description": "Override calculated height"},
+            "width": {"type": "integer", "description": "Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
+            "height": {"type": "integer", "description": "Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
             "image_model": {"type": "string", "description": "Override Settings image model for this request (endpoint / OpenRouter)."},
         },
         "required": ["prompt"],
@@ -158,6 +158,16 @@ class ImageGenerate(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **args: typing.Any) -> typing.Any:
         prompt = args.get("prompt", "")
+
+        base_size_arg = args.get("base_size")
+        if base_size_arg is not None and base_size_arg <= 0:
+            return self._tool_error("base_size must be greater than 0.", code="INVALID_PARAMETER", parameter="base_size")
+        width_arg = args.get("width")
+        if width_arg is not None and width_arg <= 0:
+            return self._tool_error("width must be greater than 0.", code="INVALID_PARAMETER", parameter="width")
+        height_arg = args.get("height")
+        if height_arg is not None and height_arg <= 0:
+            return self._tool_error("height must be greater than 0.", code="INVALID_PARAMETER", parameter="height")
 
         status_callback = getattr(ctx, "status_callback", None)
         stop_checker = getattr(ctx, "stop_checker", None)
@@ -177,6 +187,7 @@ class ImageGenerate(ToolWriterImageBase):
             )
 
         explicit_edit = bool(source_image and source_image.lower() == "selection")
+        target_obj = None
         source_b64 = None
         edit_width, edit_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
         display_width, display_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
@@ -186,27 +197,57 @@ class ImageGenerate(ToolWriterImageBase):
         # (omitted + selected graphic → img2img; omitted + no selection → create).
         if explicit_edit or source_image is None:
 
-            def _read_selection_for_edit() -> tuple[str, tuple[str, int, int | None, int | None, int | None] | None]:
+            def _read_selection_for_edit() -> tuple[str, tuple[Any, str, int, int, int, int] | None]:
                 # Export failures propagate. execute_safe logs once and maps them
                 # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
                 # is "no selection", not a failed read.
-                b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
-                if not b64:
+                obj = visual_helpers.selected_graphic_object(ctx.doc)
+                if obj is None:
                     return ("no_selection", None)
+                try:
+                    png_bytes = export_graphic_object_to_bytes(ctx.ctx, obj)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    raise
+                if not png_bytes:
+                    return ("no_selection", None)
+                import base64
 
-                # Use native pixel size for generating (so quality isn't lost if resized on page),
-                # but keep the on-page display size for replacing.
-                nw, nh = get_selected_image_pixel_size(ctx.doc)
-                dw, dh = get_selected_image_dimensions_px(ctx.doc)
+                b64 = base64.b64encode(png_bytes).decode("ascii")
 
-                if nw is None:
-                    nw, nh = dw, dh
-                if nw is None:
-                    nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
-                if dw is None:
-                    dw, dh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
+                # Native pixel size for generation resolution
+                graphic = visual_helpers.graphic_from_object(obj)
+                nw, nh = None, None
+                if graphic is not None:
+                    try:
+                        px = visual_helpers.safe_get_property(graphic, "SizePixel")
+                        if px is None and hasattr(graphic, "getPropertyValue"):
+                            px = graphic.getPropertyValue("SizePixel")
+                        if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+                            nw, nh = int(px.Width), int(px.Height)
+                    except Exception as ex:
+                        reraise_if_disposed(ex)
+                        log.debug("Failed to read SizePixel: %s", ex)
 
-                return ("ok", (b64, nw, nh, dw, dh))
+                # Frame size in 1/100 mm for on-page display
+                frame_w, frame_h = None, None
+                try:
+                    size = _object_size(obj)
+                    if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
+                        frame_w, frame_h = int(size.Width), int(size.Height)
+                except Exception as ex:
+                    reraise_if_disposed(ex)
+                    log.debug("Failed to read frame size: %s", ex)
+
+                if nw is None or nh is None:
+                    if frame_w is not None and frame_h is not None:
+                        nw, nh = visual_helpers.units_to_px(frame_w, frame_h)
+                    else:
+                        nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
+                if frame_w is None or frame_h is None:
+                    frame_w, frame_h = visual_helpers.px_to_display_units(nw, nh)
+
+                return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
 
             tag, payload = _run_on_main(_read_selection_for_edit, timeout=mt_timeout)
             selection_available = tag == "ok"
@@ -214,10 +255,9 @@ class ImageGenerate(ToolWriterImageBase):
             if explicit_edit and not selection_available:
                 return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
             if is_edit:
-                # tag "ok" is the 5-tuple built above; nw/nh are filled in there.
-                picked = typing.cast("tuple[Any, Any, Any, Any, Any]", payload)
-                source_b64, edit_width, edit_height = (str(picked[0]), int(picked[1]), int(picked[2]))
-                display_width, display_height = int(picked[3] or edit_width), int(picked[4] or edit_height)
+                picked = typing.cast("tuple[Any, str, int, int, int, int]", payload)
+                target_obj, source_b64, edit_width, edit_height = (picked[0], str(picked[1]), int(picked[2]), int(picked[3]))
+                display_width, display_height = int(picked[4]), int(picked[5])
 
         base_size = args.get("base_size", get_config_int("image_base_size"))
 
@@ -261,9 +301,39 @@ class ImageGenerate(ToolWriterImageBase):
             # Bytes are already in hand. Stop may abort the network wait above;
             # it does not skip this document insert.
             if is_edit:
-                replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
+                replaced = False
+                try:
+                    if target_obj is not None:
+                        replaced = replace_graphic_source(
+                            ctx.ctx,
+                            ctx.doc,
+                            target_obj,
+                            img_path,
+                            display_width,
+                            display_height,
+                            title=prompt,
+                            description="Edited by endpoint",
+                        )
+                        if replaced and add_to_gallery:
+                            add_image_to_gallery(ctx.ctx, img_path)
+                except Exception as ex:
+                    reraise_if_disposed(ex)
+                    log.debug("replace_graphic_source failed: %s", ex)
+                    replaced = False
+
                 if not replaced:
-                    insert_image(ctx.ctx, ctx.doc, img_path, display_width, display_height, title=prompt, description="Edited by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
+                    insert_image(
+                        ctx.ctx,
+                        ctx.doc,
+                        img_path,
+                        width,
+                        height,
+                        title=prompt,
+                        description="Edited by endpoint",
+                        add_to_gallery=add_to_gallery,
+                        add_frame=add_frame,
+                        size_units=(display_width, display_height),
+                    )
                 return "Image edited and inserted from endpoint."
             insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
             return "Image generated and inserted from endpoint."
@@ -286,9 +356,22 @@ class ImageGenerate(ToolWriterImageBase):
         return {"status": "ok", "message": msg}
 
 
-def _download_for_tool(tool: Any, url: str, *, verify_ssl: bool = True, force: bool = False) -> str | dict[str, Any]:
+class _DownloadStopped(Exception):
+    pass
+
+
+def _download_for_tool(
+    tool: Any,
+    url: str,
+    *,
+    verify_ssl: bool = True,
+    force: bool = False,
+    stop_checker: Any = None,
+) -> str | dict[str, Any]:
     try:
-        return _download_image_to_cache(url, verify_ssl=verify_ssl, force=force)
+        return _download_image_to_cache(url, verify_ssl=verify_ssl, force=force, stop_checker=stop_checker)
+    except _DownloadStopped:
+        return tool._tool_error("Image download stopped by user.", code="USER_STOPPED", url=url)
     except Exception as exc:
         log.exception("image download failed")
         return tool._tool_error("Could not download image: %s" % exc, code="DOWNLOAD_FAILED", url=url)
@@ -672,8 +755,8 @@ class ImageSetProperties(ToolWriterImageBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the image (from image_list)."},
-            "width_mm": {"type": "number", "description": "New width in millimetres."},
-            "height_mm": {"type": "number", "description": "New height in millimetres."},
+            "width_mm": {"type": "number", "description": "New width in millimetres (> 0)."},
+            "height_mm": {"type": "number", "description": "New height in millimetres (> 0)."},
             "title": {"type": "string", "description": "Image title (tooltip text)."},
             "description": {"type": "string", "description": "Image alternative text (alt-text)."},
             "anchor_type": {
@@ -697,6 +780,13 @@ class ImageSetProperties(ToolWriterImageBase):
         image_name = kwargs.get("name", "")
         if not image_name:
             return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
+
+        width_mm_val = kwargs.get("width_mm")
+        if width_mm_val is not None and width_mm_val <= 0:
+            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+        height_mm_val = kwargs.get("height_mm")
+        if height_mm_val is not None and height_mm_val <= 0:
+            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
 
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None and (type(anchor_type) is not int or anchor_type not in (0, 1, 2, 3, 4)):
@@ -963,8 +1053,9 @@ class ImageDownload(ToolWriterImageBase):
         if verify_ssl is None:
             verify_ssl = True
         force = kwargs.get("force", False)
+        stop_checker = getattr(ctx, "stop_checker", None)
 
-        dl_result = _download_for_tool(self, url, verify_ssl=verify_ssl, force=force)
+        dl_result = _download_for_tool(self, url, verify_ssl=verify_ssl, force=force, stop_checker=stop_checker)
         if isinstance(dl_result, dict):
             return dl_result
         return {"status": "ok", "local_path": dl_result, "url": url}
@@ -975,6 +1066,23 @@ class ImageDownload(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+def _graphic_pixel_size_from_path(ctx: Any, image_path: str) -> tuple[int | None, int | None]:
+    try:
+        from plugin.writer.images.image_tools import _file_url_for_path, _graphic_from_provider
+
+        file_url = _file_url_for_path(image_path)
+        xgraphic = _graphic_from_provider(ctx, file_url)
+        if xgraphic is not None:
+            px = visual_helpers.safe_get_property(xgraphic, "SizePixel")
+            if px is None and hasattr(xgraphic, "getPropertyValue"):
+                px = xgraphic.getPropertyValue("SizePixel")
+            if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+                return int(px.Width), int(px.Height)
+    except Exception as ex:
+        log.debug("_graphic_pixel_size_from_path failed: %s", ex)
+    return None, None
+
+
 class ImageInsert(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
@@ -982,6 +1090,8 @@ class ImageInsert(ToolWriterImageBase):
     intent: str | None = "media"
     description: str = (
         "Insert an image from local path or URL into the document. URLs are auto-downloaded first. "
+        "Omitted dimensions preserve aspect ratio with the longer edge sized to 80 mm; "
+        "specifying one dimension scales the other proportionally; specifying both sets both. "
         "For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert "
         "into the page header/footer with auto-height so the logo does not overlap the body. "
         "A different-first-page letterhead logo needs first_is_shared=false on the page style "
@@ -1001,8 +1111,8 @@ class ImageInsert(ToolWriterImageBase):
             "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted."},
             "x_mm": {"type": "number", "description": "Draw/Impress: X position in millimetres (default: centered). Ignored on Calc."},
             "y_mm": {"type": "number", "description": "Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc."},
-            "width_mm": {"type": "number", "description": "Width in millimetres (default: 80)."},
-            "height_mm": {"type": "number", "description": "Height in millimetres (default: 80)."},
+            "width_mm": {"type": "number", "description": "Width in millimetres (must be positive; omitted derives from aspect ratio)."},
+            "height_mm": {"type": "number", "description": "Height in millimetres (must be positive; omitted derives from aspect ratio)."},
             "target": {
                 "type": "string",
                 "enum": ["body", "header", "footer", "header_first", "footer_first"],
@@ -1037,15 +1147,21 @@ class ImageInsert(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_path = kwargs.get("path", "")
 
-        width_mm = kwargs.get("width_mm", 80)
-        height_mm = kwargs.get("height_mm", 80)
+        width_mm_val = kwargs.get("width_mm")
+        if width_mm_val is not None and width_mm_val <= 0:
+            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+        height_mm_val = kwargs.get("height_mm")
+        if height_mm_val is not None and height_mm_val <= 0:
+            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+
         locator = kwargs.get("locator")
         paragraph_index = kwargs.get("paragraph")
         target = kwargs.get("target", "body")
         style_name = kwargs.get("style", "Standard")
 
+        stop_checker = getattr(ctx, "stop_checker", None)
         if image_path.startswith("http://") or image_path.startswith("https://"):
-            dl_result = _download_for_tool(self, image_path)
+            dl_result = _download_for_tool(self, image_path, stop_checker=stop_checker)
             if isinstance(dl_result, dict):
                 return dl_result
             image_path = dl_result
@@ -1056,6 +1172,38 @@ class ImageInsert(ToolWriterImageBase):
             nonlocal paragraph_index
             doc = ctx.doc
             doc_type = visual_helpers.get_visual_doc_type(doc)
+
+            if width_mm_val is not None and height_mm_val is not None:
+                width_mm = float(width_mm_val)
+                height_mm = float(height_mm_val)
+            else:
+                px_size = _graphic_pixel_size_from_path(ctx.ctx, image_path)
+                px_w, px_h = px_size if px_size is not None else (None, None)
+                if px_w is not None and px_h is not None and px_w > 0 and px_h > 0:
+                    if width_mm_val is None and height_mm_val is None:
+                        if px_w >= px_h:
+                            width_mm = 80.0
+                            height_mm = round(80.0 * px_h / px_w, 2)
+                        else:
+                            height_mm = 80.0
+                            width_mm = round(80.0 * px_w / px_h, 2)
+                    elif width_mm_val is not None:
+                        width_mm = float(width_mm_val)
+                        height_mm = round(width_mm * px_h / px_w, 2)
+                    else:
+                        assert height_mm_val is not None
+                        height_mm = float(height_mm_val)
+                        width_mm = round(height_mm * px_w / px_h, 2)
+                else:
+                    if width_mm_val is None and height_mm_val is None:
+                        width_mm, height_mm = 80.0, 80.0
+                    elif width_mm_val is not None:
+                        width_mm = float(width_mm_val)
+                        height_mm = float(width_mm_val)
+                    else:
+                        assert height_mm_val is not None
+                        height_mm = float(height_mm_val)
+                        width_mm = float(height_mm_val)
 
             if target in ("header", "footer", "header_first", "footer_first"):
                 if doc_type not in ("writer", "web"):
@@ -1208,6 +1356,14 @@ class ImageReplace(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
         new_image_path = kwargs.get("path", "")
+
+        width_mm_val = kwargs.get("width_mm")
+        if width_mm_val is not None and width_mm_val <= 0:
+            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+        height_mm_val = kwargs.get("height_mm")
+        if height_mm_val is not None and height_mm_val <= 0:
+            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+
         is_url = new_image_path.startswith("http://") or new_image_path.startswith("https://")
 
         if is_url:
@@ -1218,7 +1374,8 @@ class ImageReplace(ToolWriterImageBase):
                     code="IMAGE_NOT_FOUND",
                     image_name=image_name,
                 )
-            dl_result = _download_for_tool(self, new_image_path)
+            stop_checker = getattr(ctx, "stop_checker", None)
+            dl_result = _download_for_tool(self, new_image_path, stop_checker=stop_checker)
             if isinstance(dl_result, dict):
                 return dl_result
             new_image_path = dl_result
@@ -1258,7 +1415,58 @@ class ImageReplace(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = False) -> str:
+IMAGE_CACHE_MAX_AGE_SECONDS = 24 * 3600
+IMAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024
+
+
+def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
+    now = time.time()
+    keep_real = os.path.realpath(keep_path)
+    entries: list[tuple[float, int, str]] = []
+    try:
+        for entry in os.scandir(cache_dir):
+            if not entry.is_file() or entry.name.endswith(".partial"):
+                continue
+            real = os.path.realpath(entry.path)
+            if real == keep_real:
+                continue
+            try:
+                st = entry.stat()
+                if now - st.st_mtime > IMAGE_CACHE_MAX_AGE_SECONDS:
+                    os.unlink(entry.path)
+                else:
+                    entries.append((st.st_mtime, st.st_size, entry.path))
+            except OSError:
+                pass
+    except OSError:
+        return
+
+    total_size = 0
+    try:
+        total_size += os.path.getsize(keep_path)
+    except OSError:
+        pass
+    for _, size, _ in entries:
+        total_size += size
+
+    if total_size > IMAGE_CACHE_MAX_BYTES:
+        entries.sort(key=lambda x: x[0])
+        for _, size, path in entries:
+            if total_size <= IMAGE_CACHE_MAX_BYTES:
+                break
+            try:
+                os.unlink(path)
+                total_size -= size
+            except OSError:
+                pass
+
+
+def _download_image_to_cache(
+    url: str,
+    verify_ssl: bool = True,
+    force: bool = False,
+    stop_checker: Any = None,
+) -> str:
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.
@@ -1276,25 +1484,24 @@ def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = Fa
 
     # Derive a stable filename from the URL
     url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
-    # Try to preserve the file extension
-    ext = ""
-    url_path = url.split("?")[0]
-    if "." in url_path.split("/")[-1]:
-        ext = "." + url_path.split("/")[-1].rsplit(".", 1)[-1]
-        # Sanitize extension
-        ext = ext[:6].lower()
-        if not ext.replace(".", "").isalnum():
-            ext = ""
-    if not ext:
-        ext = ".png"
 
-    local_path = os.path.join(cache_dir, url_hash + ext)
+    if not force:
+        now = time.time()
+        try:
+            for entry in os.scandir(cache_dir):
+                if entry.is_file() and not entry.name.endswith(".partial"):
+                    name_base = entry.name.split(".")[0]
+                    if name_base == url_hash:
+                        try:
+                            if now - entry.stat().st_mtime <= IMAGE_CACHE_MAX_AGE_SECONDS:
+                                log.debug("image_download: cache hit %s -> %s", url, entry.path)
+                                return entry.path
+                        except OSError:
+                            pass
+        except OSError:
+            pass
 
-    if not force and os.path.isfile(local_path):
-        log.debug("image_download: cache hit %s -> %s", url, local_path)
-        return local_path
-
-    log.info("image_download: downloading %s -> %s", url, local_path)
+    log.info("image_download: downloading %s (hash %s)", url, url_hash)
 
     # ImageReplace, ImageInsert, and ImageDownload verify https
     # certificates. verify_ssl=False downloads with CERT_NONE.
@@ -1329,24 +1536,67 @@ def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = Fa
                             raise RuntimeError("image download exceeded %s bytes" % _IMAGE_DOWNLOAD_MAX_BYTES)
                     except ValueError:
                         pass
+
+                # Socket timeout is ~1s for responsive Stop during read chunks.
+                # Connect/DNS and silent stall before the first byte can take full request_timeout.
+                sock = getattr(response, "sock", None)
+                if sock is None:
+                    fp = getattr(response, "fp", None)
+                    if fp is not None:
+                        raw_io = getattr(fp, "raw", None)
+                        sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
+                if sock is not None and hasattr(sock, "settimeout"):
+                    try:
+                        sock.settimeout(1.0)
+                    except Exception:
+                        pass
+
                 total = 0
                 initial_bytes = b""
+                deadline = time.monotonic() + timeout
                 while True:
-                    chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
+                    if stop_checker is not None and stop_checker():
+                        response.close()
+                        raise _DownloadStopped()
+                    try:
+                        chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
+                    except (TimeoutError, socket.timeout):
+                        if stop_checker is not None and stop_checker():
+                            response.close()
+                            raise _DownloadStopped()
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("image download timed out")
+                        continue
+
                     if not chunk:
                         break
                     if len(initial_bytes) < 1024:
-                        initial_bytes += chunk[:1024 - len(initial_bytes)]
+                        initial_bytes += chunk[: 1024 - len(initial_bytes)]
                     total += len(chunk)
                     if total > _IMAGE_DOWNLOAD_MAX_BYTES:
                         raise RuntimeError("image download exceeded %s bytes" % _IMAGE_DOWNLOAD_MAX_BYTES)
                     fh.write(chunk)
             if total == 0:
                 raise RuntimeError("empty image download")
-            if suffix_for_image_bytes(initial_bytes) == ".img":
+            sniffed_ext = suffix_for_image_bytes(initial_bytes)
+            if sniffed_ext == ".img":
                 raise ValueError("Downloaded data is not a recognized image format")
+
+        local_path = os.path.join(cache_dir, url_hash + sniffed_ext)
         os.replace(partial_path, local_path)
         partial_path = ""
+
+        try:
+            for entry in os.scandir(cache_dir):
+                if entry.is_file() and entry.name.split(".")[0] == url_hash and os.path.realpath(entry.path) != os.path.realpath(local_path):
+                    try:
+                        os.unlink(entry.path)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+        _prune_image_cache(cache_dir, local_path)
     finally:
         if fd >= 0:
             os.close(fd)

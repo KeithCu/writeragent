@@ -702,6 +702,7 @@ class LlmHttpTransport:
         after_read: Callable[[Any], None] | None = None,
         observe_http_error: HttpObserve | None = None,
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
+        max_bytes: int | None = None,
     ) -> HttpResult:
         """Buffered request with the shared stop, timeout, retry, and redaction.
 
@@ -784,7 +785,10 @@ class LlmHttpTransport:
                         continue
                     if attempt == 0:
                         clear_host_gap(self.pacing_key_for_model(model))
-                    raw = _response_bytes(response)
+                    if max_bytes is not None:
+                        raw = self._read_bounded_response(response, max_bytes=max_bytes, stop_checker=stop_checker)
+                    else:
+                        raw = _response_bytes(response)
                     body_in_hand = True
                     if after_read is not None:
                         after_read(response)
@@ -850,3 +854,61 @@ class LlmHttpTransport:
             return "retry"
         log.error("Connection retry failed: %s" % err_msg)
         raise NetworkError(err_msg, code="CONNECTION_ERROR", details={"url": path}) from err
+
+    def _read_bounded_response(
+        self,
+        response: Any,
+        *,
+        max_bytes: int,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> bytes:
+        # Check Content-Length first when provided by server
+        getter = getattr(response, "getheader", None)
+        if callable(getter):
+            cl = getter("Content-Length")
+            if cl is not None:
+                try:
+                    if int(str(cl)) > max_bytes:
+                        raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
+                except ValueError:
+                    pass
+
+        # 1s socket timeout during chunked read allows checking stop_checker
+        sock = getattr(response, "sock", None)
+        if sock is None:
+            fp = getattr(response, "fp", None)
+            if fp is not None:
+                raw_io = getattr(fp, "raw", None)
+                sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
+        if sock is not None and hasattr(sock, "settimeout"):
+            try:
+                sock.settimeout(1.0)
+            except Exception:
+                pass
+
+        chunks: list[bytes] = []
+        total = 0
+        read_timeout = self._timeout_getter()
+        deadline = time.monotonic() + read_timeout
+        while True:
+            if stop_checker is not None and stop_checker():
+                self.close()
+                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            try:
+                chunk = response.read(65536)
+            except (TimeoutError, socket.timeout):
+                if stop_checker is not None and stop_checker():
+                    self.close()
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                if time.monotonic() > deadline:
+                    raise TimeoutError("HTTP read timed out")
+                continue
+
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                self.close()
+                raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
+            chunks.append(chunk if isinstance(chunk, bytes) else bytes(chunk))
+        return b"".join(chunks)
