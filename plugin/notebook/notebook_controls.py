@@ -21,6 +21,7 @@ So we attach **one** shared ``XActionListener`` to the form controller container
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import time
@@ -256,7 +257,7 @@ def _set_model_props(model: Any, pairs: list[tuple[str, Any]] | tuple[tuple[str,
     items = pairs.items() if isinstance(pairs, dict) else pairs
     for name, value in items:
         if info.hasPropertyByName(name):
-            best_effort(lambda n=name, v=value: model.setPropertyValue(n, v), f"notebook controls could not set model {name}")
+            best_effort(functools.partial(model.setPropertyValue, name, value), f"notebook controls could not set model {name}")
 
 
 def _set_model_prop(model: Any, name: str, value: Any) -> None:
@@ -893,7 +894,7 @@ def forget_document_wiring(doc: Any) -> None:
     for lis in to_drop:
         if isinstance(lis, NotebookFormContainerListener):
             best_effort(
-                lambda lis=lis: _detach_wiring(lis._container, lis._form_listener, lis),
+                functools.partial(_detach_wiring, lis._container, lis._form_listener, lis),
                 "notebook controls: detach wiring on unload failed",
             )
     with _lock:
