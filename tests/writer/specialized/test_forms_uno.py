@@ -289,11 +289,11 @@ def test_forms_radios_addressing(ctx, doc):
 
     listed = list_tool.execute(mock_ctx)
     assert listed["count"] == 2
-    shape_names = {c["shape_name"] for c in listed["controls"]}
-    assert "rad_male" in shape_names and "rad_female" in shape_names
-    # Both share model name "gender"
+    names = {c["name"] for c in listed["controls"]}
+    assert names == {"rad_male", "rad_female"}
+    # Both share model name "gender", reported as group_name
     for c in listed["controls"]:
-        assert c["name"] == "gender"
+        assert c["group_name"] == "gender"
 
     # 2. Edit by shape name (addresses unique shape even though model name is shared)
     edit_res = edit_tool.execute(mock_ctx, name="rad_male", label="Male Option")
@@ -304,7 +304,7 @@ def test_forms_radios_addressing(ctx, doc):
     assert del_res["status"] == "ok"
     after_del = list_tool.execute(mock_ctx)
     assert after_del["count"] == 1
-    assert after_del["controls"][0]["shape_name"] == "rad_male"
+    assert after_del["controls"][0]["name"] == "rad_male"
     assert after_del["controls"][0]["label"] == "Male Option"
 
 
