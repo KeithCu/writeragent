@@ -139,13 +139,19 @@ class EndpointImageProvider(ImageProvider):
         suffix = sniffed if sniffed != ".img" else ".png"
         return [write_temp_image(raw_bytes, suffix=suffix)]
 
-    def _save_url(self, url: str, suffix: str = ".webp", *, stop_checker: Any = None, status_callback: Any = None) -> list[str]:
+    def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> list[str]:
         extra: dict[str, Any] = {}
         if stop_checker is not None:
             extra["stop_checker"] = stop_checker
         if status_callback is not None:
             extra["status_callback"] = status_callback
-        data = sync_request(url, parse_json=False, timeout=get_config_int("request_timeout"), **extra)
+        data = sync_request(
+            url,
+            parse_json=False,
+            timeout=get_config_int("request_timeout"),
+            max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+            **extra,
+        )
         if len(data) > IMAGE_DOWNLOAD_MAX_BYTES:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
         return [write_temp_image(data)]

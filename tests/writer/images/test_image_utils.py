@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 # Add parent directory to path to import core
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
-from plugin.writer.images.image_utils import ImageService, EndpointImageProvider
+from plugin.writer.images.image_utils import ImageService, EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext, create_mock_client
@@ -45,6 +45,7 @@ class TestEndpointImageProvider:
             "http://example.com/image.png",
             parse_json=False,
             timeout=get_config_int("request_timeout"),
+            max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         )
 
     def test_generate_openrouter_b64(self):
@@ -103,6 +104,7 @@ class TestEndpointImageProvider:
             "http://fallback.com/image.png",
             parse_json=False,
             timeout=get_config_int("request_timeout"),
+            max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         )
         os.unlink(paths[0])
 

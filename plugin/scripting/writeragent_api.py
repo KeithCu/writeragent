@@ -600,7 +600,7 @@ class _ChartProxy:
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
             rows (optional): 2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]]).
-            chart_type (optional): Type of chart to create or update to (required for create). One of: bar, pie, column, line, scatter, area, donut, net, stock, bubble.
+            chart_type (optional): Type of chart to create or update to (required for create). One of: bar, column, line, pie, scatter, area, donut, net, stock, bubble.
             title (optional): Chart title.
             subtitle (optional): Chart subtitle.
             is_3d (optional): Enable 3D mode.
@@ -1225,9 +1225,9 @@ class _ImagesProxy:
             prompt (required): Descriptive prompt for image generation or editing.
             source_image (optional): Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit while a graphic is selected to edit in place; omit with no selection to create a new image.
             aspect_ratio (optional): One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
-            base_size (optional): Generate resolution in pixels (default 1024). On-page display is capped independently (~135mm longer edge).
-            width (optional): Override calculated width.
-            height (optional): Override calculated height.
+            base_size (optional): Generate resolution in pixels (> 0, default 1024). On-page display is capped independently (~135mm longer edge).
+            width (optional): Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution.
+            height (optional): Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution.
             image_model (optional): Override Settings image model for this request (endpoint / OpenRouter).
         """
         return _rpc_call("image_generate", prompt=prompt, source_image=source_image, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, image_model=image_model)
@@ -1241,7 +1241,7 @@ class _ImagesProxy:
         return _rpc_call("image_get_info", name=name)
 
     def insert(self, path: str, *, locator: str | None = None, paragraph: int | None = None, page: int | None = None, x_mm: float | None = None, y_mm: float | None = None, width_mm: float | None = None, height_mm: float | None = None, target: str | None = None, style: str | None = None, auto_height: bool | None = None) -> dict[str, Any]:
-        """Insert an image from local path or URL into the document. URLs are auto-downloaded first. For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert into the page header/footer with auto-height so the logo does not overlap the body. A different-first-page letterhead logo needs first_is_shared=false on the page style (page_set_style_properties) so HeaderTextFirst is its own text object, then target='header_first' (or footer_first) — otherwise the image lands in the shared header and repeats on every page. On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. On Calc, page is a 0-based sheet index; x_mm and y_mm are ignored. Sizes and positions are millimetres (not 1/100 mm).
+        """Insert an image from local path or URL into the document. URLs are auto-downloaded first. Omitted dimensions preserve aspect ratio with the longer edge sized to 80 mm; specifying one dimension scales the other proportionally; specifying both sets both. For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert into the page header/footer with auto-height so the logo does not overlap the body. A different-first-page letterhead logo needs first_is_shared=false on the page style (page_set_style_properties) so HeaderTextFirst is its own text object, then target='header_first' (or footer_first) — otherwise the image lands in the shared header and repeats on every page. On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. On Calc, page is a 0-based sheet index; x_mm and y_mm are ignored. Sizes and positions are millimetres (not 1/100 mm).
 
         Args:
             path (required): Local file path or URL of the image to insert.
@@ -1250,8 +1250,8 @@ class _ImagesProxy:
             page (optional): Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted.
             x_mm (optional): Draw/Impress: X position in millimetres (default: centered). Ignored on Calc.
             y_mm (optional): Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc.
-            width_mm (optional): Width in millimetres (default: 80).
-            height_mm (optional): Height in millimetres (default: 80).
+            width_mm (optional): Width in millimetres (must be positive; omitted derives from aspect ratio).
+            height_mm (optional): Height in millimetres (must be positive; omitted derives from aspect ratio).
             target (optional): Writer insertion target (default: body). header/footer write the shared page-style region. header_first/footer_first write the first-page letterhead (set first_is_shared=false first, or the first page still shares HeaderText). One of: body, header, footer, header_first, footer_first.
             style (optional): Page style for header/footer target (default: Standard).
             auto_height (optional): When target is a header/footer region, grow the region with the image (default: true) so a taller logo does not overlap the body. Set false to keep a fixed header/footer height.
@@ -1286,8 +1286,8 @@ class _ImagesProxy:
 
         Args:
             name (required): Name of the image (from image_list).
-            width_mm (optional): New width in millimetres.
-            height_mm (optional): New height in millimetres.
+            width_mm (optional): New width in millimetres (> 0).
+            height_mm (optional): New height in millimetres (> 0).
             title (optional): Image title (tooltip text).
             description (optional): Image alternative text (alt-text).
             anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER. One of: 0, 1, 2, 3, 4.

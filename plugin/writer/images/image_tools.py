@@ -185,12 +185,28 @@ def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | 
     raise RuntimeError("Could not assign GraphicURL or Graphic to embedded graphic")
 
 
-def insert_image(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None) -> None:
+def insert_image(
+    ctx: Any,
+    model: Any,
+    img_path: str,
+    width_px: int,
+    height_px: int,
+    title: str = "",
+    description: str = "",
+    add_to_gallery: bool = True,
+    add_frame: bool = False,
+    page_index: int | None = None,
+    x_mm: int | float | None = None,
+    y_mm: int | float | None = None,
+    *,
+    size_units: tuple[int, int] | None = None,
+) -> None:
     """Inserts an image into the document.
 
     width_px, height_px: Source/generate pixels, not on-page millimetres.
     Display size is capped (``px_to_display_units``) so a 1024px generate
     stays a ~135mm inset instead of filling the Writer page.
+    size_units overrides the pixel conversion when the frame size is already known.
     page_index is a 0-based Draw/Impress page or a Calc sheet; x_mm/y_mm are
     ignored on Calc; omitted x/y centers a Draw/Impress page. add_frame is
     Writer/Web only.
@@ -199,7 +215,10 @@ def insert_image(ctx: Any, model: Any, img_path: str, width_px: int, height_px: 
 
     inside = get_type_doc(model)
 
-    width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
+    if size_units is not None:
+        width_units, height_units = size_units
+    else:
+        width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
 
     # Gallery is filesystem-only; keep it outside the document undo group.
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
@@ -639,7 +658,7 @@ def _get_selected_graphic_object(model: Any) -> tuple[Any | None, str | None]:
     return obj, get_type_doc(model)
 
 
-def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False) -> bool:
+def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True) -> bool:
     """If the current selection is a single graphic, replace it with the new image and return True.
 
     Otherwise return False (caller should fall back to insert_image).
@@ -682,6 +701,7 @@ def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None
     """Returns (width_px, height_px) of the currently selected graphic, or (None, None) if none.
 
     Uses 96 DPI: 1/100 mm -> px conversion (size * 96 / 2540).
+    The 64 px floor is a pixel estimate and must not be passed back through px_to_display_units.
     """
     obj, _unused = _get_selected_graphic_object(model)
     if obj is None:
