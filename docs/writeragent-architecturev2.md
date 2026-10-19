@@ -178,7 +178,7 @@ The quality of a product is hidden in the details. WriterAgent includes:
 
 #### A Disciplined Exception Policy
 
-Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DISPOSED_OBJECT` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposed_exception`/`DocumentDisposedError`.
+Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DOCUMENT_DISPOSED` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposed_exception`/`DocumentDisposedError`.
 
 #### Automated Localization
 

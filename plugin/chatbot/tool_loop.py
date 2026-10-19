@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
+from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, is_disposed_exception, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -830,15 +830,15 @@ class ToolCallingMixin:
 
         # If we reached here, it's either not a modality error or STT is not configured.
         # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
-        # not Exception — format_error_message() requires Exception (deal.pre).
+        # not BaseException.
         if isinstance(e, dict):
             err_msg = str(e.get("message") or e.get("code") or e)
             crash_blob = "%s %s" % (err_msg, e)
-        elif isinstance(e, Exception):
+        elif isinstance(e, BaseException):
             err_msg = format_error_message(e)
             crash_blob = err_msg
         else:
-            err_msg = str(e)
+            err_msg = resolve_exception_message(e)
             crash_blob = err_msg
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death
