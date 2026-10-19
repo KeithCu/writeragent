@@ -650,6 +650,9 @@ def test_bookmark_get_and_delete_dead_anchor_and_disposal():
     doc.getBookmarks.return_value = bookmarks
     bookmarks.hasByName.return_value = True
 
+    text = MagicMock()
+    doc.getText.return_value = text
+
     bad_bm = MagicMock()
     bad_bm.getAnchor.side_effect = RuntimeError("dead anchor")
     bookmarks.getByName.return_value = bad_bm
@@ -665,6 +668,9 @@ def test_bookmark_get_and_delete_dead_anchor_and_disposal():
     del_res = BookmarkDelete().execute(ctx, name="target")
     assert del_res["status"] == "error"
     assert del_res.get("details", {}).get("stale") is True or del_res.get("stale") is True
+    assert "still registered" in del_res["message"]
+    assert "cannot be deleted" in del_res["message"]
+    text.removeTextContent.assert_not_called()
 
     # Disposal propagates
     disposed_bm = MagicMock()

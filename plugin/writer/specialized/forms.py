@@ -36,6 +36,7 @@ from plugin.draw.tree import coerce_control_state
 from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.uno_context import uno_same
 
 def _run_on_main(fn: Any, *args: Any, **kwargs: Any) -> Any:
     if on_main_thread():
@@ -201,6 +202,20 @@ class _StackedDrawPageCursor:
         return Point(self.margin_x, y)
 
 
+# One cursor per draw page. The active-page cursor supplied every field's Y, then the shape was added to field page=.
+class _PageCursors:
+    def __init__(self) -> None:
+        self._entries: list[tuple[Any, _StackedDrawPageCursor]] = []
+
+    def for_page(self, dp: Any) -> _StackedDrawPageCursor:
+        for page, cursor in self._entries:
+            if uno_same(page, dp):
+                return cursor
+        cursor = _StackedDrawPageCursor(dp)
+        self._entries.append((dp, cursor))
+        return cursor
+
+
 def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_height: int) -> Point:
     """Place new controls below existing shapes on a draw page (1/100 mm)."""
     return _StackedDrawPageCursor(dp).next_position(default_height)
@@ -351,7 +366,7 @@ class FormCreateControl(ToolWriterFormBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, cursor: Any = None, **kwargs: Any) -> dict[str, Any]:
+    def _execute_main(self, ctx: Any, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         control_type = str(kwargs.get("control", ""))
         name = kwargs.get("name", "Field")
@@ -440,8 +455,8 @@ class FormCreateControl(ToolWriterFormBase):
                 dp = _resolve_form_page(doc, kwargs.get("page"))
                 if dp is None:
                     return _no_form_draw_page_payload()
-                if cursor is not None:
-                    pos = cursor.next_position(h)
+                if page_cursors is not None:
+                    pos = page_cursors.for_page(dp).next_position(h)
                 else:
                     pos = _next_stacked_position_on_draw_page(dp, w, h)
                 shape.setPosition(pos)
@@ -488,7 +503,10 @@ class FormCreate(ToolWriterFormBase):
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "properties": dict(_CONTROL_PROPERTIES),
+                    "properties": {
+                        **_CONTROL_PROPERTIES,
+                        "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+                    },
                     "required": ["control", "name"],
                 },
             }
@@ -503,15 +521,13 @@ class FormCreate(ToolWriterFormBase):
         doc = ctx.doc
         results: list[Any] = []
         creator = FormCreateControl()
-        cursor = None
+        page_cursors = None
         if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
-            dp = _resolve_form_page(doc, None)
-            if dp is not None:
-                cursor = _StackedDrawPageCursor(dp)
+            page_cursors = _PageCursors()
 
         def mutate() -> dict[str, Any] | None:
             for field in fields:
-                res = creator._execute_main(ctx, cursor=cursor, **field)
+                res = creator._execute_main(ctx, page_cursors=page_cursors, **field)
                 results.append(res)
                 # Call _insert_space only when that field's result is not status="error"
                 if isinstance(res, dict) and res.get("status") != "error":
@@ -622,18 +638,16 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         field_results: list[Any] = []
         field_names: list[Any] = []
 
-        cursor = None
+        page_cursors = None
         if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
-            dp = _resolve_form_page(doc, None)
-            if dp is not None:
-                cursor = _StackedDrawPageCursor(dp)
+            page_cursors = _PageCursors()
 
         def mutate() -> dict[str, Any] | None:
             for part in parts:
                 if part.startswith("{FIELD:"):
                     params = self._parse_field_tag(part)
                     if params:
-                        res = creator._execute_main(ctx, cursor=cursor, **params)
+                        res = creator._execute_main(ctx, page_cursors=page_cursors, **params)
                         if not isinstance(res, dict):
                             res = format_error_payload(ToolExecutionError("Form field returned no result."))
                         field_results.append(res)
@@ -644,13 +658,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         field_names.append({})
                 else:
                     if part:
-                        if cursor is not None:
-                            try:
-                                self._insert_text(ctx, part, cursor=cursor)
-                            except TypeError:
-                                self._insert_text(ctx, part)
-                        else:
-                            self._insert_text(ctx, part)
+                        # A TypeError after a partial insert was inserting the text again and hiding the error.
+                        self._insert_text(ctx, part, page_cursors=page_cursors)
 
             failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
             if failure is not None:
@@ -670,7 +679,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
-    def _insert_text(self, ctx: Any, text: str, cursor: Any = None) -> None:
+    def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
             plain = _plain_text_for_calc_html_fragment(text)
@@ -687,8 +696,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 return
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
-            if cursor is not None:
-                pos = cursor.next_position(h)
+            if page_cursors is not None:
+                pos = page_cursors.for_page(dp).next_position(h)
             else:
                 pos = _next_stacked_position_on_draw_page(dp, w, h)
             shape = bridge.create_shape("com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp)

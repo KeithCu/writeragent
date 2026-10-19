@@ -174,7 +174,7 @@ def test_form_create_ok_when_every_field_succeeds(monkeypatch):
 def test_form_generate_reports_field_failures(monkeypatch):
     _patch_field_creator(monkeypatch, "bad")
     tool = FormGenerate()
-    monkeypatch.setattr(tool, "_insert_text", lambda ctx, text: None)
+    monkeypatch.setattr(tool, "_insert_text", lambda ctx, text, page_cursors=None: None)
 
     res = tool._process_form_content(_mock_form_ctx(), "Hello {FIELD:control='text',name='bad',label='X'} tail")
 
@@ -185,7 +185,7 @@ def test_form_generate_reports_field_failures(monkeypatch):
 
 def test_form_generate_reports_unparsed_field_tag():
     tool = FormGenerate()
-    tool._insert_text = lambda ctx, text, cursor=None: None
+    tool._insert_text = lambda ctx, text, page_cursors=None: None
 
     res = tool._process_form_content(_mock_form_ctx(), "Intro {FIELD:broken} end")
 
@@ -197,12 +197,28 @@ def test_form_generate_ok_when_fields_succeed(monkeypatch):
     _patch_field_creator(monkeypatch, "nobody")
     tool = FormGenerate()
     inserted = []
-    monkeypatch.setattr(tool, "_insert_text", lambda ctx, text: inserted.append(text))
+    monkeypatch.setattr(tool, "_insert_text", lambda ctx, text, page_cursors=None: inserted.append(text))
 
     res = tool._process_form_content(_mock_form_ctx(), "Hello {FIELD:control='text',name='nm',label='Name'} tail")
 
     assert res == {"status": "ok", "message": "Form generation completed and inserted."}
     assert inserted == ["Hello ", " tail"]
+
+
+def test_form_generate_insert_text_typeerror_is_not_retried():
+    tool = FormGenerate()
+    calls = []
+
+    def fake_insert(ctx, text, page_cursors=None):
+        calls.append(text)
+        raise TypeError("simulated error")
+
+    tool._insert_text = fake_insert
+
+    with pytest.raises(TypeError, match="simulated error"):
+        tool._process_form_content(_mock_form_ctx(), "plain text")
+
+    assert calls == ["plain text"]
 
 
 def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
@@ -516,6 +532,90 @@ def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
     assert created_shapes[0].setPosition.call_args[0][0].Y == 1200
     assert created_shapes[1].setPosition.call_args[0][0].Y == 2200
     assert created_shapes[2].setPosition.call_args[0][0].Y == 3200
+
+
+def test_draw_form_create_stacks_per_page(monkeypatch):
+    from com.sun.star.awt import Point, Size
+    from plugin.writer.specialized.forms import FormCreate
+
+    class _PlainPage:
+        def __init__(self, existing_shape):
+            self._shape = existing_shape
+            self.added = []
+            self.get_by_index_calls = 0
+
+        def getCount(self):
+            return 1
+
+        def getByIndex(self, idx):
+            self.get_by_index_calls += 1
+            return self._shape
+
+        def add(self, shape):
+            self.added.append(shape)
+
+    shape_a = MagicMock()
+    shape_a.getPosition.return_value = Point(0, 0)
+    shape_a.getSize.return_value = Size(100, 500)
+    page_a = _PlainPage(shape_a)
+
+    shape_b = MagicMock()
+    shape_b.getPosition.return_value = Point(0, 200)
+    shape_b.getSize.return_value = Size(100, 800)
+    page_b = _PlainPage(shape_b)
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    created_shapes = []
+
+    def fake_create_instance(service):
+        inst = MagicMock()
+        if service == "com.sun.star.drawing.ControlShape":
+            created_shapes.append(inst)
+        return inst
+
+    doc.createInstance.side_effect = fake_create_instance
+
+    def fake_resolve_form_page(d, p):
+        if p is None or p == 0:
+            return page_a
+        if p == 1:
+            return page_b
+        return None
+
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", fake_resolve_form_page)
+
+    tool = FormCreate()
+    fields = [
+        {"control": "text", "name": "f1", "height": 600},
+        {"control": "text", "name": "f2", "page": 1, "height": 600},
+        {"control": "text", "name": "f3", "page": 1, "height": 600},
+        {"control": "text", "name": "f4", "page": 0, "height": 600},
+    ]
+    res = tool.execute(SimpleNamespace(doc=doc), fields=fields)
+    assert res["status"] == "ok"
+
+    # Each page's getByIndex runs once
+    assert page_a.get_by_index_calls == 1
+    assert page_b.get_by_index_calls == 1
+
+    # Page A bottom: max(800, 500) = 800. First Y = 800 + 400 = 1200.
+    # Page B bottom: max(800, 1000) = 1000. First Y = 1000 + 400 = 1400.
+    # Page B second field: 1400 + 600 + 400 = 2400.
+    # Page A second field (field 4, page=0): 1200 + 600 + 400 = 2200.
+    assert created_shapes[0].setPosition.call_args[0][0].Y == 1200
+    assert created_shapes[1].setPosition.call_args[0][0].Y == 1400
+    assert created_shapes[2].setPosition.call_args[0][0].Y == 2400
+    assert created_shapes[3].setPosition.call_args[0][0].Y == 2200
+
+    # Shapes added to respective pages
+    assert page_a.added == [created_shapes[0], created_shapes[3]]
+    assert page_b.added == [created_shapes[1], created_shapes[2]]
 
 
 def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):

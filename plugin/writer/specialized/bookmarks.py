@@ -640,7 +640,12 @@ class BookmarkDelete(ToolWriterBookmarkBase):
             text.removeTextContent(bm)
         except Exception as exc:
             reraise_if_disposed(exc)
-            return self._tool_error(f"Bookmark '{name}' anchor is not in the document.", stale=True)
+            log.warning("Bookmark '%s' anchor failed during delete: %s", name, exc)
+            # The name stays in getBookmarks(). A dead anchor has no text for removeTextContent.
+            return self._tool_error(
+                "Bookmark '%s' is still registered, but it has no anchor text, so it cannot be deleted." % name,
+                stale=True,
+            )
 
         return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
 
