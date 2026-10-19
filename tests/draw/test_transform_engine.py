@@ -395,8 +395,8 @@ def test_select_text_forms_and_caret_bold() -> None:
 
     # [para, char] moves to caret and selects nothing
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6])
-    assert cursor.getString() == ""
+    selected, mode = eng._select_text(xtext, cursor, [0, 6])
+    assert selected.getString() == ""
     assert mode == "caret"
 
     # [para, char, endPara] selects from [para, char] through end of endPara
@@ -427,6 +427,37 @@ def test_select_text_forms_and_caret_bold() -> None:
     assert controller.selected == []
     assert "CharWeight" not in cursor.props
     assert any("caret" in w for w in eng.warnings)
+
+
+def test_select_text_caret_form_collapses_on_impress_quirk() -> None:
+    """SelectText [para, char] collapses even when getString still reports full text."""
+    eng, _calls, _controller = _dispatch_engine()
+    paragraphs = ["first paragraph", "second paragraph", "third paragraph"]
+    full_text = "\n".join(paragraphs)
+    xtext = SimpleNamespace(getString=lambda: full_text)
+
+    class _ImpressQuirkCursor(_OffsetCursor):
+        """Simulate Impress where a collapsed cursor reports full text from getString()."""
+
+        def getString(self) -> str:
+            if self.pos == self.anchor:
+                return self.text
+            return super().getString()
+
+        def isCollapsed(self) -> bool:
+            return self.pos == self.anchor
+
+        def collapseToStart(self) -> None:
+            self.anchor = self.pos
+
+    raw_cursor = _ImpressQuirkCursor(full_text)
+    selected, mode = eng._select_text(xtext, raw_cursor, [0, 6])
+    assert mode == "caret"
+    assert selected.isCollapsed()
+    # getString may still be the full shape on Impress; range form still works.
+    range_selected, range_mode = eng._select_text(xtext, selected, [1])
+    assert range_mode == "range"
+    assert range_selected.getString() == "second paragraph"
 
 
 def test_failed_insert_master_stops_sequence() -> None:
@@ -1084,6 +1115,157 @@ def test_uno_command_invalid_json_arguments_warns_and_does_not_dispatch() -> Non
     assert res is False
     assert calls == []
     assert any("invalid JSON arguments" in w for w in eng.warnings)
+
+
+def test_calculate_text_selection_span_pure_rules() -> None:
+    from plugin.draw.transform_engine import _calculate_text_selection_span
+
+    # In-range
+    assert _calculate_text_selection_span("a\nb\nc", [1]) == (2, 3, "range")
+    assert _calculate_text_selection_span("Hello world", [0, 1, 0, 3]) == (1, 3, "range")
+    assert _calculate_text_selection_span(
+        "first paragraph\nsecond paragraph\nthird paragraph", [0, 6, 1, 6]
+    ) == (6, 22, "range")
+
+    # Out-of-range paragraph
+    res_p = _calculate_text_selection_span("a\nb\nc", [99])
+    assert isinstance(res_p, str) and "paragraph index 99 out of range" in res_p
+
+    # Out-of-range end paragraph
+    res_ep = _calculate_text_selection_span("a\nb\nc", [0, 0, 99])
+    assert isinstance(res_ep, str) and "end paragraph index 99 out of range" in res_ep
+
+    # Out-of-range character index
+    res_c = _calculate_text_selection_span("a\nb\nc", [0, 99])
+    assert isinstance(res_c, str) and "char index 99 past paragraph 0" in res_c
+
+    res_ec = _calculate_text_selection_span("a\nb\nc", [0, 0, 0, 99])
+    assert isinstance(res_ec, str) and "char index 99 past paragraph 0" in res_ec
+
+
+def test_whole_shape_selection_formats_cursor_and_unmapped_dispatches() -> None:
+    eng, calls, controller = _dispatch_engine()
+    cursor = _Cursor("Title")
+    shape = _Shape("Title")
+
+    # Mapped UNO command (.uno:Bold) writes directly to cursor without dispatch or shape selection
+    ok = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="all")
+    assert ok is True
+    assert cursor.props.get("CharWeight") == 150.0
+    assert calls == []
+    assert controller.selected == []
+
+    # Unmapped UNO command (.uno:DefaultBullet) dispatches via controller and DispatchHelper
+    ok_bullet = eng._dispatch_uno_string(".uno:DefaultBullet", cursor=cursor, shape=shape, selection_mode="all")
+    assert ok_bullet is True
+    assert calls == [".uno:DefaultBullet"]
+    assert controller.selected == [shape]
+
+
+def test_apply_rejects_bad_command_list_before_uno_write() -> None:
+    eng, deck, bridge = _engine(0, 2)
+
+    # [42, {"NoSuch": 1}] reports failed_at 0
+    res = eng.apply({"Transforms": {"SlideCommands": [42, {"NoSuch": 1}]}})
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert res["applied"] == []
+
+    # [{"JumpToSlide": 0}, 42, {"NoSuch": 1}] reports failed_at 1, JumpToSlide not applied
+    res2 = eng.apply({"Transforms": {"SlideCommands": [{"JumpToSlide": 0}, 42, {"NoSuch": 1}]}})
+    assert res2["status"] == "error"
+    assert res2["failed_at"] == 1
+    assert "JumpToSlide:0" not in res2["applied"]
+    assert res2["applied"] == []
+
+    # Empty dict {} fails at that index
+    res_empty = eng.apply({"Transforms": {"SlideCommands": [{}]}})
+    assert res_empty["status"] == "error"
+    assert res_empty["failed_at"] == 0
+    assert res_empty["applied"] == []
+
+    # Multi-key object fails before applying first key
+    res_multi = eng.apply(
+        {"Transforms": {"SlideCommands": [{"JumpToSlide": 1, "NoSuch": 2}]}}
+    )
+    assert res_multi["status"] == "error"
+    assert res_multi["failed_at"] == 0
+    assert "JumpToSlide:1" not in res_multi["applied"]
+
+    # Deferred command fails before apply
+    res_def = eng.apply({"Transforms": {"SlideCommands": [{"GenerateImage.0": {}}]}})
+    assert res_def["status"] == "error"
+    assert res_def["failed_at"] == 0
+    assert res_def["applied"] == []
+
+    # Unknown command fails before apply
+    res_unk = eng.apply({"Transforms": {"SlideCommands": [{"NoSuch": 1}]}})
+    assert res_unk["status"] == "error"
+    assert res_unk["failed_at"] == 0
+    assert res_unk["applied"] == []
+
+    # EditTextObject empty array fails before apply
+    res_eto_empty = eng.apply({"Transforms": {"SlideCommands": [{"EditTextObject.0": []}]}})
+    assert res_eto_empty["status"] == "error"
+    assert res_eto_empty["failed_at"] == 0
+
+    # EditTextObject empty sub-object fails before apply
+    res_eto_sub_empty = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{}]}]}}
+    )
+    assert res_eto_sub_empty["status"] == "error"
+    assert res_eto_sub_empty["failed_at"] == 0
+
+    # SelectText length > 4 fails before apply
+    res_sel_len = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [1, 2, 3, 4, 5]}]}]}}
+    )
+    assert res_sel_len["status"] == "error"
+    assert res_sel_len["failed_at"] == 0
+
+    # SelectText negative fails before apply
+    res_sel_neg = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [-1]}]}]}}
+    )
+    assert res_sel_neg["status"] == "error"
+    assert res_sel_neg["failed_at"] == 0
+
+
+def test_edit_text_object_empty_array_returns_own_message_not_stale_warning() -> None:
+    shape0 = _MockShapeWithCursor(_CollapsingCursor())
+    page = _MockPageWithShapes([shape0])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.warnings.append("Stale planted warning")
+
+    msg = eng._edit_text_object(0, [])
+    assert msg is not None
+    assert "sub-commands list cannot be empty" in msg
+    assert msg != "Stale planted warning"
+
+
+def test_select_text_span_with_crlf_and_cr_linebreaks() -> None:
+    # Tip: Impress/Draw text can expose CRLF or CR linebreaks; selection spans match LF offsets.
+    from plugin.draw.transform_engine import _calculate_text_selection_span
+
+    paras = ["first", "second", "third"]
+    for sep in ("\n", "\r\n", "\r"):
+        text = sep.join(paras)
+        span_p1 = _calculate_text_selection_span(text, [1])
+        assert isinstance(span_p1, tuple)
+        start, end, mode = span_p1
+        assert start == len("first") + 1
+        assert end == start + len("second")
+        assert mode == "range"
+
+        span_cross = _calculate_text_selection_span(text, [0, 2, 1, 3])
+        assert isinstance(span_cross, tuple)
+        c_start, c_end, c_mode = span_cross
+        assert c_start == 2
+        assert c_end == len("first") + 1 + 3
+        assert c_mode == "range"
+
+
 
 
 
