@@ -21,7 +21,6 @@ LO findFirst / chained-regex helpers live in ``plugin.writer.search``.
 
 from __future__ import annotations
 
-import html as html_mod
 import logging
 import re
 import threading
@@ -132,9 +131,8 @@ def _grow_over_edge_space(found: Any, separator: int) -> Any:
     return grown
 
 
-# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
-# Guards the plain-text unescape so a bare "&" is never touched.
-_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
+# Complete character references only; a bare "&" is never touched.
+from plugin.writer.html_import import _COMPLETE_ENTITY_RE as _ENTITY_RE, unescape_complete_entities  # noqa: E402
 
 
 def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
@@ -1152,7 +1150,7 @@ class ApplyDocumentContent(ToolBase):
             # "Banco & Cia" is never touched.
             if _ENTITY_RE.search(content):
                 _before_ent = content
-                content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
+                content = unescape_complete_entities(content)
                 if content != _before_ent:
                     log.debug(
                         "apply_document_content: decoded HTML entities on the plain-text path (len %d -> %d)",

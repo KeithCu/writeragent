@@ -136,10 +136,9 @@ def test_macos_profile_and_env(
     seed_root = tmp_path / "bundle.seed"
     monkeypatch.setattr(tempfile, "mkdtemp", lambda prefix: str(bundle_root))
 
-    inherited_pp = "/opt/homebrew/lib:/Applications/LibreOffice.app/Contents/Resources"
-    monkeypatch.setenv("PYTHONPATH", inherited_pp)
-    monkeypatch.setenv("UNO_PATH", "/Applications/LibreOffice.app/Contents/MacOS")
-    monkeypatch.setenv("URE_BOOTSTRAP", "vnd.sun.star.pathname:/fundamentalrc")
+    # The UNO vars come from lo_paths (derived from the .app), not from the caller's env.
+    monkeypatch.delenv("LO_PYTHON_ENV", raising=False)
+    monkeypatch.setenv("PYTHONPATH", "/somewhere/else")
 
     run_calls: list[dict[str, Any]] = []
 
@@ -167,9 +166,10 @@ def test_macos_profile_and_env(
 
     uno_call = run_calls[-1]
     uno_env = uno_call["env"]
-    assert uno_env["PYTHONPATH"] == f"{bundle_root}{os.pathsep}{inherited_pp}"
-    assert uno_env["UNO_PATH"] == "/Applications/LibreOffice.app/Contents/MacOS"
-    assert uno_env["URE_BOOTSTRAP"] == "vnd.sun.star.pathname:/fundamentalrc"
+    contents = Path("/Applications/LibreOffice.app/Contents")
+    assert uno_env["PYTHONPATH"] == os.pathsep.join([str(bundle_root), str(contents / "Resources"), str(contents / "Frameworks")])
+    assert uno_env["UNO_PATH"] == str(contents / "MacOS")
+    assert uno_env["URE_BOOTSTRAP"].startswith("vnd.sun.star.pathname:" + str(contents / "Resources"))
 
 
 def test_execution_order_and_pytest_argv(

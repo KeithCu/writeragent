@@ -1092,7 +1092,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                     config_svc = services.get("config")
                 except Exception:
                     config_svc = None
-            replace_xtext_with_html(
+            note = replace_xtext_with_html(
                 text_obj, content, config_svc=config_svc, model=ctx.doc,
             )
             result: dict[str, Any] = {
@@ -1102,6 +1102,8 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                 "updated": True,
                 "format": "html",
             }
+            if note:
+                result["warning"] = note
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
             flag_style_unreviewed(getattr(ctx, "ctx", None), result)

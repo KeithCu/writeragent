@@ -25,9 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts import lo_kill, lo_profile  # noqa: E402
-
-_SCRUB = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
+from scripts import lo_kill, lo_paths, lo_profile  # noqa: E402
 
 IGNORED_TESTS = (
     "tests/scripts",
@@ -55,18 +53,15 @@ DESELECTED_K = (
 
 
 def _make_uno_env(
+    lo_python: str,
     base_dir: Path,
     home: Path | None = None,
     profile: Path | None = None,
 ) -> dict[str, str]:
-    # UNO child environment scrubbed of host virtualenv leaks
-    env = {k: v for k, v in os.environ.items() if k not in _SCRUB}
-    env["PYTHONUNBUFFERED"] = "1"
-    inherited_pythonpath = os.environ.get("PYTHONPATH", "")
-    if inherited_pythonpath:
-        env["PYTHONPATH"] = f"{base_dir}{os.pathsep}{inherited_pythonpath}"
-    else:
-        env["PYTHONPATH"] = str(base_dir)
+    # Same env as make test-uno (venv vars dropped, macOS UNO vars added), plus the tree to test.
+    env = lo_paths.build_child_env(lo_python)
+    inherited_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{base_dir}{os.pathsep}{inherited_pythonpath}" if inherited_pythonpath else str(base_dir)
     if home is not None:
         env["HOME"] = str(home)
         env["XDG_CONFIG_HOME"] = str(home / ".config")
@@ -104,7 +99,7 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    probe_env = _make_uno_env(PROJECT_ROOT)
+    probe_env = _make_uno_env(lo_python, PROJECT_ROOT)
     probe_cmd = [
         lo_python,
         "-c",
@@ -177,7 +172,7 @@ def main(argv: list[str]) -> int:
             return proc.returncode
 
         uno_cmd = [lo_python, "-u", "-m", "plugin.testing_runner"]
-        uno_env = _make_uno_env(root, home=home, profile=profile)
+        uno_env = _make_uno_env(lo_python, root, home=home, profile=profile)
         proc = subprocess.run(uno_cmd, cwd=str(root), env=uno_env, check=False)
         if proc.returncode != 0:
             return proc.returncode

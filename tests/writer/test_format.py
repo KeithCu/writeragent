@@ -552,6 +552,133 @@ def test_replace_preserving_format_raises_when_go_right_stops():
     ctx.getServiceManager.assert_not_called()
 
 
+def test_replace_preserving_format_skips_equal_runs():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi
+
+    moves = []
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            moves.append((n, expand))
+            return True
+
+        def setString(self, value):
+            writes.append(value)
+
+        def getEnd(self):
+            return object()
+
+        def gotoRange(self, _end, _expand):
+            pass
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+        def insertString(self, *_args):
+            pass
+
+    class _Range:
+        def __init__(self, text, string):
+            self._text = text
+            self._string = string
+
+        def getText(self):
+            return self._text
+
+        def getString(self):
+            return self._string
+
+        def getStart(self):
+            return object()
+
+    text = _Text()
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAA"), "AAAB")
+
+    assert moves == [(3, False), (1, True)]
+    assert writes == ["B"]
+
+
+def test_replace_preserving_format_equal_string_is_noop():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi
+
+    moves = []
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            moves.append((n, expand))
+            return True
+
+        def setString(self, value):
+            writes.append(value)
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+    class _Range:
+        def getText(self):
+            return _Text()
+
+        def getString(self):
+            return "IDENTICAL"
+
+        def getStart(self):
+            return object()
+
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _Range(), "IDENTICAL")
+
+    assert moves == []
+    assert writes == []
+
+
+def test_replace_preserving_format_equal_run_go_right_false_raises():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import as hi
+
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            return False
+
+        def setString(self, value):
+            writes.append(value)
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+    class _Range:
+        def getText(self):
+            return _Text()
+
+        def getString(self):
+            return "AAAA"
+
+        def getStart(self):
+            return object()
+
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        with pytest.raises(ToolExecutionError, match="did not advance"):
+            hi.replace_preserving_format(MagicMock(), _Range(), "AAAB")
+
+    assert writes == []
+
+
 def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
     # Configurable coloring: split_author=False forces the SINGLE atomic setString (one author -> one
     # color) even INSIDE an open undo context, where split_author=True (the default) would use the
