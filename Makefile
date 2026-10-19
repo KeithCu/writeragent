@@ -329,12 +329,12 @@ release: clean
 	@$(MAKE) schema-docs
 	@$(MAKE) vendor compile-translations
 	@$(MAKE) typecheck-full
-	$(LO_PYTHON_ENV) "$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
+	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
 
 release-verify: vendor manifest compile-translations
-	$(LO_PYTHON_ENV) "$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
+	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
 
 release-no-test:
 	@$(MAKE) release-build
