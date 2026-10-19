@@ -350,5 +350,5 @@ def test_windows_office_logs_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     monkeypatch.setattr(rv.sys, "platform", "win32")
     diag = rv._add_windows_office_logs(env, tmp_path)
     assert diag == tmp_path / "diag" and diag.is_dir()
-    assert env["SAL_LOG_FILE"] == str(diag / "sal.log")
-    assert env["PYUNO_LOGTARGET"] == str(diag / "pyuno")
+    assert env["PYUNO_LOGLEVEL"] == "CALL"
+    assert env["PYUNO_LOGTARGET"] == (diag / "pyuno").as_uri()

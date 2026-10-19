@@ -81,7 +81,7 @@ def _make_uno_env(
 
 
 def _add_windows_office_logs(env: dict[str, str], seed_dir: Path) -> Path | None:
-    """On Windows, send soffice's SAL and PyUNO logs to files we can print.
+    """On Windows, send soffice's PyUNO log to files we can print.
 
     Tip: soffice.exe has no usable stderr on Windows, so a Python addin that
     kills the office leaves nothing in the job log without these.
@@ -90,10 +90,10 @@ def _add_windows_office_logs(env: dict[str, str], seed_dir: Path) -> Path | None
         return None
     diag_dir = seed_dir / "diag"
     diag_dir.mkdir(parents=True, exist_ok=True)
-    env["SAL_LOG"] = "+WARN"
-    env["SAL_LOG_FILE"] = str(diag_dir / "sal.log")
+    # SAL_LOG is compiled out of release LibreOffice; PyUNO's log is not.
+    # PYUNO_LOGTARGET must be a file URL; pyuno appends ".<pid>".
     env["PYUNO_LOGLEVEL"] = "CALL"
-    env["PYUNO_LOGTARGET"] = str(diag_dir / "pyuno")
+    env["PYUNO_LOGTARGET"] = (diag_dir / "pyuno").as_uri()
     return diag_dir
 
 
@@ -213,6 +213,8 @@ def main(argv: list[str]) -> int:
         proc = subprocess.run(uno_cmd, cwd=str(root), env=uno_env, check=False)
         if proc.returncode != 0:
             if diag_dir is not None:
+                # Before the finally kill: is soffice still up after the bridge died?
+                print("office pids after UNO failure: %s" % (lo_kill.office_pids(None),))
                 _print_office_logs(diag_dir)
             return proc.returncode
 
