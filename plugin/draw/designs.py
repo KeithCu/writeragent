@@ -90,11 +90,11 @@ def _decode_odf_name(name: str) -> str:
 
 
 def _normalize_master_name(name: str) -> str:
-    """Normalize master name: decode ODF, lower, [_-] -> space, strip trailing 16:9 or 4:3."""
-    decoded = _decode_odf_name(str(name or "")).lower()
-    decoded = re.sub(r"[_-]+", " ", decoded)
-    decoded = re.sub(r"[\s]*(16:9|4:3)\s*$", "", decoded)
-    return " ".join(decoded.split())
+    """Normalize master name: decode ODF, lower, strip ratio suffix, and clean spaces."""
+    s = _decode_odf_name(str(name or "")).lower()
+    s = re.sub(r"[\s_-]*(16[:_x -]?9|4[:_x -]?3)\s*$", "", s)
+    s = re.sub(r"[_-]+", " ", s)
+    return " ".join(s.split())
 
 
 _FILL_STYLE_NAMES = {0: "none", 1: "solid", 2: "gradient", 3: "hatch", 4: "bitmap"}
@@ -827,12 +827,23 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     dest_ratio = 16.0 / 9.0
     try:
         pages = dest_doc.getDrawPages()
-        if pages.getCount() > 0:
-            p0 = pages.getByIndex(0)
-            dw = getattr(p0, "Width", 28000)
-            dh = getattr(p0, "Height", 15750)
-            if dh and float(dh) > 0:
-                dest_ratio = float(dw) / float(dh)
+        p0 = pages.getByIndex(0) if pages.getCount() > 0 else None
+        dw = 0
+        dh = 0
+        if p0 is not None:
+            dw = getattr(p0, "Width", 0) or 0
+            dh = getattr(p0, "Height", 0) or 0
+            if (not dw or not dh) and hasattr(p0, "MasterPage") and p0.MasterPage:
+                dw = getattr(p0.MasterPage, "Width", 0) or 0
+                dh = getattr(p0.MasterPage, "Height", 0) or 0
+        if (not dw or not dh) and hasattr(dest_doc, "getMasterPages"):
+            masters = dest_doc.getMasterPages()
+            if masters.getCount() > 0:
+                m0 = masters.getByIndex(0)
+                dw = getattr(m0, "Width", 0) or 0
+                dh = getattr(m0, "Height", 0) or 0
+        if dw and dh and float(dh) > 0:
+            dest_ratio = float(dw) / float(dh)
     except Exception as exc:
         if is_real_disposal(exc):
             raise
@@ -844,16 +855,30 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     all_candidates: list[tuple[int, Any, float]] = []
 
     for i in range(src_masters.getCount()):
-        cand = src_masters.getByIndex(i)
+        try:
+            cand = src_masters.getByIndex(i)
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            continue
         cand_name = str(getattr(cand, "Name", "") or "")
         norm_cand_name = _normalize_master_name(cand_name)
 
-        sw = getattr(cand, "Width", 0)
-        sh = getattr(cand, "Height", 0)
+        sw = getattr(cand, "Width", 0) or 0
+        sh = getattr(cand, "Height", 0) or 0
+        cand_ratio = 0.0
         try:
-            cand_ratio = float(sw) / float(sh) if sh and float(sh) > 0 else dest_ratio
+            if sw and sh and float(sh) > 0:
+                cand_ratio = float(sw) / float(sh)
         except Exception:
-            cand_ratio = dest_ratio
+            cand_ratio = 0.0
+        if not cand_ratio:
+            if re.search(r"4[:_x -]?3", cand_name) or re.search(r"_20_4_3a_3", cand_name):
+                cand_ratio = 4.0 / 3.0
+            elif re.search(r"16[:_x -]?9", cand_name) or re.search(r"_20_16_3a_9", cand_name):
+                cand_ratio = 16.0 / 9.0
+            else:
+                cand_ratio = dest_ratio
         diff = abs(cand_ratio - dest_ratio)
 
         item = (i, cand, diff)
@@ -1062,7 +1087,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     """Import a shipped ``.otp`` master into *dest_doc* and assign it to all slides."""
     # getDrawPages().getCount() does not fail on a live document.
     # A closed document must not be reported as zero slides.
-    dest_doc.getDrawPages().getCount()
+    try:
+        dest_doc.getDrawPages().getCount()
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
     try:
         is_ro = bool(callable(getattr(dest_doc, "isReadonly", None)) and dest_doc.isReadonly() is True)
     except Exception as ro_exc:

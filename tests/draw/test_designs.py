@@ -1457,21 +1457,21 @@ def test_clone_master_aspect_ratio_selection():
     dest_doc.getMasterPages.return_value = dest_masters
 
     m16_9 = MagicMock()
-    m16_9.Name = "Beehive 16:9"
+    m16_9.Name = "Beehive_20_16_3a_9"
     m16_9.Width = 28000
     m16_9.Height = 15750
     m16_9.getCount.return_value = 1
     m16_9.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
 
     m4_3 = MagicMock()
-    m4_3.Name = "Beehive 4:3"
+    m4_3.Name = "Beehive_20_4_3a_3"
     m4_3.Width = 28000
     m4_3.Height = 21000
     m4_3.getCount.return_value = 1
     m4_3.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
 
     m_beehive1 = MagicMock()
-    m_beehive1.Name = "Beehive1 16:9"
+    m_beehive1.Name = "Beehive1_20_16_3a_9"
     m_beehive1.Width = 28000
     m_beehive1.Height = 15750
     m_beehive1.getCount.return_value = 1
@@ -1485,7 +1485,35 @@ def test_clone_master_aspect_ratio_selection():
     with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned.warnings
+    assert cloned.master == dest_master
 
+    # Deck ratio read from p0.MasterPage when p0 lacks dimensions
+    p0_no_dims = MagicMock(spec=["MasterPage"])
+    p0_no_dims.MasterPage = MagicMock(Width=28000, Height=21000)
+    dest_doc.getDrawPages().getByIndex.return_value = p0_no_dims
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned_mp = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
+    assert "aspect mismatch" not in cloned_mp.warnings
+
+    # Candidate aspect ratio inferred from name when geometry is absent
+    m16_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
+    m16_no_geom.Name = "Beehive_16_9"
+    m16_no_geom.getCount.return_value = 1
+    m16_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    m4_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
+    m4_no_geom.Name = "Beehive_4_3"
+    m4_no_geom.getCount.return_value = 1
+    m4_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+
+    src_no_geom = MagicMock()
+    src_no_geom.getMasterPages().getCount.return_value = 2
+    src_no_geom.getMasterPages().getByIndex.side_effect = lambda i: [m16_no_geom, m4_no_geom][i]
+
+    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+        cloned_inferred = clone_master_into_doc(dest_doc, src_no_geom, {"id": "beehive", "name": "Beehive"})
+    assert "aspect mismatch" not in cloned_inferred.warnings
+
+    dest_doc.getDrawPages().getByIndex.return_value = p0
     p0.Height = 15750
     with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
         cloned16 = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
