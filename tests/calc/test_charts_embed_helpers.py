@@ -29,6 +29,7 @@ from plugin.calc.charts import (
     _chart_document_from_host,
     _is_chart_clsid,
     _is_chart_host,
+    _listed_chart_name,
     _lookup_chart,
     _normalize_clsid_value,
     _unique_chart_name,
@@ -246,22 +247,34 @@ def test_resolve_chart_skips_disposed_shape_on_draw():
         assert lookup.ref.host is late
 
 
-def test_resolve_chart_draw_propagates_non_dispose_errors():
+def test_resolve_chart_draw_skips_bad_shape_type():
     bad = MagicMock()
     bad.getShapeType.side_effect = ValueError("bad shape")
-    page = _page(bad, _OleShape("Chart_1"))
+    late = _OleShape("Chart_1")
+    page = _page(bad, late)
     doc = MagicMock()
     pages = MagicMock()
     pages.getCount.return_value = 1
     pages.getByIndex.return_value = page
     doc.getDrawPages.return_value = pages
     with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
-        try:
-            _lookup_chart(doc, "Chart_1")
-        except ValueError as exc:
-            assert str(exc) == "bad shape"
-        else:
-            raise AssertionError("ValueError should abort draw resolve")
+        lookup = _lookup_chart(doc, "Chart_1")
+        assert lookup.ref is not None
+        assert lookup.ref.host is late
+
+
+def test_resolve_chart_writer_draw_page_skips_bad_shape_type():
+    bad = MagicMock()
+    bad.getShapeType.side_effect = ValueError("bad shape")
+    late = _OleShape("Chart_9")
+    page = _page(bad, late)
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+    doc.getDrawPage.return_value = page
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        lookup = _lookup_chart(doc, "Chart_9")
+        assert lookup.ref is not None
+        assert lookup.ref.host is late
 
 
 def test_resolve_chart_writer_skips_disposed_shape():
@@ -898,10 +911,11 @@ def test_resolve_chart_skips_disposed_child_in_live_group():
         assert lookup.ref.host is live
 
 
-def test_resolve_chart_value_error_in_group_aborts_resolve():
+def test_resolve_chart_skips_corrupt_child_in_group_and_empty_page():
     bad = MagicMock()
     bad.getShapeType.side_effect = ValueError("corrupt child")
-    group = _GroupShape(bad, name="BadGroup")
+    live = _OleShape("Chart_Live")
+    group = _GroupShape(bad, live, name="BadGroup")
     page = _page(group)
     doc = MagicMock()
     pages = MagicMock()
@@ -910,8 +924,17 @@ def test_resolve_chart_value_error_in_group_aborts_resolve():
     doc.getDrawPages.return_value = pages
 
     with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
-        with pytest.raises(ValueError, match="corrupt child"):
-            _lookup_chart(doc, "Chart_X")
+        lookup = _lookup_chart(doc, "Chart_Live")
+        assert lookup.ref is not None
+        assert lookup.ref.host is live
+
+        bad_only = MagicMock()
+        bad_only.getShapeType.side_effect = ValueError("only bad shape")
+        bad_page = _page(bad_only)
+        pages.getByIndex.return_value = bad_page
+        lookup_none = _lookup_chart(doc, "Chart_None")
+        assert lookup_none.ref is None
+        assert lookup_none.error is None
 
 
 def test_draw_create_name_scan_treats_grouped_shape_name_as_taken():
@@ -925,6 +948,10 @@ def test_draw_create_name_scan_treats_grouped_shape_name_as_taken():
     doc = MagicMock()
     doc.createInstance.return_value = new_shape
     doc.getCurrentController.return_value.getCurrentPage.return_value = page
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
 
     chart_doc = MagicMock()
     ctx = MagicMock(doc=doc, ctx=MagicMock())
@@ -940,6 +967,7 @@ def test_draw_create_name_scan_treats_grouped_shape_name_as_taken():
 
     assert res["status"] == "ok"
     assert res["name"] == "Chart_1"
+    assert res["page"] == 0
     assert new_shape.Name == "Chart_1"
 
 
@@ -1149,5 +1177,191 @@ def test_edit_missing_diagram_applies_data_and_warns():
         chart_data.setData.assert_called_once()
         assert any("No diagram found" in w for w in res.get("warnings", []))
         page.remove.assert_not_called()
+
+
+class _PageObj:
+    def __init__(self, *shapes: object) -> None:
+        self._shapes = list(shapes)
+        self.add = MagicMock()
+        self.remove = MagicMock()
+
+    def getCount(self) -> int:
+        return len(self._shapes)
+
+    def getByIndex(self, idx: int) -> Any:
+        return self._shapes[idx]
+
+
+def test_listed_chart_name_direct_asserts():
+    assert _listed_chart_name(None) == ""
+    assert _listed_chart_name("") == ""
+    assert _listed_chart_name("Chart_1") == "Chart_1"
+
+
+def test_draw_page_unnamed_and_named_charts_list_and_lookup():
+    ole_unnamed = _OleShape("")
+    ole_chart2 = _OleShape("Chart_2")
+    page0 = _page(ole_unnamed, ole_chart2)
+
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page0
+    doc.getDrawPages.return_value = pages
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        list_res = ListCharts().execute(ctx)
+        assert list_res["status"] == "ok"
+        assert len(list_res["charts"]) == 2
+        assert list_res["charts"][0]["name"] == ""
+        assert list_res["charts"][0]["page"] == 0
+        assert list_res["charts"][1]["name"] == "Chart_2"
+        assert list_res["charts"][1]["page"] == 0
+
+        for target in ("Chart_0_0", ""):
+            info = GetChartInfo().execute(ctx, name=target)
+            assert info["status"] == "error"
+            assert "not found" in info["message"].lower()
+
+            del_res = DeleteChart().execute(ctx, name=target)
+            assert del_res["status"] == "error"
+            assert "not found" in del_res["message"].lower()
+
+        page0.remove.assert_not_called()
+
+        lookup = _lookup_chart(doc, "Chart_2")
+        assert lookup.ref is not None
+        assert lookup.ref.host is ole_chart2
+
+
+def test_writer_list_retains_embed_and_unnamed_draw_shape():
+    doc = MagicMock()
+    embed = MagicMock()
+    embed.CLSID = CHART_CLSID
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ["Chart_0"]
+    doc.getEmbeddedObjects.return_value.getByName.return_value = embed
+
+    unnamed_ole = _OleShape("")
+    doc.getDrawPage.return_value = _page(unnamed_ole)
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        list_res = ListCharts().execute(ctx)
+        assert list_res["status"] == "ok"
+        names = [c["name"] for c in list_res["charts"]]
+        assert names == ["Chart_0", ""]
+
+
+def test_draw_create_with_page_and_out_of_range():
+    c0 = _OleShape("Chart_0")
+    g0 = _GroupShape(c0, name="Group0")
+    page0 = _PageObj(g0)
+    page1 = _PageObj()
+
+    new_shape = MagicMock()
+    doc = MagicMock()
+    doc.createInstance.return_value = new_shape
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda idx: page0 if idx == 0 else page1
+    doc.getDrawPages.return_value = pages
+
+    chart_doc = MagicMock()
+    ctx = MagicMock(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._process_events"),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts.uno.createUnoStruct"),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="create",
+            page=1,
+            chart_type="column",
+            headers=["Cat", "Val"],
+            rows=[["A", 10]],
+        )
+
+        assert res["status"] == "ok"
+        assert res["name"] == "Chart_1"
+        assert res["page"] == 1
+        page1.add.assert_called_once_with(new_shape)
+        page0.add.assert_not_called()
+
+        doc.createInstance.reset_mock()
+        page0.add.reset_mock()
+        page1.add.reset_mock()
+
+        err_p5 = UpsertChart().execute(
+            ctx,
+            action="create",
+            page=5,
+            chart_type="column",
+            headers=["Cat", "Val"],
+            rows=[["A", 10]],
+        )
+        assert err_p5["status"] == "error"
+        assert "out of range" in err_p5["message"].lower()
+        doc.createInstance.assert_not_called()
+        page0.add.assert_not_called()
+        page1.add.assert_not_called()
+
+        err_neg = UpsertChart().execute(
+            ctx,
+            action="create",
+            page=-1,
+            chart_type="column",
+            headers=["Cat", "Val"],
+            rows=[["A", 10]],
+        )
+        assert err_neg["status"] == "error"
+        assert "out of range" in err_neg["message"].lower()
+        doc.createInstance.assert_not_called()
+        page0.add.assert_not_called()
+        page1.add.assert_not_called()
+
+
+def test_draw_create_omitted_page_uses_controller_current_page():
+    page0 = _PageObj()
+    page1 = _PageObj()
+
+    new_shape = MagicMock()
+    doc = MagicMock()
+    doc.createInstance.return_value = new_shape
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda idx: page0 if idx == 0 else page1
+    doc.getDrawPages.return_value = pages
+
+    controller = MagicMock()
+    controller.getCurrentPage.return_value = page1
+    doc.getCurrentController.return_value = controller
+
+    chart_doc = MagicMock()
+    ctx = MagicMock(doc=doc, ctx=MagicMock())
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._process_events"),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts.uno.createUnoStruct"),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="create",
+            chart_type="column",
+            headers=["Cat", "Val"],
+            rows=[["A", 10]],
+        )
+        assert res["status"] == "ok"
+        assert res["page"] == 1
+        page1.add.assert_called_once_with(new_shape)
+        page0.add.assert_not_called()
+
 
 

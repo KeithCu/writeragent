@@ -38,6 +38,7 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal, is_tool_document_disposed
+from plugin.framework.uno_context import uno_same
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000
@@ -255,6 +256,14 @@ def _unique_chart_name(existing: set[str], stem: str = "Chart_") -> str:
     return f"{stem}{idx}"
 
 
+def _listed_chart_name(shape_or_name: Any) -> str:
+    # Tip: a made-up Chart_{page}_{index} is not the shape's name, so get/edit/delete cannot find it.
+    name = getattr(shape_or_name, "Name", shape_or_name)
+    if isinstance(name, str) and name:
+        return name
+    return ""
+
+
 def _validate_headers_and_rows(headers: Any, rows: Any) -> tuple[bool, str | None]:
     """Validate headers and rows for programmatic chart creation."""
     if not isinstance(headers, (list, tuple)):
@@ -448,7 +457,7 @@ _LEGEND_POSITION_MEMBER = {
 # Shared parameters for Create and Edit
 CHART_PROPERTIES: dict[str, Any] = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
-    "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only)."},
+    "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0)."},
     "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."},
     "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
     "headers": {"type": "array", "items": {"type": ["string", "number"]}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
@@ -880,11 +889,13 @@ def _lookup_chart(
         page_obj = doc.getDrawPage()
         for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
             if isinstance(shape_type, Exception):
-                raise shape_type
+                # Tip: list already records this shape and continues; raising hid later charts with the requested name.
+                continue
             try:
                 if shape_type != "com.sun.star.drawing.OLE2Shape":
                     continue
-                if (shape.Name or "") == name and _is_chart_host(shape, is_embed=False):
+                listed_name = _listed_chart_name(shape)
+                if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
                     return ChartLookup(ref=ChartRef(shape, parent, "writer_draw_page", None))
             except Exception as exc:
                 if is_disposed_exception(exc):
@@ -900,11 +911,13 @@ def _lookup_chart(
             target_page = draw_pages.getByIndex(page)
             for shape, parent, shape_type in _iter_page_shapes(target_page, doc):
                 if isinstance(shape_type, Exception):
-                    raise shape_type
+                    # Tip: list already records this shape and continues; raising hid later charts with the requested name.
+                    continue
                 try:
                     if shape_type != "com.sun.star.drawing.OLE2Shape":
                         continue
-                    if shape.Name == name and _is_chart_host(shape, is_embed=False):
+                    listed_name = _listed_chart_name(shape)
+                    if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
                         return ChartLookup(ref=ChartRef(shape, parent, "draw_page", page))
                 except Exception as exc:
                     if is_disposed_exception(exc):
@@ -917,11 +930,13 @@ def _lookup_chart(
             pg = draw_pages.getByIndex(i)
             for shape, parent, shape_type in _iter_page_shapes(pg, doc):
                 if isinstance(shape_type, Exception):
-                    raise shape_type
+                    # Tip: list already records this shape and continues; raising hid later charts with the requested name.
+                    continue
                 try:
                     if shape_type != "com.sun.star.drawing.OLE2Shape":
                         continue
-                    if shape.Name == name and _is_chart_host(shape, is_embed=False):
+                    listed_name = _listed_chart_name(shape)
+                    if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
                         matches.append(ChartRef(shape, parent, "draw_page", i))
                 except Exception as exc:
                     if is_disposed_exception(exc):
@@ -1007,10 +1022,11 @@ class ListCharts(ToolBaseDummy):
                         if shape_type != "com.sun.star.drawing.OLE2Shape":
                             continue
                         if _is_chart_host(shape, is_embed=False):
-                            nm = shape.Name or f"Chart_{j}"
-                            if nm in seen_names:
+                            nm = _listed_chart_name(shape)
+                            if nm and nm in seen_names:
                                 continue
-                            seen_names.add(nm)
+                            if nm:
+                                seen_names.add(nm)
                             result.append(self._get_summary(shape, nm))
                     except Exception as exc:
                         _chart_list_failure(doc, exc, errors, source="draw_page", index=j)
@@ -1040,7 +1056,7 @@ class ListCharts(ToolBaseDummy):
                             if shape_type != "com.sun.star.drawing.OLE2Shape":
                                 continue
                             if _is_chart_host(shape, is_embed=False):
-                                summary = self._get_summary(shape, shape.Name or f"Chart_{i}_{j}")
+                                summary = self._get_summary(shape, _listed_chart_name(shape))
                                 summary["page"] = i
                                 result.append(summary)
                         except Exception as exc:
@@ -1603,17 +1619,34 @@ class UpsertChart(ToolBaseDummy):
 
     def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        controller = doc.getCurrentController()
-        page = None
-        if controller is not None and hasattr(controller, "getCurrentPage"):
-            try:
-                page = controller.getCurrentPage()
-            except Exception:
-                page = None
-        if page is None and doc.getDrawPages().getCount() > 0:
-            page = doc.getDrawPages().getByIndex(0)
-        if page is None:
+        draw_pages = doc.getDrawPages()
+        if draw_pages is None:
             return self._tool_error("No draw page or slide to insert chart.")
+        count = draw_pages.getCount()
+        page_arg = kwargs.get("page")
+        page = None
+        page_index: int = 0
+        if isinstance(page_arg, int) and not isinstance(page_arg, bool):
+            if page_arg < 0 or page_arg >= count:
+                return self._tool_error(f"Page index {page_arg} is out of range (document has {count} pages).")
+            page = draw_pages.getByIndex(page_arg)
+            page_index = page_arg
+        else:
+            controller = doc.getCurrentController()
+            if controller is not None and hasattr(controller, "getCurrentPage"):
+                try:
+                    page = controller.getCurrentPage()
+                except Exception:
+                    page = None
+            if page is None and count > 0:
+                page = draw_pages.getByIndex(0)
+            if page is None:
+                return self._tool_error("No draw page or slide to insert chart.")
+            for i in range(count):
+                candidate = draw_pages.getByIndex(i)
+                if page is candidate or uno_same(page, candidate):
+                    page_index = i
+                    break
 
         # Draw/Impress: add OLE2 shape first, then CLSID (chart2 OLE GUID); chart lives on .Model
         shape = doc.createInstance("com.sun.star.drawing.OLE2Shape")
@@ -1627,17 +1660,20 @@ class UpsertChart(ToolBaseDummy):
                 log.debug("Failed to set Draw shape size/pos: %s", e)
             shape.CLSID = CHART_CLSID_DRAW_OLE
 
+            # Tip: a per-page Chart_0 made the next edit/delete CHART_AMBIGUOUS.
             existing_names: set[str] = set()
-            for s, _p, _st in _iter_page_shapes(page, doc):
-                if s is not shape:
-                    try:
-                        nm = getattr(s, "Name", None)
-                        if nm:
-                            existing_names.add(nm)
-                    except Exception as exc:
-                        if is_disposed_exception(exc):
-                            continue
-                        raise
+            for i in range(count):
+                pg = draw_pages.getByIndex(i)
+                for s, _p, _st in _iter_page_shapes(pg, doc):
+                    if s is not shape:
+                        try:
+                            nm = getattr(s, "Name", None)
+                            if nm:
+                                existing_names.add(nm)
+                        except Exception as exc:
+                            if is_disposed_exception(exc):
+                                continue
+                            raise
             name = _unique_chart_name(existing_names)
             shape.Name = name
 
@@ -1656,7 +1692,7 @@ class UpsertChart(ToolBaseDummy):
             raise
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
+        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name, "page": page_index}
         if warnings:
             out["warnings"] = warnings
         return out

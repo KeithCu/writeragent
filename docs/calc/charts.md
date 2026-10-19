@@ -12,7 +12,7 @@ Charts live in different container structures depending on the host application:
 
 ## Draw and Impress Page Scope
 
-In Draw and Impress documents, chart names are unique per page/slide. `manage_charts(action="list")` entries include the zero-based `page` index. Operations (`get_info`, `edit`, `delete`) accept an optional `page` parameter; if a chart name occurs on more than one page and `page` is omitted, the operation returns an error with code `CHART_AMBIGUOUS`.
+In Draw and Impress documents, create takes the lowest `Chart_N` free on any Draw/Impress page; list still includes `page`; get/edit/delete still take optional `page` and still return `CHART_AMBIGUOUS` when that name is on more than one page.
 
 ## Data Representation: Calc vs. Writer/Draw
 

@@ -397,6 +397,10 @@ def test_draw_legend_failure_removes_shape():
     shape = MagicMock()
     ctx.doc.createInstance.return_value = shape
     ctx.doc.getCurrentController.return_value.getCurrentPage.return_value = page
+    draw_pages = MagicMock()
+    draw_pages.getCount.return_value = 1
+    draw_pages.getByIndex.return_value = page
+    ctx.doc.getDrawPages.return_value = draw_pages
     rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
 
     chart_doc.getTitle.side_effect = RuntimeError("title failure")
@@ -408,6 +412,7 @@ def test_draw_legend_failure_removes_shape():
         res = tool._create_draw_chart(ctx, rect, "com.sun.star.chart.BarDiagram", title="My Title", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "ok"
+    assert res["page"] == 0
     assert any("title failure" in w for w in res.get("warnings", []))
     page.add.assert_called_once_with(shape)
     page.remove.assert_not_called()
