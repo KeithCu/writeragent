@@ -1491,7 +1491,10 @@ def test_get_constant_by_name_runs_once_per_conversion() -> None:
         proofreader.NormalizedProofError(2, 3, (), "", "", "r2"),
         proofreader.NormalizedProofError(4, 5, (), "", "", "r3"),
     ]
-    with patch("uno.getConstantByName", return_value=1) as mock_get_const:
+    fake_uno = MagicMock()
+    mock_get_const = fake_uno.getConstantByName
+    mock_get_const.return_value = 1
+    with patch.object(proofreader, "uno_mod", fake_uno):
         proofreader._PROOFREADING_MARKUP_TYPE = None
         res = proofreader._errors_to_uno_tuple(norms)
         assert len(res) == 3
