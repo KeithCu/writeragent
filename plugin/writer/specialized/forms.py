@@ -149,17 +149,39 @@ def _find_control_shape(dp: Any, index: Any = None, name: Any = None) -> tuple[A
         return hits[0][0], hits[0][1], None
     if not hits:
         return None, None, format_error_payload(ToolExecutionError(f"No form control named '{wanted}'."))
-    return None, None, format_error_payload(ToolExecutionError(f"Several form controls named '{wanted}'; pass index as well."))
+    hit_details = []
+    for idx, shape in hits:
+        s_name = getattr(shape, "Name", "") or ""
+        m_label = getattr(shape.Control, "Label", "") or ""
+        hit_details.append(f"index {idx} (shape '{s_name}', label '{m_label}')")
+    return None, None, format_error_payload(ToolExecutionError(f"Several form controls match '{wanted}': {', '.join(hit_details)}; pass index as well."))
 
 
-def _apply_control_state(model: Any, state_value: Any) -> dict[str, Any] | None:
-    if not hasattr(model, "State"):
-        return format_error_payload(ToolExecutionError("This control has no State (not a checkbox/radio)."))
-    coerced = coerce_control_state(state_value)
-    if coerced is None:
-        return format_error_payload(ToolExecutionError(f"Could not interpret {state_value!r} as a checkbox/radio State."))
-    model.State = coerced
+def _coerce_items(raw: Any) -> list[str] | None:
+    if isinstance(raw, (list, tuple)):
+        return [str(x) for x in raw]
+    if isinstance(raw, str):
+        return [part.strip() for part in raw.split(",")]
     return None
+
+
+def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
+    s = raw.strip()
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", s)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
+        if m:
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        else:
+            return None
+    try:
+        import datetime
+        datetime.date(year, month, day)
+    except ValueError:
+        return None
+    return (year, month, day)
 
 
 def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_height: int) -> Point:
@@ -298,7 +320,7 @@ class FormCreateControl(ToolWriterFormBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox"], "description": "The type of form control to create."},
+            "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox", "button"], "description": "The type of form control to create."},
             "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
             "name": {"type": "string", "description": "Internal name/key for the control."},
             "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
@@ -317,14 +339,39 @@ class FormCreateControl(ToolWriterFormBase):
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        control_type = str(kwargs.get("control", "text"))
+        control_type = str(kwargs.get("control", ""))
         name = kwargs.get("name", "Field")
         label = kwargs.get("label", "")
 
-        # Map control strings to UNO components
-        component_map = {"text": "TextField", "checkbox": "CheckBox", "radio": "RadioButton", "date": "DateField", "combobox": "ComboBox", "button": "CommandButton"}
+        legal_controls = ("text", "checkbox", "radio", "date", "combobox", "button")
+        if control_type not in legal_controls:
+            return self._tool_error(f"Unknown control type '{control_type}'. Allowed types: {', '.join(legal_controls)}")
 
-        comp_name = component_map.get(control_type, "TextField")
+        if control_type == "date" and kwargs.get("default_value"):
+            date_val = _parse_date_default_value(kwargs["default_value"])
+            if date_val is None:
+                return self._tool_error(f"Invalid date format for default_value '{kwargs['default_value']}'; expected DD.MM.YYYY or YYYY-MM-DD.")
+        else:
+            date_val = None
+
+        if "items" in kwargs and kwargs["items"] is not None:
+            coerced_items = _coerce_items(kwargs["items"])
+            if coerced_items is None:
+                return self._tool_error("Parameter 'items' must be a list of strings or comma-separated string.")
+        else:
+            coerced_items = None
+
+        # Map control strings to UNO components
+        component_map = {
+            "text": "TextField",
+            "checkbox": "CheckBox",
+            "radio": "RadioButton",
+            "date": "DateField",
+            "combobox": "ComboBox",
+            "button": "CommandButton",
+        }
+
+        comp_name = component_map[control_type]
         full_comp_name = f"com.sun.star.form.component.{comp_name}"
 
         try:
@@ -333,7 +380,6 @@ class FormCreateControl(ToolWriterFormBase):
             if not model:
                 return format_error_payload(ToolExecutionError(f"Failed to create form component {full_comp_name}"))
 
-            model.Name = name
             if hasattr(model, "Label"):
                 model.Label = label
 
@@ -345,21 +391,44 @@ class FormCreateControl(ToolWriterFormBase):
             if control_type == "text" and kwargs.get("default_value"):
                 model.Text = kwargs["default_value"]
 
-            if control_type == "combobox" and kwargs.get("items"):
-                model.StringItemList = tuple(kwargs["items"])
+            if control_type == "date" and date_val is not None:
+                year, month, day = date_val
+                try:
+                    import uno
+                    d_struct = uno.createUnoStruct("com.sun.star.util.Date")
+                    setattr(d_struct, "Year", year)
+                    setattr(d_struct, "Month", month)
+                    setattr(d_struct, "Day", day)
+                    if hasattr(model, "Date"):
+                        model.Date = d_struct
+                    if hasattr(model, "DefaultDate"):
+                        model.DefaultDate = d_struct
+                except Exception:
+                    date_long = int(f"{year:04d}{month:02d}{day:02d}")
+                    if hasattr(model, "Date"):
+                        model.Date = date_long
+                    if hasattr(model, "DefaultDate"):
+                        model.DefaultDate = date_long
 
-            if control_type == "radio" and kwargs.get("group_name"):
-                # In LibreOffice, radio buttons are grouped by having the same Name
-                # but we can also set additional grouping properties if needed.
-                # Actually, standard LO grouping for forms is by Name.
-                model.Name = kwargs["group_name"]
+            if control_type == "combobox" and coerced_items is not None:
+                model.StringItemList = tuple(coerced_items)
 
             # Create the shape
             shape = doc.createInstance("com.sun.star.drawing.ControlShape")
 
+            # Radios group by model Name; shape Name stays caller's name
+            if control_type == "radio" and kwargs.get("group_name"):
+                model.Name = kwargs["group_name"]
+                shape.Name = name
+                group_name = kwargs["group_name"]
+            else:
+                model.Name = name
+                shape.Name = name
+                group_name = getattr(model, "Name", "") or ""
+
             # Default sizes (100ths of mm)
-            w = kwargs.get("width", 3000 if control_type != "checkbox" else 500)
-            h = kwargs.get("height", 600 if control_type != "checkbox" else 500)
+            w = kwargs.get("width", 3000 if control_type not in ("checkbox", "radio") else 500)
+            h = kwargs.get("height", 600 if control_type not in ("checkbox", "radio") else 500)
             shape.setSize(Size(w, h))
 
             shape.Control = model
@@ -379,13 +448,20 @@ class FormCreateControl(ToolWriterFormBase):
                     anchor = selection.getByIndex(0)
                 else:
                     anchor = doc.getCurrentController().getViewCursor()
-                # Why-comment: the anchor’s XText owns that range.
+                # The anchor's XText owns that range.
                 host = anchor.getText()
                 host.insertTextContent(anchor, shape, False)
 
-            return {"status": "ok", "message": f"Created {control_type} control '{name}'", "control_name": name}
+            return {
+                "status": "ok",
+                "message": f"Created {control_type} control '{name}'",
+                "control_name": shape.Name,
+                "group_name": group_name,
+            }
 
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.exception("Error creating form control")
             return format_error_payload(ToolExecutionError(f"Error creating form control: {str(e)}"))
 
@@ -407,7 +483,7 @@ class FormCreate(ToolWriterFormBase):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox"]},
+                        "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox", "button"]},
                         "label": {"type": "string"},
                         "name": {"type": "string"},
                         "group_name": {"type": "string"},
@@ -428,15 +504,41 @@ class FormCreate(ToolWriterFormBase):
         fields = kwargs.get("fields", [])
         results = []
         creator = FormCreateControl()
-        for field in fields:
-            res = creator._execute_main(ctx, **field)
-            results.append(res)
-            # Add a space after each control if we are inserting series
-            _run_on_main(self._insert_space, ctx)
+        doc = ctx.doc
+        from plugin.writer.edit_review import WriterCompoundUndo
 
-        failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
-        if failure is not None:
-            return failure
+        undo_title = "WriterAgent: Create form controls"
+        undo_ctx = WriterCompoundUndo(doc, undo_title)
+        has_error = False
+
+        try:
+            for field in fields:
+                res = creator._execute_main(ctx, **field)
+                results.append(res)
+                if isinstance(res, dict) and res.get("status") == "ok":
+                    _run_on_main(self._insert_space, ctx)
+                else:
+                    has_error = True
+                    break
+        finally:
+            undo_ctx.close()
+
+        if has_error:
+            try:
+                if hasattr(doc, "getUndoManager"):
+                    um = doc.getUndoManager()
+                    if um is not None:
+                        titles = um.getAllUndoActionTitles()
+                        if titles and titles[0] == undo_title:
+                            um.undo()
+            except Exception as undo_exc:
+                if is_real_disposal(undo_exc):
+                    raise
+            err = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
+            if err is not None:
+                return err
+            return self._tool_error("One or more form fields failed")
+
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
     def _insert_space(self, ctx: Any) -> None:
@@ -494,7 +596,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
 
         try:
-            assert not on_main_thread(), "FormGenerate LLM call must not run on the UI thread"
+            if on_main_thread():
+                return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
 
             # Get the full document from LLM
             content = client.chat_completion_sync(messages, max_tokens=2048)
@@ -503,39 +606,64 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             return self._process_form_content(ctx, content)
 
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.exception("Error in form_generate")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
     def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
-        # We'll split the content by {FIELD:...} tags and insert parts
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
         creator = FormCreateControl()
         field_results: list[Any] = []
         field_names: list[Any] = []
+        doc = ctx.doc
+        from plugin.writer.edit_review import WriterCompoundUndo
 
-        for part in parts:
-            if part.startswith("{FIELD:"):
-                # Parse the field tag
-                params = self._parse_field_tag(part)
-                if params:
-                    res = _run_on_main(creator._execute_main, ctx, **params)
-                    if not isinstance(res, dict):
-                        res = format_error_payload(ToolExecutionError("Form field returned no result."))
-                    field_results.append(res)
-                    field_names.append(params)
+        undo_title = "WriterAgent: Generate form"
+        undo_ctx = WriterCompoundUndo(doc, undo_title)
+        has_error = False
+
+        try:
+            for part in parts:
+                if part.startswith("{FIELD:"):
+                    params = self._parse_field_tag(part)
+                    if params:
+                        res = _run_on_main(creator._execute_main, ctx, **params)
+                        if not isinstance(res, dict):
+                            res = format_error_payload(ToolExecutionError("Form field returned no result."))
+                        field_results.append(res)
+                        field_names.append(params)
+                        if res.get("status") != "ok":
+                            has_error = True
+                            break
+                    else:
+                        snippet = part if len(part) <= 80 else part[:77] + "..."
+                        err_res = format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}"))
+                        field_results.append(err_res)
+                        field_names.append({})
+                        has_error = True
+                        break
                 else:
-                    snippet = part if len(part) <= 80 else part[:77] + "..."
-                    field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
-                    field_names.append({})
-            else:
-                # Insert regular text
-                if part:
-                    _run_on_main(self._insert_text, ctx, part)
+                    if part:
+                        _run_on_main(self._insert_text, ctx, part)
+        finally:
+            undo_ctx.close()
 
-        failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
-        if failure is not None:
-            return failure
+        if has_error:
+            try:
+                if hasattr(doc, "getUndoManager"):
+                    um = doc.getUndoManager()
+                    if um is not None:
+                        titles = um.getAllUndoActionTitles()
+                        if titles and titles[0] == undo_title:
+                            um.undo()
+            except Exception as undo_exc:
+                if is_real_disposal(undo_exc):
+                    raise
+            failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
+            return failure or self._tool_error("Form generation failed.")
+
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
     def _insert_text(self, ctx: Any, text: str) -> None:
@@ -566,12 +694,18 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         cursor = clone_text_range(vc)
         insert_html_fragment_at_cursor(cursor, text, wrap=False)
 
-    def _parse_field_tag(self, tag: str) -> dict[str, str]:
-        # Naive parser for {FIELD:control='...', ...}
+    def _parse_field_tag(self, tag: str) -> dict[str, Any] | None:
         pairs = re.findall(r"(\w+)[:=]['\"]([^'\"]*)['\"]", tag)
-        params = dict(pairs)
+        params: dict[str, Any] = dict(pairs)
+        if "control" not in params or "name" not in params:
+            return None
+        if params["control"] not in _CONTROL_TYPE_MAP:
+            return None
         if "items" in params:
-            params["items"] = [i.strip() for i in params["items"].split(",")]
+            coerced = _coerce_items(params["items"])
+            if coerced is None:
+                return None
+            params["items"] = coerced
         return params
 
 
@@ -608,7 +742,8 @@ class FormListControls(ToolWriterFormBase):
             shape = dp.getByIndex(i)
             if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                 model = shape.Control
-                info = {"index": i, "name": getattr(model, "Name", ""), "type": _get_readable_type(model)}
+                shape_name = getattr(shape, "Name", "") or ""
+                info = {"index": i, "name": getattr(model, "Name", ""), "shape_name": shape_name, "type": _get_readable_type(model)}
                 info.update(_control_value_fields(model))
 
                 # Geometry
@@ -675,21 +810,38 @@ class FormEditControl(ToolWriterFormBase):
 
         model = shape.Control
 
-        # Update Model. index+name keeps the old "name means rename" meaning.
+        if "items" in kwargs and kwargs["items"] is not None:
+            coerced_items = _coerce_items(kwargs["items"])
+            if coerced_items is None:
+                return self._tool_error("Parameter 'items' must be a list of strings or comma-separated string.")
+        else:
+            coerced_items = None
+
+        if "state" in kwargs:
+            if not hasattr(model, "State"):
+                return format_error_payload(ToolExecutionError("This control has no State (not a checkbox/radio)."))
+            coerced_state = coerce_control_state(kwargs["state"])
+            if coerced_state is None:
+                return format_error_payload(ToolExecutionError(f"Could not interpret {kwargs['state']!r} as a checkbox/radio State."))
+        else:
+            coerced_state = None
+
+        # Update Model and Shape
         if "new_name" in kwargs:
             model.Name = kwargs["new_name"]
+            shape.Name = kwargs["new_name"]
         elif "index" in kwargs and "name" in kwargs:
+            # index+name keeps the old "name means rename" meaning.
             model.Name = kwargs["name"]
+            shape.Name = kwargs["name"]
         if "label" in kwargs and hasattr(model, "Label"):
             model.Label = kwargs["label"]
         if "text" in kwargs and hasattr(model, "Text"):
             model.Text = kwargs["text"]
-        if "state" in kwargs:
-            state_err = _apply_control_state(model, kwargs["state"])
-            if state_err:
-                return state_err
-        if "items" in kwargs and hasattr(model, "StringItemList"):
-            model.StringItemList = tuple(kwargs["items"])
+        if coerced_state is not None:
+            model.State = coerced_state
+        if coerced_items is not None and hasattr(model, "StringItemList"):
+            model.StringItemList = tuple(coerced_items)
 
         # Update Shape Geometry
         if any(k in kwargs for k in ["x", "y"]):

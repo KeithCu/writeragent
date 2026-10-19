@@ -296,14 +296,14 @@ class ProximityService(ServiceBase):
         bookmark_map = {}
         if "headings" in include:
             tree = self._tree_svc.build_heading_tree(doc)
-            bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+            bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, para_ranges=para_ranges)
             flat = self._flatten_tree(tree, doc)
             ctx_idx, _unused = self._find_heading_context(flat, center_idx)
             result["heading_chain"] = self._get_heading_chain(flat, ctx_idx, bookmark_map)
 
         if "paragraphs" in include:
             if not bookmark_map:
-                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
+                bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc, para_ranges=para_ranges)
             paragraphs = []
             for i in range(start_idx, end_idx + 1):
                 el = para_ranges[i]

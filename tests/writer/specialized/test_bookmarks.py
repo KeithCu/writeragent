@@ -396,3 +396,112 @@ def test_bookmark_resolve_rejects_unplaced_anchor():
     result = BookmarkResolve().execute(ctx, name="_mcp_stale")
     assert result["status"] == "error"
     assert "anchor is not in the document" in result["message"]
+
+
+def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService, BookmarkMapError
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {"_mcp_existing": _Mark("_mcp_existing", para=0)},
+    )
+    svc = BookmarkService()
+
+    def raise_map(*args, **kwargs):
+        raise BookmarkMapError("boom")
+
+    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
+    result = svc.ensure_heading_bookmarks(doc)
+    assert result == {}
+    assert "_mcp_existing" in doc.bookmarks
+
+
+def test_strip_for_save_raising_map_read(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService, BookmarkMapError, _PENDING_STRIPS
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {"_mcp_existing": _Mark("_mcp_existing", para=0)},
+    )
+    svc = BookmarkService()
+
+    def raise_map(*args, **kwargs):
+        raise BookmarkMapError("boom")
+
+    doc_key = "test_strip_key"
+    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
+    monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
+    svc.strip_for_save(doc)
+    assert "_mcp_existing" in doc.bookmarks
+    assert doc_key not in _PENDING_STRIPS
+
+
+def test_restore_after_save_failure_leaves_pending(monkeypatch):
+    from plugin.writer.specialized.bookmarks import BookmarkService, _PendingStrip, _PENDING_STRIPS
+
+    doc = _HeadingDoc(
+        [_Para("Title", 1)],
+        {},
+    )
+    svc = BookmarkService()
+    doc_key = "test_restore_key"
+    monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
+    _PENDING_STRIPS[doc_key] = _PendingStrip({0: "_mcp_saved"}, False, doc)
+
+    def raise_reinsert(*args, **kwargs):
+        raise RuntimeError("reinsert error")
+
+    monkeypatch.setattr(svc, "_reinsert_named", raise_reinsert)
+    with pytest.raises(RuntimeError):
+        svc.restore_after_save(doc, saved=True)
+
+    assert doc_key in _PENDING_STRIPS
+
+    called_restore = []
+
+    def fake_reinsert(target, names):
+        called_restore.append(dict(names))
+
+    monkeypatch.setattr(svc, "_reinsert_named", fake_reinsert)
+    svc.ensure_heading_bookmarks(doc)
+    assert doc_key not in _PENDING_STRIPS
+    assert called_restore == [{0: "_mcp_saved"}]
+
+
+def test_bookmark_create_and_rename_reject_mcp(mock_ctx):
+    create_tool = BookmarkCreate()
+    res = create_tool.execute(mock_ctx, name="_mcp_custom")
+    assert res["status"] == "error"
+    assert "bookmark_cleanup" in res["message"]
+
+    rename_tool = BookmarkRename()
+    res2 = rename_tool.execute(mock_ctx, old_name="regular", new_name="_mcp_renamed")
+    assert res2["status"] == "error"
+    assert "bookmark_cleanup" in res2["message"]
+
+
+def test_ensure_heading_bookmarks_with_para_ranges_avoids_enumeration(monkeypatch):
+    class _NoEnumDoc(_HeadingDoc):
+        def createEnumeration(self):
+            raise AssertionError("createEnumeration should not be called when para_ranges is provided")
+
+    p0 = _Para("Title", 1)
+    table_slot = MagicMock()
+    table_slot.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    p2 = _Para("Sub", 2)
+    doc = _NoEnumDoc([p0, table_slot, p2], {})
+
+    def fake_find(anchor, _ranges, _text=None):
+        return anchor.para
+
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.confirm_paragraph_index", lambda t, a, r, p: p)
+
+    svc = BookmarkService()
+    para_ranges = [p0, table_slot, p2]
+    res = svc.ensure_heading_bookmarks(doc, para_ranges=para_ranges)
+
+    assert 0 in res
+    assert 1 not in res
+    assert 2 in res
+

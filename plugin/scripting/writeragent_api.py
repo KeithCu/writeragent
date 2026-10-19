@@ -1092,7 +1092,7 @@ class _FormsProxy:
         """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets.
 
         Args:
-            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox.
+            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox, button.
             name (required): Internal name/key for the control.
             label (optional): Label text for the control (e.g. 'I agree').
             group_name (optional): Group name for radio buttons (mutually exclusive in the same group).

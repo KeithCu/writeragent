@@ -249,19 +249,13 @@ class TreeService(ServiceBase):
 
     def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get serialized document tree with content strategies."""
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, para_ranges=para_ranges)
 
         children = [self._serialize_tree_node(child, doc, content_strategy, depth, bookmark_map=bookmark_map) for child in tree["children"]]
 
-        # Count total paragraphs
-        text = doc.getText()
-        enum = text.createEnumeration()
-        total = 0
-        while enum.hasMoreElements():
-            enum.nextElement()
-            total += 1
-
+        total = len(para_ranges)
         page_count = self._doc_svc.get_page_count(doc)
 
         return {"status": "ok", "content_strategy": content_strategy, "depth": depth, "children": children, "body_before_first_heading": tree["body_paragraphs"], "total_paragraphs": total, "page_count": page_count}
@@ -281,9 +275,11 @@ class TreeService(ServiceBase):
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
 
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, para_ranges=para_ranges)
         target = self._find_node_by_para_index(tree, heading_para_index)
+
         if target is None:
             raise ToolExecutionError("Heading at paragraph %d not found" % heading_para_index)
 

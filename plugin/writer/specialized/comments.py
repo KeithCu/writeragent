@@ -50,11 +50,12 @@ class CommentList(ToolWriterCommentBase):
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
 
-            entry = _read_annotation(field, para_ranges, text_obj, doc_svc)
+            entry = _read_annotation(field, para_ranges, text_obj, doc_svc, doc=doc)
 
             if author_filter:
-                af = author_filter.lower()
-                if af not in entry.get("author", "").lower():
+                af = (author_filter or "").lower()
+                author_val = (entry.get("author") or "").lower()
+                if af not in author_val:
                     continue
 
             comments.append(entry)
@@ -119,20 +120,16 @@ class AddComment(ToolBase):
 
         doc = ctx.doc
 
-        # Find the requested occurrence.
-        sd = doc.createSearchDescriptor()
-        sd.SearchString = search_text
-        sd.SearchRegularExpression = False
-        found = doc.findFirst(sd)
-        for _unused in range(occurrence):
-            if found is None:
-                break
-            found = doc.findNext(found.getEnd(), sd)
-        if found is None:
-            # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
-            # MCP host don't treat a no-op as success. anchor_text is returned on success only.
+        from ..search import find_all_ranges, normalize_search_string_for_find
+
+        search_for = normalize_search_string_for_find(search_text)
+        matches = find_all_ranges(doc, search_for)
+        # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
+        # MCP host don't treat a no-op as success. anchor_text is returned on success only.
+        if occurrence >= len(matches):
             where = (" at occurrence %d" % occurrence) if occurrence else ""
             return {"status": "error", "message": "Text '%s' not found%s." % (search_text, where), "matched": False, "comment_added": False}
+        found = matches[occurrence]
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
@@ -321,19 +318,31 @@ class CommentResolve(ToolWriterCommentBase):
                 "message": "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
             }
 
-        if resolution:
-            reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
-            reply.setPropertyValue("ParentName", comment_name)
-            reply.setPropertyValue("Content", resolution)
-            reply.setPropertyValue("Author", author)
-            _set_annotation_date(reply)
-            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
-            anchor = target.getAnchor()
-            host = anchor.getText()
-            cursor = host.createTextCursorByRange(anchor.getStart())
-            host.insertTextContent(cursor, reply, False)
+        from plugin.writer.edit_review import WriterCompoundUndo
 
-        target.setPropertyValue("Resolved", True)
+        with WriterCompoundUndo(doc, "Resolve Comment"):
+            if resolution:
+                reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
+                reply.setPropertyValue("ParentName", comment_name)
+                reply.setPropertyValue("Content", resolution)
+                reply.setPropertyValue("Author", author)
+                _ensure_annotation_name(reply, doc)
+                _set_annotation_date(reply)
+                # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
+                anchor = target.getAnchor()
+                host = anchor.getText()
+                cursor = host.createTextCursorByRange(anchor.getStart())
+                names_before = _annotation_field_names(doc)
+                host.insertTextContent(cursor, reply, False)
+                names_after = _annotation_field_names(doc)
+                if len(names_after) <= len(names_before):
+                    return {
+                        "status": "error",
+                        "message": "Reply insert did not register an annotation.",
+                        "parent_name": comment_name,
+                    }
+
+            target.setPropertyValue("Resolved", True)
 
         return {"status": "ok", "comment_name": comment_name, "resolved": True}
 
@@ -363,7 +372,7 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        content = field.getPropertyValue("Content")
+        content = field.getPropertyValue("Content") or ""
         matched_prefix = None
         for prefix in _WORKFLOW_TASK_PREFIXES:
             if content.startswith(prefix):
@@ -375,7 +384,7 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
             continue
         if unresolved_only and field.getPropertyValue("Resolved"):
             continue
-        entry = _read_annotation(field, para_ranges, text_obj, doc_svc)
+        entry = _read_annotation(field, para_ranges, text_obj, doc_svc, doc=doc)
         entry["prefix"] = matched_prefix
         tasks.append(entry)
     return {"status": "ok", "tasks": tasks, "count": len(tasks)}
@@ -389,7 +398,7 @@ def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        author = field.getPropertyValue("Author")
+        author = field.getPropertyValue("Author") or ""
         if author != "MCP-WORKFLOW":
             continue
         content = field.getPropertyValue("Content") or ""
@@ -413,7 +422,7 @@ def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        author = field.getPropertyValue("Author")
+        author = field.getPropertyValue("Author") or ""
         if author == "MCP-WORKFLOW":
             existing = field
             break
@@ -440,8 +449,8 @@ def _comment_check_stop(ctx: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        content = field.getPropertyValue("Content")
-        author = field.getPropertyValue("Author")
+        content = field.getPropertyValue("Content") or ""
+        author = field.getPropertyValue("Author") or ""
         resolved = field.getPropertyValue("Resolved")
         if author == "MCP-WORKFLOW" and content:
             lower = content.lower()
@@ -598,26 +607,55 @@ def _set_annotation_date(annotation: Any) -> None:
     annotation.setPropertyValue("Date", d)
 
 
-def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any) -> dict[str, Any]:
+def _read_annotation(
+    field: Any,
+    para_ranges: Any,
+    text_obj: Any,
+    doc_svc: Any,
+    doc: Any = None,
+) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
-    entry = {}
+    from plugin.framework.uno_context import uno_same
+    from plugin.writer.search import describe_match_location
+
+    entry: dict[str, Any] = {}
     for prop, key in _ANNOTATION_PROPERTIES:
-        entry[key] = field.getPropertyValue(prop)
+        val = field.getPropertyValue(prop)
+        if key in ("author", "content") and val is None:
+            val = ""
+        entry[key] = val
 
     dt = field.getPropertyValue("DateTimeValue")
-    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
+    if dt is not None:
+        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
+            getattr(dt, "Year", 0),
+            getattr(dt, "Month", 0),
+            getattr(dt, "Day", 0),
+            getattr(dt, "Hours", 0),
+            getattr(dt, "Minutes", 0),
+        )
+    else:
+        entry["date"] = ""
 
-    # Paragraph index and anchor preview. An annotation field's getAnchor().getString() often
-    # comes back EMPTY (the field anchor reads as a point even for spanning comments), which left
-    # anchor_preview blank — the agent could not tell which passage a comment is about. Fall back
-    # to the ENCLOSING PARAGRAPH's text and say so via anchor_is_paragraph_context.
+    # getAnchor().getString() is often empty (the anchor reads as a point even for
+    # spanning comments), so fall back to the enclosing paragraph text and say so via
+    # anchor_is_paragraph_context.
     anchor = field.getAnchor()
     preview = ""
-    if anchor is None:
-        entry["paragraph_index"] = 0
-    else:
-        entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-        preview = anchor.getString()[:80]
+    if anchor is not None:
+        entry["location"] = describe_match_location(anchor, doc)
+        doc_text = doc.getText() if doc is not None else text_obj
+        try:
+            anchor_text = anchor.getText()
+        except Exception:
+            anchor_text = None
+        if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
+            entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+
+        try:
+            preview = (anchor.getString() or "")[:80]
+        except Exception:
+            preview = ""
         if not preview:
             from plugin.writer.search import enclosing_paragraph_text
 
@@ -625,5 +663,7 @@ def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any) 
             if ptxt:
                 preview = ptxt[:120]
                 entry["anchor_is_paragraph_context"] = True
+    else:
+        entry["location"] = "body"
     entry["anchor_preview"] = preview
     return entry
