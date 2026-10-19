@@ -487,7 +487,36 @@ class TestLeadingListImport:
         html = "<ol><li>alpha</li><li>beta</li><li>gamma</li></ol>"
         assert _span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
         assert _span_matches_message("Assistant: \na\nb\nc\n", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert _span_matches_message("Assistant: abc", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert _span_matches_message("Assistant: \nhello\nworld\n", "assistant", "<p>hello</p><p>world</p>")
+        assert _span_matches_message("Assistant: helloworld", "assistant", "<p>hello</p><p>world</p>")
+        assert _span_matches_message("Assistant: a & b", "assistant", "a &amp; b")
+        assert _span_matches_message("\n\nAssistant: hello", "assistant", "hello")
+
+        assert not _span_matches_message("Assistant: hello", "assistant", "hello world")
+        assert not _span_matches_message("Assistant: hello", "assistant", "hello hello")
+        assert not _span_matches_message("Assistant: alpha gamma", "assistant", "alpha beta gamma")
         assert not _span_matches_message("Assistant: alpha\nINTRUDER", "assistant", html)
+
+        with patch("plugin.chatbot.rich_text._", side_effect=lambda msg: "Asistente:" if msg == "Assistant:" else msg):
+            assert _span_matches_message("Asistente: hola mundo", "assistant", "hola mundo")
+            assert _span_matches_message("Asistente: Assistant dice hola", "assistant", "Assistant dice hola")
+
+    def test_render_dropped_words_falls_back_to_plain(self):
+        from plugin.chatbot.rich_text import render_messages_to_hidden_doc
+
+        doc = MockDoc()
+
+        def _partial_import(target_doc, cursor, fragment):
+            del fragment
+            target_doc.getText().insertString(cursor, "hello", False)
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_partial_import):
+            render_messages_to_hidden_doc(doc, [("assistant", "<p>hello world</p>")])
+
+        content = doc.getText().getString()
+        assert "hello world" in content
+        assert "<p>" not in content
 
 
 class TestTightenListIndent:

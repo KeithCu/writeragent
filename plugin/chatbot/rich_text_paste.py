@@ -47,6 +47,7 @@ from plugin.chatbot.rich_text import (
     ChatTheme,
     configure_hidden_writer_for_chat,
     _role_prefix,
+    _span_matches_message,
     append_rich_text,
     contains_html_tag,
     render_messages_to_hidden_doc,
@@ -231,12 +232,12 @@ def _utf16_units(text: str) -> int:
 
 
 def _role_from_portion_text(text: str) -> str | None:
-    stripped = (text or "").lstrip()
-    if stripped.startswith("You:"):
+    stripped = (text or "").strip()
+    if stripped == "You:":
         return "user"
     # Written prefix is _("Assistant:"); also accept the English msgid so a
     # portion copied before translation still picks the assistant color.
-    if stripped.startswith("Assistant:") or stripped.startswith(_("Assistant:")):
+    if stripped in ("Assistant:", _("Assistant:")):
         return "assistant"
     return None
 
@@ -1167,6 +1168,14 @@ def append_formatted_row(
             # Copying it would show the prefix alone, or the raw tags if they
             # had been inserted. Roll back and write the stripped message.
             log.warning("append_formatted_row: HTML import failed role=%s", role)
+            _rollback_rich_insert(control, before)
+            _plain_append_messages(
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
+            )
+            return True
+        span = uno_probe(lambda: doc.getText().getString(), None)
+        if isinstance(span, str) and not _span_matches_message(span, role, text):
+            log.warning("append_formatted_row: imported span does not match message role=%s", role)
             _rollback_rich_insert(control, before)
             _plain_append_messages(
                 control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,

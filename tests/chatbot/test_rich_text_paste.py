@@ -152,6 +152,73 @@ class TestPastePortionColor:
         assert writes_dict.get("Assistant: ") == assistant_color
         assert writes_dict.get("hi") == assistant_color
 
+    def test_copy_loop_recolors_only_from_exact_role_label_portion(self):
+        def _portion(txt, color=-1):
+            p = MagicMock()
+            p.getString.return_value = txt
+            p.CharColor = color
+            p.CharFontName = "Liberation Sans"
+            p.CharHeight = 10.0
+            p.CharWeight = 100.0
+            p.HyperLinkURL = ""
+            return p
+
+        def _para(portions):
+            p = MagicMock()
+            p.supportsService.return_value = False
+            p.getPropertyValue.return_value = None
+            p.createEnumeration.return_value = _uno_enum(portions)
+            return p
+
+        def _run_copy(portions, start_role="assistant"):
+            src_doc = MagicMock()
+            src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([_para(portions)])
+            control = MagicMock()
+            model = MagicMock()
+            model.createTextCursor.return_value = MagicMock()
+            control.getModel.return_value = model
+            written: list[tuple[str, Any]] = []
+
+            def _capture(_model, _cursor, text, char_color=None, **_kw):
+                written.append((text, char_color))
+
+            theme = MagicMock(user_color=0x2A6099, assistant_color=0x1E293B)
+            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
+                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                    src_doc, control, MagicMock(), role=start_role,
+                )
+            assert ok is True, reason
+            return written
+
+        user_color = 0x2A6099
+        assistant_color = 0x1E293B
+
+        written = _run_copy([_portion("You: "), _portion("Assistant: hello")], start_role="assistant")
+        writes_dict = {txt: color for txt, color in written}
+        assert writes_dict.get("You: ") == user_color
+        assert writes_dict.get("Assistant: hello") == user_color
+
+        written_mirror = _run_copy([_portion("Assistant: "), _portion("You: quoted")], start_role="user")
+        writes_mirror_dict = {txt: color for txt, color in written_mirror}
+        assert writes_mirror_dict.get("Assistant: ") == assistant_color
+        assert writes_mirror_dict.get("You: quoted") == assistant_color
+
+        with patch("plugin.chatbot.rich_text_paste._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
+            written_ja = _run_copy([_portion("アシスタント:"), _portion("body")], start_role="user")
+            writes_ja_dict = {txt: color for txt, color in written_ja}
+            assert writes_ja_dict.get("アシスタント:") == assistant_color
+            assert writes_ja_dict.get("body") == assistant_color
+
+            written_ja_hi = _run_copy([_portion("アシスタント: hi")], start_role="user")
+            writes_ja_hi_dict = {txt: color for txt, color in written_ja_hi}
+            assert writes_ja_hi_dict.get("アシスタント: hi") == user_color
+
 
 
 class TestEnsureTrailingLineBreak:
@@ -635,6 +702,32 @@ class TestHistoryMessageBatching:
         mock_copy.assert_not_called()
         mock_plain.assert_called_once()
         assert mock_plain.call_args.args[1] == [("assistant", "<p>Hi</p>")]
+        doc.close.assert_called_once_with(True)
+
+    def test_append_formatted_row_dropped_words_plain_appends(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Assistant: hello"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as mock_rollback, \
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
+            ok = append_formatted_row(ctx, control, "<p>hello world</p>", role="assistant")
+
+        assert ok is True
+        mock_copy.assert_not_called()
+        mock_rollback.assert_called_once_with(control, 0)
+        mock_plain.assert_called_once()
+        assert mock_plain.call_args.args[1] == [("assistant", "<p>hello world</p>")]
         doc.close.assert_called_once_with(True)
 
     def test_append_user_message_scrolls_tail_after_trailing_break(self):

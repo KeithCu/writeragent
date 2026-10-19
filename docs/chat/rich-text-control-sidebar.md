@@ -16,7 +16,7 @@
 
 When **Rich Text Control Sidebar** is enabled (default), the chat transcript area uses LibreOffice’s **`RichTextControl`** (`com.sun.star.form.component.TextField` with `RichText=true`) instead of the plain multiline `dlg:textfield` named `response`. Users see:
 
-- **Role styling:** **You:** and **Assistant:** prefixes with theme-aware colors (light/dark follow sidebar `StyleSettings`).
+- **Role styling:** **You:** and **Assistant:** prefixes with theme-aware colors (light/dark follow sidebar `StyleSettings`). The row color follows the bold role label, and body text that begins with the other label keeps that color.
 - **Formatted assistant replies:** bold, lists, code blocks, and other HTML the model emits within the supported tag subset — rendered with LibreOffice-native character and paragraph attributes after the message completes. HTML `<table>` is flattened to tab-separated rows (RichTextControl is EditEngine; it has no table grid); the first row is bold and underlined.
 - **Readable layout:** Liberation Sans 10pt, tightened list indents for the narrow sidebar, paragraph margins tuned for chat density.
 
@@ -131,7 +131,7 @@ flowchart LR
     HW --> RTC
 ```
 
-`session.messages` is the transcript. Load/switch, Clear and Stop change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control, then nudges the control width by 1px (`_force_rich_full_reformat`) so the EditEngine lays the refilled text out again. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line).
+`session.messages` is the transcript. Load/switch, Clear and Stop change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control, then nudges the control width by 1px (`_force_rich_full_reformat`) so the EditEngine lays the refilled text out again. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line). An import whose words are a proper subset of the message is not copied. The row is written as plain text with its role label.
 
 **Streaming:** each assistant chunk grows one open row (`_open_transcript`). `RichTextChatWidget.stream_session` does **not** repaint: it keeps the formatted prefix (everything painted before this turn), appends the turn's user row formatted, and appends assistant text as plain deltas. When a row changes in a way that is not an append (the committed message replaces the open row, think text is dropped), only the plain tail after the prefix is cut and rewritten. The open row is not a history write.
 

@@ -22,6 +22,7 @@ document that already failed partway.
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
 import re
 from typing import Any, cast
@@ -290,25 +291,26 @@ def _span_matches_message(added: str, role: str, content: str) -> bool:
     """
     if contains_html_tag(added):
         return False
+    remainder = (added or "").lstrip()
+    labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
+    matched_label: str | None = None
+    for label in labels:
+        if label and remainder.startswith(label):
+            matched_label = label
+            break
+    if matched_label is None:
+        return False
+    remainder = remainder[len(matched_label):]
+
+    remainder_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", remainder))
     visible = strip_html_tags(content or "")
-    remainder = added or ""
     # strip_html_tags joins adjacent blocks ("<li>a</li><li>b</li>" -> "ab")
     # while Writer gives one paragraph each, so a compact list failed this
     # check and the full repaint wrote it as plain "ab". Accept both splits.
     spaced = strip_html_tags((content or "").replace("<", " <"))
-    labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
-    for label in labels:
-        if label and label in remainder:
-            remainder = remainder.replace(label, " ", 1)
-            break
-    allowed_words = {word.lower() for word in re.findall(r"\w+", visible + " " + spaced)}
-    for token in re.findall(r"\w+", remainder):
-        if token.lower() not in allowed_words:
-            return False
-    message_words = re.findall(r"\w+", visible + " " + spaced)
-    if message_words and not any(word.lower() in remainder.lower() for word in message_words):
-        return False
-    return True
+    visible_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", visible))
+    spaced_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", spaced))
+    return remainder_counter == visible_counter or remainder_counter == spaced_counter
 
 
 def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
@@ -334,6 +336,8 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
     text_obj = doc.getText()
     for role, content in items:
         content = content or ""
+        if role == "assistant":
+            content = strip_legacy_ai_label(content)
         ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
         if ok and _span_matches_message(added, role, content):
             continue

@@ -130,7 +130,11 @@ def test_rich_text_control_role_color_during_paint(ctx):
 
     dlg, control = _create_test_dialog_with_rich_control(ctx)
     try:
-        items = [("user", "<p>hello</p>"), ("assistant", "<p>hi</p>")]
+        items = [
+            ("user", "<p>hello</p>"),
+            ("assistant", "<p>hi</p>"),
+            ("user", "<p>Assistant: hello</p>"),
+        ]
         ok = paint_message_items(ctx, control, items, style_window=dlg)
         assert ok is True
         model = control.getModel()
@@ -139,6 +143,8 @@ def test_rich_text_control_role_color_during_paint(ctx):
         assert hello_color == theme.user_color, "hello should match theme user color, got %s" % hello_color
         hi_color = _format_at(model, "hi", "CharColor")
         assert hi_color == theme.assistant_color, "hi should match theme assistant color, got %s" % hi_color
+        assistant_body_color = _format_at(model, "Assistant: hello", "CharColor")
+        assert assistant_body_color == theme.user_color, "Assistant: hello should match theme user color, got %s" % assistant_body_color
     finally:
         try:
             dlg.setVisible(False)
