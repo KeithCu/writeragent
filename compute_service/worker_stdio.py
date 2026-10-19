@@ -189,6 +189,13 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         if req is None or _shutdown_requested:
             break
 
+        try:
+            import plugin.contrib.smolagents.local_python_executor as _lpe
+
+            _lpe.abandoned_timeout = False
+        except ImportError:
+            pass
+
         res: dict[str, Any]
         try:
             if not isinstance(req, dict):
@@ -219,6 +226,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             import plugin.contrib.smolagents.local_python_executor as _lpe
 
             if getattr(_lpe, "abandoned_timeout", False):
+                _lpe.abandoned_timeout = False
                 os._exit(1)
         except ImportError:
             pass

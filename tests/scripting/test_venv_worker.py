@@ -55,6 +55,29 @@ def _shutdown_workers_after_module():
     PythonWorkerManager.shutdown_all()
 
 
+@pytest.fixture(autouse=True)
+def _protect_worker_harness_os_exit(monkeypatch: pytest.MonkeyPatch) -> Any:
+    # Tip: prevent in-process harness tests from calling real os._exit and terminating the pytest worker.
+    import plugin.scripting.venv.worker_harness as harness
+
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code}) in harness test"))
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+
+        lpe.abandoned_timeout = False
+    except ImportError:
+        pass
+    try:
+        yield
+    finally:
+        try:
+            import plugin.contrib.smolagents.local_python_executor as lpe
+
+            lpe.abandoned_timeout = False
+        except ImportError:
+            pass
+
+
 def test_worker_error_message_strips_command_path():
     long_cmd = ["/very/long/path/to/python", "/very/long/path/to/worker_harness.py"]
     exc = subprocess.TimeoutExpired(cmd=long_cmd, timeout=3)
@@ -2873,6 +2896,7 @@ def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatc
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -2909,6 +2933,7 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -2934,6 +2959,7 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -2951,6 +2977,7 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplo
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -2972,6 +2999,7 @@ def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -3000,6 +3028,7 @@ def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(m
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -3032,6 +3061,7 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
@@ -3064,6 +3094,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
 
     monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: claimed_stdin)
     monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
     monkeypatch.setattr(harness, "_handle_request", lambda req, stdout=None: {"status": "ok", "result": 1})

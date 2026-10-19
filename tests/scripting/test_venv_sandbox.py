@@ -24,6 +24,26 @@ from plugin.scripting.venv.venv_sandbox import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_abandoned_timeout() -> Any:
+    # Tip: ensure abandoned_timeout does not leak across sandbox tests.
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+
+        lpe.abandoned_timeout = False
+    except ImportError:
+        pass
+    try:
+        yield
+    finally:
+        try:
+            import plugin.contrib.smolagents.local_python_executor as lpe
+
+            lpe.abandoned_timeout = False
+        except ImportError:
+            pass
+
+
 @pytest.mark.parametrize(
     ("code", "label"),
     [

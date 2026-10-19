@@ -7,6 +7,7 @@
 # (at your option) any later version.
 
 import ast
+from typing import Any
 
 import pytest
 
@@ -23,6 +24,18 @@ _MIXED_GRID = [
     [3.0, "y", 30.0],
     [4.0, "z", 40.0],
 ]
+
+
+@pytest.fixture(autouse=True)
+def _reset_abandoned_timeout() -> Any:
+    # Tip: reset abandoned_timeout before and after each test so thread fallback timeouts do not leak.
+    import plugin.contrib.smolagents.local_python_executor as lpe
+
+    lpe.abandoned_timeout = False
+    try:
+        yield
+    finally:
+        lpe.abandoned_timeout = False
 
 
 def test_nested_generatorexp_via_evaluate_generatorexp():
@@ -1178,10 +1191,14 @@ def test_slice9_timeout_validation_and_unwinding():
             slow()
         return time.monotonic() - t0
 
-    with TPE(max_workers=1) as pool:
-        future = pool.submit(worker)
-        elapsed = future.result()
-    assert elapsed < 2.0  # Returned well under 2.5s!
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    try:
+        with TPE(max_workers=1) as pool:
+            future = pool.submit(worker)
+            elapsed = future.result()
+        assert elapsed < 2.0  # Returned well under 2.5s!
+    finally:
+        lpe.abandoned_timeout = False
 
     # 3. Outer timeout(3) with inner timeout(1) finishing immediately, outer sleeps
     @timeout(3)
@@ -1795,15 +1812,16 @@ def test_timeout_fallback_sets_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
         time.sleep(1.2)
         return 1
 
-    executor.send_variables({"slow_call": slow_call})
-    with pytest.raises(ExecutionTimeoutError):
-        executor("x = slow_call()")
+    try:
+        executor.send_variables({"slow_call": slow_call})
+        with pytest.raises(ExecutionTimeoutError):
+            executor("x = slow_call()")
 
-    assert lpe.abandoned_timeout is True
-    time.sleep(0.4)
-    assert executor.state["x"] == 1
-
-    lpe.abandoned_timeout = False
+        assert lpe.abandoned_timeout is True
+        time.sleep(0.4)
+        assert executor.state["x"] == 1
+    finally:
+        lpe.abandoned_timeout = False
 
 
 def test_sigalrm_timeout_leaves_abandoned_flag_clear():

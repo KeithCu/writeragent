@@ -187,6 +187,10 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
 
     monkeypatch.setattr(worker_harness, "_die_with_parent", lambda: None)
     monkeypatch.setattr(worker_harness, "_init_logging", lambda: None)
+    def _fail_exit(code: int) -> None:
+        raise AssertionError(f"Unexpected os._exit({code})")
+
+    monkeypatch.setattr(worker_harness.os, "_exit", _fail_exit)
     monkeypatch.setattr(worker_harness, "claim_ipc_channel", lambda: stdout)
     monkeypatch.setattr(worker_harness, "_handle_request", boom)
     monkeypatch.setattr(worker_harness.sys, "stdin", type("Stdin", (), {"buffer": stdin})())
@@ -195,9 +199,11 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
 
     stdout.seek(0)
     started = read_pickle_frame(stdout, require_dict=True)
+    assert started is not None
     assert started["type"] == EXEC_STARTED
     assert started["id"] == "req-1"
     terminal = read_pickle_frame(stdout, require_dict=True)
+    assert terminal is not None
     assert terminal["id"] == "req-1"
     assert terminal["status"] == "error"
     assert "SystemExit" in terminal.get("traceback", "")

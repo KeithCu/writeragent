@@ -297,6 +297,13 @@ def main() -> None:
         # that desyncs the stream (exchange_tool_call reading a host reply)
         # ends the loop.
         try:
+            import plugin.contrib.smolagents.local_python_executor as _lpe
+
+            _lpe.abandoned_timeout = False
+        except ImportError:
+            pass
+
+        try:
             response = _handle_request(request, stdout=stdout)
             log.debug(
                 "Finished request id=%s, response status=%s",
@@ -350,6 +357,7 @@ def main() -> None:
             import plugin.contrib.smolagents.local_python_executor as _lpe
 
             if getattr(_lpe, "abandoned_timeout", False):
+                _lpe.abandoned_timeout = False
                 os._exit(1)
         except ImportError:
             pass
