@@ -14,16 +14,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# LibreOffice 24.8 bundles Python 3.9, which evaluates annotations at import time without this future import.
+from __future__ import annotations
+
 import ast
 import builtins
 import difflib
+import importlib.abc
+import importlib.machinery
 import inspect
 import logging
 import math
 import operator
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
@@ -57,11 +62,31 @@ DEFAULT_MAX_LEN_OUTPUT = 50000
 MAX_OPERATIONS = 10000000
 MAX_WHILE_ITERATIONS = 1000000
 MAX_EXECUTION_TIME_SECONDS = 30
-ALLOWED_DUNDER_METHODS = ["__init__", "__str__", "__repr__"]
-# Blanket dunder-attribute deny treated np.__version__ (and pd/sp/…) like
-# __class__/__globals__. Allow the read-only version string only; do not fold
-# it into METHODS (call vs attribute checks).
-ALLOWED_DUNDER_ATTRIBUTES = ["__version__"]
+ALLOWED_DUNDER_METHODS = frozenset({"__init__", "__str__", "__repr__"})
+# np.__version__ (and pd/sp/...) is a read-only string, not __class__/__globals__. Allow version only.
+ALLOWED_DUNDER_ATTRIBUTES = frozenset({"__version__"})
+
+_OPS_KEY = object()
+_PRINT_OUTPUTS_KEY = object()
+_ACTIVE_EXCEPTIONS_KEY = object()
+_CLASS_CELL_KEY = object()
+
+
+class _Ops:
+    __slots__ = ("count",)
+
+    def __init__(self, count: int = 0):
+        self.count = count
+
+
+def print_outputs_from_state(state: dict[Any, Any] | None) -> str:
+    """Return captured stdout from the execution state."""
+    if not isinstance(state, dict):
+        return ""
+    container = state.get(_PRINT_OUTPUTS_KEY)
+    if container is not None:
+        return str(container)
+    return str(state.get("_print_outputs") or "")
 
 
 def custom_print(*args):
@@ -69,7 +94,12 @@ def custom_print(*args):
 
 
 def is_forbidden_dunder_attribute(name: str) -> bool:
-    return name.startswith("__") and name.endswith("__") and name not in ALLOWED_DUNDER_ATTRIBUTES
+    return (
+        name.startswith("__")
+        and name.endswith("__")
+        and name not in ALLOWED_DUNDER_ATTRIBUTES
+        and name not in ALLOWED_DUNDER_METHODS
+    )
 
 
 _GETATTR_SENTINEL = object()
@@ -209,9 +239,10 @@ def check_safer_result(result: Any, static_tools: dict[str, Callable] = None, au
     if isinstance(result, ModuleType):
         if not check_import_authorized(result.__name__, authorized_imports):
             raise InterpreterError(f"Forbidden access to module: {result.__name__}")
-    elif isinstance(result, dict) and result.get("__spec__"):
-        if not check_import_authorized(result["__name__"], authorized_imports):
-            raise InterpreterError(f"Forbidden access to module: {result['__name__']}")
+    elif isinstance(result, (importlib.machinery.ModuleSpec, importlib.abc.Loader)):
+        raise InterpreterError(f"Forbidden access to module loader/spec: {type(result).__name__}")
+    elif isinstance(result, dict) and isinstance(result.get("__spec__"), importlib.machinery.ModuleSpec):
+        raise InterpreterError(f"Forbidden access to module namespace: {result.get('__name__', '')}")
     elif isinstance(result, (FunctionType, BuiltinFunctionType)):
         for qualified_function_name in DANGEROUS_FUNCTIONS:
             module_name, function_name = qualified_function_name.rsplit(".", 1)
@@ -600,7 +631,7 @@ def create_function(
         func_state = state.copy()
         func_state.update(bound.arguments)
         if class_cell is not None:
-            func_state["__class_cell__"] = class_cell
+            func_state[_CLASS_CELL_KEY] = class_cell
 
         # Update function state with self
         if func_def.args.args and func_def.args.args[0].arg == "self":
@@ -730,6 +761,12 @@ def evaluate_class_def(
                     obj = evaluate_ast(target.value, eval_state, static_tools, custom_tools, authorized_imports)
                     _reject_shared_object_mutation(obj)
                     setattr(obj, target.attr, value)
+                elif isinstance(target, ast.Subscript):
+                    container = evaluate_ast(target.value, eval_state, static_tools, custom_tools, authorized_imports)
+                    index = evaluate_ast(target.slice, eval_state, static_tools, custom_tools, authorized_imports)
+                    container[index] = value
+                else:
+                    raise InterpreterError(f"Unsupported Assign target in class body: {type(target).__name__}")
         elif isinstance(stmt, ast.Pass):
             pass
         elif (
@@ -1049,9 +1086,9 @@ def evaluate_call(
             # Normal keyword argument
             kwargs[keyword.arg] = evaluate_ast(keyword.value, state, static_tools, custom_tools, authorized_imports)
 
-    if isinstance(call.func, ast.Name) and func_name == "super":
+    if func == "super":
         if not args:
-            cell = state.get("__class_cell__")
+            cell = state.get(_CLASS_CELL_KEY)
             if cell is not None and cell[0] is not None and "self" in state:
                 return super(cell[0], state["self"])
             else:
@@ -1066,22 +1103,6 @@ def evaluate_call(
             return super(cls, instance)
         else:
             raise InterpreterError("super() takes at most 2 arguments")
-    elif func is static_tools.get("print"):
-        # The print hijack runs only when the resolved callable is the injected
-        # custom_print tool (not an obj.print() method or user def print).
-        unknown = set(kwargs.keys()) - {"sep", "end", "file", "flush"}
-        if unknown:
-            raise TypeError(f"print() got an unexpected keyword argument '{next(iter(unknown))}'")
-        if kwargs.get("file") is not None:
-            raise InterpreterError("print() file= is unsupported in the sandbox")
-        sep = kwargs.get("sep", " ")
-        if sep is None:
-            sep = " "
-        end = kwargs.get("end", "\n")
-        if end is None:
-            end = "\n"
-        state["_print_outputs"] += sep.join(map(str, args)) + end
-        return None
     else:  # Assume it's a callable object
         if (inspect.getmodule(func) == builtins) and inspect.isbuiltin(func) and (func not in static_tools.values()):
             raise InterpreterError(
@@ -1100,9 +1121,10 @@ def evaluate_call(
         return func(*args, **kwargs)
 
 
-def _close_match_hint(needle: str, candidates: list[str], *, label: str = "names") -> str:
+def _close_match_hint(needle: str, candidates: Any, *, label: str = "names") -> str:
     """Error-message hint only — never substitute or resolve via fuzzy match."""
-    close_matches = difflib.get_close_matches(needle, candidates)
+    str_candidates = [c for c in candidates if isinstance(c, str)]
+    close_matches = difflib.get_close_matches(needle, str_candidates)
     if not close_matches:
         return ""
     return f". Maybe you meant one of these {label} instead: {close_matches}"
@@ -1364,7 +1386,7 @@ def evaluate_try(
                 matched = True
                 if handler.name:
                     state[handler.name] = e
-                stack: list[Exception] = state.setdefault("_active_exceptions", [])
+                stack: list[Exception] = state.setdefault(_ACTIVE_EXCEPTIONS_KEY, [])
                 stack.append(e)
                 try:
                     for stmt in handler.body:
@@ -1394,7 +1416,7 @@ def evaluate_raise(
     if raise_node.exc is not None:
         exc = evaluate_ast(raise_node.exc, state, static_tools, custom_tools, authorized_imports)
     else:
-        stack = state.get("_active_exceptions", [])
+        stack = state.get(_ACTIVE_EXCEPTIONS_KEY, [])
         if not stack:
             raise InterpreterError("Re-raise is not supported without an active exception")
         exc = stack[-1]
@@ -1450,17 +1472,29 @@ def evaluate_with(
                 set_value(item.optional_vars, enter_result, state, static_tools, custom_tools, authorized_imports)
     except BaseException:
         for context in reversed(contexts):
-            context.__exit__(None, None, None)
+            try:
+                context.__exit__(None, None, None)
+            except Exception:
+                continue
         raise
 
     try:
         for stmt in with_node.body:
             evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
-    except (InterpreterSignal, FinalAnswerException, ExecutionTimeoutError):
-        # A suppressing manager must not cancel a return, break, continue,
-        # final_answer(), or timeout alarm.
+    except (
+        InterpreterSignal,
+        FinalAnswerException,
+        ExecutionTimeoutError,
+        KeyboardInterrupt,
+        SystemExit,
+        GeneratorExit,
+    ):
+        # A suppressing manager must not cancel control-flow signals, alarms, or exit interrupts.
         for context in reversed(contexts):
-            context.__exit__(None, None, None)
+            try:
+                context.__exit__(None, None, None)
+            except Exception:
+                continue
         raise
     except Exception as e:
         # exc_info tracks the active exception as we unwind (from innermost context manager)
@@ -1606,6 +1640,8 @@ def evaluate_import(
             if expression.names[0].name == "*":  # Handle "from module import *"
                 if hasattr(module, "__all__"):  # If module has __all__, import only those names
                     for name in module.__all__:
+                        if is_forbidden_dunder_attribute(name):
+                            raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
                         if name in tools:
                             # Silently skip names in static_tools (overridable or not)
                             continue
@@ -1618,16 +1654,17 @@ def evaluate_import(
                                 continue
                             state[name] = getattr(module, name)
             else:  # regular from imports
+                sentinel = object()
                 for alias in expression.names:
                     target_name = alias.asname or alias.name
                     if target_name in tools and target_name not in _IMPORT_OVERRIDABLE_TOOLS:
                         raise InterpreterError(
                             f"Cannot assign to name '{target_name}': doing this would erase the existing tool!"
                         )
-                    if hasattr(module, alias.name):
-                        state[target_name] = getattr(module, alias.name)
-                    else:
+                    val = nodunder_getattr(module, alias.name, sentinel)
+                    if val is sentinel:
                         raise InterpreterError(f"Module {expression.module} has no attribute {alias.name}")
+                    state[target_name] = val
         else:
             # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
             raise InterpreterError(f"Import from {expression.module} is not allowed.")
@@ -1714,11 +1751,15 @@ def evaluate_ast(
             The list of modules the code may import; default is the small safe set;
             a bare "*" entry is ignored; package wildcards use the "name.*" form.
     """
-    if state.setdefault("_operations_count", {"counter": 0})["counter"] >= MAX_OPERATIONS:
+    ops = state.get(_OPS_KEY)
+    if ops is None:
+        ops = _Ops()
+        state[_OPS_KEY] = ops
+    if ops.count >= MAX_OPERATIONS:
         raise InterpreterError(
             f"Reached the max number of operations of {MAX_OPERATIONS}. Maybe there is an infinite loop somewhere in the code, or you're just asking too many calculations."
         )
-    state["_operations_count"]["counter"] += 1
+    ops.count += 1
     common_params = (state, static_tools, custom_tools, authorized_imports)
     if isinstance(expression, ast.Assign):
         # Assignment -> we evaluate the assignment which should update the state
@@ -1932,8 +1973,27 @@ def evaluate_python_code(
         state = {}
     static_tools = static_tools.copy() if static_tools is not None else {}
     custom_tools = custom_tools if custom_tools is not None else {}
-    state["_print_outputs"] = PrintContainer()
-    state["_operations_count"] = {"counter": 0}
+    state[_OPS_KEY] = _Ops()
+    print_container = PrintContainer()
+    state[_PRINT_OUTPUTS_KEY] = print_container
+    state[_ACTIVE_EXCEPTIONS_KEY] = []
+
+    def _sandboxed_print(*args: Any, **kwargs: Any) -> None:
+        unknown = set(kwargs.keys()) - {"sep", "end", "file", "flush"}
+        if unknown:
+            raise TypeError(f"print() got an unexpected keyword argument '{next(iter(unknown))}'")
+        if kwargs.get("file") is not None:
+            raise InterpreterError("print() file= is unsupported in the sandbox")
+        sep = kwargs.get("sep", " ")
+        if sep is None:
+            sep = " "
+        end = kwargs.get("end", "\n")
+        if end is None:
+            end = "\n"
+        print_container.value += sep.join(map(str, args)) + end
+        return None
+
+    static_tools["print"] = _sandboxed_print
 
     if "final_answer" in static_tools:
         previous_final_answer = static_tools["final_answer"]
@@ -1949,17 +2009,30 @@ def evaluate_python_code(
         try:
             for node in expression.body:
                 result = evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
-            state["_print_outputs"].value = truncate_content(
-                str(state["_print_outputs"]), max_length=max_print_outputs_length
+            print_container.value = truncate_content(
+                str(print_container), max_length=max_print_outputs_length
             )
             is_final_answer = False
             return result, is_final_answer
         except FinalAnswerException as e:
-            state["_print_outputs"].value = truncate_content(
-                str(state["_print_outputs"]), max_length=max_print_outputs_length
+            print_container.value = truncate_content(
+                str(print_container), max_length=max_print_outputs_length
             )
             is_final_answer = True
             return e.value, is_final_answer
+        except InterpreterSignal as e:
+            print_container.value = truncate_content(
+                str(print_container), max_length=max_print_outputs_length
+            )
+            if isinstance(e, ReturnException):
+                sig_name = "return"
+            elif isinstance(e, BreakException):
+                sig_name = "break"
+            elif isinstance(e, ContinueException):
+                sig_name = "continue"
+            else:
+                sig_name = type(e).__name__.replace("Exception", "").lower()
+            raise InterpreterError(f"'{sig_name}' outside function")
         except Exception as e:
             from plugin.framework.errors import is_disposed_exception
 
@@ -1969,8 +2042,8 @@ def evaluate_python_code(
             # execute_with_return see the disposal.
             if is_disposed_exception(e):
                 raise
-            state["_print_outputs"].value = truncate_content(
-                str(state["_print_outputs"]), max_length=max_print_outputs_length
+            print_container.value = truncate_content(
+                str(print_container), max_length=max_print_outputs_length
             )
             raise InterpreterError(
                 f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {type(e).__name__}: {e}"
@@ -2030,6 +2103,7 @@ class LocalPythonExecutor(PythonExecutor):
     ):
         self.custom_tools = {}
         self.state = {"__name__": "__main__"}
+        self.logs: str = ""
         self.max_print_outputs_length = max_print_outputs_length
         if max_print_outputs_length is None:
             self.max_print_outputs_length = DEFAULT_MAX_LEN_OUTPUT
@@ -2056,7 +2130,8 @@ class LocalPythonExecutor(PythonExecutor):
             max_print_outputs_length=self.max_print_outputs_length,
             timeout_seconds=self.timeout_seconds,
         )
-        logs = str(self.state["_print_outputs"])
+        logs = print_outputs_from_state(self.state)
+        self.logs = logs
         return CodeOutput(output=output, logs=logs, is_final_answer=is_final_answer)
 
     def send_variables(self, variables: dict[str, Any]):
@@ -2067,4 +2142,4 @@ class LocalPythonExecutor(PythonExecutor):
         self.static_tools = {**tools, **BASE_PYTHON_TOOLS.copy(), **self.additional_functions}
 
 
-__all__ = ["evaluate_python_code", "LocalPythonExecutor"]
+__all__ = ["evaluate_python_code", "LocalPythonExecutor", "print_outputs_from_state"]

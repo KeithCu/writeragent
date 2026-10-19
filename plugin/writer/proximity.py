@@ -367,6 +367,8 @@ class ProximityService(ServiceBase):
             result["frames"] = frames
 
         if "comments" in include:
+            from plugin.framework.uno_context import uno_same
+
             comments = []
             try:
                 fields = doc.getTextFields()
@@ -375,13 +377,22 @@ class ProximityService(ServiceBase):
                     field = enum.nextElement()
                     if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                         continue
-                    author = field.getPropertyValue("Author")
                     anchor = field.getAnchor()
+                    # Skip non-body annotations so headers/footers do not map to paragraph 0.
+                    if anchor is None:
+                        continue
+                    try:
+                        anchor_text = anchor.getText()
+                    except Exception:
+                        anchor_text = None
+                    if anchor_text is None or not uno_same(anchor_text, text_obj):
+                        continue
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
+                        author = field.getPropertyValue("Author")
                         content = field.getPropertyValue("Content")
                         resolved_flag = field.getPropertyValue("Resolved")
-                        comments.append({"author": author, "content": content[:200], "paragraph_index": pi, "resolved": resolved_flag})
+                        comments.append({"author": author, "content": (content or "")[:200], "paragraph_index": pi, "resolved": resolved_flag})
             except Exception:
                 pass
             result["comments"] = comments

@@ -109,7 +109,7 @@ def bookmark_rename(doc, old_name, new_name):
 
 ## Heading `_mcp_` bookmarks (WriterAgent)
 
-`BookmarkService.ensure_heading_bookmarks` inserts `_mcp_<hex>` point bookmarks on headings so agents can address sections after edits. It also removes `_mcp_` bookmarks whose paragraph is no longer a heading, so a demoted heading does not keep a stale locator. They are always session-only: created in memory, omitted from the saved file, and restored with the same names after Save so locators stay valid.
+`BookmarkService.ensure_heading_bookmarks` inserts `_mcp_<hex>` point bookmarks on headings so agents can address sections after edits. It also removes `_mcp_` bookmarks whose paragraph is no longer a heading, so a demoted heading does not keep a stale locator. They are always session-only: created in memory, omitted from the saved file, and restored with the same names after Save so locators stay valid. Bookmark names starting with `_mcp_` are reserved for internal heading locators; `bookmark_create` and `bookmark_rename` reject them. A failed locator read does not replace or prune marks.
 
 A `bookmark:` locator whose name is gone, or whose anchor does not land on a paragraph, raises instead of resolving to paragraph 0. Point bookmarks have an empty anchor string; `document_health_check` treats that as a normal point mark when the anchor still has a start position.
 

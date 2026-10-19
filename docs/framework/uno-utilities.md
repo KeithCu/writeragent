@@ -221,8 +221,9 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 | Symbol | Purpose |
 |--------|---------|
 | `UnoObjectError` | Stale docs / missing properties (`UNO_OBJECT_ERROR`). |
-| `DocumentDisposedError` | Disposed object (`DISPOSED_OBJECT`). |
+| `DocumentDisposedError` | Disposed object (`DOCUMENT_DISPOSED`). |
 | `is_disposed_exception` | `DisposedException` / `RuntimeException` name heuristic + UNO types (UI lifecycle). |
+| `is_real_disposal` | True only for `DisposedException` / `DocumentDisposedError`. |
 | `is_tool_document_disposed` | `execute_safe` mapping: live-doc bare `RuntimeException` is not `DOCUMENT_DISPOSED`. |
 | `suppress_disposed` | UI lifecycle: swallow disposal (and optionally other `Exception`s). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate. |
 | `check_not_none` (`check_disposed`) | Null guard only — does **not** probe live disposal. |
@@ -231,6 +232,10 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 | `safe_call` | Call a UNO method; wrap failures in `UnoObjectError` / `DocumentDisposedError`. |
 | `handle_errors` | Decorator: wrap unexpected exceptions for real operations. |
 | `resolve_exception_message` | Prefer UNO `.Message` over empty `str(exc)`. |
+| `uno_probe` | Return `fn()`, or *default* when it raises a non-disposal `Exception`. |
+| `uno_read` | Return `fn()`, or *default* when it raises an ordinary `Exception`; re-raise only real disposal. |
+| `best_effort` | Return `fn()`, or *default* after a DEBUG log; swallows every `Exception`, disposal included. |
+| `reraise_if_disposed` | Re-raise `DisposedException` or `DocumentDisposedError` (existing `DocumentDisposedError` unchanged). |
 
 `dialogs.format_exception_detail` is the **printable nested** formatter; `errors.format_error_payload` is the **JSON tool-error** formatter. Different jobs.
 
@@ -417,7 +422,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `visual_helpers` vs `image_tools` | Lookup/properties vs insert/gallery/GraphicProvider. Wrappers already delegate. |
 | `get_document_from_frame` vs `get_active_document` | Sidebar must bind the **frame’s** document, not Desktop current (wrong-doc bug). |
 | sandbox / session_manager URL→path vs UNO converters | Off-main, no PyUNO. |
-| `safe_uno_call` vs `safe_call` / `handle_errors` | Probes return default; real ops treat `RuntimeException` as disposal. |
+| `safe_uno_call` vs `safe_call` / `handle_errors` | Probes return default and re-raise only real disposal; `safe_call` / `handle_errors` wrap other failures as `UnoObjectError` / `ToolExecutionError`. |
 | LibrePy vs WriterAgent dispatch parsers | Two OXT protocol ids. |
 | PathSettings `Work` vs `UserConfig` vs `Storage_writable` | Different directories. |
 

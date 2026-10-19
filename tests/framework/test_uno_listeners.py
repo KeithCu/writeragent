@@ -13,6 +13,7 @@ from plugin.framework.uno_listeners import (
     BaseTextListener,
     BaseKeyListener,
     BaseWindowListener,
+    BaseTopWindowListener,
     BaseDocumentEventListener,
     ListenerBoundary,
 )
@@ -145,6 +146,30 @@ def test_base_window_listener():
     assert listener.moved is True
     assert listener.shown is True
     assert listener.hidden is True
+
+
+def test_base_top_window_listener():
+    """Verify top window listener defaults to no-ops and invokes on_window_closing."""
+    class MyTopWindowListener(BaseTopWindowListener):
+        def __init__(self):
+            super().__init__()
+            self.closing_called = False
+
+        def on_window_closing(self, rEvent):
+            self.closing_called = True
+
+    listener = MyTopWindowListener()
+    ev = MagicMock()
+    listener.windowOpened(ev)
+    listener.windowClosed(ev)
+    listener.windowMinimized(ev)
+    listener.windowNormalized(ev)
+    listener.windowActivated(ev)
+    listener.windowDeactivated(ev)
+    assert listener.closing_called is False
+
+    listener.windowClosing(ev)
+    assert listener.closing_called is True
 
 
 def test_base_document_event_listener():

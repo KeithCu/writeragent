@@ -35,7 +35,9 @@ or open the document via Desktop.
 from __future__ import annotations
 
 import colorsys
+from functools import lru_cache
 import logging
+import os
 import re
 import struct
 import zipfile
@@ -89,8 +91,8 @@ _MIN_THUMB_ACCENT = 15
 _MIN_XML_ACCENT = 2
 
 
-def derive_otp_look(path: str) -> str:
-    """One-line vibe for *path* (``.otp`` ZIP). Empty when nothing reliable."""
+@lru_cache(maxsize=128)
+def _derive_otp_look_cached(path: str, mtime_ns: int, size: int) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
@@ -102,6 +104,16 @@ def derive_otp_look(path: str) -> str:
             return _format_look(mood, accents, pic_tag)
     except Exception:
         log.debug("derive_otp_look failed for %s", path, exc_info=True)
+        return ""
+
+
+def derive_otp_look(path: str) -> str:
+    """One-line vibe for *path* (``.otp`` ZIP). Empty when nothing reliable."""
+    try:
+        st = os.stat(path)
+        return _derive_otp_look_cached(path, st.st_mtime_ns, st.st_size)
+    except Exception:
+        log.debug("derive_otp_look stat failed for %s", path, exc_info=True)
         return ""
 
 

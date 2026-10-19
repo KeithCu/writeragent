@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import DocumentDisposedError, is_real_disposal
+from plugin.framework.errors import _uno_disposal_message, reraise_if_disposed
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger("writeragent.scratch_writer")
@@ -33,20 +33,6 @@ def _close_scratch_doc(doc: Any) -> None:
         doc.close(True)
     except Exception:
         log.debug("new_blank_writer: doc.close() failed", exc_info=True)
-
-
-def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
-    """Re-raise real UNO disposal. Other exceptions stay with the caller.
-
-    Only real disposal (not a bare RuntimeException) becomes
-    DocumentDisposedError. Catching Exception and treating a disposed
-    document as empty or not open swallows DisposedException.
-    """
-    if not is_real_disposal(exc):
-        return
-    if isinstance(exc, DocumentDisposedError):
-        raise exc
-    raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
 
 
 @main_thread_only
@@ -69,7 +55,7 @@ def clear_writer_body(doc: Any) -> bool:
             container = getattr(doc, supplier)()
             names = list(container.getElementNames())
         except Exception as e:
-            _reraise_document_disposed(e, "Writer")
+            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
             continue
         for name in names:
             try:
@@ -77,7 +63,7 @@ def clear_writer_body(doc: Any) -> bool:
                     container.getByName(name).dispose()
                     removed = True
             except Exception as e:
-                _reraise_document_disposed(e, "Writer")
+                reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
                 log.debug("clear_writer_body: could not dispose %s %r", supplier, name, exc_info=True)
     try:
         page = doc.getDrawPage()
@@ -92,10 +78,10 @@ def clear_writer_body(doc: Any) -> bool:
                 if page.getCount() < before:
                     removed = True
             except Exception as e:
-                _reraise_document_disposed(e, "Writer")
+                reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
                 continue
     except Exception as e:
-        _reraise_document_disposed(e, "Writer")
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
     try:
         text = doc.getText()
@@ -103,7 +89,7 @@ def clear_writer_body(doc: Any) -> bool:
             removed = True
         text.setString("")
     except Exception as e:
-        _reraise_document_disposed(e, "Writer")
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
         log.debug("clear_writer_body failed", exc_info=True)
     if removed:
         log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
@@ -156,7 +142,7 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
         try:
             leftover = doc.getText().getString()
         except Exception as e:
-            _reraise_document_disposed(e, "Writer")
+            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
             log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
             _close_scratch_doc(doc)
             return None

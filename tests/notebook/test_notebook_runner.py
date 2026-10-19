@@ -13,6 +13,7 @@ from plugin.notebook.cell_registry import (
     init_registry_execution_counter,
     new_code_cell_entry,
 )
+from plugin.notebook import form_lookup
 from plugin.notebook.form_lookup import read_code_from_field
 from plugin.notebook.notebook_runner import (
     _find_cell_output_heading_end,
@@ -1622,3 +1623,76 @@ def test_run_all_for_doc_hex_setup_msgbox_only():
         assert run_all_for_doc(ctx, doc) is None
     boxed.assert_called_once()
     run.assert_not_called()
+
+
+def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+
+    get_by_index_calls = []
+
+    def make_shape(name, text):
+        model = MagicMock()
+        model.Name = name
+        model.Text = text
+        shape = MagicMock()
+        shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+        shape.Control = model
+        return shape
+
+    shapes = [
+        make_shape("nb_cell_0_code", "print('hello 0')"),
+        make_shape("nb_cell_1_code", "print('hello 1')"),
+        make_shape("nb_cell_2_code", "print('hello 2')"),
+    ]
+
+    dp = MagicMock()
+    dp.getCount.return_value = len(shapes)
+
+    def _get_by_index(idx):
+        get_by_index_calls.append(idx)
+        return shapes[idx]
+
+    dp.getByIndex.side_effect = _get_by_index
+
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/nb.odt"
+    doc.getRuntimeUID.return_value = "uid-scope-test"
+    doc.getDrawPage.return_value = dp
+
+    outputs_scoped = []
+
+    def _apply_scoped(_doc, _cell, result, **_k):
+        outputs_scoped.append(result.get("stdout"))
+
+    def _exec(_ctx, _doc, code):
+        return {"status": "ok", "result": None, "stdout": f"out: {code}"}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply_scoped),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc)
+
+    assert result.status == "ok"
+    assert len(get_by_index_calls) == len(shapes)
+
+    outputs_unscoped = []
+    for cell in cells:
+        code = form_lookup.read_code_from_field(doc, cell.code_field_name)
+        res = _exec(ctx, doc, code)
+        outputs_unscoped.append(res.get("stdout"))
+
+    assert outputs_scoped == outputs_unscoped
+    assert outputs_scoped == [
+        "out: print('hello 0')",
+        "out: print('hello 1')",
+        "out: print('hello 2')",
+    ]
+

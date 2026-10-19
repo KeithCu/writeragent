@@ -156,10 +156,19 @@ GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE = 256
 # Default: 150 tokens
 GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM = 150
 
+# The idle/quiet period wait time in seconds before sequential worker drains and executes partial sentences.
+# Complete sentences do not wait out this pause; they coalesce for GRAMMAR_COMPLETE_COALESCE_S.
+# Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
+# Default: 1.0 second
 # The idle/quiet period wait time in seconds before sequential worker drains and executes the queue.
 # Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
 # Default: 1.0 second
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
+
+# Fixed coalesce window for complete sentences before grouping and executing.
+# Complete sentences do not debounce keystroke-by-keystroke like partials.
+# Default: 0.05 seconds (50ms)
+GRAMMAR_COMPLETE_COALESCE_S = 0.05
 
 # Text scheduling thresholds
 # Minimum number of non-space characters required to enqueue incomplete sentence fragments during typing.

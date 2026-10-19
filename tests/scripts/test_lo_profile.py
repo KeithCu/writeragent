@@ -48,6 +48,9 @@ g_ImplementationHelper.addImplementation(SeedTest, "org.extension.writeragent.Se
 """
 
 
+# str(Path) so the expected argv uses backslashes on Windows, like the code under test.
+_UNOPKG = str(Path("/fake/bin/unopkg"))
+
 def _oxt(tmp_path: Path) -> Path:
     """Tiny extension with one Python component and a CalcAddIns.xcu, like WriterAgent's."""
     oxt = tmp_path / "SeedTest.oxt"
@@ -145,3 +148,195 @@ def test_seed_refuses_while_an_office_runs_on_the_profile(tmp_path: Path) -> Non
 def test_main_usage() -> None:
     with pytest.raises(SystemExit):
         lo_profile.main([])
+
+
+def test_register_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    (profile / "user").mkdir(parents=True)
+    lock1 = profile / ".lock"
+    lock2 = profile / "user" / ".lock"
+    lock1.write_text("")
+    lock2.write_text("")
+
+    pmap = profile / "user" / "extensions" / "tmp" / "extensions.pmap"
+    pmap.parent.mkdir(parents=True)
+    pmap.write_text("pmap")
+
+    tmp_ext_dir = profile / "user" / "extensions" / "tmp" / "extensions"
+    tmp_ext_dir.mkdir(parents=True)
+    tmp_file = tmp_ext_dir / "item1.tmp_"
+    tmp_file.write_text("temp")
+    tmp_subdir = tmp_ext_dir / "item2.tmp_"
+    tmp_subdir.mkdir()
+    (tmp_subdir / "sub.txt").write_text("sub")
+
+    sibling_tmp = profile / "user" / "uno_packages" / "cache" / "uno_packages" / "keep.tmp_"
+    sibling_tmp.mkdir(parents=True)
+    (sibling_tmp / "keep.txt").write_text("keep")
+
+    log1 = tmp_path / "log1.log"
+    log2 = tmp_path / "log2.log"
+    log1.write_text("log1")
+    log2.write_text("log2")
+
+    oxt = tmp_path / "extension.oxt"
+    oxt.write_text("oxt")
+
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+    pids_queried: list[str | None] = []
+    killed: list[list[int]] = []
+
+    monkeypatch.setenv("VIRTUAL_ENV", "/venv")
+    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
+    monkeypatch.setattr(lo_profile, "office_pids", lambda url: pids_queried.append(url) or [111, 222])
+    monkeypatch.setattr(lo_profile, "kill", lambda pids: killed.append(pids))
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        env = kwargs.get("env")
+        # The real environment minus the venv vars (no scratch HOME).
+        assert isinstance(env, dict) and "VIRTUAL_ENV" not in env and env.get("HOME") == os.environ.get("HOME")
+        calls.append((cmd, None))
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
+
+    lo_profile.register(oxt, profile, ["id1", "id2"], [log1, log2])
+
+    assert pids_queried == [None]
+    assert killed == [[111, 222]]
+    assert calls == [
+        ([_UNOPKG, "remove", "id1"], None),
+        ([_UNOPKG, "remove", "id2"], None),
+        ([_UNOPKG, "add", str(oxt.resolve())], None),
+    ]
+    assert not lock1.exists()
+    assert not lock2.exists()
+    assert not pmap.exists()
+    assert not tmp_file.exists()
+    assert not tmp_subdir.exists()
+    assert sibling_tmp.exists()
+    assert (sibling_tmp / "keep.txt").exists()
+    assert not log1.exists()
+    assert not log2.exists()
+
+
+def test_register_remove_failure_proceeds_add_failure_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    oxt = tmp_path / "test.oxt"
+    oxt.write_text("oxt")
+    log = tmp_path / "test.log"
+    log.write_text("log")
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
+    monkeypatch.setattr(lo_profile, "office_pids", lambda url: [])
+    monkeypatch.setattr(lo_profile, "kill", lambda pids: None)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if "remove" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="extension not found")
+        if "add" in cmd:
+            return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="bad oxt")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="bad oxt"):
+        lo_profile.register(oxt, profile, ["id1"], [log])
+
+    assert len(calls) == 2
+    assert calls[0] == [_UNOPKG, "remove", "id1"]
+    assert calls[1] == [_UNOPKG, "add", str(oxt.resolve())]
+    assert log.exists()
+
+
+def test_register_find_none_raises_before_delete(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    lock = profile / ".lock"
+    lock.write_text("locked")
+    log = tmp_path / "test.log"
+    log.write_text("log")
+    oxt = tmp_path / "test.oxt"
+    oxt.write_text("oxt")
+
+    killed: list[list[int]] = []
+    monkeypatch.setattr(lo_profile, "find", lambda name: None)
+    monkeypatch.setattr(lo_profile, "kill", lambda pids: killed.append(pids))
+
+    with pytest.raises(RuntimeError, match="unopkg not found"):
+        lo_profile.register(oxt, profile, ["id1"], [log])
+
+    assert lock.exists()
+    assert log.exists()
+    assert killed == []
+
+
+def test_register_harper_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    oxt = tmp_path / "LibreHarper.oxt"
+    oxt.write_text("oxt")
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
+    monkeypatch.setattr(lo_profile, "office_pids", lambda url: [])
+    monkeypatch.setattr(lo_profile, "kill", lambda pids: None)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
+
+    lo_profile.register(oxt, profile, ["org.extension.libreharper"], [])
+
+    assert calls == [
+        [_UNOPKG, "remove", "org.extension.libreharper"],
+        [_UNOPKG, "add", str(oxt.resolve())],
+    ]
+
+
+def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIRTUAL_ENV", "/venv")
+    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
+
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        env = kwargs.get("env")
+        # The real environment minus the venv vars (no scratch HOME).
+        assert isinstance(env, dict) and "VIRTUAL_ENV" not in env and env.get("HOME") == os.environ.get("HOME")
+        calls.append((cmd, None))
+        out = "Identifier: org.extension.writeragent\n  URL: ...\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
+
+    # Present id returns 0
+    assert lo_profile.main(["verify", "--id", "org.extension.writeragent"]) == 0
+    assert calls == [([_UNOPKG, "list"], None)]
+
+    # Absent id returns 1
+    assert lo_profile.main(["verify", "--id", "org.extension.other"]) == 1
+
+
+def test_main_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    oxt = tmp_path / "test.oxt"
+    oxt.write_text("oxt")
+    log = tmp_path / "test.log"
+    log.write_text("log")
+
+    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
+    monkeypatch.setattr(lo_profile, "office_pids", lambda url: [])
+    monkeypatch.setattr(lo_profile, "kill", lambda pids: None)
+    monkeypatch.setattr(lo_profile.subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""))
+
+    rc = lo_profile.main(["register", "--oxt", str(oxt), "--profile", str(profile), "--remove", "id1", "--remove", "id2", "--log", str(log)])
+    assert rc == 0
+    assert not log.exists()
+

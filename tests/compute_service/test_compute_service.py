@@ -2420,10 +2420,11 @@ class _AcceptedConnectionHandler:
 
 class TestListenerQueue:
     def test_busy_listener_pool_queues_instead_of_503(self) -> None:
-        """A busy accept pool queues the connection. It does not 503 and close it.
+        """A busy accept pool queues the connection below the ceiling.
 
-        The executor queue is unbounded, so an extra accept waits for a thread.
-        A worker or vision permit waits until the request deadline, then 503.
+        Below the accept ceiling, an extra accept waits for a thread instead
+        of being rejected. A worker or vision permit waits until the request
+        deadline, then 503.
         """
         from compute_service.http_server import DualStackThreadPoolHTTPServer
 
@@ -2438,7 +2439,7 @@ class TestListenerQueue:
         try:
             server.executor.submit(_occupy)
             assert running.wait(timeout=2)
-            # The queue has no cap. One extra task waits instead of a 503.
+            # Below the ceiling, one extra task waits instead of a 503.
             server.executor.submit(_occupy)
             deadline = time.monotonic() + 2
             while server.executor._work_queue.qsize() < 1 and time.monotonic() < deadline:

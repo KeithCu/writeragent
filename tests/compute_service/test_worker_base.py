@@ -785,7 +785,7 @@ def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.M
     assert worker.tasks_executed == 0
 
     monkeypatch.setattr(
-        "plugin.framework.process_worker.read_pickle_frame_with_timeout",
+        "plugin.framework.process_worker.read_pickle_frame",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
     )
 
@@ -845,7 +845,7 @@ def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "plugin.framework.process_worker.read_pickle_frame_with_timeout",
+        "plugin.framework.process_worker.read_pickle_frame",
         MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")),
     )
 
@@ -1057,11 +1057,11 @@ def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.Mo
         )
     elif kind == "empty":
         monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame", lambda *_args, **_kwargs: None)
     else:
         monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(
-            "plugin.framework.process_worker.read_pickle_frame_with_timeout",
+            "plugin.framework.process_worker.read_pickle_frame",
             MagicMock(side_effect=RuntimeError("died")),
         )
 
@@ -1088,7 +1088,7 @@ def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame", lambda *_args, **_kwargs: None)
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "SERVICE_SHUTDOWN"
@@ -1158,7 +1158,7 @@ def test_read_error_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
         exc = ConnectionResetError("reset")
     else:
         exc = subprocess.TimeoutExpired(cmd="IPC frame", timeout=1)
-    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", MagicMock(side_effect=exc))
+    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame", MagicMock(side_effect=exc))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "SERVICE_SHUTDOWN"
@@ -1464,7 +1464,7 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         return {"status": "ready", "pid": 4}
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     worker = _worker_without_spawn(monkeypatch)
 
@@ -1564,7 +1564,7 @@ def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) ->
         return {"status": "ready", "pid": 4}
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     worker = _worker_without_spawn(monkeypatch)
     res = worker.execute({"code": "result = 1"}, timeout_sec=2.0)
@@ -1608,7 +1608,7 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
         raise IpcPartialFrameTimeout("timeout mid-frame")
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", lambda *_args, **_kwargs: _Proc())
-    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     worker = _worker_without_spawn(monkeypatch)
     with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
@@ -1654,7 +1654,7 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
         return None
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", lambda *_args, **_kwargs: _Proc())
-    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     with caplog.at_level(logging.INFO, logger="compute_service.worker"):
         worker.respawn(timeout_sec=2.0)
@@ -1775,7 +1775,7 @@ def test_reap_timeout_abandons_and_allows_another_spawn(monkeypatch: pytest.Monk
         return ready
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", lambda *_args, **_kwargs: {"status": "ready", "pid": 43})
+    monkeypatch.setattr(worker_mod, "read_pickle_frame", lambda *_args, **_kwargs: {"status": "ready", "pid": 43})
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     try:
         worker.respawn()
@@ -2061,7 +2061,7 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
         return {"status": "ready", "pid": 1}
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     errors: list[BaseException] = []
 
@@ -2142,7 +2142,7 @@ def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, ca
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", _drain)
-    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
         worker.respawn()
@@ -2224,7 +2224,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", _drain)
-    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     errors: list[BaseException] = []
 
@@ -2289,7 +2289,7 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
         killed: list[bool] = []
         worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
         monkeypatch.setattr(
-            "plugin.framework.process_worker.read_pickle_frame_with_timeout",
+            "plugin.framework.process_worker.read_pickle_frame",
             MagicMock(side_effect=exc),
         )
         res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
@@ -3019,7 +3019,7 @@ def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.Monkey
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _fake_popen)
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", _fake_drain)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda p: opt_calls.append(p))
-    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", lambda *_a, **_kw: {"status": "ready", "pid": 1})
+    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame", lambda *_a, **_kw: {"status": "ready", "pid": 1})
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret-key")
     monkeypatch.setenv("PYTHONPATH", "/custom/path")

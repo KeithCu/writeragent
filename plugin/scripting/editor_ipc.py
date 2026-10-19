@@ -81,9 +81,8 @@ _LOAD_ALIAS_SOURCES: dict[str, tuple[str, ...]] = {
 def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     """Read one pickle-framed message from *stream*.
 
-    Returns None on clean EOF and on a truncated frame
-    (read_frame_payload uses the same None for both). The child reader
-    treats that None as shutdown.
+    Returns None on clean EOF. A truncated frame raises IpcTruncatedFrame.
+    The child reader treats clean EOF as shutdown.
     """
     # crosshair: off
     payload = read_frame_payload(

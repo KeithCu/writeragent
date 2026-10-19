@@ -576,7 +576,8 @@ class TestWriterImageCursorConversion:
             )
 
         assert res is image
-        create_embed.assert_called_once_with(model, "draw", "file:////tmp/img.png", ctx=ctx)
+        # The code calls abspath first, which adds a drive letter on Windows.
+        create_embed.assert_called_once_with(model, "draw", "file:///" + os.path.abspath("/tmp/img.png"), ctx=ctx)
         assert call_order == ["add", "setPosition"]
 
         # Calc: setPosition is not called

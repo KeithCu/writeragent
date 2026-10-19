@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, format_error_payload
+from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort
 from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url
 from plugin.framework.i18n import N_, _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
@@ -246,7 +246,10 @@ class SettingsDialog:
         self._stt_listener = None
 
     def show(self) -> dict[str, Any]:
-        """Execute the settings dialog and apply results."""
+        """Execute the settings dialog and apply results.
+
+        Returns the applied result dict, or {} when the user cancelled or the dialog failed.
+        """
         from .settings_dialog import get_settings_field_specs, apply_settings_result
 
         log.debug("SettingsDialog.show entry")
@@ -266,26 +269,25 @@ class SettingsDialog:
             self._populate_fields(field_specs, current_endpoint)
             self._schedule_initial_models_fetch(current_endpoint)
             self._apply_sqlite_restrictions()
-            
-            translate_dialog(self._dlg)
+
             self._dlg.getModel().Title = _("Settings")
 
             self._dlg.getControl("endpoint").setFocus()
 
-            if self._dlg.execute():
+            while self._dlg.execute():
                 result = self._extract_results(field_specs)
-                if result:
-                    try:
-                        apply_settings_result(self._ctx, result)
-                        return result
-                    except ConfigValidationError as ve:
-                        msgbox(self._ctx, _("Invalid Setting"), str(ve))
-                        return {}
+                if not result:
+                    break
+                try:
+                    apply_settings_result(self._ctx, result)
+                    return result
+                except ConfigValidationError as ve:
+                    msgbox(self._ctx, _("Invalid Setting"), str(ve))
             return {}
         except Exception as e:
             log.exception("Failed to open Settings")
             msgbox(self._ctx, _("Error"), _("Failed to open Settings: {0}").format(e))
-            return format_error_payload(e)
+            return {}
         finally:
             self._cleanup()
 

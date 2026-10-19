@@ -82,6 +82,9 @@ class _RubyText:
 
     def createTextCursorByRange(self, origin: object) -> _RubyCursor:
         cursor = _RubyCursor(self._text)
+        if isinstance(origin, _RubyCursor):
+            cursor.start = origin.start
+            cursor.end = origin.end
         self.cursors.append(cursor)
         return cursor
 
@@ -121,6 +124,49 @@ def test_ruby_readings_stay_on_their_own_repeated_base():
     assert painted == [(0, 2, "いち"), (2, 4, "に")]
 
 
+def test_ruby_spans_forward_cursor_walk():
+    # One hundred spans spread through a long string: len(text.cursors) stays far below
+    # one cursor per span plus a full restart, and painted triples match offsets.
+    spans = []
+    parts = []
+    offset = 0
+    expected_painted = []
+    for i in range(100):
+        filler = f"filler{i}"
+        parts.append(filler)
+        offset += len(filler)
+        base = "漢"
+        reading = f"かん{i}"
+        spans.append((base, reading, True, offset))
+        expected_painted.append((offset, offset + len(base), reading))
+        parts.append(base)
+        offset += len(base)
+    full_text = "".join(parts)
+    text = _RubyText(full_text)
+    _apply_ruby_spans(text, spans)
+    painted = [c.ruby for c in text.cursors if c.ruby]
+    assert painted == expected_painted
+    assert len(text.cursors) <= 205
+
+
+def test_mixed_math_segments_produce_separate_ruby_spans_without_tex_source():
+    from plugin.writer.html_import import extract_and_strip_ruby, segment_html_with_mixed_math
+
+    content = "<p><ruby>東<rt>ひがし</rt></ruby> \\(x^2 + y^2\\) <ruby>西<rt>にし</rt></ruby></p>"
+    segs = segment_html_with_mixed_math(content)
+    assert len(segs) == 3
+    assert segs[0].kind == "html"
+    assert segs[1].kind == "tex"
+    assert segs[2].kind == "html"
+
+    _clean0, spans0 = extract_and_strip_ruby(segs[0].text)
+    _clean2, spans2 = extract_and_strip_ruby(segs[2].text)
+
+    assert spans0 == [("東", "ひがし", True, 0)]
+    assert spans2 == [("西", "にし", True, 1)]
+
+
+
 def test_ensure_html_linebreaks_does_not_unescape_again():
     """A second unescape used to turn entity-escaped markup into live tags.
 
@@ -138,6 +184,60 @@ def test_ensure_html_linebreaks_does_not_unescape_again():
     assert "<b>" not in wrapped
     assert "&lt;b&gt;x&lt;/b&gt;" in wrapped
     assert "<p>see" in wrapped
+
+
+def test_decode_complete_character_references_only_decodes_with_semicolon():
+    from plugin.writer.html_import import _decode_complete_character_references
+
+    assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
+    assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
+    assert _decode_complete_character_references("&not covered") == "&not covered"
+
+
+def test_insert_content_entry_points_decode_complete_entities():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    raw = "<p>&sect 2o &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>"
+    expected = "<p>&sect 2o &lt;b&gt;x&lt;/b&gt;</p>"
+
+    model = MagicMock()
+    model.getPropertyValue.return_value = False
+
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
+        html_import._replace_full_document(model, MagicMock(), raw)
+        assert mock_mixed.call_args.args[3] == expected
+
+    cursor = MagicMock()
+    model.getText.return_value.createTextCursor.return_value = cursor
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
+        html_import._insert_content_at_position(model, MagicMock(), raw, "beginning")
+        assert mock_mixed.call_args.args[3] == expected
+
+    text_range = MagicMock()
+    text_range.getText.return_value = MagicMock()
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed, \
+         patch("plugin.writer.specialized.tables.raise_if_range_hosts_nested_table"):
+        html_import._replace_single_range_with_content(model, text_range, raw, MagicMock())
+        assert mock_mixed.call_args.args[3] == expected
+
+
+def test_content_has_markup_markdown_punctuation_treated_as_plain():
+    from plugin.writer.html_import import content_has_markup
+
+    assert not content_has_markup("**bold**")
+    assert not content_has_markup("# Heading")
+    assert not content_has_markup("| col1 | col2 |")
+    assert not content_has_markup("Issue # 5")
+    assert not content_has_markup("a | b")
+    assert not content_has_markup("2**3")
+    assert not content_has_markup("__init__")
+    assert not content_has_markup("```code```")
+    assert not content_has_markup("- [ ] todo")
+    assert content_has_markup("<b>bold</b>")
+    assert content_has_markup(r"\(x^2\)")
+    assert content_has_markup("$$E=mc^2$$")
+
 
 
 def test_replace_xtext_with_html_restores_text_when_import_fails():
@@ -164,6 +264,7 @@ def test_replace_xtext_with_html_leaves_cleared_text_when_import_succeeds():
         replace_xtext_with_html(text, "<p>New</p>")
     insert.assert_called_once()
     assert [call.args for call in cursor.setString.call_args_list] == [("",)]
+
 
 
 def test_insert_inline_at_cursor_plain_text_does_not_wrap_in_p():
@@ -443,6 +544,31 @@ def test_restore_only_drops_the_marker_when_the_original_stayed():
             html_import._restore_image_placeholders(model, [_kept(anchor)])
         found.setString.assert_called_once_with("")
         found.getText.return_value.insertTextContent.assert_not_called()
+
+
+def test_restore_image_placeholders_missing_marker_for_deleted_original_raises():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.findFirst.return_value = None
+    kept = [_kept("AT_PARAGRAPH")]
+    with patch.object(html_import, "_deleted_by_the_edit", return_value=True):
+        with pytest.raises(ToolExecutionError, match="'Assinatura'"):
+            html_import._restore_image_placeholders(model, kept)
+
+
+def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_raise():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.findFirst.return_value = None
+    kept = [_kept("AT_PARAGRAPH")]
+    with patch.object(html_import, "_deleted_by_the_edit", return_value=False):
+        html_import._restore_image_placeholders(model, kept)
+    model.createInstance.assert_not_called()
 
 
 def test_deleted_by_the_edit():

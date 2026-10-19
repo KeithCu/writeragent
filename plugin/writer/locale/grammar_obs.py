@@ -182,14 +182,6 @@ def emit_grammar_status(
     from plugin.framework.uno_context import is_libreharper
 
     try:
-        if preview_source is not None:
-            raw = preview_source.strip() or "(empty)"
-            preview = slice_preview_debug(raw, 10)
-            length = len(raw) if length_hint is None else length_hint
-        else:
-            preview = slice_preview_debug(text.strip() or "(empty)", 10)
-            length = len(text)
-
         if is_libreharper():
             # Skip main-thread posts for per-keystroke strings so typing does not
             # thrash XStatusIndicator (issue #768 status-bar flash / stalls).
@@ -211,6 +203,13 @@ def emit_grammar_status(
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
         else:
+            if preview_source is not None:
+                raw = preview_source.strip() or "(empty)"
+                preview = slice_preview_debug(raw, 10)
+                length = len(raw) if length_hint is None else length_hint
+            else:
+                preview = slice_preview_debug(text.strip() or "(empty)", 10)
+                length = len(text)
             event_bus.global_event_bus.emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
     except Exception as e:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)

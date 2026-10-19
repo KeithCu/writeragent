@@ -11,6 +11,7 @@ Payload-specific envelopes such as split_grid remain in payload_codec.py.
 from __future__ import annotations
 
 import builtins
+import enum
 import io
 import logging
 import os
@@ -421,6 +422,14 @@ class IpcFrameReadError(IpcFrameError):
     """Raised when reading a framed IPC message fails due to invalid size or stream desync."""
 
 
+class IpcTruncatedFrame(IpcFrameReadError):
+    """EOF after at least one byte of this frame and before the declared end.
+
+    Zero bytes at a frame boundary is clean EOF (None). A deadline with the
+    pipe still open is IpcPartialFrameTimeout, raised by the timed reader.
+    """
+
+
 class IpcPartialFrameTimeout(ConnectionError):
     """Deadline expired after at least one byte of a frame had arrived.
 
@@ -688,6 +697,21 @@ def _nonblocking(fd: int) -> Iterator[None]:
             pass
 
 
+def _stream_fileno(stream: object) -> int | None:
+    """Real pipe fd, or None for BytesIO, a closed fd, and MagicMock.
+
+    Text and binary streams both have fileno. ``IO[bytes]`` and ``IO[str]``
+    are invariant, so the parameter is the object that was passed in.
+    """
+    try:
+        fd = cast("Any", stream).fileno()
+    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+        return None
+    if isinstance(fd, int):
+        return fd
+    return None
+
+
 def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     """Best-effort leftover bytes after a bad length prefix (non-blocking on real pipes)."""
     fd = _stream_fileno(stream)
@@ -715,46 +739,299 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     return data if isinstance(data, (bytes, bytearray)) else b""
 
 
-def read_frame_payload(
-    stream: IO[bytes],
-    *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
-    frame_label: str = "IPC frame",
-    read_exact: Callable[[int], bytes] | None = None,
-) -> bytes | None:
-    """Read one length-prefixed payload. Return None on clean EOF or truncation."""
+def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
+    """True when the user pressed Stop.
 
-    def reader(n: int) -> bytes:
-        if read_exact is not None:
-            return read_exact(n)
-        # One short stream.read(n) is not EOF. A raw stream can return part of
-        # the 4-byte header; dropping those bytes starts the next read
-        # mid-frame. Loop until n bytes or a real empty read. Empty means EOF.
-        # Callers that pass read_exact already loop (or time out) themselves.
-        buf = bytearray()
-        while len(buf) < n:
-            chunk = stream.read(n - len(buf))
+    A checker that raises (KeyError, or anything outside the IPC except
+    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
+    and left the child blocked on an unread request. Log it and keep reading
+    so the pipe stays aligned. A tool_call frame is still answered in
+    ``host_rpc``, which has a frame to reply to.
+    """
+    if stop_checker is None:
+        return False
+    try:
+        return bool(stop_checker())
+    except Exception:
+        log.exception("stop_checker failed (continuing)")
+        return False
+
+
+# PeekNamedPipe is rebuilt on every poll (up to once a millisecond) if this
+# stays inside the function. One WinDLL is enough for the process.
+_peek_named_pipe: Any = None
+# PeekNamedPipe failures for a gone peer; ERROR_NO_DATA is 232 and is not
+# one of them; an empty pipe is a successful peek of 0.
+_WIN_ERROR_BROKEN_PIPE = 109
+_WIN_ERROR_PIPE_NOT_CONNECTED = 233
+
+
+def _peek_pipe_bytes_available(fd: int) -> int | None:
+    """Return queued byte count for a Windows pipe fd, or None when the pipe is closed."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    global _peek_named_pipe
+    peek_named_pipe = _peek_named_pipe
+    if peek_named_pipe is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        peek_named_pipe = kernel32.PeekNamedPipe
+        peek_named_pipe.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        peek_named_pipe.restype = wintypes.BOOL
+        _peek_named_pipe = peek_named_pipe
+
+    avail = wintypes.DWORD(0)
+    handle = msvcrt.get_osfhandle(fd)
+    if peek_named_pipe(handle, None, 0, None, ctypes.byref(avail), None):
+        return int(avail.value)
+    if ctypes.get_last_error() in (_WIN_ERROR_BROKEN_PIPE, _WIN_ERROR_PIPE_NOT_CONNECTED):
+        return None
+    raise OSError(ctypes.get_last_error(), ctypes.FormatError(ctypes.get_last_error()))
+
+
+class _PipeWait(enum.Enum):
+    READY = "ready"    # select fired, or Windows avail > 0
+    EMPTY = "empty"    # not ready, still waiting
+    DEAD = "dead"      # not ready and is_alive() is false; caller stops
+    CLOSED = "closed"  # Windows peek returned None (broken / not connected)
+
+
+def _poll_pipe(
+    select_target: Any,
+    fd: int | None,
+    deadline: float,
+    *,
+    timeout_label: float,
+    cmd: str,
+    stop_checker: Callable[[], bool] | None = None,
+    is_alive: Callable[[], bool] | None = None,
+    select_cap: float = 1.0,
+    partial: bool = False,
+    use_peek: bool = False,
+) -> tuple[_PipeWait, int]:
+    """Wait one slice for bytes on a pipe and say what happened.
+
+    Raises ``TimeoutExpired`` on Stop or deadline. With *partial* (bytes of
+    this frame already taken) a deadline is ``IpcPartialFrameTimeout``
+    instead, since the pipe is now out of sync. A clean timeout stays
+    ``TimeoutExpired`` so a vision late-drain can still read the frame.
+    *use_peek* is the Windows path: pipes are not selectable there.
+    The second value is the peeked byte count (0 for select).
+    """
+    if _stop_requested(stop_checker):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_label)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        if partial:
+            raise IpcPartialFrameTimeout(f"{cmd} stream desynchronized: timeout mid-frame")
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_label)
+    if use_peek:
+        avail = _peek_pipe_bytes_available(fd) if fd is not None else None
+        if avail is None:
+            return _PipeWait.CLOSED, 0
+        if avail > 0:
+            return _PipeWait.READY, avail
+        # Peek before is_alive: a child that wrote a frame and exited still
+        # has those bytes queued. Only an empty pipe plus a dead child is EOF.
+        if is_alive is not None and not is_alive():
+            return _PipeWait.DEAD, 0
+        # Re-read the clock: PeekNamedPipe can cross the deadline, and
+        # sleep(negative) is ValueError.
+        time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
+        return _PipeWait.EMPTY, 0
+    ready, _unused, _unused2 = select.select([select_target], [], [], _select_slice(remaining, select_cap))
+    if ready:
+        return _PipeWait.READY, 0
+    if is_alive is not None and not is_alive():
+        return _PipeWait.DEAD, 0
+    return _PipeWait.EMPTY, 0
+
+
+def _read_bytes_with_timeout_win32(
+    stream: IO[bytes],
+    n: int,
+    deadline: float,
+    timeout_sec: float,
+    *,
+    cmd: str,
+    stop_checker: Callable[[], bool] | None = None,
+    is_alive: Callable[[], bool] | None = None,
+) -> bytes:
+    """Read *n* bytes from a Windows pipe without a stuck ReadFile thread.
+
+    Polls ``PeekNamedPipe`` until bytes are queued, then reads only what is
+    available. Raises ``TimeoutExpired`` on deadline.
+    A dead child is EOF only when the peek is empty; queued bytes are read
+    first.
+    """
+    fd = _stream_fileno(stream)
+    buf = bytearray()
+    while len(buf) < n:
+        state, avail = _poll_pipe(
+            stream,
+            fd,
+            deadline,
+            timeout_label=timeout_sec,
+            cmd=cmd,
+            stop_checker=stop_checker,
+            is_alive=is_alive,
+            partial=len(buf) > 0,
+            use_peek=True,
+        )
+        if state is _PipeWait.DEAD:
+            break
+        if state in (_PipeWait.CLOSED, _PipeWait.READY):
+            chunk = stream.read(min(n - len(buf), avail) if state is _PipeWait.READY else n - len(buf))
             if not chunk:
                 return bytes(buf)
             buf.extend(chunk)
-        return bytes(buf)
+    return bytes(buf)
 
-    header = reader(FRAME_HEADER_SIZE)
-    if not header or len(header) < FRAME_HEADER_SIZE:
+
+def read_frame_payload(
+    stream: IO[bytes],
+    timeout_sec: float | None = None,
+    *,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+    frame_label: str = "IPC frame",
+    is_alive: Callable[[], bool] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    deadline: float | None = None,
+    timeout_label: float | None = None,
+    cmd: str | None = None,
+) -> bytes | None:
+    """Read one length-prefixed payload. Return None on clean EOF.
+
+    With no *timeout_sec* this blocks (child side). With one, header and
+    payload share that deadline: POSIX uses ``select``, Windows polls
+    ``PeekNamedPipe``, and streams without a real fd (BytesIO, mocks) wait
+    on a daemon thread. A ``stop_checker`` raises ``TimeoutExpired`` (the
+    caller maps that to cancel); ``deadline`` is an absolute
+    ``time.monotonic()`` stamp; ``timeout_label`` is only the number stored
+    on ``TimeoutExpired``. A truncated frame raises ``IpcTruncatedFrame``.
+
+    The timed path needs an unbuffered stream (``bufsize=0``): after
+    ``select``, raw ``FileIO.read`` returns what is there, but a
+    ``BufferedReader`` waits for all *n* bytes.
+    """
+    if timeout_sec is None:
+        # One short read is not EOF; a raw pipe can return part of the
+        # 4-byte header. Loop until n bytes or an empty read.
+        def _read_exact(n: int) -> bytes:
+            buf = bytearray()
+            while len(buf) < n:
+                chunk = stream.read(n - len(buf))
+                if not chunk:
+                    return bytes(buf)
+                buf.extend(chunk)
+            return bytes(buf)
+    else:
+        timeout_sec = max(0.0, float(timeout_sec))
+        abs_deadline = time.monotonic() + timeout_sec if deadline is None else float(deadline)
+        label = float(timeout_sec if timeout_label is None else timeout_label)
+        cmd_name = frame_label if cmd is None else cmd
+        fd = _stream_fileno(stream)
+
+        if fd is None:
+            def _read_exact(n: int) -> bytes:
+                if _stop_requested(stop_checker):
+                    raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
+                if is_alive is not None and not is_alive():
+                    return b""
+                remaining = abs_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
+                result: list[bytes] = [b""]
+                error: list[BaseException | None] = [None]
+
+                def _reader() -> None:
+                    try:
+                        result[0] = stream.read(n)
+                    except Exception as exc:
+                        error[0] = exc
+
+                t = threading.Thread(target=_reader, daemon=True)
+                t.start()
+                t.join(timeout=max(0.0, remaining))
+                if t.is_alive():
+                    raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
+                if error[0] is not None:
+                    raise error[0]
+                return result[0] or b""
+
+        elif sys.platform == "win32":
+            # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
+            # pipe while that thread was still in ReadFile crashed the xdist
+            # worker (CI 33453184665).
+            def _read_exact(n: int) -> bytes:
+                return _read_bytes_with_timeout_win32(
+                    stream,
+                    n,
+                    abs_deadline,
+                    label,
+                    cmd=cmd_name,
+                    stop_checker=stop_checker,
+                    is_alive=is_alive,
+                )
+
+        else:
+            def _read_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    state, _avail = _poll_pipe(
+                        stream,
+                        fd,
+                        abs_deadline,
+                        timeout_label=label,
+                        cmd=cmd_name,
+                        stop_checker=stop_checker,
+                        is_alive=is_alive,
+                        select_cap=0.2 if stop_checker is not None else 1.0,
+                        partial=len(buf) > 0,
+                        use_peek=False,
+                    )
+                    if state is _PipeWait.DEAD:
+                        break
+                    if state is _PipeWait.READY:
+                        chunk = stream.read(n - len(buf))
+                        if not chunk:
+                            return bytes(buf)
+                        buf.extend(chunk)
+                return bytes(buf)
+
+    header = _read_exact(FRAME_HEADER_SIZE)
+    if not header:
         return None
+    if len(header) < FRAME_HEADER_SIZE:
+        # Some header bytes, then EOF: the child died mid-frame. That is not a
+        # clean EOF, so raise and let the caller tear the stream down.
+        raise IpcTruncatedFrame(
+            f"{frame_label}: truncated header (expected {FRAME_HEADER_SIZE} bytes, got {len(header)})"
+        )
     size = struct.unpack("!I", header)[0]
     try:
         _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
     except IpcFrameError as exc:
         rest = _unread_pipe_bytes(stream)
-        # stdout_rest= is leftover pipe bytes after a garbage length prefix
-        # (empty when the POSIX peek is skipped on win32).
         msg = f"{exc} stdout_rest={rest!r}"
         log.error("%s", msg)
         raise IpcFrameReadError(msg) from None
-    payload = reader(size)
+    payload = _read_exact(size)
     if len(payload) < size:
-        return None
+        # The payload ended before its declared size: the pipe is out of sync.
+        raise IpcTruncatedFrame(
+            f"{frame_label}: truncated payload (expected {size} bytes, got {len(payload)})"
+        )
     return payload
 
 
@@ -810,14 +1087,22 @@ def _decode_pickle_payload(
 
 def read_pickle_frame(
     stream: IO[bytes],
+    timeout_sec: float | None = None,
     *,
     max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     require_dict: bool = False,
+    is_alive: Callable[[], bool] | None = None,
     unpacker: Callable[[bytes], Any] | None = None,
 ) -> Any | None:
-    """Read and unpickle one length-prefixed message. Return None on EOF/truncation."""
-    payload = read_frame_payload(stream, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
+    """Read and unpickle one length-prefixed message. Return None on clean EOF."""
+    payload = read_frame_payload(
+        stream,
+        timeout_sec,
+        max_payload_bytes=max_payload_bytes,
+        frame_label=frame_label,
+        is_alive=is_alive,
+    )
     return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
 
@@ -878,21 +1163,6 @@ def _pause_script_alarm() -> tuple[float, float, float] | None:
 # Upper bound for discarding a desynced tool_call tail. Queued bytes return
 # immediately; the deadline only stops a peer that keeps the pipe full.
 _TOOL_CALL_MISMATCH_DRAIN_SEC = 0.05
-
-
-def _stream_fileno(stream: object) -> int | None:
-    """Real pipe fd, or None for BytesIO, a closed fd, and MagicMock.
-
-    Text and binary streams both have fileno. ``IO[bytes]`` and ``IO[str]``
-    are invariant, so the parameter is the object that was passed in.
-    """
-    try:
-        fd = cast("Any", stream).fileno()
-    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
-        return None
-    if isinstance(fd, int):
-        return fd
-    return None
 
 
 def _drain_queued_pipe_bytes(
@@ -1085,139 +1355,6 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     return response.get("result", {})
 
 
-def read_frame_payload_with_timeout(
-    stream: IO[bytes],
-    timeout_sec: float,
-    *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
-    frame_label: str = "IPC frame",
-    is_alive: Callable[[], bool] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    deadline: float | None = None,
-    timeout_label: float | None = None,
-    cmd: str | None = None,
-) -> bytes | None:
-    """Read one raw frame payload, bounding header + payload with *timeout_sec*.
-
-    POSIX uses ``select`` in a deadline loop so a partial frame cannot hang the
-    parent after the first byte. Windows uses PeekNamedPipe for real pipe fds
-    (pipes are not selectable there). Streams without a real pipe fd (BytesIO,
-    mocks) use a daemon thread join wait.
-
-    A ``stop_checker`` raises ``TimeoutExpired`` (the caller maps that to cancel);
-    ``deadline`` is an absolute ``time.monotonic()`` stamp; ``timeout_label`` is
-    only the number stored on ``TimeoutExpired``.
-
-    The stream must be unbuffered (``bufsize=0``). ``select`` then
-    ``stream.read`` is correct on raw ``FileIO``: ``read`` returns the bytes
-    already available. A ``BufferedReader`` waits until ``n`` bytes arrive,
-    ``ManagedSubprocess.start`` (compute and Kokoro), ``editor_host``, and
-    ``venv_worker`` open the pipe with ``bufsize=0``.
-    """
-    timeout_sec = max(0.0, float(timeout_sec))
-    abs_deadline = time.monotonic() + timeout_sec if deadline is None else float(deadline)
-    label = float(timeout_sec if timeout_label is None else timeout_label)
-    cmd_name = frame_label if cmd is None else cmd
-    fd = _stream_fileno(stream)
-
-    if fd is None:
-        def _read_exact(n: int) -> bytes:
-            if _stop_requested(stop_checker):
-                raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
-            if is_alive is not None and not is_alive():
-                return b""
-            remaining = abs_deadline - time.monotonic()
-            if remaining <= 0:
-                raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
-            result: list[bytes] = [b""]
-            error: list[BaseException | None] = [None]
-
-            def _reader() -> None:
-                try:
-                    result[0] = stream.read(n)
-                except Exception as exc:
-                    error[0] = exc
-
-            t = threading.Thread(target=_reader, daemon=True)
-            t.start()
-            t.join(timeout=max(0.0, remaining))
-            if t.is_alive():
-                raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
-            if error[0] is not None:
-                raise error[0]
-            return result[0] or b""
-
-    elif sys.platform == "win32":
-        # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
-        # pipe while that thread is still in ReadFile crashed the xdist worker
-        # (CI 33453184665: gw1 died in test_pickle_frame_timeout_on_pipe — that
-        # was the Windows hang). Same poll style as _readline_with_timeout_win32.
-        def _read_exact(n: int) -> bytes:
-            return _read_bytes_with_timeout_win32(
-                stream,
-                n,
-                abs_deadline,
-                label,
-                cmd=cmd_name,
-                stop_checker=stop_checker,
-                is_alive=is_alive,
-            )
-
-    else:
-        def _read_exact(n: int) -> bytes:
-            buf = bytearray()
-            while len(buf) < n:
-                if _stop_requested(stop_checker):
-                    raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
-                remaining = abs_deadline - time.monotonic()
-                if remaining <= 0:
-                    # Any byte already taken desynchronizes the pipe. A clean
-                    # timeout (empty buffer) stays TimeoutExpired so a vision
-                    # late-drain can still read the one frame the child will write.
-                    if len(buf) > 0:
-                        raise IpcPartialFrameTimeout(f"{cmd_name} stream desynchronized: timeout mid-frame")
-                    raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
-                ready, _unused, _unused2 = select.select(
-                    [stream], [], [], _select_slice(remaining, 0.2 if stop_checker is not None else 1.0)
-                )
-                if ready:
-                    chunk = stream.read(n - len(buf))
-                    if not chunk:
-                        return bytes(buf)
-                    buf.extend(chunk)
-                elif is_alive is not None and not is_alive():
-                    break
-            return bytes(buf)
-
-    return read_frame_payload(
-        stream,
-        max_payload_bytes=max_payload_bytes,
-        frame_label=frame_label,
-        read_exact=_read_exact,
-    )
-
-
-def read_pickle_frame_with_timeout(
-    stream: IO[bytes],
-    timeout_sec: float,
-    *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
-    frame_label: str = "IPC frame",
-    require_dict: bool = False,
-    is_alive: Callable[[], bool] | None = None,
-    unpacker: Callable[[bytes], Any] | None = None,
-) -> Any | None:
-    """``read_frame_payload_with_timeout``, then unpickle. None on clean EOF or truncation."""
-    payload = read_frame_payload_with_timeout(
-        stream,
-        timeout_sec,
-        max_payload_bytes=max_payload_bytes,
-        frame_label=frame_label,
-        is_alive=is_alive,
-    )
-    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
-
-
 def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> None:
     """Write one JSON object followed by a newline to a text or binary pipe.
 
@@ -1229,128 +1366,6 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
         _write_all(cast("Any", stream), line)
     except TypeError:
         _write_all(cast("Any", stream), line.encode("utf-8"))
-
-
-def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
-    """True when the user pressed Stop.
-
-    A checker that raises (KeyError, or anything outside the IPC except
-    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
-    and left the child blocked on an unread request. Log it and keep reading
-    so the pipe stays aligned. A tool_call frame is still answered in
-    ``host_rpc``, which has a frame to reply to.
-    """
-    if stop_checker is None:
-        return False
-    try:
-        return bool(stop_checker())
-    except Exception:
-        log.exception("stop_checker failed (continuing)")
-        return False
-
-
-def _read_bytes_with_timeout_win32(
-    stream: IO[bytes],
-    n: int,
-    deadline: float,
-    timeout_sec: float,
-    *,
-    cmd: str,
-    stop_checker: Callable[[], bool] | None = None,
-    is_alive: Callable[[], bool] | None = None,
-) -> bytes:
-    """Read *n* bytes from a Windows pipe without a stuck ReadFile thread.
-
-    Polls ``PeekNamedPipe`` until bytes are queued, then reads only what is
-    available. Raises ``TimeoutExpired`` on deadline. Falls back to a blocking
-    ``read`` when ``fileno()`` is not a real pipe fd (BytesIO / mocks).
-    A dead child is EOF only when the peek is empty; queued bytes are read
-    first; a stream with no pipe fd still returns ``b""`` when ``is_alive`` is
-    false, without reading.
-    """
-    fd = _stream_fileno(stream)
-    if fd is None:
-        if is_alive is not None and not is_alive():
-            return b""
-        return stream.read(n)
-
-    buf = bytearray()
-    while len(buf) < n:
-        if _stop_requested(stop_checker):
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            if len(buf) > 0:
-                raise IpcPartialFrameTimeout(f"{cmd} stream desynchronized: timeout mid-frame")
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
-        avail = _peek_pipe_bytes_available(fd)
-        if avail is None:
-            chunk = stream.read(n - len(buf))
-            if not chunk:
-                return bytes(buf)
-            buf.extend(chunk)
-            continue
-        if avail > 0:
-            chunk = stream.read(min(n - len(buf), avail))
-            if not chunk:
-                return bytes(buf)
-            buf.extend(chunk)
-            continue
-        # What was wrong: is_alive() ran before PeekNamedPipe, at function entry
-        # and at the top of the loop. A child that wrote a frame and exited was
-        # reported as EOF, and those bytes stayed in the pipe.
-        # How it happened: the early return avoided waiting out the deadline on
-        # a dead child. The POSIX reader only applies that shortcut when
-        # select is not ready.
-        # Why this change: peek first. A zero peek and a dead child is the short
-        # read. A positive peek, or a closed pipe (None), is still read.
-        if is_alive is not None and not is_alive():
-            break
-        # Re-read the clock: PeekNamedPipe can cross the deadline.
-        time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
-    return bytes(buf)
-
-
-# PeekNamedPipe is rebuilt on every poll (up to once a millisecond) if this
-# stays inside the function. One WinDLL is enough for the process.
-_peek_named_pipe: Any = None
-# PeekNamedPipe failures for a gone peer; ERROR_NO_DATA is 232 and is not
-# one of them; an empty pipe is a successful peek of 0.
-_WIN_ERROR_BROKEN_PIPE = 109
-_WIN_ERROR_PIPE_NOT_CONNECTED = 233
-
-
-def _peek_pipe_bytes_available(fd: int) -> int | None:
-    """Return queued byte count for a Windows pipe fd, or None when the pipe is closed."""
-    if sys.platform != "win32":
-        return None
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    global _peek_named_pipe
-    peek_named_pipe = _peek_named_pipe
-    if peek_named_pipe is None:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        peek_named_pipe = kernel32.PeekNamedPipe
-        peek_named_pipe.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.POINTER(wintypes.DWORD),
-            ctypes.POINTER(wintypes.DWORD),
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        peek_named_pipe.restype = wintypes.BOOL
-        _peek_named_pipe = peek_named_pipe
-
-    avail = wintypes.DWORD(0)
-    handle = msvcrt.get_osfhandle(fd)
-    if peek_named_pipe(handle, None, 0, None, ctypes.byref(avail), None):
-        return int(avail.value)
-    if ctypes.get_last_error() in (_WIN_ERROR_BROKEN_PIPE, _WIN_ERROR_PIPE_NOT_CONNECTED):
-        return None
-    raise OSError(ctypes.get_last_error(), ctypes.FormatError(ctypes.get_last_error()))
 
 
 def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> str | None:
@@ -1446,37 +1461,43 @@ def _readline_blocking_with_pending(stream: IO[str], max_bytes: int) -> str:
 def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes: int, *, cmd: str = "IPC JSON line") -> str:
     """Windows path: poll PeekNamedPipe and read only bytes already queued.
 
-    ``avail > 0`` only means some bytes are queued, not a full line.
-    ``stream.readline()`` then blocked until newline or EOF and ignored
-    ``timeout_sec``. That is the partial-line hang the POSIX reader avoids.
-    Callers include the audio-recorder monitor. ``os.read`` the peeked count
-    into the shared pending buffer. A deadline with no newline saves that
-    partial and raises ``TimeoutExpired``. ``readline`` is only the fallback
-    when this stream has no real pipe fd (``BytesIO`` / mocks).
+    ``avail > 0`` only means some bytes are queued, not a full line, so
+    ``readline()`` here would block past ``timeout_sec``. ``os.read`` the
+    peeked count into the shared pending buffer instead. A deadline with
+    no newline saves that partial and raises ``TimeoutExpired``.
+    ``readline`` is only used when the stream has no real pipe fd.
     """
-    # MagicMock.fileno() returns another mock that coerces to int; PeekNamedPipe then
-    # hits the console FD and raises errno 1. _stream_fileno only accepts a real int.
+    # MagicMock.fileno() returns a mock that coerces to int; _stream_fileno
+    # only accepts a real int.
     fd = _stream_fileno(stream)
     if fd is None:
         return _readline_blocking_with_pending(stream, max_bytes)
 
-    deadline = time.monotonic() + max(0.0, timeout_sec)
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
     pending = _pop_json_line_pending(stream)
     while True:
         line = _line_from_pending(stream, pending, max_bytes)
         if line is not None:
             return line
-        if time.monotonic() >= deadline:
+        try:
+            state, avail = _poll_pipe(
+                stream,
+                fd,
+                deadline,
+                timeout_label=timeout_sec,
+                cmd=cmd,
+                select_cap=1.0,
+                partial=False,
+                use_peek=True,
+            )
+        except subprocess.TimeoutExpired:
+            # Keep the partial line for the next read of this stream.
             _save_json_line_pending(stream, pending)
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
-        avail = _peek_pipe_bytes_available(fd)
-        if avail is None:
-            # Pipe closed. Return bytes already pulled; do not block in readline.
-            # pending was popped at the start of this read. Another pop of the
-            # map does not touch it, and it used to look like the buffer was
-            # discarded here.
+            raise
+        if state is _PipeWait.CLOSED:
+            # Pipe closed: return what was already pulled, do not block.
             return pending.decode("utf-8", errors="replace")
-        if avail > 0:
+        if state is _PipeWait.READY:
             try:
                 piece = os.read(fd, min(int(avail), 65536))
             except BlockingIOError:
@@ -1487,13 +1508,8 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes:
                 _save_json_line_pending(stream, pending)
                 raise
             if not piece:
-                # Empty read after a successful peek is a closed pipe.
-                # pending is the local buffer already taken off the map.
                 return pending.decode("utf-8", errors="replace")
             pending.extend(piece)
-            continue
-        # PeekNamedPipe can cross the deadline; sleep(negative) is ValueError.
-        time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
 
 
 # Bytes read past a newline, or a partial line saved when the deadline fires.
@@ -1557,22 +1573,27 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
         line = _line_from_pending(stream, pending, max_bytes)
         if line is not None:
             return line
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            # Keep the partial line. The caller timed out, but a later read
-            # of this stream should still see those bytes.
+        try:
+            state, _avail = _poll_pipe(
+                fd,
+                fd,
+                deadline,
+                timeout_label=timeout_sec,
+                cmd="IPC JSON line",
+                select_cap=1.0,
+                partial=False,
+                use_peek=False,
+            )
+        except subprocess.TimeoutExpired:
             _save_json_line_pending(stream, pending)
-            raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
-        ready, _unused, _unused2 = select.select([fd], [], [], _select_slice(remaining, 1.0))
-        if not ready:
-            continue
-        piece = _read_available_line_bytes(fd)
-        if piece is None:
-            continue
-        if piece == b"":
-            # EOF. pending is the local buffer already taken off the map.
-            return pending.decode("utf-8", errors="replace")
-        pending.extend(piece)
+            raise
+        if state is _PipeWait.READY:
+            piece = _read_available_line_bytes(fd)
+            if piece is None:
+                continue
+            if piece == b"":
+                return pending.decode("utf-8", errors="replace")
+            pending.extend(piece)
 
 
 def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes: int) -> str:

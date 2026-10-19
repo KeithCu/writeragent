@@ -353,17 +353,15 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
     text_obj = doc.getText()
     for role, content in items:
         content = content or ""
-        before = text_obj.getString() or ""
-        ok = append_rich_text(doc, content, role=role, style_window=style_window)
-        added = _writer_suffix(text_obj, before)
+        ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
         if ok and _span_matches_message(added, role, content):
             continue
-        restore_writer_text(text_obj, before)
+        restore_writer_text(text_obj, previous)
         append_plain_transcript_row(doc, content, role=role, style_window=style_window)
-        if not _span_matches_message(_writer_suffix(text_obj, before), role, content):
+        if not _span_matches_message(_writer_suffix(text_obj, previous), role, content):
             # The plain row is the message text. If it still does not match,
             # drop the span rather than keep text the list does not have.
-            restore_writer_text(text_obj, before)
+            restore_writer_text(text_obj, previous)
 
 
 def _sidebar_import_html(text: str) -> str:
@@ -386,20 +384,16 @@ def _sidebar_import_html(text: str) -> str:
     return text
 
 
-def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> bool:
-    """Append one message to a Writer document (hidden doc for RichTextControl copy).
-
-    Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
-    imports *text* as HTML via Writer's StarWriter HTML filter so that
-    ``<strong>``, ``<em>``, ``<code>``, ``<ul>`` etc. render natively.
-
-    Returns False when the HTML filter fails. The body is restored to the
-    text from before this call, so a tag the filter wrote before raising
-    does not stay, and the role prefix is not left without its body.
-    The caller writes the stripped message.
-    """
+def _append_rich_text_with_span(
+    doc: Any,
+    text: str,
+    role: str = "assistant",
+    style_window: Any = None,
+) -> tuple[bool, str, str]:
+    """Append one message returning (ok, previous, added)."""
     text_obj = None
     previous = ""
+    added = ""
     try:
         text_obj = doc.getText()
         previous = text_obj.getString() or ""
@@ -415,7 +409,11 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
 
             text = render_calc_cell_refs(text)
 
-        if text_obj.getString():
+        # Park anchor before the insert point so added span includes separator and prefix.
+        parked_anchor = None
+        if previous:
+            parked_anchor = text_obj.createTextCursorByRange(cursor.getStart())
+            parked_anchor.goLeft(1, False)
             text_obj.insertString(cursor, "\n\n", False)
 
         # Bold colored role prefix.
@@ -472,16 +470,23 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                     # partial message.
                     log.warning("HTML import failed; restoring hidden doc role=%s", role)
                     restore_writer_text(text_obj, previous)
-                    return False
+                    return False, previous, ""
             else:
                 text_obj.insertString(cursor, text, False)
 
-            added = _writer_suffix(text_obj, previous)
+            if parked_anchor is not None:
+                added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
+                added_cur.goRight(1, False)
+                added_cur.gotoEnd(True)
+                added = added_cur.getString() or ""
+            else:
+                added = text_obj.getString() or ""
+
             if contains_html_tag(added):
                 # The filter returned without raising and left the tags as text.
                 log.warning("HTML import left tags in the hidden doc role=%s", role)
                 restore_writer_text(text_obj, previous)
-                return False
+                return False, previous, ""
 
             # Start body_range one character after body_anchor (the end of
             # the prefix). Counting from the document start with
@@ -496,13 +501,38 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             if not used_html_import:
                 body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
             importer.tighten_list_indent(body_range)
-        return True
+        else:
+            if parked_anchor is not None:
+                added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
+                added_cur.goRight(1, False)
+                added_cur.gotoEnd(True)
+                added = added_cur.getString() or ""
+            else:
+                added = text_obj.getString() or ""
+
+        return True, previous, added
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
         if text_obj is not None:
             restore_writer_text(text_obj, previous)
-        return False
+        return False, previous, ""
+
+
+def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> bool:
+    """Append one message to a Writer document (hidden doc for RichTextControl copy).
+
+    Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
+    imports *text* as HTML via Writer's StarWriter HTML filter so that
+    ``<strong>``, ``<em>``, ``<code>``, ``<ul>`` etc. render natively.
+
+    Returns False when the HTML filter fails. The body is restored to the
+    text from before this call, so a tag the filter wrote before raising
+    does not stay, and the role prefix is not left without its body.
+    The caller writes the stripped message.
+    """
+    ok, _prev, _added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
+    return ok
 
 
 def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:

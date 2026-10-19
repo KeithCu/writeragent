@@ -5,6 +5,7 @@
 """Tests for images.py helpers (no LibreOffice required)."""
 import os
 import sys
+import tempfile
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -302,7 +303,7 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     assert "source_image" not in svc.generate_image.call_args.kwargs
     insert.assert_called_once()
     replace.assert_not_called()
-    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "square"
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "1:1"
 
 
 def test_only_top_overrides_others_preserved():
@@ -1106,3 +1107,318 @@ def test_image_crop_bake_failure_is_tool_execution_error():
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "bake failed" in res.get("message", "")
     obj.setPropertyValue.assert_not_called()
+
+
+def test_image_generate_invalid_source_image_parameter():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    res = ImageGenerate().execute(ctx, prompt="test", source_image="https://example.com/pic.png")
+    assert res["status"] != "ok"
+    assert res.get("code") == "INVALID_PARAMETER"
+
+    res2 = ImageGenerate().execute(ctx, prompt="test", source_image="/tmp/pic.png")
+    assert res2["status"] != "ok"
+    assert res2.get("code") == "INVALID_PARAMETER"
+
+
+def test_image_list_at_page_never_calls_gotorange():
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 3 if name == "AnchorPageNo" else MagicMock()
+    graphic.getAnchor.return_value = MagicMock()
+
+    vc = MagicMock()
+    controller = MagicMock()
+    controller.getViewCursor.return_value = vc
+    ctx.doc.getCurrentController = MagicMock(return_value=controller)
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert len(res["images"]) == 1
+    assert res["images"][0]["page"] == 3
+    vc.gotoRange.assert_not_called()
+
+
+def test_image_list_at_page_zero_not_reported_as_page():
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 0 if name == "AnchorPageNo" else MagicMock()
+    graphic.getAnchor.return_value = MagicMock()
+
+    vc = MagicMock()
+    controller = MagicMock()
+    controller.getViewCursor.return_value = vc
+    ctx.doc.getCurrentController = MagicMock(return_value=controller)
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert len(res["images"]) == 1
+    assert "page" not in res["images"][0]
+    vc.gotoRange.assert_not_called()
+
+
+def test_image_list_paragraph_anchor_restores_cloned_cursor():
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    para_anchor_type = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: para_anchor_type if name == "AnchorType" else MagicMock()
+    anchor = MagicMock()
+    start_pos = MagicMock()
+    anchor.getStart.return_value = start_pos
+    graphic.getAnchor.return_value = anchor
+
+    saved_cursor = MagicMock()
+    vc = MagicMock()
+    vc.getPage.return_value = 2
+    controller = MagicMock()
+    controller.getViewCursor.return_value = vc
+    ctx.doc.getCurrentController = MagicMock(return_value=controller)
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
+        patch("plugin.writer.images.images.clone_text_range", return_value=saved_cursor),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert res["images"][0]["page"] == 2
+    vc.gotoRange.assert_any_call(start_pos, False)
+    assert vc.gotoRange.call_args_list[-1] == ((saved_cursor, False),)
+
+
+def test_image_set_properties_unknown_hori_orient_no_writes():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageSetProperties().execute(ctx, name="Pic", hori_orient="nowhere")
+    assert res["status"] != "ok"
+    assert res.get("code") == "INVALID_PARAMETER"
+    graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_set_properties_compound_undo_grouping():
+    events: list[object] = []
+
+    class FakeUndo:
+        def __init__(self, doc, title):
+            events.append(("enter", title))
+            self.title = title
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            events.append(("exit", self.title))
+            return False
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = True
+    graphic.getPropertySetInfo.return_value = psi
+    size_mock = MagicMock(Width=100, Height=100)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeUndo),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, title="New Title")
+
+    assert res["status"] == "ok"
+    assert ("enter", "WriterAgent: Set image properties") in events
+    assert ("exit", "WriterAgent: Set image properties") in events
+
+
+def test_image_set_properties_shape_without_size_property_uses_setsize():
+    ctx = TestingFactory.create_context(doc_type="draw")
+    graphic = MagicMock(spec=["getSize", "setSize", "getPropertySetInfo", "getPropertyValue", "setPropertyValue"])
+    graphic.getSize.return_value = MagicMock(Width=2000, Height=1000)
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = False
+    graphic.getPropertySetInfo.return_value = psi
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=False),
+        patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
+        patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=True) as safe_try,
+        patch("plugin.writer.edit_review.WriterCompoundUndo", MagicMock()),
+    ):
+        res = ImageSetProperties().execute(ctx, name="DrawShape", width_mm=30)
+
+    assert res["status"] == "ok"
+    assert "size" in res["updated"]
+    safe_try.assert_called_once()
+
+
+def test_image_set_properties_draw_shape_unsupported_properties_rejected():
+    ctx = TestingFactory.create_context(doc_type="draw")
+    graphic = MagicMock()
+
+    def _has_prop(obj, name):
+        return name not in ("AnchorType", "GraphicCrop")
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images.visual_helpers.has_uno_property", side_effect=_has_prop),
+    ):
+        res = ImageSetProperties().execute(ctx, name="DrawShape", anchor_type=0, width_mm=20)
+        assert res["status"] != "ok"
+        assert res.get("code") == "UNSUPPORTED_DOC_TYPE"
+        graphic.setPropertyValue.assert_not_called()
+
+        res2 = ImageSetProperties().execute(ctx, name="DrawShape", crop_top_mm=5, width_mm=20)
+        assert res2["status"] != "ok"
+        assert res2.get("code") == "UNSUPPORTED_DOC_TYPE"
+        graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_generate_temp_files_cleaned_up_after_insert():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    temp_dir = tempfile.gettempdir()
+    p1 = os.path.join(temp_dir, "wa-img-test1.png")
+    p2 = os.path.join(temp_dir, "wa-img-test2.png")
+    with open(p1, "wb") as f:
+        f.write(b"data1")
+    with open(p2, "wb") as f:
+        f.write(b"data2")
+
+    svc = MagicMock()
+    svc.generate_image.return_value = ([p1, p2], None)
+
+    def _run(fn, *args, **kwargs):
+        return fn(*args)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image"),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="test")
+
+    assert res["status"] == "ok"
+    assert not os.path.exists(p1)
+    assert not os.path.exists(p2)
+
+
+def test_image_generate_temp_files_cleaned_up_on_insert_exception():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    temp_dir = tempfile.gettempdir()
+    p1 = os.path.join(temp_dir, "wa-img-test-exc.png")
+    with open(p1, "wb") as f:
+        f.write(b"data")
+
+    svc = MagicMock()
+    svc.generate_image.return_value = ([p1], None)
+
+    def _run(fn, *args, **kwargs):
+        return fn(*args)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image", side_effect=RuntimeError("insert boom")),
+    ):
+        try:
+            ImageGenerate().execute(ctx, prompt="test")
+        except RuntimeError:
+            pass
+
+    assert not os.path.exists(p1)
+
+
+def test_download_image_to_cache_rejects_non_http_schemes():
+    import pytest
+    from plugin.writer.images.images import _download_image_to_cache
+
+    with patch("urllib.request.urlopen") as mock_open:
+        for bad_url in ("file:///etc/passwd", "ftp://example.com/pic.png", "data:image/png;base64,abc"):
+            with pytest.raises(ValueError) as exc_info:
+                _download_image_to_cache(bad_url)
+            assert "Unsupported URL scheme" in str(exc_info.value)
+        mock_open.assert_not_called()
+
+
+def test_download_image_to_cache_html_body_not_cached(tmp_path, monkeypatch):
+    import pytest
+    from plugin.writer.images import images as images_mod
+    from plugin.writer.images.images import _download_image_to_cache
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    class _HtmlResp:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+            self._chunks = [b"<!DOCTYPE html><html><body>Error</body></html>"]
+
+        def read(self, _size: int = -1) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+        def __enter__(self) -> "_HtmlResp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _HtmlResp())
+
+    with pytest.raises(ValueError) as exc_info:
+        _download_image_to_cache("https://example.com/fake.png")
+    assert "Invalid Content-Type" in str(exc_info.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_schema_properties_removed():
+    gen_props = ImageGenerate.parameters["properties"]
+    assert "provider" not in gen_props
+    assert "strength" not in gen_props
+
+    del_props = ImageDelete.parameters["properties"]
+    assert "remove_frame" not in del_props
+
+
+def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported():
+    ctx = TestingFactory.create_context(doc_type="calc")
+
+    def _run(fn, *args, **kwargs):
+        return fn(*args)
+
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="calc"),
+        patch("plugin.writer.images.images.insert_image_at_locator") as mock_insert,
+    ):
+        res = ImageInsert().execute(ctx, path="/tmp/test.png", paragraph=2)
+        assert res["status"] != "ok"
+        assert res.get("code") == "UNSUPPORTED_DOC_TYPE"
+        mock_insert.assert_not_called()
+
+        res2 = ImageInsert().execute(ctx, path="/tmp/test.png", locator="heading_text:Introduction")
+        assert res2["status"] != "ok"
+        assert res2.get("code") == "UNSUPPORTED_DOC_TYPE"
+        mock_insert.assert_not_called()

@@ -114,6 +114,7 @@ class TestHamburgerMenu:
         assert "Run From Here" not in labels
         assert "Stop" not in labels
         assert "Reset Python Session" in labels
+        assert "Insert LaTeX Math..." in labels
 
     def test_writer_hamburger_with_notebook_registry_shows_run_actions(self):
         ctx = MagicMock()
