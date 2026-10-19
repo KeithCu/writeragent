@@ -794,12 +794,26 @@ def test_run_analysis_monte_carlo_dispatch():
     assert res_bad_bust["code"] == "INVALID_PARAM"
 
 
-def test_run_analysis_dispatches_helper():
-    if not _has_working_data_profiling():
-        pytest.skip("fg-data-profiling not usable on this platform")
+def test_run_analysis_dispatches_helper(monkeypatch):
+    # Tip: the real profile can crash an xdist worker (native stack); stub it so this checks dispatch only.
+    # Stub describe_data to verify run_analysis dispatch and context echo without invoking heavy profiling.
+    recorded = {}
+
+    def stub_describe(data, **kwargs):
+        recorded["data"] = data
+        recorded["kwargs"] = kwargs
+        return {"status": "ok", "helper": "describe_data"}
+
+    monkeypatch.setattr("plugin.scripting.venv.analysis.describe_data", stub_describe)
     result = analysis.run_analysis("describe_data", SALES_GRID)
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
+    assert recorded["data"] == SALES_GRID
+
+    result_ctx = analysis.run_analysis("describe_data", SALES_GRID, {"sheet_name": "Sheet1"})
+    assert result_ctx["status"] == "ok"
+    assert result_ctx["helper"] == "describe_data"
+    assert result_ctx["context"]["sheet_name"] == "Sheet1"
 
 
 def test_run_analysis_unknown_helper():
