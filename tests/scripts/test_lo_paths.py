@@ -28,6 +28,8 @@ def linux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setattr(lo_paths, "_LINUX_DIRS", (str(tmp_path / "distro" / "program"),))
     monkeypatch.setattr(lo_paths, "_LINUX_OPT_GLOB", "no-such-dir*/program")
     monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(tmp_path / "no-python3"))
+    monkeypatch.setattr(lo_paths, "_SNAP_PROGRAM_DIR", str(tmp_path / "snap" / "program"))
+    monkeypatch.setattr(lo_paths, "_LINUX_PYTHON_LIB_DIRS", (str(tmp_path / "usr_lib"), str(tmp_path / "usr_lib64")))
     return tmp_path
 
 
@@ -111,3 +113,101 @@ def test_profile_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_main_usage() -> None:
     assert lo_paths.main([]) == 2
     assert lo_paths.main(["bogus"]) == 2
+
+
+def test_linux_distro_wins_over_snap(linux: Path) -> None:
+    distro_soffice = _touch(linux / "distro" / "program" / "soffice")
+    _touch(linux / "snap" / "program" / "soffice")
+    assert lo_paths.program_dir() == distro_soffice.parent
+
+
+def test_linux_snap_found_when_distro_empty(linux: Path) -> None:
+    snap_soffice = _touch(linux / "snap" / "program" / "soffice")
+    assert lo_paths.program_dir() == snap_soffice.parent
+
+
+def test_macos_homebrew_cask(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    monkeypatch.setattr(lo_paths.Path, "home", lambda: tmp_path / "home")
+    cask_dir = tmp_path / "cask"
+    monkeypatch.setattr(lo_paths, "_DARWIN_CASK_ROOTS", (cask_dir,))
+    app = cask_dir / "libreoffice" / "LibreOffice.app"
+    soffice = _touch(app / "Contents" / "MacOS" / "soffice")
+    python = _touch(app / "Contents" / "Resources" / "python")
+    _touch(app / "Contents" / "Resources" / "uno.py")
+    if Path("/Applications/LibreOffice.app/Contents/MacOS/soffice").is_file():
+        pytest.skip("a real /Applications/LibreOffice.app takes precedence")
+    assert lo_paths.program_dir() == soffice.parent
+    assert lo_paths.find("python") == python
+    assert lo_paths.uno_link_dirs() == (app / "Contents" / "Resources", None)
+
+
+def test_uno_link_dirs_prefers_venv_minor(linux: Path) -> None:
+    target_uno = _touch(linux / "usr_lib" / "python3.13" / "site-packages" / "uno.py")
+    _touch(linux / "usr_lib" / "python3.14" / "site-packages" / "uno.py")
+    _touch(linux / "distro" / "program" / "pyuno.so")
+    _touch(linux / "distro" / "program" / "soffice")
+    uno_dir, extra = lo_paths.uno_link_dirs(venv_py=(3, 13))
+    assert uno_dir == target_uno.parent
+    assert extra == linux / "distro" / "program"
+
+
+def test_uno_link_dirs_single_other_version(linux: Path) -> None:
+    target_uno = _touch(linux / "usr_lib" / "python3.14" / "site-packages" / "uno.py")
+    uno_dir, _extra = lo_paths.uno_link_dirs(venv_py=(3, 13))
+    assert uno_dir == target_uno.parent
+
+
+def test_uno_link_dirs_multiple_versions_follow_system_python(linux: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    _touch(linux / "usr_lib" / "python3.11" / "site-packages" / "uno.py")
+    target_uno = _touch(linux / "usr_lib" / "python3.12" / "site-packages" / "uno.py")
+    sys_py = _touch(linux / "bin" / "python3")
+    monkeypatch.setattr(lo_paths, "_LINUX_SYSTEM_PYTHON", str(sys_py))
+
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess([], 0, stdout=str(target_uno))
+
+    monkeypatch.setattr(lo_paths.subprocess, "run", fake_run)
+    uno_dir, _extra = lo_paths.uno_link_dirs(venv_py=(3, 13))
+    assert uno_dir == target_uno.parent
+
+
+def test_macos_uno_link_dirs_resources_only_with_framework_pyuno(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "darwin")
+    monkeypatch.setattr(lo_paths, "_DARWIN_CASK_ROOTS", ())
+    app = tmp_path / "Applications" / "LibreOffice.app"
+    monkeypatch.setattr(lo_paths.Path, "home", lambda: tmp_path)
+    if Path("/Applications/LibreOffice.app/Contents/Resources/uno.py").is_file():
+        pytest.skip("a real /Applications/LibreOffice.app takes precedence")
+    _touch(app / "Contents" / "Resources" / "uno.py")
+    _touch(app / "Contents" / "Frameworks" / "pyuno.so")
+    _touch(app / "Contents" / "MacOS" / "soffice")
+    uno_dir, extra = lo_paths.uno_link_dirs()
+    assert uno_dir == app / "Contents" / "Resources"
+    assert extra is None
+
+
+def test_windows_uno_link_dirs_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "win32")
+    monkeypatch.setattr(lo_paths.shutil, "which", lambda _name: None)
+    prog = tmp_path / "Custom" / "program"
+    _touch(prog / "uno.py")
+    _touch(prog / "soffice.exe")
+    monkeypatch.setattr(lo_paths, "_registry_install_path", lambda: prog)
+    uno_dir, extra = lo_paths.uno_link_dirs()
+    assert uno_dir == prog
+    assert extra is None
+
+
+def test_windows_uno_link_dirs_path_soffice(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(lo_paths.sys, "platform", "win32")
+    prog = tmp_path / "Portable" / "program"
+    _touch(prog / "soffice.exe")
+    _touch(prog / "uno.py")
+    monkeypatch.setattr(lo_paths, "_registry_install_path", lambda: None)
+    monkeypatch.setattr(lo_paths.shutil, "which", lambda name: str(prog / name) if name == "soffice.exe" else None)
+    uno_dir, extra = lo_paths.uno_link_dirs()
+    assert uno_dir == prog
+    assert extra is None

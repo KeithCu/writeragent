@@ -294,7 +294,7 @@ help:
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
 	@echo "  make typecheck              ruff-for-build, then basedpyright/bandit/opengrep/pyspector/ty/thread-safety/mypy in parallel (basedpyright does not walk numpy/etc. source)"
 	@echo "  make typecheck-full         same as typecheck, but basedpyright walks library source (numpy/etc.); used by make release"
-	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run by typecheck/test)"
+	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"
 	@echo "  make fix-uno                Same as ensure-uno with verbose output"
 	@echo "  make mypy / make basedpyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
