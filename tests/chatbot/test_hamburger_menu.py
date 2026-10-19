@@ -309,3 +309,94 @@ class TestHamburgerMenu:
             assert review_cmd not in commands
 
 
+def test_mcp_status_failure_still_builds_and_executes_hamburger():
+    ctx = MagicMock()
+    smgr = MagicMock()
+    popup = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = popup
+    popup.execute.return_value = 0
+    button_ctrl = MagicMock()
+    button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+    button_ctrl.getPeer.return_value = MagicMock()
+
+    with (
+        patch("plugin.main.get_menu_text", side_effect=RuntimeError("mcp text failure")),
+        patch("plugin.main._get_menu_icon", side_effect=RuntimeError("mcp icon failure")),
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+    ):
+        show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+    inserted_labels = [call.args[1] for call in popup.insertItem.call_args_list]
+    assert "Settings" in inserted_labels
+    assert "Report bug..." in inserted_labels
+    popup.execute.assert_called_once()
+
+
+def test_static_menu_titles_match_hamburger_and_addons_xcu():
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    from plugin.main import _STATIC_MENU_TITLES
+    from plugin.librepy.sidebar_menus import _librepy_hamburger_specs
+
+    addons_path = Path(__file__).resolve().parents[2] / "extension" / "Addons.xcu"
+    tree = ET.parse(addons_path)
+    root = tree.getroot()
+    oor_name = "{http://openoffice.org/2001/registry}name"
+
+    addons_titles: dict[str, str] = {}
+    for node in root.iter("node"):
+        url_elem = None
+        title_elem = None
+        for prop in node.findall("prop"):
+            prop_name = prop.get(oor_name)
+            if prop_name == "URL":
+                val = prop.find("value")
+                if val is not None and val.text:
+                    url_elem = val.text.strip()
+            elif prop_name == "Title":
+                val = prop.find("value")
+                if val is not None and val.text:
+                    title_elem = val.text.strip()
+        if url_elem and title_elem and url_elem.startswith("org.extension.writeragent:"):
+            action = url_elem.split("org.extension.writeragent:", 1)[1]
+            addons_titles[action] = title_elem
+
+    # Static actions in hamburger_menu.py and their msgids (excluding MCP dynamic popup strings)
+    hamburger_static_items = {
+        "chatbot.extend_selection": "Extend Selection",
+        "chatbot.edit_selection": "Edit Selection",
+        "scripting.run_python_dialog": "Run Python Script...",
+        "scripting.edit_python_cell": "Edit Python in Cell...",
+        "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
+        "embeddings.search_dialog": "Search Nearby Files...",
+        "writer.insert_latex_dialog": "Insert LaTeX Math...",
+        "textanalytics.open_dialog": "Text Analytics...",
+        "main.settings": "Settings",
+        "vision.open_settings": "Vision OCR Settings...",
+        "scripting.reset_python_session": "Reset Python Session",
+        "notebook.run_all": "Run All",
+        "notebook.run_from_here": "Run From Here",
+        "notebook.stop": "Stop",
+        "main.RunFormatTests": "Run format tests",
+        "main.RunCalcTests": "Run calc tests",
+        "main.RunCalcIntegrationTests": "Run Calc API integration tests",
+        "main.RunDrawTests": "Run draw tests",
+        "main.EvaluationDashboard": "Evaluation Dashboard",
+        "main.report_bug": "Report bug...",
+    }
+
+    for action, msgid in hamburger_static_items.items():
+        assert msgid == _STATIC_MENU_TITLES[action]
+        if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
+            assert msgid == addons_titles[action]
+
+    for label, action, _icon, _when in _librepy_hamburger_specs():
+        assert label == _STATIC_MENU_TITLES[action]
+        if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
+            assert label == addons_titles[action]
+
+
+

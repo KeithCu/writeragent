@@ -80,6 +80,21 @@ def test_native_dialog_close_button_disposes_once():
     dlg.dispose.assert_called_once()
 
 
+def test_native_dialog_close_disposes_when_set_visible_raises():
+    class DisposedException(Exception):
+        pass
+
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._closed = False
+    dlg = MagicMock()
+    dlg.setVisible.side_effect = DisposedException("Peer disposed")
+    inst._dlg = dlg
+    inst.close()
+    dlg.dispose.assert_called_once()
+    assert inst._closed is True
+    assert inst._dlg is None
+
+
 def test_start_native_script_run_returns_before_venv_wait():
     """The caller schedules work; the venv IPC wait is not on this thread."""
     ctx = MagicMock()

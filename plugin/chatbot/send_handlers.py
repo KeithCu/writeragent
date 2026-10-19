@@ -548,11 +548,10 @@ class SendHandlersMixin:
         aspect_ratio_str = "Square"
         if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
             aspect_ratio_str = self.aspect_ratio_selector.getText()
-        from plugin.chatbot.settings_dialog import canonical_aspect_label
+        from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_ENUMS, canonical_aspect_label
 
         aspect_ratio_str = canonical_aspect_label(str(aspect_ratio_str or ""))
-        aspect_map = {"Square": "square", "Landscape (16:9)": "landscape_16_9", "Portrait (9:16)": "portrait_9_16", "Landscape (3:2)": "landscape_3_2", "Portrait (2:3)": "portrait_2_3"}
-        mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
+        mapped_aspect = IMAGE_ASPECT_RATIO_ENUMS.get(aspect_ratio_str, "square")
         image_model_text = ""
         if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
             image_model_text = self.image_model_selector.getText()

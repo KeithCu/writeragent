@@ -44,6 +44,14 @@ IMAGE_ASPECT_RATIO_LABELS: tuple[str, ...] = (
     N_("Portrait (2:3)"),
 )
 
+IMAGE_ASPECT_RATIO_ENUMS: dict[str, str] = {
+    "Square": "square",
+    "Landscape (16:9)": "landscape_16_9",
+    "Portrait (9:16)": "portrait_9_16",
+    "Landscape (3:2)": "landscape_3_2",
+    "Portrait (2:3)": "portrait_2_3",
+}
+
 
 def aspect_label_gettext(canonical: str) -> str:
     """Translated combo label for one English aspect string."""
@@ -69,14 +77,14 @@ def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
     current_endpoint = get_current_endpoint()
     
     field_specs = []
-    field_specs.extend(_get_core_field_specs(ctx, current_endpoint))
-    field_specs.extend(_get_image_field_specs(ctx))
+    field_specs.extend(_get_core_field_specs(current_endpoint))
+    field_specs.extend(_get_image_field_specs())
     field_specs.extend(_get_module_field_specs(ctx))
     
     return field_specs
 
 
-def _get_core_field_specs(ctx: Any, current_endpoint: str) -> list[dict[str, Any]]:
+def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
     return [
         {"name": "endpoint", "value": get_config_str("endpoint")},
         {"name": "request_timeout", "value": str(get_config_int("request_timeout")), "type": "int"},
@@ -88,7 +96,7 @@ def _get_core_field_specs(ctx: Any, current_endpoint: str) -> list[dict[str, Any
     ]
 
 
-def _get_image_field_specs(ctx: Any) -> list[dict[str, Any]]:
+def _get_image_field_specs() -> list[dict[str, Any]]:
     stored_aspect = canonical_aspect_label(get_config_str("image_default_aspect") or "Square")
     aspect_options = [
         {"label": aspect_label_gettext(label), "value": label} for label in IMAGE_ASPECT_RATIO_LABELS

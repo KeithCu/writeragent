@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 
 # Ensure project root is importable
@@ -46,6 +47,7 @@ def validate_modules(manifests, project_root=None):
     seen_names = set()
     seen_provides = set()
     known_providers = {"main"}
+    module_by_name = {m["name"]: m for m in manifests}
 
     for m in manifests:
         yp = m.get("_yaml_path", m.get("name", "unknown"))
@@ -62,9 +64,38 @@ def validate_modules(manifests, project_root=None):
 
     for m in manifests:
         yp = m.get("_yaml_path", m.get("name", "unknown"))
+        name = m["name"]
         for req in m.get("requires", []):
             if req not in known_providers:
                 raise ValueError(f"{yp}: requires: unresolved requirement {req!r}")
+
+        inline_target = m.get("config_inline")
+        if inline_target is not None:
+            if not isinstance(inline_target, str) or not inline_target.strip():
+                raise ValueError(f"{yp}: config_inline: must be a non-empty string")
+            if inline_target == name:
+                raise ValueError(f"{yp}: config_inline: cannot inline into self {inline_target!r}")
+            if inline_target not in module_by_name:
+                raise ValueError(f"{yp}: config_inline: unknown target module {inline_target!r}")
+            if module_by_name[inline_target].get("config_inline"):
+                raise ValueError(f"{yp}: config_inline: target module {inline_target!r} cannot itself set config_inline")
+
+        if "config_dialog" in m:
+            cd = m["config_dialog"]
+            if not isinstance(cd, dict):
+                raise ValueError(f"{yp}: config_dialog: must be a dict")
+            if "id" in cd:
+                cd_id = cd["id"]
+                if not isinstance(cd_id, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", cd_id):
+                    raise ValueError(f"{yp}: config_dialog.id: invalid dialog id {cd_id!r}")
+            if "buttons" in cd:
+                buttons = cd["buttons"]
+                if not isinstance(buttons, list) or len(buttons) == 0:
+                    raise ValueError(f"{yp}: config_dialog.buttons: must be a non-empty list")
+                valid_buttons = {"apply", "ok", "close"}
+                for btn in buttons:
+                    if btn not in valid_buttons:
+                        raise ValueError(f"{yp}: config_dialog.buttons: invalid button {btn!r}")
 
         for action_name, action_def in m.get("actions", {}).items():
             if isinstance(action_def, dict) and "icon" in action_def:
@@ -76,6 +107,8 @@ def validate_modules(manifests, project_root=None):
         config = m.get("config", {})
         if isinstance(config, dict):
             for fname, schema in config.items():
+                if fname in ("__module__", "btn_apply", "btn_ok", "btn_close") or fname.startswith(("btn_tab_", "hlp_")):
+                    raise ValueError(f"{yp}: config.{fname}: reserved config key name {fname!r}")
                 if not isinstance(schema, dict):
                     continue
                 widget = schema.get("widget", "text")

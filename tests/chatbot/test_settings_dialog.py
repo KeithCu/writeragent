@@ -36,6 +36,15 @@ def test_image_default_aspect_has_sidebar_matching_options():
     )
 
 
+def test_image_aspect_ratio_enums_match_labels_and_canonical_ratio():
+    from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_ENUMS, IMAGE_ASPECT_RATIO_LABELS
+    from plugin.framework.client.base_provider_shim import canonical_aspect_ratio
+
+    assert tuple(IMAGE_ASPECT_RATIO_ENUMS.keys()) == IMAGE_ASPECT_RATIO_LABELS
+    for label, enum in IMAGE_ASPECT_RATIO_ENUMS.items():
+        assert canonical_aspect_ratio(named=label) == canonical_aspect_ratio(named=enum)
+
+
 def test_image_aspect_display_is_translated_value_stays_english():
     """Combo shows gettext labels; Apply stores the English id when it changed.
 
@@ -98,7 +107,7 @@ def test_core_field_specs_omit_stt_model():
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
     ):
-        specs = _get_core_field_specs(MagicMock(), "https://openrouter.ai/api")
+        specs = _get_core_field_specs("https://openrouter.ai/api")
     names = {spec["name"] for spec in specs}
     assert "stt_model" not in names
     assert "audio__stt_model" not in names

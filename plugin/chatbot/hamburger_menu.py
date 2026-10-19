@@ -116,11 +116,11 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         from plugin.main import _get_menu_icon, _tests_bundled, get_menu_text
 
-        mcp_toggle_text = get_menu_text("mcp.toggle_server") or _("Toggle MCP Server")
+        mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
         add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
         pos += 1
 
-        mcp_running = _get_menu_icon("mcp.server_status") == "running"
+        mcp_running = best_effort(lambda: _get_menu_icon("mcp.server_status"), "mcp status menu icon") == "running"
         mcp_status_icon = menu_icon_filename(
             "running" if mcp_running else "stopped", ctx=ctx
         )

@@ -2193,6 +2193,67 @@ def test_settings_cleanup_does_not_swallow_remove_failure():
     dlg.dispose.assert_not_called()
 
 
+def test_settings_cleanup_disposed_control_still_detaches_others_and_disposes():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    dialog = SettingsDialog(ctx)
+    dlg = MagicMock()
+    other_ctrl = MagicMock()
+
+    def get_control(name: str) -> MagicMock:
+        if name == "scripting__test_venv":
+            raise DisposedException("Control already disposed")
+        if name == "doc__grammar_proofreader_recheck":
+            return other_ctrl
+        return MagicMock()
+
+    dlg.getControl.side_effect = get_control
+    dialog._dlg = dlg
+    dialog._scripting_venv_test_listener = MagicMock()
+    listener = MagicMock()
+    dialog._grammar_recheck_listener = listener
+
+    with patch("plugin.chatbot.dialog_views.clear_active_settings_dialog") as mock_clear:
+        dialog._cleanup()
+
+    other_ctrl.removeActionListener.assert_called_once_with(listener)
+    assert dialog._grammar_recheck_listener is None
+    mock_clear.assert_called_once_with(dlg)
+    dlg.dispose.assert_called_once()
+
+
+def test_settings_show_preserves_original_exception_when_cleanup_hits_disposed_control():
+    class DisposedException(Exception):
+        pass
+
+    class UncaughtFatalError(BaseException):
+        pass
+
+    dlg = MagicMock()
+    dlg.getControl.side_effect = DisposedException("Disposed during cleanup")
+
+    ctx = MagicMock()
+    view = SettingsDialog(ctx)
+
+    with (
+        patch.object(view, "_create_dialog"),
+        patch.object(view, "_setup_tabs"),
+        patch.object(view, "_populate_fields", side_effect=UncaughtFatalError("fatal")),
+        patch("plugin.chatbot.dialog_views.set_active_settings_dialog"),
+        patch("plugin.chatbot.dialog_views.clear_active_settings_dialog"),
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
+        patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
+    ):
+        view._dlg = dlg
+        with pytest.raises(UncaughtFatalError, match="fatal"):
+            view.show()
+
+    dlg.dispose.assert_called_once()
+
+
+
 def test_setup_module_tabs_missing_manifest_is_quiet():
     dlg = MagicMock()
     with patch.dict("sys.modules", {"plugin._manifest": None}):

@@ -214,13 +214,7 @@ class ModuleConfigDialog:
             value = read_settings_control(ctrl, field)
             if value is None:
                 continue
-            # Helper returns bool. This dialog used to persist "true"/"false"
-            # strings (LibrePy does the same wrap). WriterAgent Settings keeps
-            # the bool.
-            if isinstance(value, bool):
-                result[name] = "true" if value else "false"
-            else:
-                result[name] = value
+            result[name] = value
         return result
 
     def _apply(self, *, close: bool) -> None:

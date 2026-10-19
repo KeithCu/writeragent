@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort
+from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, is_disposed_exception
 from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url
 from plugin.framework.i18n import N_, _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
@@ -579,19 +579,29 @@ class SettingsDialog:
         ``get_optional`` is None when that id is not in the XDL. ``remove*Listener``
         on a live control does not raise.
         """
-        ctrl = get_optional(self._dlg, name)
-        # The TTS model control may still use the legacy id.
-        if ctrl is None and name == "audio__tts_model":
-            ctrl = get_optional(self._dlg, "tts_model")
-        if ctrl is None:
-            return
-        getattr(ctrl, method)(listener)
+        try:
+            ctrl = get_optional(self._dlg, name)
+            # The TTS model control may still use the legacy id.
+            if ctrl is None and name == "audio__tts_model":
+                ctrl = get_optional(self._dlg, "tts_model")
+            if ctrl is None:
+                return
+            getattr(ctrl, method)(listener)
+        except Exception as e:
+            if is_disposed_exception(e):
+                return
+            raise
 
     def _cleanup(self) -> None:
+        # A disposed control used to escape this finally and replace the error show() was handling.
         if self._api_key_listener:
             self._detach("api_key", "removeTextListener", self._api_key_listener)
         if self._endpoint_listener:
-            self._endpoint_listener.close()
+            try:
+                self._endpoint_listener.close()
+            except Exception as e:
+                if not is_disposed_exception(e):
+                    raise
         if self._dlg is not None:
             # Null only after every row for that attr. _tts_listener has four rows;
             # clearing it on the first row would skip the model control.
@@ -607,7 +617,11 @@ class SettingsDialog:
                 setattr(self, attr, None)
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
-            self._dlg.dispose()
+            try:
+                self._dlg.dispose()
+            except Exception as e:
+                if not is_disposed_exception(e):
+                    raise
 
 
 def settings_box(ctx: Any, **kwargs: Any) -> Any:

@@ -314,8 +314,15 @@ class NativePythonScriptDialog:
                 log.debug("native script dialog: hide after windowClosing failed", exc_info=True)
             return
         log.debug("native script dialog: close dispose")
-        dlg.setVisible(False)
-        dlg.dispose()
+        # Guard hide and dispose so a dead peer does not skip dispose and leak the click handler.
+        try:
+            dlg.setVisible(False)
+        except Exception:
+            log.debug("native script dialog: hide before dispose failed", exc_info=True)
+        try:
+            dlg.dispose()
+        except Exception:
+            log.debug("native script dialog: dispose failed", exc_info=True)
 
     def _refresh_script_dropdown(self, select_display: str | None = None) -> None:
         select_ctrl = self._select_ctrl

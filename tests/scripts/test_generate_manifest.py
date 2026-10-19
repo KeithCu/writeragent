@@ -184,6 +184,85 @@ def test_validation_missing_icon(tmp_path):
         validate_modules(modules, project_root=str(tmp_path))
 
 
+def test_validation_config_inline_empty_or_non_string():
+    modules = [
+        {"name": "a", "config_inline": "", "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_inline: must be a non-empty string"):
+        validate_modules(modules)
+
+
+def test_validation_config_inline_self():
+    modules = [
+        {"name": "a", "config_inline": "a", "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_inline: cannot inline into self 'a'"):
+        validate_modules(modules)
+
+
+def test_validation_config_inline_unknown_target():
+    modules = [
+        {"name": "a", "config_inline": "missing", "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_inline: unknown target module 'missing'"):
+        validate_modules(modules)
+
+
+def test_validation_config_inline_chained_target():
+    modules = [
+        {"name": "a", "config_inline": "b", "_yaml_path": "a/module.yaml"},
+        {"name": "b", "config_inline": "c", "_yaml_path": "b/module.yaml"},
+        {"name": "c", "_yaml_path": "c/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_inline: target module 'b' cannot itself set config_inline"):
+        validate_modules(modules)
+
+
+def test_validation_config_dialog_not_dict():
+    modules = [
+        {"name": "a", "config_dialog": "invalid", "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_dialog: must be a dict"):
+        validate_modules(modules)
+
+
+def test_validation_config_dialog_invalid_id():
+    modules = [
+        {"name": "a", "config_dialog": {"id": "123Bad-Id"}, "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match=r"a/module.yaml: config_dialog.id: invalid dialog id '123Bad-Id'"):
+        validate_modules(modules)
+
+
+def test_validation_config_dialog_empty_buttons():
+    modules = [
+        {"name": "a", "config_dialog": {"buttons": []}, "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_dialog.buttons: must be a non-empty list"):
+        validate_modules(modules)
+
+
+def test_validation_config_dialog_invalid_button():
+    modules = [
+        {"name": "a", "config_dialog": {"buttons": ["apply", "reset"]}, "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match="a/module.yaml: config_dialog.buttons: invalid button 'reset'"):
+        validate_modules(modules)
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    ["__module__", "btn_apply", "btn_ok", "btn_close", "btn_tab_general", "hlp_tip"],
+)
+def test_validation_reserved_config_key_name(bad_key):
+    modules = [
+        {"name": "a", "config": {bad_key: {"type": "string"}}, "_yaml_path": "a/module.yaml"},
+    ]
+    with pytest.raises(ValueError, match=rf"a/module.yaml: config\.{bad_key}: reserved config key name '{bad_key}'"):
+        validate_modules(modules)
+
+
+
 def test_topo_sort_cycle_fails():
     modules = [
         {"name": "a", "requires": ["b"]},

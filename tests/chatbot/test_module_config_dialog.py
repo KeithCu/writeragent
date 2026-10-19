@@ -159,6 +159,56 @@ def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
     assert result == {"count": 42}
 
 
+def test_extract_result_checkbox_bool_skips_write_when_already_true():
+    """A checkbox spec read as True is passed to apply_field_specs_result as True, and unchanged True does not write."""
+    from plugin.chatbot.settings_fields import changed_config_values
+
+    manifest = {
+        "name": "demo",
+        "config": {
+            "enabled": {"type": "bool", "default": True, "widget": "checkbox"},
+        },
+    }
+
+    class _Checkbox:
+        def supportsService(self, name: str) -> bool:
+            return name == "com.sun.star.awt.UnoControlCheckBox"
+
+        def getState(self) -> int:
+            return 1
+
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: _Checkbox() if name == "enabled" else None
+    dialog = ModuleConfigDialog(MagicMock(), "demo")
+    dialog._dlg = dlg
+
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", return_value=True):
+        result = dialog._extract_result()
+
+    assert result == {"enabled": True}
+    assert result["enabled"] is True
+
+    # Assert changed_config_values does not write when stored value is already True
+    assert changed_config_values({"demo.enabled": True}, lambda _k: True) == {}
+
+    # Verify through apply_module_config_result
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
+         patch("plugin.chatbot.settings_fields.apply_field_specs_result") as mock_apply, \
+         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
+        apply_module_config_result(MagicMock(), "demo", result)
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args[0][1] == {"enabled": True}
+        assert mock_apply.call_args[0][1]["enabled"] is True
+
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
+         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
+        apply_module_config_result(MagicMock(), "demo", result)
+        mock_set_configs.assert_not_called()
+
+
 def test_tab_buttons_follow_element_order_and_skip_other_controls():
     from plugin.chatbot.module_config_dialog import _tab_buttons_in_order
 
