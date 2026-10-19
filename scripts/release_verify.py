@@ -49,6 +49,8 @@ DESELECTED_K = (
     "test_execute_python_addin_from_background_thread",
     # --strip drops log.debug calls, so this caplog check sees nothing.
     "test_best_effort_logs_and_swallows_everything",
+    # Same: its DEBUG half expects a stripped log.debug payload.
+    "test_styling_logging_counts_not_payloads",
 )
 
 
