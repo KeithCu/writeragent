@@ -1554,6 +1554,14 @@ class TestFormulaHttpEndpoint:
         assert body.get("result") == 56
 
     def test_http_timeout_is_200_error_then_next_ok(self, formula_server: str) -> None:
+        # Tip: warm a worker first. A cold spawn on a slow Windows runner can use up the
+        # 1.5 s budget before the code runs, which is a 503 QUEUE_TIMEOUT, not this case.
+        warm_status, _warm = self._post(
+            formula_server,
+            {"id": "warm", "code": "result = 0"},
+            headers={"Authorization": "Bearer formula-secret"},
+        )
+        assert warm_status == 200
         status, body = self._post(
             formula_server,
             {
@@ -1563,7 +1571,7 @@ class TestFormulaHttpEndpoint:
             },
             headers={"Authorization": "Bearer formula-secret"},
         )
-        assert status == 200
+        assert status == 200, body
         assert body.get("status") == "error"
         status2, body2 = self._post(
             formula_server,
