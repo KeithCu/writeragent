@@ -633,19 +633,15 @@ class BookmarkDelete(ToolWriterBookmarkBase):
         if not bookmarks.hasByName(name):
             return self._tool_error(f"Bookmark '{name}' not found.")
 
-        bm = bookmarks.getByName(name)
+        # doc.getText() removes bookmarks anchored in the body, headers, tables and frames
+        # alike, and needs no working anchor (checked live on LO 25.2).
         try:
-            anchor = bm.getAnchor()
-            text = anchor.getText()
-            text.removeTextContent(bm)
+            doc.getText().removeTextContent(bookmarks.getByName(name))
         except Exception as exc:
             reraise_if_disposed(exc)
-            log.warning("Bookmark '%s' anchor failed during delete: %s", name, exc)
-            # The name stays in getBookmarks(). A dead anchor has no text for removeTextContent.
-            return self._tool_error(
-                "Bookmark '%s' is still registered, but it has no anchor text, so it cannot be deleted." % name,
-                stale=True,
-            )
+            if bookmarks.hasByName(name):
+                raise
+            return {"status": "ok", "message": f"Bookmark '{name}' was already removed."}
 
         return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
 

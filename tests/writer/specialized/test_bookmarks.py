@@ -80,10 +80,8 @@ def test_delete_bookmark(mock_ctx):
 
     mock_bm = MagicMock()
     mock_bookmarks.getByName.return_value = mock_bm
-    mock_anchor = MagicMock()
-    mock_bm.getAnchor.return_value = mock_anchor
     mock_text = MagicMock()
-    mock_anchor.getText.return_value = mock_text
+    doc.getText.return_value = mock_text
 
     tool = BookmarkDelete()
     res = tool.execute(mock_ctx, name="ToDelete")
@@ -630,9 +628,6 @@ def test_bookmark_delete_rejects_mcp_names():
 
     # User bookmark deletes successfully
     user_bm = MagicMock()
-    user_anchor = MagicMock()
-    user_anchor.getText.return_value = text
-    user_bm.getAnchor.return_value = user_anchor
     bookmarks.hasByName.return_value = True
     bookmarks.getByName.return_value = user_bm
 
@@ -664,13 +659,11 @@ def test_bookmark_get_and_delete_dead_anchor_and_disposal():
     assert get_res["status"] == "error"
     assert get_res.get("details", {}).get("stale") is True or get_res.get("stale") is True
 
-    # delete with dead anchor returns structured error with stale: True
+    # delete never needs the anchor: it goes through doc.getText()
     del_res = BookmarkDelete().execute(ctx, name="target")
-    assert del_res["status"] == "error"
-    assert del_res.get("details", {}).get("stale") is True or del_res.get("stale") is True
-    assert "still registered" in del_res["message"]
-    assert "cannot be deleted" in del_res["message"]
-    text.removeTextContent.assert_not_called()
+    assert del_res["status"] == "ok"
+    assert "deleted" in del_res["message"]
+    text.removeTextContent.assert_called_once_with(bad_bm)
 
     # Disposal propagates
     disposed_bm = MagicMock()
@@ -680,8 +673,33 @@ def test_bookmark_get_and_delete_dead_anchor_and_disposal():
     with pytest.raises(DocumentDisposedError):
         BookmarkGet().execute(ctx, name="target")
 
+    text.removeTextContent.side_effect = DocumentDisposedError("document closed")
     with pytest.raises(DocumentDisposedError):
         BookmarkDelete().execute(ctx, name="target")
+
+
+def test_bookmark_delete_already_removed_returns_ok():
+    """removeTextContent fails because the bookmark vanished (stale ref / race): report ok."""
+    doc = MagicMock()
+    bookmarks = MagicMock()
+    doc.getBookmarks.return_value = bookmarks
+    bookmarks.hasByName.side_effect = [True, False]
+    doc.getText.return_value.removeTextContent.side_effect = RuntimeError("gone")
+
+    res = BookmarkDelete().execute(MagicMock(doc=doc), name="target")
+    assert res["status"] == "ok"
+    assert "already removed" in res["message"]
+
+
+def test_bookmark_delete_failure_while_still_registered_raises():
+    doc = MagicMock()
+    bookmarks = MagicMock()
+    doc.getBookmarks.return_value = bookmarks
+    bookmarks.hasByName.return_value = True
+    doc.getText.return_value.removeTextContent.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        BookmarkDelete().execute(MagicMock(doc=doc), name="target")
 
 
 def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatch):

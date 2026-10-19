@@ -6,7 +6,9 @@ import uno
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.specialized.bookmarks import BookmarkService
+from types import SimpleNamespace
+
+from plugin.writer.specialized.bookmarks import BookmarkDelete, BookmarkService
 
 
 def _setup_headings(doc):
@@ -228,3 +230,49 @@ def test_save_a_copy_keeps_original_modified(ctx, doc):
             os.remove(path)
         except OSError:
             pass
+
+
+def _add_bookmark(doc, text, name):
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(True)
+    bm = doc.createInstance("com.sun.star.text.Bookmark")
+    bm.Name = name
+    text.insertTextContent(cursor, bm, True)
+    return bm
+
+
+@native_test
+@with_native_doc("writer")
+def test_bookmark_delete_header_table_and_collapsed(ctx, doc):
+    body = doc.getText()
+    body.setString("Body TARGET text")
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.HeaderIsOn = True
+    style.HeaderText.setString("head word")
+    _add_bookmark(doc, style.HeaderText, "in_header")
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(2, 2)
+    body.insertTextContent(body.getEnd(), table, False)
+    cell = table.getCellByName("A1")
+    cell.setString("cell word")
+    _add_bookmark(doc, cell, "in_table")
+    search = doc.createSearchDescriptor()
+    search.SearchString = "TARGET"
+    found = doc.findFirst(search)
+    bm = doc.createInstance("com.sun.star.text.Bookmark")
+    bm.Name = "collapsed"
+    body.insertTextContent(found, bm, True)
+    doc.findFirst(search).setString("")  # anchor text gone, name stays (collapsed anchor)
+    assert doc.getBookmarks().hasByName("collapsed")
+
+    tool_ctx = SimpleNamespace(doc=doc)
+    for name in ("in_header", "in_table", "collapsed"):
+        res = BookmarkDelete().execute(tool_ctx, name=name)
+        assert res["status"] == "ok", res
+        assert not doc.getBookmarks().hasByName(name)
+    assert body.getString().startswith("Body  text")
+    assert style.HeaderText.getString() == "head word"
+    assert cell.getString() == "cell word"
+
+    doc.getUndoManager().undo()
+    assert doc.getBookmarks().hasByName("collapsed")
