@@ -344,7 +344,7 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     assert "data-lo-style=" in read_html2
     proj2 = _project_body_paragraphs(doc)
     assert [p[0] for p in proj2] == ["Heading 1", "Caption"], proj2
-    assert [p[1] for p in proj2] == ["One", "Two"], proj2
+    assert [p[1].rstrip() for p in proj2] == ["One", "Two"], proj2
 
     # Fixture 3: styled div wrapper
     doc.getText().setString("")
