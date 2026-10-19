@@ -316,9 +316,13 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     assert [p[2] for p in proj1_re] == [p[2] for p in proj1], (
         f"proj1_re={proj1_re} != proj1={proj1}"
     )
+    def _norm_live_text(s: str) -> str:
+        # LO list re-import prefixes • and often suffixes nbsp.
+        return s.strip("• \t\u00a0")
+
     for ((s0, t0, _r0), (s1, t1, _r1)) in zip(proj1, proj1_re, strict=True):
-        text0 = t0.lstrip("• \t\u00a0")
-        text1 = t1.lstrip("• \t\u00a0")
+        text0 = _norm_live_text(t0)
+        text1 = _norm_live_text(t1)
         assert text0 == text1, f"proj1_re={proj1_re} != proj1={proj1}"
         if text0 in ("a", "b") and s0 == "Standard":
             assert s1 in ("Standard", "Text body"), f"list style {s1!r} for {text1!r}"
