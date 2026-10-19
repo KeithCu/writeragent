@@ -66,9 +66,21 @@ def test_state_from_json_corrupt_returns_none():
     assert state_from_json("{'version': 1, 'code_cells': []}") is None
 
 
-def test_state_from_json_missing_required_cell_field_returns_none():
+def test_state_from_json_skips_bad_cell_keeps_valid():
+    valid_cell = new_code_cell_entry(0, 1, "nb_cell_0_code")
+    bad_cell = {"index": 1, "code_field_name": "nb_cell_1_code"}  # missing cell_id
+    raw = json.dumps({"version": 1, "code_cells": [bad_cell, valid_cell.to_dict()]})
+    restored = state_from_json(raw)
+    assert restored is not None
+    assert len(restored.code_cells) == 1
+    assert restored.code_cells[0].cell_id == valid_cell.cell_id
+
+
+def test_state_from_json_all_bad_cells_returns_empty_code_cells():
     raw = json.dumps({"version": 1, "code_cells": [{"index": 0}]})
-    assert state_from_json(raw) is None
+    restored = state_from_json(raw)
+    assert restored is not None
+    assert len(restored.code_cells) == 0
 
 
 def test_load_save_registry_on_mock_doc(monkeypatch):
@@ -138,6 +150,7 @@ def test_notebook_code_cell_from_dict():
         "last_run_status": "ok",
     }
     cell = NotebookCodeCell.from_dict(d)
+    assert cell is not None
     assert cell.last_run_status == "ok"
     assert cell.execution_count == 3
 

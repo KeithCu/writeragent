@@ -798,3 +798,128 @@ def test_container_on_disposing_removes_pair_and_leaves_second_container():
     assert len(notebook_controls._listener_refs) == 2
     assert len(form_run_listeners(doc)) == 1
 
+
+def test_wire_all_continues_when_one_control_get_model_raises():
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-broken-control"
+
+    bad_control = MagicMock()
+    bad_control.getModel.side_effect = Exception("disposed control")
+
+    good_btn_model = MagicMock()
+    good_btn_model.Name = "nb_run_abcdef0123456789abcdef0123456789"
+    good_control = MagicMock()
+    good_control.getModel.return_value = good_btn_model
+    good_control.queryInterface.return_value = good_control
+
+    container = MagicMock()
+    container.getControls.return_value = [bad_control, good_control]
+
+    state = MagicMock()
+    state.code_cells = [MagicMock()]
+
+    with (
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+    ):
+        result = wire_all_notebook_run_buttons(ctx, doc)
+
+    assert result == 1
+    good_control.addActionListener.assert_called_once()
+
+
+def test_container_listener_element_removed_drops_name():
+    ctx = MagicMock()
+    doc = MagicMock()
+    form_listener = NotebookFormRunListener(ctx, doc)
+    container = MagicMock()
+    lis = NotebookFormContainerListener(form_listener, container)
+
+    name = "nb_run_0123456789abcdef0123456789abcdef"
+    ctrl1_model = MagicMock()
+    ctrl1_model.Name = name
+    ctrl1 = MagicMock()
+    ctrl1.getModel.return_value = ctrl1_model
+    ctrl1.queryInterface.return_value = ctrl1
+
+    # Initial insert adds listener and records name
+    ev1 = MagicMock()
+    ev1.Element = ctrl1
+    lis.on_element_inserted(ev1)
+    assert name in form_listener._attached_names
+    assert ctrl1.addActionListener.call_count == 1
+
+    # Insert again with same name is a no-op
+    lis.on_element_inserted(ev1)
+    assert ctrl1.addActionListener.call_count == 1
+
+    # Removed drops name from _attached_names
+    ev_rem = MagicMock()
+    ev_rem.Element = ctrl1
+    lis.on_element_removed(ev_rem)
+    assert name not in form_listener._attached_names
+
+    # Insert new control with that name calls addActionListener again
+    ctrl2 = MagicMock()
+    ctrl2.getModel.return_value = ctrl1_model
+    ctrl2.queryInterface.return_value = ctrl2
+    ev2 = MagicMock()
+    ev2.Element = ctrl2
+    lis.on_element_inserted(ev2)
+    assert name in form_listener._attached_names
+    assert ctrl2.addActionListener.call_count == 1
+
+
+def test_container_listener_element_replaced_drops_old_and_attaches_new():
+    ctx = MagicMock()
+    doc = MagicMock()
+    form_listener = NotebookFormRunListener(ctx, doc)
+    container = MagicMock()
+    lis = NotebookFormContainerListener(form_listener, container)
+
+    old_name = "nb_run_11111111111111111111111111111111"
+    new_name = "nb_run_22222222222222222222222222222222"
+
+    old_ctrl_model = MagicMock()
+    old_ctrl_model.Name = old_name
+    old_ctrl = MagicMock()
+    old_ctrl.getModel.return_value = old_ctrl_model
+
+    new_ctrl_model = MagicMock()
+    new_ctrl_model.Name = new_name
+    new_ctrl = MagicMock()
+    new_ctrl.getModel.return_value = new_ctrl_model
+    new_ctrl.queryInterface.return_value = new_ctrl
+
+    # Pretend old control was already attached
+    form_listener._attached_names.add(old_name)
+
+    ev = MagicMock()
+    ev.ReplacedElement = old_ctrl
+    ev.Element = new_ctrl
+
+    lis.on_element_replaced(ev)
+    assert old_name not in form_listener._attached_names
+    assert new_name in form_listener._attached_names
+    new_ctrl.addActionListener.assert_called_once()
+
+
+def test_doc_event_skips_non_writer_doc():
+    ctx = MagicMock()
+    notebook_controls._install_doc_event_listener(ctx)
+    lis = notebook_controls._doc_listener
+    assert lis is not None
+
+    non_writer_doc = MagicMock()
+    non_writer_doc.supportsService.return_value = False
+
+    event = MagicMock()
+    event.EventName = "OnViewCreated"
+    event.ViewController.getModel.return_value = non_writer_doc
+
+    with patch("plugin.notebook.notebook_controls.load_registry") as mock_load:
+        lis.on_document_event(event)
+        mock_load.assert_not_called()
+

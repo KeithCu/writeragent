@@ -292,7 +292,7 @@ g_ImplementationHelper.addImplementation(
 
 | Module | Location | Purpose |
 |--------|----------|---------|
-| `cell_registry.py` | [`plugin/notebook/cell_registry.py`](../../plugin/notebook/cell_registry.py) | Document registry serialization, cell UUIDs, bookmarks, execution counter, prompt formatting |
+| `cell_registry.py` | [`plugin/notebook/cell_registry.py`](../../plugin/notebook/cell_registry.py) | Document registry serialization, cell UUIDs, bookmarks, execution counter, prompt formatting; one bad cell is skipped and logged; unknown version yields no registry |
 | `writer_importer.py` | [`plugin/notebook/writer_importer.py`](../../plugin/notebook/writer_importer.py) | Core import loop, nbformat processing, Writer DOM insertion |
 | `import_filter.py` | [`plugin/notebook/import_filter.py`](../../plugin/notebook/import_filter.py) | Native File Open XFilter+XImporter (no FilePicker / no completion msgbox) |
 | `notebook_controls.py` | [`plugin/notebook/notebook_controls.py`](../../plugin/notebook/notebook_controls.py) | Form control creation, layout sizing/styling, ▶ button wiring, and PyUNO listener management |

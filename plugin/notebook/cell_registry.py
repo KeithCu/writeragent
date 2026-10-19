@@ -96,7 +96,13 @@ class NotebookDocState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookDocState:
         cells_raw = data.get("code_cells") or []
-        cells = [NotebookCodeCell.from_dict(c) for c in cells_raw if isinstance(c, dict)]
+        cells: list[NotebookCodeCell] = []
+        for c in cells_raw if isinstance(cells_raw, list) else []:
+            # Tip: skip one bad cell instead of dropping the whole notebook registry.
+            try:
+                cells.append(NotebookCodeCell.from_dict(c))
+            except (KeyError, TypeError, ValueError, AttributeError):
+                log.warning("notebook registry: skipped invalid cell %r", c)
         next_ec = data.get("next_execution_count")
         if next_ec is None:
             max_ec = 0

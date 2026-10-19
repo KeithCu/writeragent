@@ -725,6 +725,23 @@ class NotebookFormContainerListener(BaseContainerListener):
         elem = getattr(Event, "Element", None)
         _attach_action_listener(elem, self._form_listener)
 
+    def on_element_removed(self, Event: Any) -> None:
+        elem = getattr(Event, "Element", None)
+        if elem is None:
+            return
+        name = best_effort(lambda: _control_name(elem), "notebook controls: failed to read removed control name")
+        if name:
+            self._form_listener._attached_names.discard(name)
+
+    def on_element_replaced(self, Event: Any) -> None:
+        old_elem = getattr(Event, "ReplacedElement", None)
+        if old_elem is not None:
+            old_name = best_effort(lambda: _control_name(old_elem), "notebook controls: failed to read replaced control name")
+            if old_name:
+                self._form_listener._attached_names.discard(old_name)
+        new_elem = getattr(Event, "Element", None)
+        _attach_action_listener(new_elem, self._form_listener)
+
     def on_disposing(self, Source: Any) -> None:
         global _listener_refs
         with _lock:
@@ -735,13 +752,15 @@ class NotebookFormContainerListener(BaseContainerListener):
 def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> bool:
     if control is None:
         return False
-    name = _control_name(control)
-    hex_id = _hex_id_from_control_name(name)
-    if not hex_id:
-        return False
-    if name in listener._attached_names:
-        return True
+
     def _attach() -> bool:
+        # Tip: read name inside best_effort so a disposed control does not abort wiring the remaining controls.
+        name = _control_name(control)
+        hex_id = _hex_id_from_control_name(name)
+        if not hex_id:
+            return False
+        if name in listener._attached_names:
+            return True
         btn = _query_interface(control, "com.sun.star.awt.XButton")
         if btn is not None:
             btn.addActionListener(listener)
@@ -752,7 +771,7 @@ def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> 
         listener._attached_names.add(name)
         return True
 
-    return best_effort(_attach, f"notebook controls: form attach failed for {name}") is True
+    return best_effort(_attach, "notebook controls: form attach failed") is True
 
 
 def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
@@ -968,6 +987,12 @@ def _install_doc_event_listener(ctx: Any) -> None:
                         return
 
                     if doc is not None:
+                        is_text_doc = uno_probe(
+                            lambda: bool(doc.supportsService("com.sun.star.text.TextDocument")),
+                            True,
+                        )
+                        if not is_text_doc:
+                            return
                         # Tip: File Open wires inside XFilter.filter() before the form controller
                         # exists, so this is the retry. These events fire again after a wire
                         # (load completion, Save As); wire_all must stay idempotent or one ▶ click
