@@ -574,6 +574,7 @@ def test_find_occurrence_range_repeated_text_and_past_end():
     # occurrence 0
     res0 = find_occurrence_range(doc, "hit", occurrence=0)
     assert res0 is first
+    doc.findNext.assert_not_called()
 
     # occurrence 1
     doc.findFirst.return_value = first
@@ -586,6 +587,43 @@ def test_find_occurrence_range_repeated_text_and_past_end():
     doc.findNext.side_effect = [second, None]
     with pytest.raises(IndexError, match=r"occurrence 5 out of range \(found 2 match\(es\), use 0\.\.1\)\."):
         find_occurrence_range(doc, "hit", occurrence=5)
+
+
+def test_find_occurrence_range_case_sensitive_order():
+    from plugin.writer.search import find_occurrence_range
+
+    doc = MagicMock()
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    insensitive_hit = MagicMock()
+    insensitive_hit.getString.return_value = "hit"
+
+    # Finds case-insensitive-only hit when sensitive pass has no hits
+    def find_first_mock(desc):
+        if desc.SearchCaseSensitive is True:
+            return None
+        return insensitive_hit
+
+    doc.findFirst.side_effect = find_first_mock
+    res = find_occurrence_range(doc, "hit", occurrence=0, case_sensitive_order=(True, False))
+    assert res is insensitive_hit
+
+    # Does not fall through to insensitive pass when sensitive pass found fewer hits than requested
+    doc.reset_mock()
+    doc.createSearchDescriptor.return_value = sd
+    sensitive_hit = MagicMock()
+    sensitive_hit.getString.return_value = "hit"
+
+    def find_first_sensitive(desc):
+        if desc.SearchCaseSensitive is True:
+            return sensitive_hit
+        raise AssertionError("Should not fall through to case-insensitive pass")
+
+    doc.findFirst.side_effect = find_first_sensitive
+    doc.findNext.return_value = None  # Only 1 sensitive hit found
+    with pytest.raises(IndexError, match=r"occurrence 2 out of range"):
+        find_occurrence_range(doc, "hit", occurrence=2, case_sensitive_order=(True, False))
 
 
 def test_find_occurrence_range_case_sensitive_flags():

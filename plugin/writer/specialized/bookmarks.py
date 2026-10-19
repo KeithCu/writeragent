@@ -658,7 +658,7 @@ class BookmarkRename(ToolWriterBookmarkBase):
 
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
-        if new_name.startswith("_mcp_"):
+        if old_name.startswith("_mcp_") or new_name.startswith("_mcp_"):
             return self._tool_error("Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them.")
 
         bookmarks = doc.getBookmarks()

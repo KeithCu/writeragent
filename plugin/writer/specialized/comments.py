@@ -20,7 +20,7 @@ import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 import uno
 
 from plugin.framework.tool import ToolBase
@@ -62,17 +62,20 @@ class CommentList(ToolWriterCommentBase):
         label_cache: dict[int, str] = {}
 
         comments = []
+        af = (author_filter or "").lower() if author_filter else None
         for field in _iter_annotations(doc):
+            if af is not None:
+                try:
+                    field_author = field.getPropertyValue("Author") or ""
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    field_author = ""
+                if af not in field_author.lower():
+                    continue
+
             entry = _read_annotation(
                 field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
             )
-
-            if author_filter:
-                af = (author_filter or "").lower()
-                author_val = (entry.get("author") or "").lower()
-                if af not in author_val:
-                    continue
-
             comments.append(entry)
 
         result = {"status": "ok", "comments": comments, "count": len(comments)}
@@ -136,16 +139,23 @@ class AddComment(ToolBase):
 
         doc = ctx.doc
 
-        from ..search import find_all_ranges, normalize_search_string_for_find
+        from ..search import find_occurrence_range
 
-        search_for = normalize_search_string_for_find(search_text)
-        matches = find_all_ranges(doc, search_for)
+        try:
+            found = find_occurrence_range(
+                doc,
+                search_text,
+                occurrence=occurrence,
+                case_sensitive_order=(True, False),
+            )
+        except IndexError:
+            found = None
+
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
-        if occurrence >= len(matches):
+        if found is None:
             where = (" at occurrence %d" % occurrence) if occurrence else ""
             return {"status": "error", "message": "Text '%s' not found%s." % (search_text, where), "matched": False, "comment_added": False}
-        found = matches[occurrence]
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
@@ -268,11 +278,40 @@ class CommentDelete(ToolWriterCommentBase):
                     "message": "No comment matched %s. Call comment_list to see the current names and authors." % what,
                     "deleted": 0}
 
-        for field in to_delete:
-            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
-            field.getAnchor().getText().removeTextContent(field)
+        from ..edit_review import next_agent_edit_undo_title
+        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
-        return {"status": "ok", "deleted": len(to_delete)}
+        undo_title = next_agent_edit_undo_title()
+        deleted_count = 0
+
+        def mutate() -> dict[str, Any] | None:
+            nonlocal deleted_count
+            for field in to_delete:
+                # The body XText does not own an annotation anchored in a cell or frame.
+                field.getAnchor().getText().removeTextContent(field)
+                deleted_count += 1
+            return None
+
+        try:
+            error = commit_or_rollback(doc, undo_title, mutate)
+            if error is not None:
+                return error
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot delete comments atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE",
+            )
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            err = self._tool_error(
+                f"Failed to delete comments; the change was rolled back ({e}).",
+                deleted=0,
+            )
+            err["deleted"] = 0
+            return err
+
+        return {"status": "ok", "deleted": deleted_count}
 
 
 class CommentResolve(ToolWriterCommentBase):
@@ -313,18 +352,42 @@ class CommentResolve(ToolWriterCommentBase):
                 "message": "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
             }
 
-        reply_name = None
-        if resolution:
-            success, reply_name_or_err = _insert_annotation_reply(doc, target, comment_name, resolution, author)
-            if not success:
-                return {
-                    "status": "error",
-                    "message": reply_name_or_err,
-                    "parent_name": comment_name,
-                }
-            reply_name = reply_name_or_err
+        from ..edit_review import next_agent_edit_undo_title
+        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
-        target.setPropertyValue("Resolved", True)
+        undo_title = next_agent_edit_undo_title()
+        reply_name = None
+
+        def mutate() -> dict[str, Any] | None:
+            nonlocal reply_name
+            if resolution:
+                success, reply_name_or_err = _insert_annotation_reply(doc, target, comment_name, resolution, author)
+                if not success:
+                    return {
+                        "status": "error",
+                        "message": reply_name_or_err,
+                        "parent_name": comment_name,
+                    }
+                reply_name = reply_name_or_err
+
+            target.setPropertyValue("Resolved", True)
+            return None
+
+        try:
+            error = commit_or_rollback(doc, undo_title, mutate)
+            if error is not None:
+                return error
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot resolve comment atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE",
+            )
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            return self._tool_error(
+                f"Failed to resolve comment; the change was rolled back ({e}).",
+            )
 
         result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "resolved": True}
         if reply_name:
@@ -358,7 +421,8 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
     for field in _iter_annotations(doc):
         try:
             content = field.getPropertyValue("Content") or ""
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             content = ""
         matched_prefix = None
         for prefix in _WORKFLOW_TASK_PREFIXES:
@@ -373,7 +437,8 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
             try:
                 if field.getPropertyValue("Resolved"):
                     continue
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 pass
         entry = _read_annotation(
             field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache

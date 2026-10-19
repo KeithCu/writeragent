@@ -416,10 +416,21 @@ def _make_comment_field(name: str, parent: str = "", author: str = "", host: Any
     return field
 
 
+def _setup_mock_undo_manager(doc: Any) -> MagicMock:
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    entered: dict[str, str] = {}
+    mgr.enterUndoContext.side_effect = lambda t: entered.__setitem__("title", t)
+    mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),) if "title" in entered else ()
+    doc.getUndoManager.return_value = mgr
+    return mgr
+
+
 def test_delete_comment_by_name_removes_thread_chain():
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
@@ -448,6 +459,7 @@ def test_delete_comment_by_name_removes_subthread_only():
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
@@ -475,6 +487,7 @@ def test_delete_comment_blank_name_reply_removed_and_other_root_stays():
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
@@ -501,6 +514,7 @@ def test_delete_comment_by_author_removes_matching_author_only():
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
@@ -525,6 +539,7 @@ def test_delete_comment_name_and_author_union_each_field_once():
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
@@ -568,6 +583,7 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
     from plugin.writer.specialized.comments import CommentResolve
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     body_text = MagicMock(name="body_text")
     doc.getText.return_value = body_text
 
@@ -598,6 +614,7 @@ def test_comment_resolve_assigns_non_empty_name():
     from plugin.writer.specialized.comments import CommentResolve
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     inserted = [False]
     host = MagicMock()
     host.insertTextContent.side_effect = lambda *a, **k: inserted.__setitem__(0, True)
@@ -632,7 +649,7 @@ def test_comment_resolve_assigns_non_empty_name():
     assert res.get("reply_name") == assigned["Name"]
 
 
-def test_add_comment_search_uses_find_all_ranges():
+def test_add_comment_search_uses_find_occurrence_range():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -643,18 +660,46 @@ def test_add_comment_search_uses_find_all_ranges():
     match_range.getText.return_value = mtext
     doc.getTextFields.return_value = _fields_that_grow()
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[match_range]) as mock_find, \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=match_range) as mock_find, \
+         patch("plugin.writer.search.find_all_ranges") as mock_find_all, \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = AddComment().execute(ctx, content="test note", search="find me")
+        res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
 
     assert res["status"] == "ok"
-    mock_find.assert_called_once_with(doc, "find me")
+    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive_order=(True, False))
+    mock_find_all.assert_not_called()
+
+
+def test_add_comment_search_index_error_and_none_return_not_found():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("out of range")):
+        res_idx = AddComment().execute(ctx, content="note", search="hit", occurrence=3)
+    assert res_idx == {
+        "status": "error",
+        "message": "Text 'hit' not found at occurrence 3.",
+        "matched": False,
+        "comment_added": False,
+    }
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+        res_none = AddComment().execute(ctx, content="note", search="missing", occurrence=0)
+    assert res_none == {
+        "status": "error",
+        "message": "Text 'missing' not found.",
+        "matched": False,
+        "comment_added": False,
+    }
 
 
 def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
     from plugin.writer.specialized.comments import CommentResolve
 
     doc = MagicMock()
+    _setup_mock_undo_manager(doc)
     field = _make_comment_field("target", host=MagicMock())
     doc.createInstance.return_value = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
@@ -960,6 +1005,7 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
     target = MagicMock()
     monkeypatch.setattr(comments, "_find_annotation_by_name", lambda doc, name: target)
     ctx = MagicMock()
+    _setup_mock_undo_manager(ctx.doc)
     add_res = comments.AddComment().execute(ctx, content="my reply", parent_name="c1", author="Author1")
     assert add_res["status"] == "ok"
     assert add_res["comment_added"] is True
@@ -1015,6 +1061,7 @@ def test_comment_delete_subtree_and_author_isolation(monkeypatch):
     all_fields = [f1, f2, f3, f4, f5]
     monkeypatch.setattr(comments, "_iter_annotations", lambda doc: list(all_fields))
     ctx = MagicMock()
+    _setup_mock_undo_manager(ctx.doc)
 
     # Subtree delete of c1: removes c1, c2, c3
     res_sub = comments.CommentDelete().execute(ctx, name="c1")
@@ -1037,4 +1084,126 @@ def test_comment_delete_subtree_and_author_isolation(monkeypatch):
         f.getAnchor().getText().removeTextContent.assert_called_once_with(f)
     for f in (f3, f4):
         f.getAnchor().getText().removeTextContent.assert_not_called()
+
+
+def test_comment_delete_second_removal_raises_rolls_back():
+    from plugin.writer.specialized.comments import CommentDelete
+
+    doc = MagicMock()
+    mgr = _setup_mock_undo_manager(doc)
+    host = MagicMock()
+    field_a = _make_comment_field("A", "", "AuthorA", host=host)
+    field_b = _make_comment_field("B", "A", "AuthorB", host=host)
+
+    def remove_side_effect(field):
+        if field == field_b:
+            raise RuntimeError("remove failed")
+
+    host.removeTextContent.side_effect = remove_side_effect
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_a, field_b])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentDelete().execute(ctx, name="A")
+    assert res["status"] == "error"
+    assert res["deleted"] == 0
+    assert "rolled back" in res["message"]
+    mgr.undo.assert_called_once()
+
+
+def test_comment_delete_locked_undo_manager():
+    from plugin.writer.specialized.comments import CommentDelete
+
+    doc = MagicMock()
+    mgr = _setup_mock_undo_manager(doc)
+    mgr.isLocked.return_value = True
+    host = MagicMock()
+    field_a = _make_comment_field("A", "", "AuthorA", host=host)
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_a])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentDelete().execute(ctx, name="A")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    host.removeTextContent.assert_not_called()
+
+
+def test_comment_resolve_locked_undo_manager():
+    from plugin.writer.specialized.comments import CommentResolve
+
+    doc = MagicMock()
+    mgr = _setup_mock_undo_manager(doc)
+    mgr.isLocked.return_value = True
+    field = _make_comment_field("target")
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentResolve().execute(ctx, name="target")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    field.setPropertyValue.assert_not_called()
+
+
+def test_comment_list_author_filter_skips_location_helper_on_mismatch():
+    from plugin.writer.specialized.comments import CommentList
+
+    doc = MagicMock()
+    field_match = MagicMock()
+    field_match.supportsService.return_value = True
+    field_match.getPropertyValue.side_effect = lambda p: "Alice" if p == "Author" else ""
+
+    field_mismatch = MagicMock()
+    field_mismatch.supportsService.return_value = True
+    field_mismatch.getPropertyValue.side_effect = lambda p: "Bob" if p == "Author" else ""
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_mismatch, field_match])
+
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    with patch("plugin.writer.specialized.comments._read_annotation", return_value={"author": "Alice"}) as mock_read:
+        res = CommentList().execute(ctx, author_filter="Alice")
+
+    assert res["count"] == 1
+    assert mock_read.call_count == 1
+    assert mock_read.call_args[0][0] == field_match
+
+
+def test_comment_scan_tasks_reraises_disposal():
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.specialized.comments import _comment_scan_tasks
+
+    doc = MagicMock()
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.getPropertyValue.side_effect = DocumentDisposedError("disposed on Content")
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    with pytest.raises(DocumentDisposedError):
+        _comment_scan_tasks(ctx, {})
+
+    # Disposed on Resolved property
+    field2 = MagicMock()
+    field2.supportsService.return_value = True
+
+    def get_prop(p):
+        if p == "Content":
+            return "TODO-AI: fix this"
+        if p == "Resolved":
+            raise DocumentDisposedError("disposed on Resolved")
+        return ""
+
+    field2.getPropertyValue.side_effect = get_prop
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field2])
+
+    with pytest.raises(DocumentDisposedError):
+        _comment_scan_tasks(ctx, {"unresolved_only": True})
 

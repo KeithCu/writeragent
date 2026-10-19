@@ -116,6 +116,7 @@ class FieldsList(ToolWriterFieldBase):
         results = []
         hasher = hashlib.sha256()
         count = 0
+        service_props: dict[str, set[str]] = {}
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
             count = field_id
             hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
@@ -127,18 +128,29 @@ class FieldsList(ToolWriterFieldBase):
 
             props = {}
             if hasattr(field, "getPropertySetInfo"):
-                try:
-                    info = field.getPropertySetInfo()
-                    for prop_name in KNOWN_PROPERTIES:
+                if service not in service_props:
+                    try:
+                        info = field.getPropertySetInfo()
+                        if info is not None and hasattr(info, "getProperties"):
+                            service_props[service] = {
+                                getattr(p, "Name", "")
+                                for p in (info.getProperties() or ())
+                            }
+                        else:
+                            service_props[service] = set()
+                    except Exception as e:
+                        reraise_if_disposed(e)
+                        service_props[service] = set()
+
+                valid_props = service_props.get(service, set())
+                for prop_name in KNOWN_PROPERTIES:
+                    if prop_name in valid_props:
                         try:
-                            if info.hasPropertyByName(prop_name):
-                                val = field.getPropertyValue(prop_name)
-                                if isinstance(val, (int, float, str, bool)):
-                                    props[prop_name] = val
+                            val = field.getPropertyValue(prop_name)
+                            if isinstance(val, (int, float, str, bool)):
+                                props[prop_name] = val
                         except Exception as e:
                             reraise_if_disposed(e)
-                except Exception as e:
-                    reraise_if_disposed(e)
 
             results.append({"id": field_id, "presentation": presentation, "content": content,
                             "location": location, "properties": props})

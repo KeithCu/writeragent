@@ -1,5 +1,6 @@
 import pytest
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 # Ensure UNO is mocked if running outside LibreOffice
@@ -56,7 +57,7 @@ def test_fields_list_with_items(mock_ctx):
 
     # Setup a mock property set info for properties extraction
     mock_prop_set_info = MagicMock()
-    mock_prop_set_info.hasPropertyByName.side_effect = lambda name: name == "NumberingType"
+    mock_prop_set_info.getProperties.return_value = [SimpleNamespace(Name="NumberingType")]
     mock_field.getPropertySetInfo.return_value = mock_prop_set_info
     mock_field.getPropertyValue.return_value = 4
 
@@ -323,7 +324,7 @@ def test_fields_list_reports_where_each_field_is(mock_ctx, monkeypatch):
     field = MagicMock()
     field.supportsService.return_value = False
     field.getPresentation.side_effect = ["Page 1", "1"]
-    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    field.getPropertySetInfo.return_value.getProperties.return_value = ()
     _one_field_doc(mock_ctx.doc, field)
     monkeypatch.setattr(search_mod, "describe_match_location", lambda *a, **k: "footer (page style 'Standard')")
 
@@ -339,7 +340,7 @@ def test_fields_list_location_falls_back_when_it_cannot_be_resolved(mock_ctx, mo
     field = MagicMock()
     field.supportsService.return_value = False
     field.getPresentation.side_effect = ["Page 1", "1"]
-    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    field.getPropertySetInfo.return_value.getProperties.return_value = ()
     _one_field_doc(mock_ctx.doc, field)
 
     def boom(*_a, **_k):
@@ -452,12 +453,12 @@ def test_fields_list_snapshot_equals_delete_computed_hash(mock_ctx):
     field1 = MagicMock()
     field1.supportsService.return_value = False
     field1.getPresentation.return_value = "Page 1"
-    field1.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    field1.getPropertySetInfo.return_value.getProperties.return_value = ()
 
     field2 = MagicMock()
     field2.supportsService.return_value = False
     field2.getPresentation.return_value = "Page 2"
-    field2.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    field2.getPropertySetInfo.return_value.getProperties.return_value = ()
 
     fields = MagicMock()
 

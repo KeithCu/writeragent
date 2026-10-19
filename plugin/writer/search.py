@@ -521,6 +521,7 @@ def find_occurrence_range(
     *,
     occurrence: int = 0,
     case_sensitive: bool = True,
+    case_sensitive_order: tuple[bool, ...] | None = None,
 ) -> Any | None:
     """Find the occurrence-th match using native LO search with chaining fallback.
 
@@ -531,24 +532,25 @@ def find_occurrence_range(
     if not search_string:
         return None
 
-    case_order = (case_sensitive,)
+    case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
 
     for candidate in _search_try_strings(search_string):
-        sd = doc.createSearchDescriptor()
-        sd.SearchRegularExpression = True
-        sd.SearchString = escape_for_lo_regex(candidate)
-        sd.SearchCaseSensitive = case_sensitive
-        count = 0
-        found = doc.findFirst(sd)
-        while found is not None:
-            if count == occurrence:
-                return found
-            count += 1
-            found = find_next_after_match(doc, found, sd)
-        if count > 0:
-            raise IndexError(
-                f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
-            )
+        for case_sens in case_order:
+            sd = doc.createSearchDescriptor()
+            sd.SearchRegularExpression = True
+            sd.SearchString = escape_for_lo_regex(candidate)
+            sd.SearchCaseSensitive = case_sens
+            count = 0
+            found = doc.findFirst(sd)
+            while found is not None:
+                if count == occurrence:
+                    return found
+                count += 1
+                found = find_next_after_match(doc, found, sd)
+            if count > 0:
+                raise IndexError(
+                    f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+                )
 
     parts = search_string.split('\n')
     if len(parts) > 1:
@@ -558,15 +560,16 @@ def find_occurrence_range(
                 anchor_idx = idx
                 break
         if anchor_idx != -1:
-            count = 0
-            for match in _iter_chain_matches(doc, parts, anchor_idx, case_order):
-                if count == occurrence:
-                    return match
-                count += 1
-            if count > 0:
-                raise IndexError(
-                    f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
-                )
+            for case_sens in case_order:
+                count = 0
+                for match in _iter_chain_matches(doc, parts, anchor_idx, (case_sens,)):
+                    if count == occurrence:
+                        return match
+                    count += 1
+                if count > 0:
+                    raise IndexError(
+                        f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+                    )
 
     return None
 

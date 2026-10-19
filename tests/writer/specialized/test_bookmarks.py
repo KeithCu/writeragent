@@ -486,6 +486,10 @@ def test_bookmark_create_and_rename_reject_mcp(mock_ctx):
     assert res2["status"] == "error"
     assert "bookmark_cleanup" in res2["message"]
 
+    res3 = rename_tool.execute(mock_ctx, old_name="_mcp_heading", new_name="mine")
+    assert res3["status"] == "error"
+    assert "bookmark_cleanup" in res3["message"]
+
 
 def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
     doc = _HeadingDoc(
