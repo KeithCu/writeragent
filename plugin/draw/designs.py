@@ -39,13 +39,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
-from typing import Any
+import tempfile
+from typing import Any, NamedTuple
 
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
-from plugin.draw.design_look import derive_otp_look
+from plugin.draw.design_look import _read_member, derive_otp_look
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import is_disposed_exception, is_real_disposal
+from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
@@ -54,6 +57,104 @@ NOT_IMPRESS_CODE = "UNSUPPORTED_DOC_TYPE"
 # Distinct from create-from-template's ``_wa_impress_otp`` so a hidden source
 # load does not collide with a leftover new-doc Hidden frame.
 _IMPORT_SOURCE_TARGET = "_wa_impress_otp_import"
+
+
+class ClonedMaster(NamedTuple):
+    master: Any
+    name: str
+    shape_count: int
+    graphic_shapes: int = 0
+    graphic_reimports: int = 0
+
+
+class DesignChromeMissingError(RuntimeError):
+    def __init__(self, message: str, graphic_shapes: int = 0, graphic_reimports: int = 0) -> None:
+        super().__init__(message)
+        self.graphic_shapes: int = graphic_shapes
+        self.graphic_reimports: int = graphic_reimports
+
+
+def _decode_odf_name(name: str) -> str:
+    """Decode ODF style name escapes (_20_ -> space, _5f_ -> _, _3a_ -> :)."""
+    return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), name)
+
+
+def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
+    """Read styles.xml and collect draw:image/@xlink:href for the named master page."""
+    import xml.etree.ElementTree as ET
+
+    styles_name = ""
+    for n in zf.namelist():
+        if n.replace("\\", "/").lstrip("./").lower() == "styles.xml":
+            styles_name = n
+            break
+    if not styles_name:
+        return None
+    raw_xml = _read_member(zf, styles_name)
+    if raw_xml is None:
+        return None
+    try:
+        root = ET.fromstring(raw_xml)
+    except Exception:
+        return None
+    for elem in root.iter():
+        if elem.tag.endswith("master-page"):
+            raw_name = (
+                elem.attrib.get("{urn:oasis:names:tc:opendocument:xmlns:style:1.0}name")
+                or elem.attrib.get("style:name")
+                or elem.attrib.get("name")
+            )
+            if raw_name:
+                decoded = _decode_odf_name(raw_name)
+                if decoded == master_name or decoded.strip().lower() == master_name.strip().lower():
+                    hrefs: list[str] = []
+                    for desc in elem.iter():
+                        if desc.tag.endswith("image") and not desc.tag.endswith("fill-image"):
+                            href = (
+                                desc.attrib.get("{http://www.w3.org/1999/xlink}href")
+                                or desc.attrib.get("xlink:href")
+                                or desc.attrib.get("href")
+                            )
+                            if href:
+                                hrefs.append(href)
+                    return hrefs
+    return None
+
+
+def _extract_zip_member(zf: Any, member_name: str, dest_dir: str, prefix: str = "") -> str | None:
+    """Extract a ZIP member under the 2MB member limit into dest_dir."""
+    limit = 2 * 1024 * 1024
+    chunk_size = 64 * 1024
+    actual_name = member_name
+    if actual_name not in zf.namelist():
+        norm_target = member_name.replace("\\", "/").lstrip("./").lower()
+        for n in zf.namelist():
+            if n.replace("\\", "/").lstrip("./").lower() == norm_target:
+                actual_name = n
+                break
+    try:
+        info = zf.getinfo(actual_name)
+    except KeyError:
+        return None
+    if info.file_size > limit:
+        return None
+    base = (prefix + os.path.basename(actual_name)) or "chrome.bin"
+    out = os.path.join(dest_dir, base)
+    try:
+        with zf.open(info, "r") as src, open(out, "wb") as dst:
+            written = 0
+            while written <= limit:
+                piece = src.read(chunk_size)
+                if not piece:
+                    break
+                if written + len(piece) > limit:
+                    return None
+                dst.write(piece)
+                written += len(piece)
+        return out
+    except Exception:
+        log.debug("extract member failed name=%s", member_name, exc_info=True)
+        return None
 
 # Visual props copied onto a dest-created shape after it is added to the
 # dest master. Size/Position are applied last — setting them before add()
@@ -137,17 +238,13 @@ def _split_pathsettings_value(raw: str) -> list[str]:
         parts: list[str] = []
         buf = ""
         for token in text.split():
+            # Encoded spaces are %20; a raw space after file: starts a new URL.
             if token.startswith("file:"):
                 if buf:
                     parts.append(buf)
                 buf = token
             elif buf:
-                # Encoded spaces are %20; a raw space after file: starts a new URL.
-                if token.startswith("file:"):
-                    parts.append(buf)
-                    buf = token
-                else:
-                    buf = buf + " " + token
+                buf = buf + " " + token
             else:
                 parts.append(token)
         if buf:
@@ -193,27 +290,27 @@ def _design_name_from_path(path: str) -> str:
 
 def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[dict[str, str]]:
     """Walk PathSettings template dirs for ``.otp`` files. Stable id = stem lowercased."""
-    designs: list[dict[str, str]] = []
-    seen_paths: set[str] = set()
+    designs_by_id: dict[str, dict[str, str]] = {}
     limit = 1000
     for directory in _iter_template_directories(ctx):
-        for root, _unused_dirs, files in os.walk(directory):
+        for root, dirnames, files in os.walk(directory):
+            dirnames.sort()
+            files.sort()
             for filename in files:
-                if len(seen_paths) >= limit:
-                    return designs
                 if _should_skip_filename(filename):
                     continue
                 if not filename.lower().endswith(_OTP_EXT):
                     continue
                 full = os.path.normpath(os.path.join(root, filename))
-                key = os.path.normcase(full)
-                if key in seen_paths:
-                    continue
                 if not os.path.isfile(full):
                     continue
-                seen_paths.add(key)
+                did = _design_id_from_path(full)
+                if len(designs_by_id) >= limit and did not in designs_by_id:
+                    out = list(designs_by_id.values())
+                    out.sort(key=lambda d: (d["name"].lower(), d["path"]))
+                    return out
                 entry = {
-                    "id": _design_id_from_path(full),
+                    "id": did,
                     "name": _design_name_from_path(full),
                     "path": full,
                     "url": path_to_file_url(full),
@@ -223,9 +320,10 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
                     # the template tree twice on a miss.
                     "look": derive_otp_look(full) if include_look else "",
                 }
-                designs.append(entry)
-    designs.sort(key=lambda d: (d["name"].lower(), d["path"]))
-    return designs
+                designs_by_id[did] = entry
+    out = list(designs_by_id.values())
+    out.sort(key=lambda d: (d["name"].lower(), d["path"]))
+    return out
 
 
 def _match_listed_design(designs: list[dict[str, str]], needle: str) -> dict[str, str] | None:
@@ -395,20 +493,29 @@ def _copy_uno_prop(dest: Any, src: Any, name: str) -> bool:
     """
     try:
         value = src.getPropertyValue(name)
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         try:
             value = getattr(src, name)
-        except Exception:
+        except Exception as inner_exc:
+            if is_real_disposal(inner_exc):
+                raise
             return False
     try:
         dest.setPropertyValue(name, value)
         return True
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
     try:
         setattr(dest, name, value)
         return True
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        if name in ("Position", "Size"):
+            raise RuntimeError("Failed to set %s on cloned shape" % name)
         return False
 
 
@@ -417,13 +524,17 @@ def _clear_master_shapes(master: Any) -> int:
     removed = 0
     try:
         count = int(master.getCount())
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         return 0
     for i in range(count - 1, -1, -1):
         try:
             master.remove(master.getByIndex(i))
             removed += 1
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("clear master shape failed index=%s", i, exc_info=True)
     return removed
 
@@ -440,7 +551,9 @@ def _graphic_from_file_url(uno_ctx: Any, file_url: str) -> Any | None:
         if provider is None:
             return None
         return provider.queryGraphic((create_property_value("URL", file_url),))
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         log.debug("GraphicProvider.queryGraphic failed url=%s", file_url, exc_info=True)
         return None
 
@@ -492,13 +605,16 @@ def _extract_otp_picture(otp_path: str, dest_dir: str, index: int = 0) -> str | 
         return None
 
 
-def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path: str | None = None, picture_index: int = 0) -> bool:
-    """Attach chrome without sharing the Hidden source SfxItemPool.
-
-    Prefer extracting ``Pictures/*`` from the shipped ``.otp`` ZIP and loading
-    via GraphicProvider. ``storeGraphic`` of the live Hidden Graphic can still
-    touch the source pool; keep it as a last resort only.
-    """
+def _reimport_graphic(
+    uno_ctx: Any,
+    src_shape: Any,
+    dest_shape: Any,
+    *,
+    image_path: str | None = None,
+    otp_path: str | None = None,
+    picture_index: int = 0,
+) -> bool:
+    """Attach chrome without sharing the Hidden source SfxItemPool."""
     if uno_ctx is None:
         return False
     import tempfile
@@ -506,21 +622,28 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
     from plugin.framework.url_utils import path_to_file_url
     from plugin.writer.format import create_property_value
 
-    # 1) OTP ZIP extract — never opens the Hidden Graphic.
-    if otp_path:
+    # 1) Extracted image path — never opens the Hidden Graphic.
+    if image_path and os.path.isfile(image_path):
+        url = path_to_file_url(image_path)
+        log.debug("clone_master graphic via extracted file path=%s", image_path)
+        new_graphic = _graphic_from_file_url(uno_ctx, url)
+        if new_graphic is not None:
+            dest_shape.Graphic = new_graphic
+            return True
+
+    # Legacy OTP ZIP extract fallback if otp_path was passed directly.
+    if otp_path and not image_path:
         tmp_dir = tempfile.mkdtemp(prefix="wa_otp_pic_")
         try:
             extracted = _extract_otp_picture(otp_path, tmp_dir, picture_index)
             if extracted:
                 url = path_to_file_url(extracted)
-                log.info("clone_master graphic via otp extract path=%s", extracted)
+                log.debug("clone_master graphic via otp extract path=%s", extracted)
                 new_graphic = _graphic_from_file_url(uno_ctx, url)
                 if new_graphic is not None:
                     dest_shape.Graphic = new_graphic
                     return True
         finally:
-            # Best-effort temp dir removal. ignore_errors covers a file
-            # vanishing between listing and remove.
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # 2) Last resort: round-trip the live Graphic (may still be pool-sensitive).
@@ -534,7 +657,7 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
     provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
     if provider is None:
         return False
-    log.info("clone_master graphic via storeGraphic fallback")
+    log.debug("clone_master graphic via storeGraphic fallback")
     for suffix, mime in ((".svg", "image/svg+xml"), (".png", "image/png")):
         fd, path = tempfile.mkstemp(suffix=suffix)
         try:
@@ -556,12 +679,21 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
     return False
 
 
-def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None, *, otp_path: str | None = None, picture_index: int | None = None) -> str:
+def _clone_one_shape(
+    dest_doc: Any,
+    dest_master: Any,
+    src_shape: Any,
+    uno_ctx: Any = None,
+    *,
+    otp_path: str | None = None,
+    picture_index: int | None = None,
+    image_path: str | None = None,
+    reimport_results: list[bool] | None = None,
+) -> str:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
     Adding first is required: presentation placeholders ignore Size/Position
-    set before they belong to a page (headed/headless probe: title stayed
-    25200×2001 until Size was set after add).
+    set before they belong to a page.
     """
     shape_type = str(getattr(src_shape, "ShapeType", "") or "")
     if not shape_type.startswith("com.sun.star."):
@@ -571,15 +703,24 @@ def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: A
     for prop in _CLONE_SHAPE_PROPS:
         _copy_uno_prop(clone, src_shape, prop)
     if "GraphicObject" in shape_type:
-        ok = _reimport_graphic(uno_ctx, src_shape, clone, otp_path=otp_path, picture_index=0 if picture_index is None else picture_index)
-        log.info("clone_master graphic_reimport ok=%s type=%s", ok, shape_type)
+        ok = _reimport_graphic(
+            uno_ctx,
+            src_shape,
+            clone,
+            image_path=image_path,
+            otp_path=otp_path,
+            picture_index=0 if picture_index is None else picture_index,
+        )
+        if reimport_results is not None:
+            reimport_results.append(ok)
+        log.debug("clone_master graphic_reimport ok=%s type=%s", ok, shape_type)
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
     return shape_type
 
 
-def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> tuple[Any, str, int]:
+def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> ClonedMaster:
     """Clone the source design master into *dest_doc* (same-document shapes).
 
     Cross-doc ``MasterPage`` assign does not import. ``createInstance`` +
@@ -621,6 +762,8 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         if is_disposed_exception(exc):
             raise
         log.debug("rename cloned master to %s failed", design_name, exc_info=True)
+
+    tmp_dir = tempfile.mkdtemp(prefix="wa_otp_clone_")
     try:
         # Factory placeholders on the new master are not user content.
         _clear_master_shapes(dest_master)
@@ -632,19 +775,54 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             if is_disposed_exception(exc):
                 raise
             src_count = 0
+
         otp_path = str(design.get("path") or "").strip() or None
+        extracted_image_paths: list[str | None] = []
+        if otp_path and os.path.isfile(otp_path):
+            import zipfile
+
+            try:
+                with zipfile.ZipFile(otp_path, "r") as zf:
+                    hrefs = _master_image_hrefs_from_zip(zf, str(src_master.Name or ""))
+                    pics = [n for n in zf.namelist() if n.startswith("Pictures/") and not n.endswith("/")]
+                    if hrefs is not None:
+                        for idx, href in enumerate(hrefs):
+                            path = _extract_zip_member(zf, href, tmp_dir, prefix=f"{idx}_")
+                            extracted_image_paths.append(path)
+                    elif len(pics) == 1:
+                        path = _extract_zip_member(zf, pics[0], tmp_dir, prefix="0_")
+                        extracted_image_paths.append(path)
+            except Exception:
+                log.debug("reading otp zip failed for %s", otp_path, exc_info=True)
+
         cloned_types: list[str] = []
+        graphic_shapes = 0
+        graphic_reimports = 0
         graphic_index = 0
         for i in range(src_count):
             src_shape = src_master.getByIndex(i)
             st = str(getattr(src_shape, "ShapeType", "") or "")
-            log.info("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
-            picture_index = graphic_index if "GraphicObject" in st else None
-            cloned_types.append(_clone_one_shape(dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path, picture_index=picture_index))
-            if picture_index is not None:
+            log.debug("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
+            image_path = None
+            if "GraphicObject" in st:
+                graphic_shapes += 1
+                if graphic_index < len(extracted_image_paths):
+                    image_path = extracted_image_paths[graphic_index]
                 graphic_index += 1
-            log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
-        # MasterPage.Name does not fail on a live page.
+            reimport_results: list[bool] = []
+            shape_type = _clone_one_shape(
+                dest_doc,
+                dest_master,
+                src_shape,
+                uno_ctx,
+                image_path=image_path,
+                reimport_results=reimport_results,
+            )
+            if reimport_results and reimport_results[0]:
+                graphic_reimports += 1
+            cloned_types.append(shape_type)
+            log.debug("clone_master step=shape_done i=%s type=%s", i, shape_type)
+
         dest_name = str(dest_master.Name or "") or design_name
         # Do not copy the presentation style family here. Blind style-prop copies
         # share the Hidden source SfxItemPool and abort soffice on source close
@@ -654,19 +832,26 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         shape_count = int(dest_master.getCount())
         if shape_count < 1:
             raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
+
+        if graphic_shapes >= 1 and graphic_reimports == 0:
+            raise DesignChromeMissingError(
+                "No chrome graphics could be imported for master '%s'." % dest_name,
+                graphic_shapes=graphic_shapes,
+                graphic_reimports=0,
+            )
+
         log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
-        return dest_master, dest_name, shape_count
+        return ClonedMaster(dest_master, dest_name, shape_count, graphic_shapes, graphic_reimports)
     except Exception:
         try:
             dest_masters.remove(dest_master)
         except Exception as remove_exc:
-            if is_disposed_exception(remove_exc):
+            if is_real_disposal(remove_exc):
                 raise
             log.debug("remove partial cloned master failed", exc_info=True)
         raise
-
-
-
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def assign_master_to_all_slides(doc: Any, master: Any) -> int:
@@ -684,59 +869,174 @@ def assign_master_to_all_slides(doc: Any, master: Any) -> int:
     return updated
 
 
-def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, str]) -> dict[str, Any]:
-    """Import a shipped ``.otp`` master into *dest_doc* and assign it to all slides.
+def _is_master_referenced(doc: Any, master: Any) -> bool:
+    """True if any draw page still references *master*."""
+    try:
+        pages = doc.getDrawPages()
+        for i in range(pages.getCount()):
+            if uno_same(pages.getByIndex(i).MasterPage, master):
+                return True
+    except Exception:
+        pass
+    return False
 
-    Headed #791 used DiaMode clipboard paste. That reads the **system**
-    clipboard, so a headed desktop (spreadsheet/audit text) was pasted as
-    junk frames and no Metropolis master arrived. Hidden Copy also fails to
-    take clipboard ownership when another owner is present. Clone never
-    touches the clipboard.
-    """
+
+def _restore_slide_masters(snapshot: list[tuple[Any, Any]], *, swallow_disposal: bool = False) -> int:
+    """Restore previous MasterPage for each page in snapshot."""
+    restored = 0
+    for page, old_master in snapshot:
+        try:
+            page.MasterPage = old_master
+            restored += 1
+        except Exception as exc:
+            if not swallow_disposal and is_real_disposal(exc):
+                raise
+            log.debug("restore master page failed", exc_info=True)
+    return restored
+
+
+def _cleanup_previous_same_named_masters(dest_doc: Any, new_master: Any, design_name: str) -> None:
+    """Remove unreferenced masters matching design_name (case-insensitive), preserving Default."""
+    if not design_name:
+        return
+    target_lower = design_name.strip().lower()
+    if target_lower == "default":
+        return
+    dest_masters = dest_doc.getMasterPages()
+    count = int(dest_masters.getCount())
+    to_remove: list[Any] = []
+    for i in range(count):
+        m = dest_masters.getByIndex(i)
+        if uno_same(m, new_master):
+            continue
+        m_name = str(getattr(m, "Name", "") or "").strip()
+        if m_name.lower() == target_lower:
+            if not _is_master_referenced(dest_doc, m):
+                to_remove.append(m)
+    for m in to_remove:
+        try:
+            dest_masters.remove(m)
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            log.debug("remove old same-named master failed", exc_info=True)
+
+
+def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, str]) -> dict[str, Any]:
+    """Import a shipped ``.otp`` master into *dest_doc* and assign it to all slides."""
     # getDrawPages().getCount() does not fail on a live document.
     # A closed document must not be reported as zero slides.
-    original_count = int(dest_doc.getDrawPages().getCount())
+    dest_doc.getDrawPages().getCount()
     src = None
     master_name = ""
     shape_count = 0
+    graphic_shapes = 0
+    graphic_reimports = 0
     slides_updated = 0
     design_label = design.get("name") or design.get("id") or "?"
+    target_design_name = str(design.get("name") or design_label).strip()
+
     try:
-        log.info("apply_design current-doc step=open_hidden design=%s", design_label)
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
-        log.info("apply_design current-doc step=clone_master begin design=%s", design_label)
-        _master, master_name, shape_count = clone_master_into_doc(dest_doc, src, design, uno_ctx)
-        log.info("apply_design current-doc step=clone_master done master=%s shapes=%s", master_name, shape_count)
-        # clone_master_into_doc raises or returns a master. It never returns None.
-        log.info("apply_design current-doc step=assign_all master=%s slides~=%s", master_name, original_count)
-        slides_updated = assign_master_to_all_slides(dest_doc, _master)
-        log.info("apply_design current-doc step=assign_all done slides_updated=%s", slides_updated)
-    finally:
-        # Close after assign so any residual source-pool refs are unused.
-        log.info("apply_design current-doc step=close_hidden design=%s", design_label)
-        _close_hidden_doc(src)
-        log.info("apply_design current-doc step=close_hidden done design=%s", design_label)
-    masters = _master_entries(dest_doc)
-    # Same count read. Do not keep the pre-import count when it fails.
-    slide_count = int(dest_doc.getDrawPages().getCount())
-    if slides_updated != slide_count:
+        cloned = clone_master_into_doc(dest_doc, src, design, uno_ctx)
+        _master = cloned[0]
+        master_name = cloned[1]
+        shape_count = cloned[2]
+        graphic_shapes = getattr(cloned, "graphic_shapes", cloned[3] if len(cloned) > 3 else 0)
+        graphic_reimports = getattr(cloned, "graphic_reimports", cloned[4] if len(cloned) > 4 else 0)
+
+        # Snapshot each page's MasterPage before assign
+        pages = dest_doc.getDrawPages()
+        snapshot: list[tuple[Any, Any]] = []
+        for i in range(pages.getCount()):
+            p = pages.getByIndex(i)
+            snapshot.append((p, getattr(p, "MasterPage", None)))
+
+        assign_exc = None
+        try:
+            slides_updated = assign_master_to_all_slides(dest_doc, _master)
+        except Exception as exc:
+            assign_exc = exc
+
+        slide_count = int(dest_doc.getDrawPages().getCount())
+
+        if assign_exc is not None or slides_updated != slide_count:
+            if assign_exc is not None and is_real_disposal(assign_exc):
+                _restore_slide_masters(snapshot, swallow_disposal=True)
+                raise assign_exc
+
+            slides_restored = _restore_slide_masters(snapshot)
+            if not _is_master_referenced(dest_doc, _master):
+                try:
+                    dest_doc.getMasterPages().remove(_master)
+                except Exception as rem_exc:
+                    if is_real_disposal(rem_exc):
+                        raise
+                    log.debug("remove rolled-back master failed", exc_info=True)
+
+            log.info(
+                "apply_design partial assign rolled back design=%s updated=%s/%s restored=%s",
+                design_label,
+                slides_updated,
+                slide_count,
+                slides_restored,
+            )
+            return {
+                "status": "error",
+                "code": "DESIGN_PARTIAL_APPLY",
+                "message": "Applied design '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
+                "design": design,
+                "applied_master": master_name,
+                "applied_master_shape_count": shape_count,
+                "masters": _master_entries(dest_doc),
+                "slides_updated": slides_updated,
+                "slide_count": slide_count,
+                "rolled_back": True,
+                "slides_restored": slides_restored,
+                "import_method": "clone_master",
+            }
+
+        # Replace previous unreferenced master of the same design name
+        _cleanup_previous_same_named_masters(dest_doc, _master, target_design_name)
+        try:
+            _master.Name = target_design_name
+            master_name = target_design_name
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            master_name = str(getattr(_master, "Name", "") or "") or target_design_name
+
+        log.info(
+            "apply_design design=%s master=%s shapes=%s graphics=%s/%s slides=%s",
+            design_label,
+            master_name,
+            shape_count,
+            graphic_reimports,
+            graphic_shapes,
+            slides_updated,
+        )
+    except DesignChromeMissingError as exc:
+        log.warning("apply_design failed chrome missing: %s", exc)
         return {
             "status": "error",
-            "code": "DESIGN_PARTIAL_APPLY",
-            "message": "Applied design '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
+            "code": "DESIGN_CHROME_MISSING",
+            "message": str(exc),
             "design": design,
-            "applied_master": master_name,
-            "applied_master_shape_count": shape_count,
-            "masters": masters,
-            "slides_updated": slides_updated,
-            "slide_count": slide_count,
-            "import_method": "clone_master",
+            "graphic_shapes": exc.graphic_shapes,
+            "graphic_reimports": exc.graphic_reimports,
         }
+    finally:
+        _close_hidden_doc(src)
+
+    masters = _master_entries(dest_doc)
+    slide_count = int(dest_doc.getDrawPages().getCount())
     return {
         "status": "ok",
         "design": design,
         "applied_master": master_name,
         "applied_master_shape_count": shape_count,
+        "graphic_shapes": graphic_shapes,
+        "graphic_reimports": graphic_reimports,
         "masters": masters,
         "blank_master": _blank_master_signal(masters),
         "slides_updated": slides_updated,
@@ -802,10 +1102,13 @@ class ApplyDesign(ToolBase):
     description: str = (
         "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
         "template, clone its master shapes and reimported graphics into this "
-        "document, and assign that master to every slide. Does not copy "
-        "style families (that shares the hidden source item pool and aborts "
-        "LibreOffice). Does not use the system clipboard and does not open a "
-        "new presentation. Existing title/body text stays. "
+        "document, and assign that master to every slide. Does not use "
+        "the system clipboard and does not open a new presentation. "
+        "One master is cloned and assigned to every slide; other layout masters in the .otp are not imported. "
+        "Solid fill, line, and character properties, geometry, and pictures are cloned. "
+        "Gradients, bitmap fills, and presentation style families are not (copying those families shares the hidden source pool and aborts LibreOffice). "
+        "Existing placeholder text stays on its current styles. "
+        "Applying the same design again replaces the previously imported master of that name. "
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}

@@ -823,7 +823,7 @@ class _DrawProxy:
         return _rpc_call("add_slide", page=page, activate=activate, layout=layout)
 
     def apply_design(self, design: str) -> dict[str, Any]:
-        """Restyle the OPEN Impress deck from a listed .otp: Hidden-load the template, clone its master shapes and reimported graphics into this document, and assign that master to every slide. Does not copy style families (that shares the hidden source item pool and aborts LibreOffice). Does not use the system clipboard and does not open a new presentation. Existing title/body text stays. Call list_designs first. Draw documents return a not-Impress error.
+        """Restyle the OPEN Impress deck from a listed .otp: Hidden-load the template, clone its master shapes and reimported graphics into this document, and assign that master to every slide. Does not use the system clipboard and does not open a new presentation. One master is cloned and assigned to every slide; other layout masters in the .otp are not imported. Solid fill, line, and character properties, geometry, and pictures are cloned. Gradients, bitmap fills, and presentation style families are not (copying those families shares the hidden source pool and aborts LibreOffice). Existing placeholder text stays on its current styles. Applying the same design again replaces the previously imported master of that name. Call list_designs first. Draw documents return a not-Impress error.
 
         Args:
             design (required): Design id, name, path, or url from list_designs (e.g. Metropolis).
@@ -874,7 +874,7 @@ class _DrawProxy:
         return _rpc_call("list_designs")
 
     def list_pages(self) -> dict[str, Any]:
-        """Lists all pages (slides) in the document."""
+        """Lists all pages (slides). Each entry is that page's Name, or "Page N" when Name is missing or blank. The list position is the 0-based page index."""
         return _rpc_call("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
@@ -1293,7 +1293,7 @@ class _ImagesProxy:
             height_mm (optional): New height in millimetres.
             title (optional): Image title (tooltip text).
             description (optional): Image alternative text (alt-text).
-            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
+            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER. One of: 0, 1, 2, 3, 4.
             hori_orient (optional): Horizontal position: 'left', 'center', or 'right'. (A raw UNO HoriOrientation integer is also accepted.).
             vert_orient (optional): Vertical position: 'top', 'center', or 'bottom'. (A raw UNO VertOrientation integer is also accepted.).
             crop_top_mm (optional): Millimetres to crop off the TOP edge (0 = no crop). Only edges you pass change.
@@ -2208,7 +2208,7 @@ class _TableProxy:
         return _rpc_call("table_delete", name=name, page=page, index=index)
 
     def get_cells(self, *, name: str | None = None, cell: str | None = None, page: int | None = None, index: int | None = None) -> dict[str, Any]:
-        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
+        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). Empty string is an empty cell; a missing name is not a cell. A failed Draw/Impress cell read is an error, not an empty string. Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. Draw/Impress: read matrix; when cell is set, matrix is that one cell only. Optional cell reads one address (Writer via getCellNames, Draw via A1). Writer host cells that contain nested tables return only the host cell's own paragraphs; nested_in_cells names those cells. table_set_cell on a host cell updates that host text and leaves nested tables.
 
         Args:
             name (optional): Table name from table_list.
