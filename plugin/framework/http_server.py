@@ -17,6 +17,7 @@ import os
 import queue
 import selectors
 import socket
+import ssl
 from socket import socket as Socket
 import sys
 import threading
@@ -186,6 +187,8 @@ class _RequestThreads:
             try:
                 result = item.fn(*item.args)
             except BaseException as exc:
+                # Tip: nobody reads these futures, so log here.
+                log.exception("Unhandled %s in HTTP request worker", type(exc).__name__)
                 item.future.set_exception(exc)
             else:
                 item.future.set_result(result)
@@ -528,12 +531,17 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         """
         _typ, exc, _tb = sys.exc_info()
         # The pre-run() read is outside wsgiref's catch, and ConnectionError is the same disconnect MCP already ignores.
+        host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
         if isinstance(exc, (socket.timeout, TimeoutError, ConnectionError)):
-            host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
             if isinstance(exc, ConnectionError):
                 log.info("HTTP client disconnected from %s", host)
             else:
                 log.info("HTTP read timed out from %s", host)
+            return
+        ssl_mod = sys.modules.get("ssl")  # Tip: no runtime ssl import; no ssl loaded means no SSLError.
+        if ssl_mod is not None and isinstance(exc, ssl_mod.SSLError):
+            # Tip: TLS handshake/shutdown failures are client disconnects (port probes), not server bugs.
+            log.info("HTTP TLS error from %s: %s", host, exc)
             return
         super().handle_error(request, client_address)
 

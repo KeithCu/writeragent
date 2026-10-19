@@ -6,6 +6,7 @@
 
 from concurrent.futures import Future
 import errno
+import logging
 import os
 import socket
 import ssl
@@ -415,7 +416,7 @@ def test_accept_queue_cap_closes_excess_socket() -> None:
         server.server_close()
 
 
-def test_handle_error_connection_error_does_not_call_super() -> None:
+def test_handle_error_connection_error_does_not_call_super(caplog: pytest.LogCaptureFixture) -> None:
     from unittest.mock import patch
 
     server = DualStackThreadPoolHTTPServer.__new__(DualStackThreadPoolHTTPServer)
@@ -426,6 +427,35 @@ def test_handle_error_connection_error_does_not_call_super() -> None:
             with patch("socketserver.BaseServer.handle_error") as super_handle:
                 server.handle_error(None, ("127.0.0.1", 1))
         super_handle.assert_not_called()
+
+    try:
+        raise ssl.SSLEOFError("SSL handshake failed")
+    except ssl.SSLError:
+        with patch("socketserver.BaseServer.handle_error") as super_handle:
+            with caplog.at_level(logging.INFO, logger="writeragent.framework.http_server"):
+                server.handle_error(None, ("127.0.0.1", 1))
+    super_handle.assert_not_called()
+    assert any("HTTP TLS error from 127.0.0.1" in r.getMessage() for r in caplog.records)
+
+
+def test_request_worker_logs_base_exception_and_survives(caplog: pytest.LogCaptureFixture) -> None:
+    pool = _RequestThreads(max_workers=1, thread_name_prefix="test_worker_base_exc")
+    try:
+        def raise_system_exit() -> None:
+            raise SystemExit(42)
+
+        with caplog.at_level(logging.ERROR, logger="writeragent.framework.http_server"):
+            fut = pool.submit(raise_system_exit)
+            exc = fut.exception(timeout=2)
+            assert isinstance(exc, SystemExit)
+            assert exc.code == 42
+
+        assert any("Unhandled SystemExit in HTTP request worker" in r.getMessage() for r in caplog.records)
+
+        fut2 = pool.submit(lambda: "ok")
+        assert fut2.result(timeout=2) == "ok"
+    finally:
+        pool.shutdown(wait=True)
 
 
 def test_worker_start_failure_leaves_queue_empty_and_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
