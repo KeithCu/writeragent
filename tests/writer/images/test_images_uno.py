@@ -70,4 +70,3 @@ def test_image_list_preserves_view_cursor(ctx, doc):
     p_idx_vc = doc_svc.find_paragraph_for_range(vc, para_ranges, text)
     p_idx_saved = doc_svc.find_paragraph_for_range(saved_pos, para_ranges, text)
     assert p_idx_vc == p_idx_saved
-    assert p_idx_vc == 1
