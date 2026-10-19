@@ -413,7 +413,7 @@ class _MathExportBatch:
     """Reuses one hidden Math document across formulas in a single export run."""
 
     def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
+        self.ctx: Any = ctx
         self._doc: Any = None
         self._temp_path: str | None = None
         self._temp_url: str | None = None
@@ -473,23 +473,6 @@ class _MathExportBatch:
             except OSError:
                 pass
             self._temp_path = None
-
-
-def _anchor_is_display_block(anchor: Any) -> bool:
-    """True when the formula's paragraph has no other visible text."""
-    try:
-        para = anchor
-        try:
-            cursor = anchor.getText().createTextCursorByRange(anchor)
-            cursor.gotoStartOfParagraph(False)
-            cursor.gotoEndOfParagraph(True)
-            raw = cursor.getString() or ""
-        except Exception:
-            raw = para.getString() if hasattr(para, "getString") else ""
-        stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-        return stripped == ""
-    except Exception:
-        return True
 
 
 def _build_hit(
