@@ -3,6 +3,7 @@ import json
 
 import pytest
 from io import BytesIO
+from typing import Any
 
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
@@ -54,8 +55,8 @@ def test_write_http_json_sets_content_length_and_flushes():
         orig_write(data)
         return len(data)
 
-    handler.wfile.write = _write
-    handler.wfile.flush = lambda: flushed.append(True)
+    setattr(handler.wfile, "write", _write)
+    setattr(handler.wfile, "flush", lambda: flushed.append(True))
     payload = {"jsonrpc": "2.0", "error": {"code": -32600}}
     write_http_json(handler, 400, payload)
     body = handler.wfile.getvalue()
@@ -73,7 +74,7 @@ def test_write_http_json_swallows_flush_oserror():
     def _flush():
         raise BrokenPipeError("gone")
 
-    handler.wfile.flush = _flush
+    setattr(handler.wfile, "flush", _flush)
     write_http_json(handler, 200, {"ok": True})
     assert 200 in handler.sent_responses
 
@@ -318,7 +319,7 @@ def test_handle_mcp_post_rejects_oversized_body_without_reading():
             reads.append(n)
             return original(n)
 
-        handler.rfile.read = _read
+        setattr(handler.rfile, "read", _read)
         mcp_protocol.handle_mcp_post(handler)
 
         mock_handle_mcp.assert_not_called()
@@ -518,7 +519,7 @@ def test_dispatch_does_not_write_second_response_after_start():
     handler = _bare_generic_handler({})
     handler.path = "/boom"
     handler.command = "GET"
-    route = MagicMock(raw=True, main_thread=False)
+    route = MagicMock(raw=True)
 
     def _half_written(h):
         h._response_started = True
@@ -534,7 +535,7 @@ def test_dispatch_does_not_write_second_response_after_start():
 
 def test_handle_one_request_disconnect_during_404_is_not_raised():
     class DisconnectingWfile(BytesIO):
-        def write(self, b: bytes) -> int:
+        def write(self, b: Any) -> int:
             super().write(b)
             if b" 404 " in b:
                 raise BrokenPipeError("client disconnected during 404")
@@ -717,3 +718,59 @@ def test_handle_mcp_tools_call_parameter():
         assert args[1]["arg1"] == "value"
         # The target document_url passed as keyword arg should be the one from the arguments
         assert kwargs.get("document_url") == "file:///my/custom/doc.odt"
+
+
+def test_try_reserve_sse_capped_at_eight():
+    from types import SimpleNamespace
+
+    from plugin.mcp.server import SSE_MAX_STREAMS, try_reserve_sse
+
+    server = SimpleNamespace()
+    for _ in range(SSE_MAX_STREAMS):
+        assert try_reserve_sse(server) is not None
+    assert try_reserve_sse(server) is None
+
+
+def test_try_reserve_sse_after_stop_returns_none():
+    from types import SimpleNamespace
+
+    from plugin.mcp.server import stop_sse_keepalives, try_reserve_sse
+
+    server = SimpleNamespace()
+    stop_sse_keepalives(server)
+    assert try_reserve_sse(server) is None
+
+
+def test_http_server_stop_joins_threads_within_deadline():
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from plugin.mcp.server import HttpServer, _sse_state
+
+    srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
+    srv._running = True
+    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock())
+    srv._server = server_ns
+
+    blocker = threading.Event()
+    t1 = threading.Thread(target=blocker.wait, daemon=True)
+    t2 = threading.Thread(target=blocker.wait, daemon=True)
+    t1.start()
+    t2.start()
+
+    _, _, threads, lock = _sse_state(server_ns)
+    with lock:
+        threads.add(t1)
+        threads.add(t2)
+
+    start = time.monotonic()
+    try:
+        srv.stop()
+    finally:
+        blocker.set()
+        t1.join(timeout=0.5)
+        t2.join(timeout=0.5)
+    elapsed = time.monotonic() - start
+    assert elapsed < 2.5
+

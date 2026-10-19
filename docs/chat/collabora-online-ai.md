@@ -220,7 +220,9 @@ Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets m
 
 **V1**: Impress `SlideCommands` (navigation, slide mgmt, layouts, `SetText`, `EditTextObject` / nested `UnoCommand`). **Deferred**: `GenerateImage`, `MarkObject`, content controls, user approval.
 
-**Command groups** (summary): navigation; slide insert/delete/duplicate/move/rename; layout by name or id; `SetText.N`; `EditTextObject.N` with nested UNO (`.uno:Bold`, `.uno:DefaultBullet`, font/color); `GenerateImage.N`; top-level document `UnoCommand`.
+**Command groups** (summary): navigation; slide insert/delete/duplicate/move/rename; layout by name or id; `SetText.N`; `EditTextObject.N` with nested UNO; `GenerateImage.N`; top-level document `UnoCommand`.
+
+**EditTextObject formatting**: Partial-selection commands that exist on a text cursor range: Bold, Italic, Underline, Strikeout, Shadowed, SuperScript, SubScript, the four `*Para` alignments (LeftPara, RightPara, JustifyPara, CenterPara), `Color`, and `CharBackColor`. Whole-shape dispatch still covers `DefaultBullet` and `DefaultNumbering`.
 
 **Minimal PyUNO example** (layout + text only):
 

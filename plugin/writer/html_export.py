@@ -881,7 +881,10 @@ def _range_to_content_via_temp_doc(
 
         try:
             xhtml = _export_xhtml(temp_doc, config_svc)
-            parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
+            if xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
+                parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
+            else:
+                parents, overrides = {}, {}
             content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
         except Exception as e:
             # A closed document must not start a second export.
@@ -1001,6 +1004,7 @@ def document_to_content(
             len(xhtml) if isinstance(xhtml, str) else -1,
         )
         t_phase = time.perf_counter()
+        # Full export always runs _autostyle_maps: fodt_has_ruby skips iter_ruby_spans, and None triggers a portion walk.
         parents, overrides, fodt_has_ruby = _autostyle_maps(model, config_svc)
         log.debug(
             "document_to_content: phase=_autostyle_maps elapsed_ms=%.1f parents=%d overrides=%d ruby=%s",

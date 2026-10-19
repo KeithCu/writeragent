@@ -43,6 +43,13 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
         (_("Report bug..."), "main.report_bug", None, "always"),
     )
 
+_graphic_cache: dict[tuple[str, str], Any] = {}
+
+
+def reset_menu_graphic_cache() -> None:
+    """Test hook: clear the loaded graphic cache."""
+    _graphic_cache.clear()
+
 
 def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
     """Load a PNG icon from extension assets/ as XGraphic."""
@@ -51,6 +58,12 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
         from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url, menu_icon_filesystem_paths
 
         clean_name = icon_filename.replace("assets/", "").lstrip("/")
+        ext_url = get_extension_url(ctx) or ""
+        cache_key = (ext_url, clean_name)
+        cached = _graphic_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         smgr = getattr(ctx, "getServiceManager", lambda: None)()
         if smgr is None:
             return None
@@ -67,11 +80,11 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
         # Package URL is a vnd.sun.star.extension:// fallback when the OXT is
         # not installed (testing_runner uses a fresh user profile). queryGraphic
         # then throws; keep going so the filesystem paths below can load the PNG.
-        ext_url = get_extension_url(ctx)
         if ext_url:
             try:
                 graphic = _from_url(menu_icon_asset_url(ext_url, clean_name))
                 if graphic is not None:
+                    _graphic_cache[cache_key] = graphic
                     return graphic
             except Exception:
                 log.debug("load_menu_graphic package URL failed for %s", icon_filename, exc_info=True)
@@ -83,6 +96,7 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
             if os.path.isfile(path):
                 graphic = _from_url(uno.systemPathToFileUrl(path))
                 if graphic is not None:
+                    _graphic_cache[cache_key] = graphic
                     return graphic
 
         return None

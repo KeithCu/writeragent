@@ -2273,5 +2273,41 @@ def test_tts_test_progress_box_show_or_update():
     box.show_or_update("Error message")
 
 
+def test_settings_dialog_retries_on_config_validation_error() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+    from plugin.framework.errors import ConfigValidationError
 
+    dlg = MagicMock()
+    dlg.execute.side_effect = [1, 0]
 
+    ctx = MagicMock()
+    view = SettingsDialog(ctx)
+
+    with (
+        patch.object(view, "_create_dialog"),
+        patch.object(view, "_setup_tabs"),
+        patch.object(view, "_populate_fields") as mock_populate,
+        patch.object(view, "_schedule_initial_models_fetch"),
+        patch.object(view, "_apply_sqlite_restrictions"),
+        patch.object(view, "_extract_results", return_value={"request_timeout": "-1"}),
+        patch("plugin.chatbot.dialog_views.set_active_settings_dialog"),
+        patch("plugin.chatbot.dialog_views.clear_active_settings_dialog"),
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
+        patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
+        patch("plugin.chatbot.dialog_views.translate_dialog") as mock_translate,
+        patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox,
+        patch(
+            "plugin.chatbot.settings_dialog.apply_settings_result",
+            side_effect=ConfigValidationError("invalid timeout"),
+        ) as mock_apply,
+    ):
+        view._dlg = dlg
+        res = view.show()
+
+    assert res == {}
+    assert dlg.execute.call_count == 2
+    mock_populate.assert_called_once()
+    mock_apply.assert_called_once()
+    mock_msgbox.assert_called_once()
+    mock_translate.assert_not_called()
+    dlg.dispose.assert_called_once()

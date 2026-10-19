@@ -113,6 +113,29 @@ def _index_to_col_letters(n: int) -> str:
     return "".join(reversed(letters))
 
 
+def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
+    cell_re = re.compile(r"^([A-Za-z]+)(\d+)$")
+    raw = (ref or "").replace("$", "").strip()
+    if "!" in raw:
+        raw = raw.split("!", 1)[1].strip()
+    if not raw:
+        return None
+    if ":" not in raw:
+        m = cell_re.match(raw)
+        if not m:
+            return None
+        c, r = _col_letters_to_index(m.group(1)), int(m.group(2))
+        return ((c, r), (c, r))
+    left, right = raw.split(":", 1)
+    m1, m2 = cell_re.match(left.strip()), cell_re.match(right.strip())
+    if not m1 or not m2:
+        return None
+    c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
+    c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
+    return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
+
+
 def iter_a1_span(ref: str) -> list[str]:
     """Expand ``A1:B2`` (no sheet) into cell coordinates; single cell → [cell].
 
@@ -166,8 +189,15 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", exc
     if use_script_bank and cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
         try:
             return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=(separator == "," or excel_escape)), args, separator=separator, excel_ranges=excel_escape or separator == ",")
-        except ValueError:
-            pass
+        except ValueError as exc:
+            if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
+                err = f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}"
+                cell.issues.append(err)
+                raise ValueError(err) from exc
+    if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
+        err = f"script too long ({len(cell.converted_code)} chars) to inline"
+        cell.issues.append(err)
+        raise ValueError(err)
     return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
 
 
@@ -273,13 +303,53 @@ def report_safety_warnings(report: ConversionReport) -> list[str]:
     return out
 
 
-def ensure_code_sheet_openpyxl(wb: Any, code_sheet: str) -> Any:
+def bank_defined_name_for(code_sheet: str) -> str:
+    """Workbook defined name identifying *code_sheet* as a script bank sheet."""
+    return f"_py_code_bank_{code_sheet}"
+
+
+def _openpyxl_sheet_is_bank(wb: Any, code_sheet: str, ws: Any) -> bool:
+    expected_def = bank_defined_name_for(code_sheet)
+    if hasattr(wb, "defined_names") and wb.defined_names is not None:
+        try:
+            if expected_def in wb.defined_names:
+                return True
+        except Exception:
+            pass
+        try:
+            for dn in getattr(wb.defined_names, "definedName", []):
+                val = str(getattr(dn, "attr_text", "") or getattr(dn, "value", "") or "")
+                if code_sheet in val:
+                    return True
+        except Exception:
+            pass
+    try:
+        if ws[CODE_SHEET_NOTE_CELL].value == CODE_SHEET_NOTE:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def ensure_code_sheet_openpyxl(wb: Any, code_sheet: str, bank: dict[str, str] | None = None) -> Any:
     """Return (creating if needed) a visible bank worksheet named *code_sheet*."""
     if code_sheet in wb.sheetnames:
         ws = wb[code_sheet]
+        if not _openpyxl_sheet_is_bank(wb, code_sheet, ws):
+            raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
     else:
         ws = wb.create_sheet(code_sheet)
-    ws[CODE_SHEET_NOTE_CELL] = CODE_SHEET_NOTE
+    if hasattr(wb, "defined_names") and wb.defined_names is not None:
+        try:
+            from openpyxl.workbook.defined_name import DefinedName
+
+            def_name = bank_defined_name_for(code_sheet)
+            if def_name not in wb.defined_names:
+                wb.defined_names.add(DefinedName(name=def_name, attr_text=f"'{code_sheet}'!$A$1"))
+        except Exception:
+            pass
+    if not bank or CODE_SHEET_NOTE_CELL not in bank:
+        ws[CODE_SHEET_NOTE_CELL] = CODE_SHEET_NOTE
     return ws
 
 
@@ -288,20 +358,52 @@ def write_script_bank_openpyxl(wb: Any, banks: dict[str, dict[str, str]]) -> Non
     for code_sheet, bank in sorted(banks.items()):
         if not bank:
             continue
-        ws = ensure_code_sheet_openpyxl(wb, code_sheet)
+        ws = ensure_code_sheet_openpyxl(wb, code_sheet, bank=bank)
         for a1, code in sorted(bank.items()):
             ws[a1] = code
 
 
-def ensure_code_sheet_uno(doc: Any, code_sheet: str) -> Any:
+def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
+    expected_def = bank_defined_name_for(code_sheet)
+    named_ranges = getattr(doc, "NamedRanges", None)
+    if named_ranges is not None:
+        try:
+            if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(expected_def):
+                return True
+        except Exception:
+            pass
+    try:
+        val = sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).getString()
+        if val == CODE_SHEET_NOTE:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def ensure_code_sheet_uno(doc: Any, code_sheet: str, bank: dict[str, str] | None = None) -> Any:
     """Return (creating if needed) a visible bank sheet named *code_sheet*."""
     sheets = doc.getSheets()
     if sheets.hasByName(code_sheet):
         sheet = sheets.getByName(code_sheet)
+        if not _uno_sheet_is_bank(doc, code_sheet, sheet):
+            raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
     else:
         sheets.insertNewByName(code_sheet, sheets.getCount())
         sheet = sheets.getByName(code_sheet)
-    sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).setString(CODE_SHEET_NOTE)
+    named_ranges = getattr(doc, "NamedRanges", None)
+    if named_ranges is not None:
+        expected_def = bank_defined_name_for(code_sheet)
+        try:
+            if hasattr(named_ranges, "hasByName") and not named_ranges.hasByName(expected_def):
+                import uno
+
+                addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
+                named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
+        except Exception:
+            pass
+    if not bank or CODE_SHEET_NOTE_CELL not in bank:
+        sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).setString(CODE_SHEET_NOTE)
     return sheet
 
 
@@ -309,6 +411,6 @@ def write_script_bank_uno(doc: Any, banks: dict[str, dict[str, str]]) -> None:
     for code_sheet, bank in sorted(banks.items()):
         if not bank:
             continue
-        sheet = ensure_code_sheet_uno(doc, code_sheet)
+        sheet = ensure_code_sheet_uno(doc, code_sheet, bank=bank)
         for a1, code in sorted(bank.items()):
             sheet.getCellRangeByName(a1).setString(code)

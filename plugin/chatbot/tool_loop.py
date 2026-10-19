@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
+from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, is_disposed_exception, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -744,18 +744,32 @@ class ToolCallingMixin:
         elif kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:
-            mutates = False
             raw = item if isinstance(item, (tuple, list)) else ()
             s = cast("Sequence[Any]", raw)
-            ln = len(s)
-            if ln > 4:
-                with suppress_disposed("Tool loop event: mutates_document check", logger=log):
-                    from plugin.main import get_tools as _get_tools_registry
+            if len(s) < 5:
+                log.warning("Tool loop received malformed TOOL_DONE item: %r", item)
+                return ToolLoopEvent(kind=EventKind.ERROR, data={"error": "Malformed TOOL_DONE item"})
+            mutates = False
+            with suppress_disposed("Tool loop event: mutates_document check", logger=log):
+                from plugin.main import get_tools as _get_tools_registry
 
-                    tool = _get_tools_registry().get(s[2])
-                    if tool and tool.detects_mutation():
-                        mutates = True
-            return ToolLoopEvent(kind=EventKind.TOOL_RESULT, data={"call_id": s[1] if ln > 1 else None, "func_name": s[2] if ln > 2 else None, "func_args_str": s[3] if ln > 3 else None, "result": s[4] if ln > 4 else None, "mutates_document": mutates})
+                tool = _get_tools_registry().get(s[2])
+                if tool and tool.detects_mutation():
+                    mutates = True
+            call_id = s[1] if isinstance(s[1], str) and s[1].strip() else ""
+            func_name = s[2] if isinstance(s[2], str) and s[2].strip() else "unknown"
+            func_args_str = s[3] if isinstance(s[3], str) else "{}"
+            result = s[4] if isinstance(s[4], str) else ("" if s[4] is None else str(s[4]))
+            return ToolLoopEvent(
+                kind=EventKind.TOOL_RESULT,
+                data={
+                    "call_id": call_id,
+                    "func_name": func_name,
+                    "func_args_str": func_args_str,
+                    "result": result,
+                    "mutates_document": mutates,
+                },
+            )
         elif kind == StreamQueueKind.FINAL_DONE:
             return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
         elif kind == StreamQueueKind.ERROR:
@@ -830,15 +844,15 @@ class ToolCallingMixin:
 
         # If we reached here, it's either not a modality error or STT is not configured.
         # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
-        # not Exception — format_error_message() requires Exception (deal.pre).
+        # not BaseException.
         if isinstance(e, dict):
             err_msg = str(e.get("message") or e.get("code") or e)
             crash_blob = "%s %s" % (err_msg, e)
-        elif isinstance(e, Exception):
+        elif isinstance(e, BaseException):
             err_msg = format_error_message(e)
             crash_blob = err_msg
         else:
-            err_msg = str(e)
+            err_msg = resolve_exception_message(e)
             crash_blob = err_msg
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death

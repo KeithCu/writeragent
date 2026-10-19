@@ -632,6 +632,8 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
 def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False) -> ConversionReport:
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""
     report = ConversionReport(direction="dag", source_path=model.source_path)
+    if model.issues:
+        report.issues.extend(model.issues)
     if not model.scripts:
         report.issues.append("no pythonScripts found")
     ordered = _excel_execution_order(model)

@@ -19,17 +19,24 @@ from scripts.mock_llm_server import (
     MOCK_MODEL_ID,
     MOCK_STT_MODEL_ID,
     RAMBLE_PARTS,
+    SCENARIO_IDS,
     Completion,
     CompletionRule,
     MockLLMConfig,
+    _FAULT_SCENARIOS,
+    _SCENARIO_PATTERNS,
     _TurnState,
+    _consume_one_shot,
     apply_scripted_rules,
+    build_parser,
     completion_tool_calls,
+    config_from_args,
     current_query_text,
     decide_completion,
     detect_scenario,
     is_compaction_summarizer,
     iter_sse_payloads,
+    main as mock_main,
     make_handler_class,
     match_completion_rule,
     models_list_body,
@@ -2001,4 +2008,326 @@ def test_match_completion_rule_envelope_and_specialized():
     miss = match_completion_rule(CompletionRule(envelope=False, content="x"), env_payload)
     assert miss is None
     assert apply_scripted_rules(env_payload, MockLLMConfig(rules=[rule])) is not None
+
+
+def test_main_copies_every_config_flag(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    def fake_serve(host: str, port: int, config: MockLLMConfig) -> None:
+        captured["config"] = config
+        captured["host"] = host
+        captured["port"] = port
+
+    monkeypatch.setattr("scripts.mock_llm_server.serve", fake_serve)
+    argv = [
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "19999",
+        "--delay-ms",
+        "50",
+        "--sync-delay-ms",
+        "100",
+        "--offline",
+        "--always-research",
+        "--scenario",
+        "table",
+        "--chunk-chars",
+        "12",
+        "--fail",
+        "http500",
+        "--fail-image",
+        "status",
+        "--image-delay-s",
+        "1.5",
+        "--image-status",
+        "429",
+        "--fail-after-chunks",
+        "2",
+        "--sse-comments",
+        "--transcript",
+        "custom transcript",
+    ]
+    assert mock_main(argv) == 0
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 19999
+    cfg = captured["config"]
+    assert cfg.delay_ms == 50
+    assert cfg.sync_delay_ms == 100
+    assert cfg.offline is True
+    assert cfg.always_research is True
+    assert cfg.scenario == "table"
+    assert cfg.chunk_chars == 12
+    assert cfg.fail == "http500"
+    assert cfg.fail_image == "status"
+    assert cfg.image_delay_s == 1.5
+    assert cfg.image_status == 429
+    assert cfg.fail_after_chunks == 2
+    assert cfg.sse_comments is True
+    assert cfg.transcript == "custom transcript"
+
+
+def test_drift_guard_argparse_dests():
+    import argparse
+
+    parser = build_parser()
+    server_only = {"host", "port"}
+    config_fields = set(MockLLMConfig.__dataclass_fields__.keys())
+    arg_dests = {action.dest for action in parser._actions if action.dest != "help"}
+    assert arg_dests - server_only <= config_fields
+
+    dummy_dict: dict[str, Any] = {
+        dest: 42 if dest in {"delay_ms", "port", "chunk_chars", "fail_after_chunks", "image_status"} else f"val_{dest}"
+        for dest in arg_dests
+    }
+    dummy_dict["image_delay_s"] = 1.0
+    dummy_dict["offline"] = True
+    dummy_dict["always_research"] = True
+    dummy_dict["sse_comments"] = True
+    dummy_ns = argparse.Namespace(**dummy_dict)
+    mapped_cfg = config_from_args(dummy_ns)
+    for dest in arg_dests - server_only:
+        assert getattr(mapped_cfg, dest) == dummy_dict[dest]
+
+
+def test_scenario_ids_match_phrases():
+    phrase_ids = {sid for sid, _ in _SCENARIO_PATTERNS}
+    assert phrase_ids.issubset(SCENARIO_IDS)
+    assert SCENARIO_IDS - phrase_ids == {"none", "tree"}
+    assert _FAULT_SCENARIOS.issubset(phrase_ids)
+
+
+def test_main_accepts_table_and_content_filter_scenarios(monkeypatch):
+    monkeypatch.setattr("scripts.mock_llm_server.serve", lambda _h, _p, _c: None)
+    assert mock_main(["--scenario", "table"]) == 0
+    assert mock_main(["--scenario", "content_filter"]) == 0
+
+
+def test_table_scenario_returns_produce_table():
+    out = decide_completion(
+        {"messages": [{"role": "user", "content": "show a table"}]},
+        MockLLMConfig(delay_ms=0),
+    )
+    assert out.content is not None
+    assert "<th>Item</th>" in out.content
+    assert "print('mock-llm')" not in out.content
+
+
+def test_fail_native_audio_400_counter_only_spends_on_audio():
+    cfg = MockLLMConfig(delay_ms=0, fail_native_audio_400_count=1)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    chat = f"http://{host}:{port}/v1/chat/completions"
+    try:
+        hello_req = Request(
+            chat,
+            data=json.dumps({"model": MOCK_MODEL_ID, "messages": [{"role": "user", "content": "hello"}], "stream": False}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(hello_req, timeout=5) as resp:
+            assert resp.status == 200
+        assert cfg.fail_native_audio_400_count == 1
+
+        audio_user = {
+            "role": "user",
+            "content": [{"type": "input_audio", "input_audio": {"data": "QQ==", "format": "wav"}}],
+        }
+        audio_req = Request(
+            chat,
+            data=json.dumps({"model": MOCK_MODEL_ID, "messages": [audio_user], "stream": False}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as err:
+            urlopen(audio_req, timeout=5)
+        assert err.value.code == 400
+        assert cfg.fail_native_audio_400_count == 0
+
+        with urlopen(audio_req, timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+
+def test_consume_one_shot_concurrency():
+    cfg = MockLLMConfig(fail_stt_404_count=20)
+    results: list[bool] = []
+    lock = threading.Lock()
+
+    def worker():
+        for _ in range(15):
+            res = _consume_one_shot(cfg, "fail_stt_404_count")
+            with lock:
+                results.append(res)
+
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert cfg.fail_stt_404_count == 0
+    assert results.count(True) == 20
+    assert results.count(False) == 10
+
+
+def test_concurrent_stt_one_shot_404():
+    cfg = MockLLMConfig(delay_ms=0, fail_stt_404_count=1)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    stt = f"http://{host}:{port}/v1/audio/transcriptions"
+    stt_data = json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode()
+    statuses: list[int] = []
+    status_lock = threading.Lock()
+
+    def post_stt():
+        req = Request(stt, data=stt_data, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urlopen(req, timeout=5) as resp:
+                with status_lock:
+                    statuses.append(resp.status)
+        except HTTPError as err:
+            with status_lock:
+                statuses.append(err.code)
+
+    t1 = threading.Thread(target=post_stt)
+    t2 = threading.Thread(target=post_stt)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+    httpd.shutdown()
+    thread.join(timeout=2)
+
+    assert sorted(statuses) == [200, 404]
+    assert cfg.fail_stt_404_count == 0
+
+
+def test_image_generations_route():
+    cfg = MockLLMConfig(delay_ms=0, fail_image="none")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            b64 = data["data"][0]["b64_json"]
+            assert b64.startswith("iVBORw0KGgo")
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+    cfg = MockLLMConfig(delay_ms=0, fail_image="status", image_status=429)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+        with pytest.raises(HTTPError) as err:
+            urlopen(req, timeout=5)
+        assert err.value.code == 429
+        body = err.value.read().decode("utf-8")
+        assert "mock image failure" in body
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+    cfg = MockLLMConfig(delay_ms=0, fail_image="malformed")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            body = resp.read().decode("utf-8")
+            assert "not_base64" in body
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+    cfg = MockLLMConfig(delay_ms=0, fail_image="hang", fail="none")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            body = resp.read()
+            assert body == b""
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+    cfg = MockLLMConfig(delay_ms=0)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b"not json", headers={"Content-Type": "application/json"}, method="POST")
+        with pytest.raises(HTTPError) as err:
+            urlopen(req, timeout=5)
+        assert err.value.code == 400
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+
+def test_image_delay_sleep(monkeypatch):
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("scripts.mock_llm_server.time.sleep", lambda s: sleep_calls.append(s))
+    cfg = MockLLMConfig(delay_ms=0, image_delay_s=1.25)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/v1/images/generations"
+    try:
+        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+        assert 1.25 in sleep_calls
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
+
+
+def test_trigger_table_lists_every_phrase():
+    import re
+    from pathlib import Path
+
+    doc_path = Path(__file__).resolve().parents[2] / "docs" / "tests" / "mock-llm-sidebar.md"
+    content = doc_path.read_text(encoding="utf-8")
+    start = content.index("### 2.2.")
+    end = content.index("### 2.3.")
+    section = content[start:end].lower()
+
+    for _sid, pat in _SCENARIO_PATTERNS:
+        raw = pat.pattern
+        cleaned = re.sub(r"^\\b\(?|\)?\\b$", "", raw)
+        alts = cleaned.split("|")
+        for alt in alts:
+            needle = re.sub(r"\\s[*+]", " ", alt).strip().lower()
+            assert needle in section, f"Phrase '{needle}' missing from section 2.2"
+
 

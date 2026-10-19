@@ -26,8 +26,10 @@ from plugin.calc.charts import (
     _axis_title_shape_string,
     _chart_document_from_host,
     _is_chart_clsid,
+    _is_chart_host,
     _normalize_clsid_value,
     _resolve_chart,
+    _unique_chart_name,
     _writer_embed_is_chart,
     supportsService,
 )
@@ -113,7 +115,7 @@ class _UnoByteSequence:
 
 
 class _OleShape:
-    def __init__(self, name: str, clsid: str = CHART_CLSID, *, name_error: BaseException | None = None) -> None:
+    def __init__(self, name: str, clsid: Any = CHART_CLSID, *, name_error: BaseException | None = None) -> None:
         self._name = name
         self._name_error = name_error
         self.CLSID: Any = clsid
@@ -131,7 +133,7 @@ class _OleShape:
 def _page(*shapes: object) -> MagicMock:
     page = MagicMock()
     page.getCount.return_value = len(shapes)
-    page.getByIndex.side_effect = list(shapes)
+    page.getByIndex.side_effect = lambda idx: shapes[idx]
     return page
 
 
@@ -569,3 +571,129 @@ def test_delete_chart_writer_draw_page_disposal_is_not_not_found():
     with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
         with pytest.raises(DisposedException):
             DeleteChart().execute(ctx, name="Chart_1")
+
+
+def test_non_chart_embed_and_shape_absent_and_not_deleted():
+    # Math and non-chart OLE shapes are ignored by list, resolve, and delete
+    math_clsid = "078b7aba-54fc-4570-8544-e03884a92cd3"
+    math_embed = MagicMock()
+    math_embed.CLSID = math_clsid
+
+    doc_writer = MagicMock()
+    embeds = MagicMock()
+    embeds.getElementNames.return_value = ("Formula_1",)
+    embeds.hasByName.side_effect = lambda n: n == "Formula_1"
+    embeds.getByName.return_value = math_embed
+    doc_writer.getEmbeddedObjects.return_value = embeds
+    doc_writer.getDrawPage.return_value.getCount.return_value = 0
+
+    ctx_w = MagicMock(doc=doc_writer)
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        res = ListCharts().execute(ctx_w)
+        assert res["charts"] == []
+        assert _resolve_chart(doc_writer, "Formula_1") is None
+        del_res = DeleteChart().execute(ctx_w, name="Formula_1")
+        assert del_res["status"] == "error"
+        assert "not found" in del_res["message"]
+        embeds.removeByName.assert_not_called()
+
+    # Draw page non-chart shape
+    other_shape = _OleShape("Other_1", clsid="11111111-2222-3333-4444-555555555555")
+    page = _page(other_shape)
+    doc_draw = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc_draw.getDrawPages.return_value = pages
+
+    ctx_d = MagicMock(doc=doc_draw)
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        res = ListCharts().execute(ctx_d)
+        assert res["charts"] == []
+        assert _resolve_chart(doc_draw, "Other_1") is None
+        del_res = DeleteChart().execute(ctx_d, name="Other_1")
+        assert del_res["status"] == "error"
+        assert "not found" in del_res["message"]
+        page.remove.assert_not_called()
+
+
+def test_runtime_writer_shape_clsid_listed_and_deleted():
+    # 12d37028-... is recognized on string and ByteSequence representations
+    runtime_clsid = "12d37028-0b55-463d-863a-211463e2c59f"
+    shape = _OleShape("Chart_W", clsid=runtime_clsid)
+    page = _page(shape)
+
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+    doc.getDrawPage.return_value = page
+
+    ctx = MagicMock(doc=doc)
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        res = ListCharts().execute(ctx)
+        assert len(res["charts"]) == 1
+        assert res["charts"][0]["name"] == "Chart_W"
+
+        found = _resolve_chart(doc, "Chart_W")
+        assert found is shape
+
+        del_res = DeleteChart().execute(ctx, name="Chart_W")
+        assert del_res["status"] == "ok"
+        page.remove.assert_called_once_with(shape)
+
+    # ByteSequence variant
+    shape_bytes = _OleShape("Chart_WB", clsid=_UnoByteSequence(runtime_clsid.encode("ascii")))
+    assert _is_chart_clsid(shape_bytes.CLSID) is True
+
+
+def test_writer_duplicate_name_embed_and_draw_page_deduped():
+    # When an embed and a draw-page shape share a name, list emits it once
+    embed_obj = MagicMock()
+    embed_obj.CLSID = CHART_CLSID
+    shape_obj = _OleShape("Chart_0", clsid=CHART_CLSID)
+
+    embeds = MagicMock()
+    embeds.getElementNames.return_value = ("Chart_0",)
+    embeds.hasByName.side_effect = lambda n: n == "Chart_0"
+    embeds.getByName.return_value = embed_obj
+
+    page = _page(shape_obj)
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value = embeds
+    doc.getDrawPage.return_value = page
+
+    ctx = MagicMock(doc=doc)
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        res = ListCharts().execute(ctx)
+        assert len(res["charts"]) == 1
+        assert res["charts"][0]["name"] == "Chart_0"
+
+        # Delete removes from embeds container first
+        del_res = DeleteChart().execute(ctx, name="Chart_0")
+        assert del_res["status"] == "ok"
+        embeds.removeByName.assert_called_once_with("Chart_0")
+        page.remove.assert_not_called()
+
+
+def test_predicate_disposal_propagates():
+    # Disposal in property access or fallback diagram check must propagate
+    disposed_host = MagicMock()
+    type(disposed_host).CLSID = property(fget=MagicMock(side_effect=DisposedException("gone")))
+    with pytest.raises(DisposedException):
+        _is_chart_host(disposed_host)
+
+    embed_host = MagicMock(spec=["CLSID", "getEmbeddedObject"])
+    embed_host.CLSID = None
+    chart_doc = MagicMock(spec=["getDiagram"])
+    chart_doc.getDiagram.side_effect = DisposedException("gone")
+    embed_host.getEmbeddedObject.return_value = chart_doc
+    with pytest.raises(DisposedException):
+        _writer_embed_is_chart(embed_host)
+
+
+def test_unique_chart_names_unit():
+    # Lowest available index is selected
+    assert _unique_chart_name({"Chart_1", "Formula_0"}) == "Chart_0"
+    assert _unique_chart_name({"Chart_0", "Chart_1"}) == "Chart_2"
+    assert _unique_chart_name({"Chart_2"}) == "Chart_0"
+

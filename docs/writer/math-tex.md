@@ -870,7 +870,7 @@ flowchart TB
 | TexMaths feature | Where in TexMaths | WriterAgent gap | Suggested port |
 |------------------|-------------------|-----------------|--------------|
 | **Persist LaTeX source on insert** | `SetAttributes` stores `sEqCode` in shape metadata | TeX lost after insert ([Optional: preserving original model TeX](#optional-preserving-original-model-tex)) | On `insert_writer_math_formula`, write optional `UserDefinedAttributes` / doc property: original TeX + `display_block`. Enables edit rounds without StarMath→TeX guesswork. |
-| **Edit selected equation** | Select image → Equations macro loads LaTeX | Menu **Edit LaTeX Math...**; one selected formula prefills TeX and **Update** sets `Formula` in place (no second OLE — that crashed LO). Multi-select is refused. | Done for single selection. |
+| **Edit selected equation** | Select image → Equations macro loads LaTeX | Menu **Insert LaTeX Math...**; one selected formula prefills TeX and **Update** sets `Formula` in place (no second OLE — that crashed LO). Multi-select is refused. | Done for single selection. |
 | **Selection → equation** (“Text to LaTeX”) | Help §11: select plain LaTeX in Writer → one-click convert | Same conversion path, no selection shortcut | Writer menu/MCP: `getSelection()` string → `convert_latex_to_starmath` → insert/replace. Small UX win for power users. |
 | **Read legacy TexMaths / OOoLatex** | `ReadAttributes` supports `TexMathsArgs`, `OOoLatexArgs`, `Title=TexMaths` | No interop with existing academic `.odt` | UNO helper + optional tool: detect graphic with TexMaths metadata, return LaTeX to model, offer “convert to native math” (one-shot or batch). Critical for documents that already use TexMaths. |
 

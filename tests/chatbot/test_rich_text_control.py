@@ -549,10 +549,12 @@ class TestRichTextChatWidget:
         session.messages[-1]["content"] = "Hello"
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=12), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
+             patch("plugin.chatbot.rich_text_paste._plain_fallback_text") as fallback, \
              patch("plugin.chatbot.rich_text_control.append_text_chunk") as chunk, \
              patch("plugin.chatbot.rich_text_control.ChatTheme"):
             widget.stream_session(session)
         paint.assert_not_called()
+        fallback.assert_not_called()
         assert chunk.call_args[0][1] == "lo"
 
     @staticmethod

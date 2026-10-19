@@ -478,6 +478,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
     ctx = MagicMock()
     notebook_controls._install_doc_event_listener(ctx)
     lis = notebook_controls._doc_listener
+    assert lis is not None
 
     event = MagicMock()
     event.EventName = "OnViewCreated"
@@ -677,3 +678,107 @@ def test_wire_all_lost_race_detaches_its_duplicate_listener():
         finally:
             notebook_controls._listener_refs.clear()
             notebook_controls._wired_form_docs.clear()
+
+
+def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
+    ctx = MagicMock()
+    doc1, run_ctrl1, container1, state1 = _play_button_doc("uid-doc-1")
+    doc2, run_ctrl2, container2, state2 = _play_button_doc("uid-doc-2")
+
+    notebook_controls._install_doc_event_listener(ctx)
+    listener = notebook_controls._doc_listener
+    assert listener is not None
+
+    def _forms(d):
+        if d is doc1:
+            return MagicMock(), container1
+        return MagicMock(), container2
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", side_effect=lambda d: state1 if d is doc1 else state2),
+        patch("plugin.notebook.notebook_controls._form_and_container", side_effect=_forms),
+    ):
+        assert wire_all_notebook_run_buttons(ctx, doc1) == 1
+        assert wire_all_notebook_run_buttons(ctx, doc2) == 1
+        assert len(notebook_controls._listener_refs) == 4
+
+        # OnUnload for doc1
+        event = MagicMock()
+        event.EventName = "OnUnload"
+        event.ViewController = None
+        event.Source = doc1
+        listener.on_document_event(event)
+
+    doc1_key = notebook_controls._doc_key(doc1)
+    doc2_key = notebook_controls._doc_key(doc2)
+    assert doc1_key not in notebook_controls._wired_form_docs
+    assert doc2_key in notebook_controls._wired_form_docs
+    assert len(notebook_controls._listener_refs) == 2
+    for lis in notebook_controls._listener_refs:
+        assert getattr(lis, "_doc_key_val", None) == doc2_key
+
+
+def test_wire_again_after_unload_creates_one_new_pair():
+    ctx = MagicMock()
+    doc, run_ctrl, container, state = _play_button_doc("uid-wire-again")
+
+    notebook_controls._install_doc_event_listener(ctx)
+    listener = notebook_controls._doc_listener
+    assert listener is not None
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+    ):
+        assert wire_all_notebook_run_buttons(ctx, doc) == 1
+        assert len(notebook_controls._listener_refs) == 2
+
+        # Fire OnUnload
+        event = MagicMock()
+        event.EventName = "OnUnload"
+        event.ViewController = None
+        event.Source = doc
+        listener.on_document_event(event)
+
+        assert len(notebook_controls._listener_refs) == 0
+
+        # Wire again on a new view
+        new_container = MagicMock()
+        new_run_ctrl = MagicMock()
+        new_run_ctrl.getModel.return_value = MagicMock(Name="nb_run_new")
+        new_run_ctrl.queryInterface.return_value = new_run_ctrl
+        new_container.getControls.return_value = (new_run_ctrl,)
+
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), new_container)):
+            assert wire_all_notebook_run_buttons(ctx, doc) == 1
+            assert len(notebook_controls._listener_refs) == 2
+
+
+def test_container_on_disposing_removes_pair_and_leaves_second_container():
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-disposing-test"
+
+    run_lis1 = NotebookFormRunListener(ctx, doc)
+    container1 = MagicMock()
+    cont_lis1 = NotebookFormContainerListener(run_lis1, container1)
+
+    run_lis2 = NotebookFormRunListener(ctx, doc)
+    container2 = MagicMock()
+    cont_lis2 = NotebookFormContainerListener(run_lis2, container2)
+
+    notebook_controls._listener_refs = [run_lis1, cont_lis1, run_lis2, cont_lis2]
+    notebook_controls._wired_form_docs = {run_lis1._doc_key_val}
+
+    cont_lis1.on_disposing(MagicMock())
+
+    assert run_lis1 not in notebook_controls._listener_refs
+    assert cont_lis1 not in notebook_controls._listener_refs
+    assert run_lis2 in notebook_controls._listener_refs
+    assert cont_lis2 in notebook_controls._listener_refs
+    assert len(notebook_controls._listener_refs) == 2
+    assert run_lis1._doc_key_val in notebook_controls._wired_form_docs
+

@@ -45,7 +45,7 @@ LibreOffice ships its own embedded Python. Compiled libraries such as **NumPy** 
 *   **AST sandbox (shipped in the OXT)**: We bundle smolagents’ [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py)—AST walking, fixed `VENV_AUTHORIZED_IMPORTS` (not “whatever is pip-installed”), blocks `os`/`subprocess`, dunder escapes, and runaway loops. **Subprocess isolation** remains the hard boundary so LibreOffice never shares memory with C extensions.
 *   **One execution path**: Chat tool **`run_venv_python_script`** and Calc **`=PYTHON(code, data?)`** both go through [`run_code_in_user_venv`](plugin/scripting/venv_worker.py). Assign JSON-serializable output to **`result`**; optional range data is injected as **`data`** (Calc). NumPy arrays and pandas objects are serialized back for the LLM.
 *   **Two-phase orchestration**: Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results—no UNO inside the child process today.
-*   **In-process alternative**: **`execute_python_script`** remains a separate, stdlib-only sandbox in LibreOffice’s embedded Python (`LocalPythonExecutor`) for light logic without a venv.
+*   **Venv execution**: Chat Python and **`=PY()`** run in the user venv via **`run_venv_python_script`** and the warm worker.
 *   **`=PROMPT()` + `=PYTHON()`**: Natural-language requests can yield pasteable Python formulas—Monte Carlo, percentiles, and other data-science workflows without leaving the spreadsheet.
 
 Full design, security model, LibrePythonista comparison, and roadmap (e.g. deferred venv↔tool RPC): **[Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md)**.

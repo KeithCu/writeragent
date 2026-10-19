@@ -228,7 +228,7 @@ This is a high priority because it improves confidence over time while keeping r
 WriterAgent has broadly adopted Design-by-Contract using `deal` (and `plugin/framework/deal_shim.py`) across 57+ modules in `plugin/`:
 
 - **Pure logic and serialization**: `payload_codec.py` (`is_split_grid`, `is_multi_data`, array pack/unpack), `calc_range.py`, `cells.py`, `address_utils.py`.
-- **Protocol and State Machines**: MCP wire types (`wire_types.py`), MCP state (`mcp_state.py`), MCP SSE tunnel (`tunnel_state.py`), chat send state (`send_state.py`), tool loop state (`tool_loop_state.py`).
+- **Protocol and State Machines**: MCP wire types (`wire_types.py`), MCP SSE tunnel (`tunnel_state.py`), chat send state (`send_state.py`), tool loop state (`tool_loop_state.py`).
 - **Parsing and normalization**: `stream_normalizer.py`, `response_normalizers.py`, `html_stripper.py`, `url_utils.py`, `json_utils.py`.
 - **AST and Scripting**: `ast_stmt_edit.py`, `import_policy.py`, `editor_ipc.py`, `sandbox.py`.
 

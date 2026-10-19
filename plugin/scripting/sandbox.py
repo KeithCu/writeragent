@@ -271,9 +271,6 @@ def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
     return real is not None and _matches_allowlist(real, exact, wildcards)
 
 
-# In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.
-CALC_AUTHORIZED_IMPORTS: tuple[str, ...] = tuple(sorted(set(BASE_BUILTIN_MODULES) | {"json"}))
-
 # --- Subprocess environment ---
 
 _BLOCKED_ENV_TOKENS = frozenset(

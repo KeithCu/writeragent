@@ -9,10 +9,10 @@ This document is the single reference for building, loading, wiring, and extendi
 When creating dialogs or multi-step wizards in LibreOffice Python (PyUNO):
 
 1. **XDL Files**: Define UI layouts in XML Description Language (`.xdl` files) under `extension/Dialogs/`.
-2. **Context & Loader**: Load dialogs via `load_writeragent_dialog()` or `DialogProvider` using the extension's base URL. **Never** use `vnd.sun.star.script:...?location=application` (causes deadlocks/hangs).
+2. **Context & Loader**: Load dialogs via the shared loaders `load_writeragent_dialog()` or `load_writeragent_dialog_detail()`, which handle fallbacks between `DialogProvider` and `DialogProvider2`, capture diagnostics, and run translation. Do not construct ad-hoc `DialogProvider` instances. **Never** use `vnd.sun.star.script:...?location=application` (causes deadlocks/hangs).
 3. **Execution Modes**:
    - **Modal**: `dlg.execute() == 1` (blocks caller until closed; requires `dlg.dispose()` unless closed via Cancel where execute returns False).
-   - **Modeless / Non-Blocking**: `dlg.setVisible(True)` with parent container window binding (allows simultaneous document editing).
+   - **Modeless / Non-Blocking**: `dlg.setVisible(True)` with parent container window binding (allows simultaneous document editing). When `closeable="true"` in XDL, title-bar or Esc close destroys the window in VCL: `windowClosing` must not call `dispose()` again (native crash with no Python traceback). Modeless dialogs use `close(*, toolkit_teardown: bool = False)`, where `windowClosing` passes `toolkit_teardown=True` to only call `setVisible(False)` inside `suppress_disposed`, leaving cleanup to the toolkit. Explicit Close button paths use `toolkit_teardown=False` to dispose.
 4. **Listeners**: Always inherit from `BaseActionListener`, `BaseItemListener`, `BaseTextListener`, or `BaseListener` from `plugin.framework.uno_listeners` to prevent exceptions from crashing PyUNO or LibreOffice.
 5. **Localization**: Always run `translate_dialog(dlg)` after loading to auto-translate labels/titles via `gettext` (`_()`).
 6. **Multi-Page / Wizards**: LibreOffice does **not** support `tabpagecontainer` or `tabpage` in Python extensions reliably. Use `dlg:page` on controls + `dlg.getModel().Step = page_num` with `TabListener` or Wizard Step buttons.
@@ -107,6 +107,7 @@ from plugin.framework.uno_listeners import (
     BaseTextListener,        # override on_text_changed(self, rEvent)
     BaseKeyListener,         # override on_key_pressed(self, e), on_key_released(self, e)
     BaseWindowListener,      # override on_window_resized, on_window_moved, on_window_shown, on_window_hidden
+    BaseTopWindowListener,   # override on_window_closing(self, rEvent)
     BaseDocumentEventListener,
     BaseActivationEventListener, # override on_active_spreadsheet_changed(self, aEvent) for Calc sheets
 )

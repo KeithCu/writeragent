@@ -41,16 +41,6 @@ log = logging.getLogger("writeragent.writer")
 _FAILED: Any = object()
 
 _MARKUP_PATTERNS = [
-    # Markdown
-    "**",
-    "__",
-    "``",
-    "# ",
-    "## ",
-    "### ",
-    "| ",
-    "|---",
-    "- [ ]",
     # HTML
     "<b>",
     "<i>",
@@ -195,39 +185,80 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     # are relative to that suffix, not to earlier document text.
     anchor = skip_chars if skip_chars > 0 else 0
     pos = anchor
+
+    cur: Any = None
+    cur_pos = 0
+
     for item in spans:
         base, reading, is_above = item[0], item[1], item[2] if len(item) > 2 else True
         if not base or not reading:
             continue
-        # haystack.find(base, pos) binds RubyText to the first copy of the
-        # base. 漢字 before <ruby>漢字<rt>…</rt></ruby> takes the reading
-        # when extract keeps only the base string and the later search has
-        # no position. The span's fourth item is that base's visible-text
-        # offset, and the search starts there.
-        start = pos
-        if len(item) > 3 and isinstance(item[3], int) and item[3] >= 0:
-            start = max(pos, anchor + item[3])
-        idx = haystack.find(base, start)
+
+        # The span's fourth item is the base's visible-text offset, so a repeated
+        # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
+        offset = item[3] if len(item) > 3 and isinstance(item[3], int) and item[3] >= 0 else None
+        target_offset = (anchor + offset) if offset is not None else None
+
+        idx = -1
+        if target_offset is not None and target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
+            idx = target_offset
+        else:
+            if target_offset is not None:
+                log.debug("_apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
+            idx = haystack.find(base, pos)
+
         if idx < 0:
             log.debug("_apply_ruby_spans: base %r not found in imported text", base)
             continue
+
         try:
-            cur = text_obj.createTextCursorByRange(origin)
-            if idx and not _go_right(cur, idx, False):
+            if cur is None:
+                cur = text_obj.createTextCursorByRange(origin)
+                cur_pos = 0
+
+            delta = idx - cur_pos
+            if delta < 0:
+                cur = text_obj.createTextCursorByRange(origin)
+                cur_pos = 0
+                delta = idx
+
+            if delta > 0 and not _go_right(cur, delta, False):
+                cur = None
                 continue
-            if not _go_right(cur, len(base), True):
+            cur_pos = idx
+
+            sel = text_obj.createTextCursorByRange(cur)
+            if not _go_right(sel, len(base), True):
+                cur = None
                 continue
-            if cur.getString() != base:
+
+            if sel.getString() != base:
+                resync = 0
+                while sel.getString() != base and resync < 50 and _go_right(cur, 1, False):
+                    cur_pos += 1
+                    resync += 1
+                    sel = text_obj.createTextCursorByRange(cur)
+                    if not _go_right(sel, len(base), True):
+                        break
+
+            if sel.getString() != base:
                 log.debug(
                     "_apply_ruby_spans: offset mismatch want %r got %r",
-                    base, cur.getString(),
+                    base, sel.getString(),
                 )
-                pos = idx + len(base)
+                _go_right(cur, len(base), False)
+                cur_pos = idx + len(base)
+                pos = cur_pos
                 continue
-            _set_ruby_on_range(cur, reading, is_above)
+
+            _set_ruby_on_range(sel, reading, is_above)
+            _go_right(cur, len(base), False)
+            cur_pos = cur_pos + len(base)
+            pos = idx + len(base)
         except Exception:
-            log.debug("_apply_ruby_spans: failed for %r", base, exc_info=True)
-        pos = idx + len(base)
+            log.warning("_apply_ruby_spans: failed for %r", base, exc_info=True)
+            cur = None
+            pos = idx + len(base)
 
 
 _BLOCK_MARKUP_PATTERNS = [
@@ -454,6 +485,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
                 break
             paras.append(el)
         i += 1
+    style_cache: dict[Any, Any] = {}
     for para_el, style in zip(paras, styles):
         if not style:
             continue
@@ -461,8 +493,11 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
         try:
             cur = text_obj.createTextCursorByRange(para_el.getStart())
             cur.gotoEndOfParagraph(True)
-            format_mod.apply_paragraph_style_preserving_direct_char(model, cur, resolved)
-        except Exception:
+            format_mod.apply_paragraph_style_preserving_direct_char(
+                model, cur, resolved, style_cache=style_cache,
+            )
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
 
 
@@ -729,7 +764,25 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         search.SearchString = image.marker
         search.SearchCaseSensitive = True
         found = model.findFirst(search)
+        if found is None and hasattr(model, "getTextTables"):
+            try:
+                tables = model.getTextTables()
+                for tbl_name in tables.getElementNames():
+                    tbl = tables.getByName(tbl_name)
+                    for cell_name in tbl.getCellNames():
+                        cell = tbl.getCellByName(cell_name)
+                        if hasattr(cell, "createSearchDescriptor"):
+                            cell_found = cell.findFirst(search)
+                            if cell_found is not None:
+                                found = cell_found
+                                break
+                    if found is not None:
+                        break
+            except Exception:
+                pass
         if found is None:
+            if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original):
+                raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
             log.warning("kept image %r: marker not found after the import", image.name)
             continue
         text = found.getText()
@@ -844,11 +897,16 @@ def _insert_mixed_html_and_math_at_cursor(
                 cursor.gotoRange(tail.getStart(), False)
                 continue
 
+            chunk, seg_ruby = extract_and_strip_ruby(chunk)
+
             # Expand literal \n and \t for plain HTML without math
             chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
 
             sub = _ensure_html_linebreaks(chunk)
+            seg_ruby_skip = _prefix_char_count(cursor.getText(), cursor)
             _insert_starwriter_html_at_cursor(model, cursor, sub, config_svc=config_svc)
+            if seg_ruby:
+                _apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
         if seg.kind == "tex":
             res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
@@ -886,11 +944,15 @@ def _insert_mixed_or_plain_html(
     # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
     clean, block_styles = _extract_block_lo_styles(unescaped_content)
-    # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
-    clean, ruby_spans = extract_and_strip_ruby(clean)
+    has_math = html_fragment_contains_mixed_math(clean)
+    if not has_math:
+        # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
+        clean, ruby_spans = extract_and_strip_ruby(clean)
+    else:
+        ruby_spans = []
     styled = apply_styles and any(block_styles)
     text_obj = cursor.getText()
-    ruby_skip = _prefix_char_count(text_obj, cursor)
+    ruby_skip = _prefix_char_count(text_obj, cursor) if not has_math else 0
     # Index of the paragraph where the inserted block content begins (computed pre-import).
     # The first imported block MERGES into the paragraph that contains the cursor when the
     # cursor is not at a paragraph boundary (target=end/search/selection). So count paragraphs
@@ -909,7 +971,7 @@ def _insert_mixed_or_plain_html(
             pass
         start_idx = _count_preceding_paras(text_obj, ref)
 
-    if html_fragment_contains_mixed_math(clean):
+    if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
     else:
         # Expand literal \n and \t for plain HTML without math
@@ -928,7 +990,8 @@ def _insert_mixed_or_plain_html(
         # still looked like a finished insert.
         _apply_block_lo_styles(model, text_obj, start_idx, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
-    _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
+    if not has_math:
+        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
 
 
 
@@ -1065,6 +1128,17 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     _apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
 
 
+# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
+_COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
+
+
+def _decode_complete_character_references(text: str) -> str:
+    """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
+    if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
+        return text
+    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
+
+
 def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
@@ -1074,7 +1148,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
 
 
 def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
-    content = html_mod.unescape(content)
+    content = _decode_complete_character_references(content)
 
     text = model.getText()
     cursor = text.createTextCursor()
@@ -1156,7 +1230,7 @@ def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = 
 
 
 def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
-    content = html_mod.unescape(content)
+    content = _decode_complete_character_references(content)
 
     text = model.getText()
     cursor = text.createTextCursor()
@@ -1215,7 +1289,7 @@ def replace_single_range_with_content(
 def _replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
 ) -> None:
-    prepared = html_mod.unescape(content)
+    prepared = _decode_complete_character_references(content)
     text_obj = text_range.getText()
 
     # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
@@ -1592,13 +1666,18 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     walked = 0
     if text_obj is not None:
         walked = _restore_fields_by_cursor(model, text_obj)
-        if walked:
-            plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
-            if plain is _FAILED:
-                return walked
-            if "[[WA-FIELD:" not in plain:
-                return walked
+        plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
+        if plain is not _FAILED and "[[WA-FIELD:" not in plain:
+            return walked
     if model is None or not hasattr(model, "createSearchDescriptor"):
+        if text_obj is not None:
+            plain = uno_read(lambda: text_obj.getString() or "", "")
+            if "[[WA-FIELD:" in plain:
+                match = _FIELD_TOKEN_RE.search(plain)
+                tok = match.group(0) if match else "[[WA-FIELD:...]]"
+                raise ToolExecutionError(
+                    f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+                )
         return walked
     restored = walked
 
@@ -1638,6 +1717,15 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
                 restored += 1
 
             found = nxt
+
+    if text_obj is not None:
+        plain = uno_read(lambda: text_obj.getString() or "", "")
+        if "[[WA-FIELD:" in plain:
+            match = _FIELD_TOKEN_RE.search(plain)
+            tok = match.group(0) if match else "[[WA-FIELD:...]]"
+            raise ToolExecutionError(
+                f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+            )
 
     return restored
 
@@ -1722,11 +1810,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                             has_content = True
                             break
                 except Exception as e:
-                    # What was wrong: a failed portion walk left has_content False
-                    # and the last paragraph was deleted.
-                    # How: that paragraph can hold a frame, field, or image whose
-                    # getString() is empty.
-                    # Why: skip the delete unless the walk actually finishes empty.
+                    # A frame, field, or image paragraph has empty getString(); delete only when the walk finishes empty.
                     reraise_if_disposed(e)
                     log.debug("Failed to inspect trailing paragraph portions: %s", e)
                     has_content = True
@@ -1752,7 +1836,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         log.debug("Failed to inspect trailing paragraph: %s", e)
 
 
-def content_has_markup(content: str) -> bool:
+def content_has_markup(content: str | None) -> bool:
     """Return ``True`` if *content* appears to contain Markdown or HTML."""
     if not content or not isinstance(content, str):
         return False
@@ -1761,13 +1845,43 @@ def content_has_markup(content: str) -> bool:
 
 
 
-def _content_has_block_markup(content: str) -> bool:
+def _content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
     lower = content.lower()
     return any(p in lower for p in _BLOCK_MARKUP_PATTERNS)
 
+
+
+def _range_has_special_portions(target_range: Any) -> bool:
+    """Return True if target_range contains non-Text portions (field, footnote, ruby, etc.)."""
+    try:
+        if not hasattr(target_range, "createEnumeration"):
+            return False
+        enum = target_range.createEnumeration()
+        if enum is None:
+            return False
+        while enum.hasMoreElements():
+            elem = enum.nextElement()
+            if hasattr(elem, "createEnumeration"):
+                penum = elem.createEnumeration()
+                while penum.hasMoreElements():
+                    portion = penum.nextElement()
+                    kind = getattr(portion, "TextPortionType", None)
+                    if kind is None and hasattr(portion, "getPropertyValue"):
+                        kind = portion.getPropertyValue("TextPortionType")
+                    if kind and kind not in ("Text", "SoftPageBreak"):
+                        return True
+            else:
+                kind = getattr(elem, "TextPortionType", None)
+                if kind is None and hasattr(elem, "getPropertyValue"):
+                    kind = elem.getPropertyValue("TextPortionType")
+                if kind and kind not in ("Text", "SoftPageBreak"):
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def replace_preserving_format(
@@ -1810,13 +1924,14 @@ def replace_preserving_format(
     old_text = _normalize(target_range.getString())
     new_text = _normalize(new_text)
 
+    if new_text == old_text:
+        return
+
     # Track Changes: the char-by-char diff below records a separate redline for EACH changed
     # character, which renders as a scrambled, un-reviewable mess (old and new text interleaved).
     # When recording, replace the whole range in one shot so the edit is a single tracked
     # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
     if _is_recording_changes(model):
-        if new_text == old_text:
-            return  # no-op: don't record a spurious tracked Delete+Insert (keeps the change count honest)
         cursor = text.createTextCursorByRange(target_range)
         if not (split_author and in_undo_context):
             # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
@@ -1861,28 +1976,40 @@ def replace_preserving_format(
 
     # Do not pump processEvents inside this edit. A queued tool or a keystroke
     # would run on the main thread, inside the caller's undo context.
-    # Process overlapping characters one by one.
-    # setString on a selected character preserves the range's formatting.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
-    for i in range(overlap):
-        # Create a selection for exactly one character to check/replace.
-        sel = text.createTextCursorByRange(main_cursor)
-        if not sel.goRight(1, True):
-            # goRight stopped before the counted overlap (a field is one cursor
-            # step but several characters in getString(), or the text ended).
-            # Breaking and then applying the length change mixes old and new.
-            raise ToolExecutionError(
-                "Could not replace that text in place (the selection did not advance)."
-            )
-
-        if new_text[i] != old_text[i]:
-            sel.setString(new_text[i])
-
-        # Explicitly move main_cursor to the end of the character just processed.
-        # This is more robust than goRight(1) because setString() can affect
-        # the cursor's logical position in some environments.
-        main_cursor.gotoRange(sel.getEnd(), False)
+    if _range_has_special_portions(target_range):
+        # Non-text portions (fields, ruby) advance by portion instead of char, so step 1-by-1.
+        for i in range(overlap):
+            sel = text.createTextCursorByRange(main_cursor)
+            if not sel.goRight(1, True):
+                raise ToolExecutionError(
+                    "Could not replace that text in place (the selection did not advance)."
+                )
+            if new_text[i] != old_text[i]:
+                sel.setString(new_text[i])
+            main_cursor.gotoRange(sel.getEnd(), False)
+    else:
+        i = 0
+        while i < overlap:
+            if new_text[i] == old_text[i]:
+                run_start = i
+                while i < overlap and new_text[i] == old_text[i]:
+                    i += 1
+                k = i - run_start
+                if not _go_right(main_cursor, k, False):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+            else:
+                sel = text.createTextCursorByRange(main_cursor)
+                if not sel.goRight(1, True):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+                sel.setString(new_text[i])
+                main_cursor.gotoRange(sel.getEnd(), False)
+                i += 1
 
     # Handle length changes.
     if new_len > old_len:

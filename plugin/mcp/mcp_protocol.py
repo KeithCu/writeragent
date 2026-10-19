@@ -23,9 +23,11 @@ Route handlers are registered with the HTTP route registry by MCPModule.
 from __future__ import annotations
 
 import datetime
+import hmac
 import json
 import logging
 import os
+import secrets
 import select
 import threading
 import time
@@ -45,8 +47,14 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
-from plugin.mcp.server import forget_sse_keepalive, note_sse_keepalive, read_json_body, write_http_empty, write_http_json
-from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
+from plugin.mcp.server import (
+    forget_sse_keepalive,
+    note_sse_keepalive,
+    read_json_body,
+    try_reserve_sse,
+    write_http_empty,
+    write_http_json,
+)
 from plugin.mcp import wire_types
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -410,6 +418,16 @@ def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
 
 
+class _DebugHandlerAdapter:
+    """Adapter presenting a handler-like interface from GET /debug arguments."""
+
+    def __init__(self, body: Any, headers: Any):
+        self.body: Any = body
+        self.headers: Any = headers or {}
+        addr = getattr(headers, "_client_address", None) or getattr(headers, "client_address", None)
+        self.client_address: Any = addr if addr is not None else ("127.0.0.1", 0)
+
+
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -418,8 +436,9 @@ class MCPProtocolHandler:
     tool_registry: Any
     event_bus: Any
     version: str
+    debug_token: str
 
-    def __init__(self, services: Any) -> None:
+    def __init__(self, services: Any, debug_token: str | None = None) -> None:
         self.services = services
         self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
@@ -430,6 +449,7 @@ class MCPProtocolHandler:
         # plugin.version is part of the extension. A missing module is a
         # packaging bug, not a runtime fallback to "unknown".
         self.version = EXTENSION_VERSION
+        self.debug_token = debug_token or secrets.token_urlsafe(32)
 
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
 
@@ -483,12 +503,28 @@ class MCPProtocolHandler:
         if "text/event-stream" not in accept:
             self._send_json(handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"})
             return
-        handler.send_response(200)
-        handler.send_header("Content-Type", "text/event-stream")
-        handler.send_header("Cache-Control", "no-cache")
-        _send_mcp_response_headers(handler)
-        handler.end_headers()
-        self._run_sse_keepalive_loop(handler)
+        tcp_server = getattr(handler, "server", None)
+        sock = getattr(handler, "connection", None)
+        stop_event = try_reserve_sse(tcp_server, sock)
+        if stop_event is None:
+            def _headers(h: Any) -> None:
+                _send_mcp_response_headers(h)
+                h.send_header("Allow", "POST, DELETE, OPTIONS")
+
+            write_http_empty(handler, 405, extra_headers=_headers)
+            return
+        reserved = True
+        try:
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/event-stream")
+            handler.send_header("Cache-Control", "no-cache")
+            _send_mcp_response_headers(handler)
+            handler.end_headers()
+            reserved = False
+            self._run_sse_keepalive_loop(handler, stop_event=stop_event)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            if reserved:
+                forget_sse_keepalive(tcp_server, sock)
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
@@ -510,6 +546,17 @@ class MCPProtocolHandler:
         """GET /sse — legacy SSE transport (keepalive only)."""
         if _reject_stale_session(handler):
             return
+        tcp_server = getattr(handler, "server", None)
+        sock = getattr(handler, "connection", None)
+        stop_event = try_reserve_sse(tcp_server, sock)
+        if stop_event is None:
+            def _headers(h: Any) -> None:
+                _send_mcp_response_headers(h)
+                h.send_header("Allow", "POST, DELETE, OPTIONS")
+
+            write_http_empty(handler, 405, extra_headers=_headers)
+            return
+        reserved = True
         try:
             handler.send_response(200)
             handler.send_header("Content-Type", "text/event-stream")
@@ -519,11 +566,14 @@ class MCPProtocolHandler:
             _send_mcp_response_headers(handler)
             handler.end_headers()
             log.info("[SSE] GET stream opened")
-            self._run_sse_keepalive_loop(handler)
+            reserved = False
+            self._run_sse_keepalive_loop(handler, stop_event=stop_event)
         except (BrokenPipeError, ConnectionResetError, OSError):
             log.info("[SSE] GET stream disconnected")
+            if reserved:
+                forget_sse_keepalive(tcp_server, sock)
 
-    def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15) -> None:
+    def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15, stop_event: threading.Event | None = None) -> None:
         """Keep an SSE stream alive until the client drops or the HTTP server stops.
 
         This loop runs on the ThreadingMixIn request thread until the socket
@@ -535,7 +585,8 @@ class MCPProtocolHandler:
         """
         sock = handler.connection
         tcp_server = getattr(handler, "server", None)
-        stop_event = note_sse_keepalive(tcp_server, sock)
+        if stop_event is None:
+            stop_event = note_sse_keepalive(tcp_server, sock)
         if stop_event is None:
             log.info("[SSE] GET stream closed")
             return
@@ -601,35 +652,39 @@ class MCPProtocolHandler:
         # The transport label keeps /sse and /messages distinct in [MCP-HTTP] logs.
         self.handle_mcp_post(handler, transport="sse")
 
-    def _is_tunneled(self, handler: Any) -> bool:
-        """Check if the request arrived via a public tunnel."""
-        for header in ("x-forwarded-for", "x-forwarded-host", "cf-ray", "ngrok-skip-browser-warning"):
-            if handler.headers.get(header) or handler.headers.get(header.title()):
-                return True
-        from plugin.mcp import _shared_tunnel
+    def _debug_forbidden(self, handler: Any) -> str | None:
+        """Refuse unless peer is loopback, debug token matches, and Origin is absent."""
+        addr = getattr(handler, "client_address", None)
+        client_ip = addr[0] if (isinstance(addr, (list, tuple)) and len(addr) > 0) else getattr(handler, "client_ip", "127.0.0.1")
+        if client_ip not in ("127.0.0.1", "::1", "localhost"):
+            return "Forbidden: Debug actions restricted to localhost"
 
-        if _shared_tunnel and getattr(_shared_tunnel, "is_running", False):
-            return True
-        return False
-
-    # ── Simple handlers (body, headers, query) -> (status, dict) ─────
-
-    def handle_debug_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
-        """GET /debug — show available debug actions."""
-        # Note: headers are just a dict here, so wrap it in a dummy handler structure
-        # or just pass a dummy to `_is_tunneled` which expects `handler.headers`.
-        _hdrs = headers
-
-        class _DummyHandler:
-            headers: Any = _hdrs
-
-        if self._is_tunneled(_DummyHandler()):
-            return (403, {"error": "Forbidden: Debug actions restricted to localhost (tunneled access blocked)"})
-
+        headers = getattr(handler, "headers", None)
+        if headers is None:
+            headers = {}
         # Reject Origin to block any cross-origin requests on /debug.
         origin = headers.get("Origin") or headers.get("origin")
         if origin:
-            return (403, {"error": "Forbidden: Origin header not allowed on /debug"})
+            return "Forbidden: Origin header not allowed on /debug"
+
+        token = headers.get("X-WriterAgent-Debug-Token") or headers.get("x-writeragent-debug-token")
+        if not token or not self.debug_token or not hmac.compare_digest(token, self.debug_token):
+            return "Forbidden: Invalid or missing debug token"
+
+        return None
+
+    # ── Simple handlers (body, headers, query) -> (status, dict) ─────
+
+    def handle_debug_info(self, body_or_handler: Any, headers: Any = None, query: Any = None) -> tuple[int, dict[str, Any]]:
+        """GET /debug — show available debug actions."""
+        if headers is None and hasattr(body_or_handler, "headers"):
+            handler = body_or_handler
+        else:
+            handler = _DebugHandlerAdapter(body_or_handler, headers)
+
+        forbidden = self._debug_forbidden(handler)
+        if forbidden:
+            return (403, {"error": forbidden})
 
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
         return (
@@ -649,18 +704,10 @@ class MCPProtocolHandler:
 
     def handle_debug_post(self, handler: Any) -> None:
         """POST /debug — execute debug actions."""
-        # Security: restrict debug actions to localhost
-        client_ip = handler.client_address[0]
-        if client_ip not in ("127.0.0.1", "::1", "localhost") or self._is_tunneled(handler):
-            log.warning("Blocked remote access to /debug from %s (tunneled=%s)", client_ip, self._is_tunneled(handler))
-            self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
-            return
-
-        # Reject Origin to block any cross-origin requests on /debug.
-        origin = handler.headers.get("Origin") or handler.headers.get("origin")
-        if origin:
-            log.warning("Blocked cross-origin request to /debug")
-            self._send_json(handler, 403, {"error": "Forbidden: Cross-origin requests not allowed on /debug"})
+        forbidden = self._debug_forbidden(handler)
+        if forbidden:
+            log.warning("Blocked /debug access: %s", forbidden)
+            self._send_json(handler, 403, {"error": forbidden})
             return
 
         body = self._read_body(handler)
@@ -715,18 +762,20 @@ class MCPProtocolHandler:
                 self._send_json(handler, 400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Empty batch"))
                 return
 
+            if any(isinstance(item, dict) and item.get("method") == "initialize" for item in msg):
+                self._send_json(
+                    handler,
+                    400,
+                    wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "initialize must not be part of a JSON-RPC batch"),
+                )
+                return
+
             responses = []
-            batch_has_init = False
             for item in msg:
                 result = self._process_jsonrpc(item, document_url=document_url, session=session)
                 if result is not None:
                     _status, response = result
                     responses.append(response)
-                    if isinstance(item, dict) and item.get("method") == "initialize" and _status == 200:
-                        batch_has_init = True
-
-            if batch_has_init:
-                _mint_session_id_once()
 
             if responses:
                 self._send_json(handler, 200, responses)
@@ -749,7 +798,7 @@ class MCPProtocolHandler:
             _mint_session_id_once()
 
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
-        write_http_json(handler, status, response, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id), indent=2)
+        write_http_json(handler, status, response, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
 
     # ── MCP method handlers ──────────────────────────────────────────
 
@@ -880,8 +929,6 @@ class MCPProtocolHandler:
         return wire_types.empty_prompts_result()
 
     def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
-        state = MCPState(status=MCPStateStr.IDLE)
-
         call_params = wire_types.CallToolRequestParams.from_params(params)
         tool_name = call_params.name
         arguments = dict(call_params.arguments)
@@ -926,71 +973,47 @@ class MCPProtocolHandler:
         is_async_attr = getattr(tool, "is_async", None) if tool is not None else None
         is_long_running = is_async_attr() is True if callable(is_async_attr) else False
 
-        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
+        log.debug("*** tools/call: %s, event_bus=%s ***", tool_name, getattr(self, "event_bus", None))
+        event_bus = getattr(self, "event_bus", None)
+        if event_bus is not None:
+            event_bus.emit("mcp:request", tool=tool_name, args=arguments, method="tools/call", req_id=req_id)
 
-        # State machine runner
-        events_to_process = [initial_event]
-        final_result = None
+        try:
+            exec_kwargs: dict[str, Any] = {"document_url": document_url, "req_id": req_id}
+            if session is not None:
+                exec_kwargs["session"] = session
+            if is_long_running is True:
+                res = self._execute_long_running(tool_name, arguments, **exec_kwargs)
+            else:
+                res = self._execute_with_backpressure(tool_name, arguments, **exec_kwargs)
+        except BusyError:
+            raise
+        except TimeoutError:
+            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
+            raise
+        except Exception as e:
+            # Tool failures must be MCP tool results (isError), not JSON-RPC
+            # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
+            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
+            # stay 429/504 above. WriterAgentException used to re-raise into
+            # _process_jsonrpc as HTTP 500 — that is the retryable path.
+            log.exception("MCP tool %s raised unexpectedly", tool_name)
+            code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
+            if code == "INTERNAL_ERROR":
+                code = "TOOL_EXECUTION_ERROR"
+            res = make_tool_error(resolve_exception_message(e), code=code, tool_name=tool_name, error_type=type(e).__name__)
 
-        while events_to_process:
-            event = events_to_process.pop(0)
-            tr = next_state(state, event)
-            state = tr.state
-            effects = tr.effects
+        if event_bus is not None:
+            snippet = str(res)[:100] if res else ""
+            event_bus.emit("mcp:result", tool=tool_name, result_snippet=snippet, args=arguments, req_id=req_id)
 
-            for effect in effects:
-                if isinstance(effect, ParseRequestEffect):
-                    log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
-                    event_bus = getattr(self, "event_bus", None)
-                    if event_bus is not None:
-                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
-
-                elif isinstance(effect, ExecuteToolEffect):
-                    try:
-                        exec_kwargs: dict[str, Any] = {"document_url": effect.document_url, "req_id": req_id}
-                        if session is not None:
-                            exec_kwargs["session"] = session
-                        if effect.is_long_running is True:
-                            res = self._execute_long_running(effect.tool_name, effect.arguments, **exec_kwargs)
-                        else:
-                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, **exec_kwargs)
-                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
-                    except BusyError:
-                        raise
-                    except TimeoutError:
-                        # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
-                        raise
-                    except Exception as e:
-                        # Tool failures must be MCP tool results (isError), not JSON-RPC
-                        # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-                        # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-                        # stay 429/504 above. WriterAgentException used to re-raise into
-                        # _process_jsonrpc as HTTP 500 — that is the retryable path.
-                        log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
-                        code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
-                        if code == "INTERNAL_ERROR":
-                            code = "TOOL_EXECUTION_ERROR"
-                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
-
-                elif isinstance(effect, StreamResponseEffect):
-                    event_bus = getattr(self, "event_bus", None)
-                    if event_bus is not None:
-                        snippet = str(effect.result)[:100] if effect.result else ""
-                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
-
-                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-                    # emit a native MCP image content block (get_image) instead of base64-as-text.
-                    res = effect.result
-                    img = res.get("_mcp_image") if isinstance(res, dict) else None
-                    if isinstance(img, dict) and img.get("data"):
-                        final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
-                    else:
-                        final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
-
-                elif isinstance(effect, SendErrorEffect):
-                    raise ValueError(effect.message)
-
-        return final_result
+        # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
+        # emit a native MCP image content block (get_image) instead of base64-as-text.
+        is_error = isinstance(res, dict) and res.get("status") == "error"
+        img = res.get("_mcp_image") if isinstance(res, dict) else None
+        if isinstance(img, dict) and img.get("data"):
+            return wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=is_error)
+        return wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=is_error)
 
     # ── JSON-RPC processing ──────────────────────────────────────────
 

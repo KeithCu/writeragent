@@ -17,7 +17,7 @@ from plugin.calc.excel_py_convert.auto_open import (
 )
 from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
-from plugin.tests.testing_utils import CalcDocStub
+from tests.testing_utils import CalcDocStub
 
 
 def _minimal_xlsx(path: Path, *, with_scripts: bool = False, with_xlws: bool = False) -> None:
@@ -290,6 +290,7 @@ class _DisposedViewControllerEvent:
 
     def __init__(self, source=None):
         self.Source = source
+        self.EventName = ""
 
     def __getattr__(self, name: str):
         if name == "ViewController":
@@ -303,8 +304,8 @@ def test_doc_from_event_disposed_view_controller_returns_none():
 
 def test_doc_from_event_disposed_view_controller_falls_back_to_calc_source():
     source = CalcDocStub()
-    source.CurrentController = None
-    source._controller = None
+    setattr(source, "CurrentController", None)
+    setattr(source, "_controller", None)
     assert _doc_from_event(_DisposedViewControllerEvent(source=source)) is source
 
 
@@ -315,7 +316,7 @@ def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
     def _boom():
         raise RuntimeError("no controller yet")
 
-    source.getCurrentController = _boom
+    setattr(source, "getCurrentController", _boom)
 
     class _OnNew:
         EventName = "OnNew"
@@ -603,3 +604,76 @@ def test_convert_uno_doc_to_excel_resolves_script_bank():
     assert len(report.cells) == 1
     assert report.cells[0].cell == "B2"
     assert "long_script_body = 42" in report.cells[0].converted_code
+
+
+def test_convert_uno_doc_to_excel_empty_bank_cell_leaves_reference():
+    """Empty or whitespace-only bank cell leaves py_code reference unresolved in formula."""
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheets = doc.getSheets()
+    sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
+    bank = sheets.getByName("py_code_Sheet1")
+    bank.getCellRangeByName("B2").setString("   ")
+    sheet = sheets.getByName("Sheet1")
+    sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
+    report = convert_uno_doc_to_excel(doc)
+    assert report.direction == "excel"
+    assert len(report.cells) == 1
+    assert "py_code_Sheet1.B2" in report.cells[0].original_code
+
+
+def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
+    """Exceeding 100k scanned formula cells marks report failed and refuses export."""
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("A1").setFormula('=PY("x = 1")')
+
+    mock_ranges = MagicMock()
+    mock_ranges.getCount.return_value = 1
+    mock_range = MagicMock()
+    mock_range.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0)
+    mock_range.getFormulas.return_value = tuple(tuple("=1+1" for _ in range(100)) for _ in range(1005))
+    mock_ranges.getByIndex.return_value = mock_range
+
+    with patch.object(sheet, "queryContentCells", return_value=mock_ranges):
+        report = convert_uno_doc_to_excel(doc)
+        assert not report.ok
+        assert any("scan limit reached" in i for i in report.issues)
+
+    ctx = MagicMock()
+    path = tmp_path / "capped.xlsx"
+    path.touch()
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as mock_write,
+        patch("plugin.chatbot.dialogs.msgbox") as box,
+    ):
+        assert maybe_export_excel_py_on_save(ctx, doc) is False
+        mock_write.assert_not_called()
+        box.assert_called_once()
+
+
+def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
+    """Multiple banked cells on a sheet perform string lookup from cached bank map."""
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheets = doc.getSheets()
+    sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
+    bank = sheets.getByName("py_code_Sheet1")
+    bank.getCellRangeByName("B2").setString("code_b2 = 1")
+    bank.getCellRangeByName("C3").setString("code_c3 = 2")
+
+    sheet = sheets.getByName("Sheet1")
+    sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
+    sheet.getCellRangeByName("C3").setFormula("=PY(py_code_Sheet1.C3)")
+
+    with patch.object(bank, "getCellRangeByName", wraps=bank.getCellRangeByName) as spy_get_cell:
+        report = convert_uno_doc_to_excel(doc)
+        assert report.ok
+        assert len(report.cells) == 2
+        assert spy_get_cell.call_count == 0

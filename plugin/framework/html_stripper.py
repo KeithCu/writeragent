@@ -392,5 +392,9 @@ def strip_html_tags(text: str) -> str:
     # crosshair: off  # wraps feed; whole-text @deal.pre removed — crashed long tool-result chat appends in debug.
     if not text:
         return ""
+    # Plain text without markup or entities needs no stripping.
+    if "<" not in text and "&" not in text:
+        return text
     stripper = StreamingHTMLStripper()
     return stripper.feed(text) + stripper.finalize()
+

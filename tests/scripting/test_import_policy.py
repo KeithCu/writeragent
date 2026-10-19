@@ -14,11 +14,9 @@ from plugin.framework.prompts import (
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
-    format_inprocess_import_policy_for_prompt,
     format_matplotlib_plot_hint,
     format_units_helper_hint,
     format_venv_import_policy_for_prompt,
-    inprocess_authorized_modules,
     venv_authorized_top_level_modules,
     venv_blocked_modules,
 )
@@ -98,14 +96,6 @@ def test_venv_policy_auto_imports_match_constants():
             assert alias in policy
             assert module_name in policy
 
-
-def test_inprocess_policy_is_stdlib_focused():
-    policy = format_inprocess_import_policy_for_prompt()
-    assert "IN-PROCESS SANDBOX" in policy
-    assert "json" in policy
-    assert "numpy" not in inprocess_authorized_modules()
-    assert "__future__" in policy
-    assert "collections.abc" in policy
 
 
 @pytest.mark.parametrize(

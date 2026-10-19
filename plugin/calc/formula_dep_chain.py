@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.address_utils import format_address
-from plugin.calc.calc_utils import query_interface
+from plugin.calc.calc_utils import formula_cell_result, query_interface
 from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
 from plugin.calc.inspector import CellInspector
 from plugin.framework.errors import best_effort, safe_json_loads
@@ -71,7 +71,7 @@ def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
         snapshot["error_code"] = err
     if ctype == CellContentType.FORMULA:
         snapshot["formula"] = cell.getFormula()
-        snapshot["value"] = cell.getValue()
+        snapshot["value"] = cell.getString() if err else formula_cell_result(cell)
     elif ctype == CellContentType.VALUE:
         snapshot["value"] = cell.getValue()
     else:

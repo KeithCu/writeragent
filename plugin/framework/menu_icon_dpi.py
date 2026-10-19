@@ -32,7 +32,7 @@ _AVAILABLE_PX = (16, 26, 32)
 _cached_px: int | None = None
 _cached_scale: float | None = None
 _cached_weak: bool = False
-
+_filename_cache: dict[tuple[str, int], str] = {}
 
 _logged_strong: bool = False
 
@@ -44,6 +44,7 @@ def reset_menu_icon_dpi_cache() -> None:
     _cached_scale = None
     _cached_weak = False
     _logged_strong = False
+    _filename_cache.clear()
 
 
 def _ppm_scale(win: Any) -> float | None:
@@ -291,6 +292,11 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
     """Return ``{prefix}_{px}.png``, falling back to nearest shipped size."""
     if px is None:
         px = resolve_menu_icon_pixel_size(ctx)
+    cache_key = (prefix, px)
+    cached = _filename_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     from plugin.framework.uno_context import menu_icon_filesystem_paths
 
     existing: list[int] = []
@@ -300,9 +306,13 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
             if cand not in existing:
                 existing.append(cand)
     if not existing:
-        return "%s_16.png" % prefix
+        res = "%s_16.png" % prefix
+        _filename_cache[cache_key] = res
+        return res
     best = min(existing, key=lambda a: (abs(a - px), -a))
-    return "%s_%s.png" % (prefix, best)
+    res = "%s_%s.png" % (prefix, best)
+    _filename_cache[cache_key] = res
+    return res
 
 
 def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> str:

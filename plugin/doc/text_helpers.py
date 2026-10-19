@@ -444,18 +444,23 @@ def get_document_path(model: Any) -> str | None:
 
 
 @main_thread_only
-def build_heading_tree(model: Any) -> HeadingTreeNode:
+def build_heading_tree(model: Any, elements: list[Any] | None = None) -> HeadingTreeNode:
     """Build a hierarchical heading tree. Single pass enumeration."""
     try:
         check_disposed(model, "Document Model")
-        text = safe_call(model.getText, "Get document text")
-        enum = safe_call(text.createEnumeration, "Create enumeration")
         root: HeadingTreeNode = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
         stack: list[HeadingTreeNode] = [root]
-        para_index = 0
 
-        while safe_call(enum.hasMoreElements, "Check more elements"):
-            element = safe_call(enum.nextElement, "Get next element")
+        def _iter_elements():
+            if elements is not None:
+                yield from elements
+            else:
+                text = safe_call(model.getText, "Get document text")
+                enum = safe_call(text.createEnumeration, "Create enumeration")
+                while safe_call(enum.hasMoreElements, "Check more elements"):
+                    yield safe_call(enum.nextElement, "Get next element")
+
+        for para_index, element in enumerate(_iter_elements()):
             if safe_call(element.supportsService, "Check supportsService Paragraph", "com.sun.star.text.Paragraph"):
                 outline_level = 0
                 try:
@@ -468,12 +473,13 @@ def build_heading_tree(model: Any) -> HeadingTreeNode:
                         stack.pop()
                     node: HeadingTreeNode = {
                         "level": outline_level,
-                        "text": safe_call(element.getString, "Get paragraph string"),
+                        "text": get_string_without_tracked_deletions(element),
                         "para_index": para_index,
                         "children": [],
                         "body_paragraphs": 0,
                     }
                     # OutlineLevel > 0 only — list-item ListLabelString is not a chapter label.
+                    # Paint label only; the key is omitted when ListLabelString is empty.
                     apply_chapter_number(node, element)
                     stack[-1]["children"].append(node)
                     stack.append(node)
@@ -481,7 +487,6 @@ def build_heading_tree(model: Any) -> HeadingTreeNode:
                     stack[-1]["body_paragraphs"] += 1
             elif safe_call(element.supportsService, "Check supportsService TextTable", "com.sun.star.text.TextTable"):
                 stack[-1]["body_paragraphs"] += 1
-            para_index += 1
         return root
     except UnoObjectError:
         # What was wrong: any UNO failure, including a closed document, became an

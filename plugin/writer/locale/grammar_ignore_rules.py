@@ -76,7 +76,7 @@ def doc_ignored_rules(ctx: Any, doc_id: str) -> set[str]:
     from .grammar_persistence import get_persistence
 
     p = get_persistence(ctx, doc_id)
-    return set(p._ignored_rules) if p else set()
+    return p.ignored_rules_snapshot() if p else set()
 
 
 def collect_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:

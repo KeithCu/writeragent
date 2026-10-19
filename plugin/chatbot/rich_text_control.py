@@ -321,6 +321,7 @@ class RichTextChatWidget:
         if self._debug_counts:
             self._debug_stream_session_count += 1
         from plugin.chatbot.rich_text_paste import (
+            OPEN_TRANSCRIPT,
             _plain_append_messages,
             _rollback_rich_insert,
             append_rich_text_via_clipboard,
@@ -354,7 +355,13 @@ class RichTextChatWidget:
             self._formatted_rows = k
             self._formatted_len = length
             new_tail = items[k:]
-        if not self._append_to_plain_tail(old_tail, new_tail):
+        messages = getattr(session, "messages", None)
+        open_content = (
+            messages[-1].get("content")
+            if isinstance(messages, list) and messages and isinstance(messages[-1], dict) and messages[-1].get(OPEN_TRANSCRIPT)
+            else None
+        )
+        if not self._append_to_plain_tail(old_tail, new_tail, open_content=open_content):
             # Not an append: cut the plain tail at the end of the prefix and
             # write it again. The prefix is not cleared.
             _rollback_rich_insert(self.control, self._formatted_len)
@@ -364,7 +371,12 @@ class RichTextChatWidget:
             )
         self._shown = list(items)
 
-    def _append_to_plain_tail(self, old_tail: list[tuple[str, str]], new_tail: list[tuple[str, str]]) -> bool:
+    def _append_to_plain_tail(
+        self,
+        old_tail: list[tuple[str, str]],
+        new_tail: list[tuple[str, str]],
+        open_content: str | None = None,
+    ) -> bool:
         """Write what *new_tail* adds to the plain rows *old_tail* already shown.
 
         False, with nothing written, when *new_tail* is not *old_tail* plus
@@ -378,25 +390,48 @@ class RichTextChatWidget:
                 return False
             old_role, old_content = old_tail[-1]
             new_role, new_content = new_tail[m - 1]
-            old_plain = _plain_fallback_text(old_content or "")
-            new_plain = _plain_fallback_text(new_content or "")
-            if old_role != new_role or not new_plain.startswith(old_plain):
+            if old_role != new_role:
                 return False
-            if not old_plain.strip():
-                # _plain_append_messages skips an empty row, so this one was
-                # never written. Write it whole now.
-                _plain_append_messages(
-                    self.control, [(new_role, new_content)], self.ctx, self.style_window,
-                    auto_scroll=True, restore_focus=self.restore_focus,
-                )
-            elif len(new_plain) > len(old_plain):
-                theme = ChatTheme.resolve(style_window=self.style_window)
-                append_text_chunk(
-                    self.control, new_plain[len(old_plain):], auto_scroll=True, style_window=self.style_window,
-                    ctx=self.ctx, query=self.query,
-                    char_color=theme.user_color if new_role == "user" else theme.assistant_color,
-                    restore_focus=self.restore_focus,
-                )
+            is_open = (
+                open_content is not None
+                and new_content == open_content
+            )
+            if is_open:
+                if not new_content.startswith(old_content):
+                    return False
+                if not old_content.strip():
+                    _plain_append_messages(
+                        self.control, [(new_role, new_content)], self.ctx, self.style_window,
+                        auto_scroll=True, restore_focus=self.restore_focus,
+                    )
+                elif len(new_content) > len(old_content):
+                    theme = ChatTheme.resolve(style_window=self.style_window)
+                    append_text_chunk(
+                        self.control, new_content[len(old_content):], auto_scroll=True, style_window=self.style_window,
+                        ctx=self.ctx, query=self.query,
+                        char_color=theme.user_color if new_role == "user" else theme.assistant_color,
+                        restore_focus=self.restore_focus,
+                    )
+            else:
+                old_plain = _plain_fallback_text(old_content or "")
+                new_plain = _plain_fallback_text(new_content or "")
+                if not new_plain.startswith(old_plain):
+                    return False
+                if not old_plain.strip():
+                    # _plain_append_messages skips an empty row, so this one was
+                    # never written. Write it whole now.
+                    _plain_append_messages(
+                        self.control, [(new_role, new_content)], self.ctx, self.style_window,
+                        auto_scroll=True, restore_focus=self.restore_focus,
+                    )
+                elif len(new_plain) > len(old_plain):
+                    theme = ChatTheme.resolve(style_window=self.style_window)
+                    append_text_chunk(
+                        self.control, new_plain[len(old_plain):], auto_scroll=True, style_window=self.style_window,
+                        ctx=self.ctx, query=self.query,
+                        char_color=theme.user_color if new_role == "user" else theme.assistant_color,
+                        restore_focus=self.restore_focus,
+                    )
         if len(new_tail) > m:
             _plain_append_messages(
                 self.control, new_tail[m:], self.ctx, self.style_window,

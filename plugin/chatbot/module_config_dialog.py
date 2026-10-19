@@ -7,22 +7,24 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any, Callable
 
-import unohelper
-from com.sun.star.awt import XActionListener, XTopWindowListener
-
-if TYPE_CHECKING:
-    from com.sun.star.awt import ActionEvent
-    from com.sun.star.lang import EventObject
-
-from plugin.chatbot.dialogs import TabListener, get_optional, translate_dialog
-from plugin.framework.errors import best_effort
-from plugin.framework.uno_context import get_extension_url
+from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail
+from plugin.framework.errors import best_effort, suppress_disposed
+from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_listeners import BaseActionListener, BaseTopWindowListener
 
 log = logging.getLogger(__name__)
 
 _active_dialogs: dict[str, Any] = {}
+
+
+class _CallbackActionListener(BaseActionListener):
+    def __init__(self, callback: Callable[[Any], None]) -> None:
+        self._callback: Callable[[Any], None] = callback
+
+    def on_action_performed(self, rEvent: Any) -> None:
+        self._callback(rEvent)
 
 def _tab_buttons_in_order(dlg: Any) -> list[Any]:
     """btn_tab_* controls in dialog-model order (the order the XDL generator writes)."""
@@ -79,6 +81,7 @@ class ModuleConfigDialog:
         self._top_listener: Any | None = None
 
     @classmethod
+    @main_thread_only
     def show(cls, ctx: Any, module_name: str) -> None:
         existing = _active_dialogs.get(module_name)
         if existing is not None:
@@ -87,7 +90,7 @@ class ModuleConfigDialog:
         dialog._open()
         _active_dialogs[module_name] = dialog
 
-    def close(self) -> None:
+    def close(self, *, toolkit_teardown: bool = False) -> None:
         if self._closed:
             return
         self._closed = True
@@ -96,8 +99,14 @@ class ModuleConfigDialog:
         self._dlg = None
         if dlg is None:
             return
-        dlg.setVisible(False)
-        dlg.dispose()
+        if toolkit_teardown:
+            with suppress_disposed("module config: hide after windowClosing", logger=log):
+                dlg.setVisible(False)
+            return
+        with suppress_disposed("module config: hide before dispose", logger=log):
+            dlg.setVisible(False)
+        with suppress_disposed("module config: dispose", logger=log):
+            dlg.dispose()
 
     def _open(self) -> None:
         ctx = self._ctx
@@ -105,46 +114,27 @@ class ModuleConfigDialog:
         if not dialog_id:
             raise RuntimeError("No config_dialog.id for module %s" % self._module_name)
 
-        # Why-comment: a logged return never reached open_dialog_safely, so the
-        # menu did nothing and left a dialog with _dlg is None in _active_dialogs.
-        smgr = ctx.getServiceManager()
-        base_url = get_extension_url(ctx)
-        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-        dlg = dp.createDialog(base_url + "/Dialogs/%s.xdl" % dialog_id)
+        dlg, load_detail = load_writeragent_dialog_detail(dialog_id, ctx)
+        # Raise, not log-and-return: a silent return left a dialog with _dlg None in _active_dialogs.
+        if dlg is None:
+            raise RuntimeError("load_detail: failed to load module dialog %s: %s" % (dialog_id, load_detail))
 
         self._dlg = dlg
         try:
-            translate_dialog(dlg)
             self._setup_tabs()
             self._wire_buttons()
             self._populate_fields(get_module_config_field_specs(ctx, self._module_name))
 
             owner = self
 
-            class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: EventObject) -> None:
-                    owner.close()
+            class _TopWindowListener(BaseTopWindowListener):
+                def on_window_closing(self, rEvent: Any) -> None:
+                    owner.close(toolkit_teardown=True)
 
-                def windowClosed(self, e: EventObject) -> None:
-                    pass
-
-                def windowOpened(self, e: EventObject) -> None:
-                    pass
-
-                def windowMinimized(self, e: EventObject) -> None:
-                    pass
-
-                def windowNormalized(self, e: EventObject) -> None:
-                    pass
-
-                def windowActivated(self, e: EventObject) -> None:
-                    pass
-
-                def windowDeactivated(self, e: EventObject) -> None:
-                    pass
-
-                def disposing(self, Source: EventObject) -> None:
-                    pass
+                def on_disposing(self, Source: Any) -> None:
+                    owner._closed = True
+                    _active_dialogs.pop(owner._module_name, None)
+                    owner._dlg = None
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
@@ -164,38 +154,15 @@ class ModuleConfigDialog:
 
     def _wire_buttons(self) -> None:
         assert self._dlg is not None
-        owner = self
-
-        class _ApplyListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                owner._apply(close=False)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                owner._apply(close=True)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CloseListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                owner.close()
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
         apply_btn = get_optional(self._dlg, "btn_apply")
         if apply_btn:
-            apply_btn.addActionListener(_ApplyListener())
+            apply_btn.addActionListener(_CallbackActionListener(lambda ev: self._apply(close=False)))
         ok_btn = get_optional(self._dlg, "btn_ok")
         if ok_btn:
-            ok_btn.addActionListener(_OkListener())
+            ok_btn.addActionListener(_CallbackActionListener(lambda ev: self._apply(close=True)))
         close_btn = get_optional(self._dlg, "btn_close")
         if close_btn:
-            close_btn.addActionListener(_CloseListener())
+            close_btn.addActionListener(_CallbackActionListener(lambda ev: self.close()))
 
     def _populate_fields(self, field_specs: list[dict[str, Any]]) -> None:
         from plugin.chatbot.settings_fields import populate_settings_control

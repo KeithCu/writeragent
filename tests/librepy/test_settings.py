@@ -319,7 +319,6 @@ def test_open_librepy_settings_disposes_when_populate_raises() -> None:
         ),
         patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
         patch("plugin.librepy.settings._populate_field", side_effect=RuntimeError("populate")),
-        patch("plugin.librepy.settings.translate_dialog"),
     ):
         with pytest.raises(RuntimeError, match="populate"):
             open_librepy_settings(MagicMock())
@@ -356,11 +355,43 @@ def test_open_librepy_settings_disposes_after_cancel() -> None:
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
         patch("plugin.librepy.settings._scripting_field_specs", return_value=[]),
         patch("plugin.librepy.settings.get_optional", return_value=None),
-        patch("plugin.librepy.settings.translate_dialog"),
     ):
         open_librepy_settings(MagicMock())
 
     dlg.execute.assert_called_once()
+    dlg.dispose.assert_called_once()
+
+
+def test_open_librepy_settings_retries_on_config_validation_error() -> None:
+    from plugin.framework.errors import ConfigValidationError
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    dlg.execute.side_effect = [1, 0]
+
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
+        patch(
+            "plugin.librepy.settings._scripting_field_specs",
+            return_value=[{"name": "scripting__python_exec_timeout", "type": "int", "value": "999"}],
+        ),
+        patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
+        patch("plugin.librepy.settings._populate_field") as mock_populate,
+        patch("plugin.librepy.settings._extract_field", return_value="999"),
+        patch(
+            "plugin.chatbot.settings_fields.apply_field_specs_result",
+            side_effect=ConfigValidationError("out of range"),
+        ) as mock_apply,
+        patch("plugin.librepy.settings.msgbox") as mock_msgbox,
+    ):
+        open_librepy_settings(MagicMock())
+
+    assert dlg.execute.call_count == 2
+    mock_populate.assert_called_once()
+    mock_apply.assert_called_once()
+    mock_msgbox.assert_called_once()
     dlg.dispose.assert_called_once()
 
 
