@@ -131,6 +131,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install libreoffice-fresh gettext make -y || true
+          bash scripts/ci_windows_tools_fallback.sh
           echo "C:\\Program Files\\LibreOffice\\program" >> $GITHUB_PATH
           # choco gettext does not add itself to PATH; extract_strings.py needs xgettext/msgmerge.
           echo "C:\\Program Files\\gettext-iconv\\bin" >> $GITHUB_PATH
@@ -343,6 +344,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install libreoffice-fresh gettext make -y || true
+          bash scripts/ci_windows_tools_fallback.sh
           echo "C:\\Program Files\\LibreOffice\\program" >> $GITHUB_PATH
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
