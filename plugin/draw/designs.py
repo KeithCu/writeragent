@@ -67,13 +67,21 @@ class ClonedMaster(NamedTuple):
     shape_count: int
     graphic_shapes: int = 0
     graphic_reimports: int = 0
+    warnings: tuple[str, ...] = ()
 
 
 class DesignChromeMissingError(RuntimeError):
-    def __init__(self, message: str, graphic_shapes: int = 0, graphic_reimports: int = 0) -> None:
+    def __init__(
+        self,
+        message: str,
+        graphic_shapes: int = 0,
+        graphic_reimports: int = 0,
+        warnings: tuple[str, ...] = (),
+    ) -> None:
         super().__init__(message)
         self.graphic_shapes: int = graphic_shapes
         self.graphic_reimports: int = graphic_reimports
+        self.warnings: tuple[str, ...] = tuple(warnings)
 
 
 def _decode_odf_name(name: str) -> str:
@@ -443,17 +451,18 @@ def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_templa
     model = desktop.loadComponentFromURL(url, _IMPORT_SOURCE_TARGET, 0, tuple(props))
     if model is None:
         raise RuntimeError("loadComponentFromURL returned no document for %s" % url)
-    return guard_uno(model)
+    try:
+        return guard_uno(model)
+    except Exception:
+        _close_hidden_doc(model)
+        raise
 
 
-def _copy_uno_prop(dest: Any, src: Any, name: str) -> bool:
-    """Copy one UNO property or interface attribute. False when missing.
+def _copy_uno_prop(dest: Any, src: Any, name: str) -> str:
+    """Copy one UNO property or interface attribute.
 
-    Properties in XPropertySet use getPropertyValue/setPropertyValue.
-    However, XShape geometry (Position, Size) and certain page attributes
-    are UNO interface methods/attributes (getPosition/getSize) mapped by
-    PyUNO to Python attributes; getPropertyValue raises UnknownPropertyException
-    for them. Fall back to getattr/setattr so geometry is copied.
+    Returns "copied", "missing", or "rejected". Properties in XPropertySet
+    use getPropertyValue/setPropertyValue; geometry falls back to getattr/setattr.
     """
     try:
         value = src.getPropertyValue(name)
@@ -465,22 +474,22 @@ def _copy_uno_prop(dest: Any, src: Any, name: str) -> bool:
         except Exception as inner_exc:
             if is_real_disposal(inner_exc):
                 raise
-            return False
+            return "missing"
     try:
         dest.setPropertyValue(name, value)
-        return True
+        return "copied"
     except Exception as exc:
         if is_real_disposal(exc):
             raise
     try:
         setattr(dest, name, value)
-        return True
+        return "copied"
     except Exception as exc:
         if is_real_disposal(exc):
             raise
         if name in ("Position", "Size"):
             raise RuntimeError("Failed to set %s on cloned shape" % name)
-        return False
+        return "rejected"
 
 
 def _clear_master_shapes(master: Any) -> int:
@@ -586,6 +595,8 @@ def _clone_one_shape(
     uno_ctx: Any = None,
     *,
     image_path: str | None = None,
+    shape_index: int = 0,
+    warnings: list[str] | None = None,
 ) -> tuple[str, bool | None]:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
@@ -597,8 +608,30 @@ def _clone_one_shape(
         raise RuntimeError("Unsupported master shape type: %s" % shape_type)
     clone = dest_doc.createInstance(shape_type)
     dest_master.add(clone)
+    shape_warnings: list[str] = []
     for prop in _CLONE_SHAPE_PROPS:
-        _copy_uno_prop(clone, src_shape, prop)
+        res = _copy_uno_prop(clone, src_shape, prop)
+        if res == "rejected":
+            token = f"rejected {prop} on shape {shape_index}"
+            shape_warnings.append(token)
+            if warnings is not None:
+                warnings.append(token)
+        elif res == "copied" and prop == "FillStyle":
+            try:
+                val = src_shape.getPropertyValue("FillStyle")
+            except Exception:
+                val = getattr(src_shape, "FillStyle", None)
+            if val is not None:
+                try:
+                    int_val = int(getattr(val, "value", val))
+                except (ValueError, TypeError):
+                    int_val = -1
+                if int_val not in (0, 1):
+                    fill_kind = {2: "gradient", 3: "hatch", 4: "bitmap"}.get(int_val, "unknown")
+                    token = f"fill {fill_kind} not copied on shape {shape_index}"
+                    shape_warnings.append(token)
+                    if warnings is not None:
+                        warnings.append(token)
     reimported: bool | None = None
     if "GraphicObject" in shape_type:
         reimported = _reimport_graphic(
@@ -611,6 +644,7 @@ def _clone_one_shape(
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
+    log.debug("clone_shape index=%s type=%s warnings=%s", shape_index, shape_type, shape_warnings)
     return shape_type, reimported
 
 
@@ -659,10 +693,13 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
 
     tmp_dir = tempfile.mkdtemp(prefix="wa_otp_clone_")
     try:
+        warnings: list[str] = []
         # Factory placeholders on the new master are not user content.
         _clear_master_shapes(dest_master)
         for prop in _CLONE_MASTER_PAGE_PROPS:
-            _copy_uno_prop(dest_master, src_master, prop)
+            res = _copy_uno_prop(dest_master, src_master, prop)
+            if res == "rejected":
+                warnings.append(f"rejected {prop} on master")
         try:
             src_count = int(src_master.getCount())
         except Exception as exc:
@@ -716,6 +753,8 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 src_shape,
                 uno_ctx,
                 image_path=image_path,
+                shape_index=i,
+                warnings=warnings,
             )
             if reimported is True:
                 graphic_reimports += 1
@@ -737,10 +776,11 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 "No chrome graphics could be imported for master '%s'." % dest_name,
                 graphic_shapes=graphic_shapes,
                 graphic_reimports=0,
+                warnings=tuple(warnings),
             )
 
-        log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
-        return ClonedMaster(dest_master, dest_name, shape_count, graphic_shapes, graphic_reimports)
+        log.debug("clone_master_into_doc name=%s shapes=%s types=%s warnings=%s", dest_name, shape_count, cloned_types, warnings)
+        return ClonedMaster(dest_master, dest_name, shape_count, graphic_shapes, graphic_reimports, tuple(warnings))
     except Exception:
         try:
             dest_masters.remove(dest_master)
@@ -835,6 +875,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     graphic_shapes = 0
     graphic_reimports = 0
     slides_updated = 0
+    clone_warnings_list: list[str] = []
     design_label = design.get("name") or design.get("id") or "?"
     target_design_name = str(design.get("name") or design_label).strip()
 
@@ -846,6 +887,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         shape_count = cloned.shape_count
         graphic_shapes = cloned.graphic_shapes
         graphic_reimports = cloned.graphic_reimports
+        clone_warnings_list = list(getattr(cloned, "warnings", ()) or ())
 
         # Snapshot each page's MasterPage before assign
         snapshot: list[tuple[Any, Any]] = []
@@ -905,6 +947,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 "rolled_back": True,
                 "slides_restored": slides_restored,
                 "import_method": "clone_master",
+                "clone_warnings": clone_warnings_list[:12],
+                "clone_warning_count": len(clone_warnings_list),
             }
 
         log.info(
@@ -918,6 +962,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         )
     except DesignChromeMissingError as exc:
         log.warning("apply_design failed chrome missing: %s", exc)
+        warns = list(getattr(exc, "warnings", ()) or ())
         return {
             "status": "error",
             "code": "DESIGN_CHROME_MISSING",
@@ -925,6 +970,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             "design": design,
             "graphic_shapes": exc.graphic_shapes,
             "graphic_reimports": exc.graphic_reimports,
+            "clone_warnings": warns[:12],
+            "clone_warning_count": len(warns),
         }
     finally:
         _close_hidden_doc(src)
@@ -951,6 +998,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         "import_method": "clone_master",
         "slide_count": slide_count,
         "message": msg,
+        "clone_warnings": clone_warnings_list[:12],
+        "clone_warning_count": len(clone_warnings_list),
     }
 
 
@@ -1015,6 +1064,7 @@ class ApplyDesign(ToolBase):
         "One master is cloned and assigned to every slide; other layout masters in the .otp are not imported. "
         "Solid fill, line, and character properties, geometry, and pictures are cloned. "
         "Gradients, bitmap fills, and presentation style families are not (copying those families shares the hidden source pool and aborts LibreOffice). "
+        "The result may include clone_warnings when a property is rejected or a gradient, hatch, or bitmap fill was not reproduced. "
         "Existing placeholder text stays on its current styles. "
         "Applying the same design again replaces the previously imported master of that name. "
         "Call list_designs first. Draw documents return a not-Impress error."

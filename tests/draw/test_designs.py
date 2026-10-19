@@ -536,11 +536,29 @@ def test_copy_uno_prop_falls_back_to_attribute_access():
 
     src = ShapeStub((100, 200))
     dest = ShapeStub((0, 0))
-    assert _copy_uno_prop(dest, src, "Position") is True
+    assert _copy_uno_prop(dest, src, "Position") == "copied"
     assert dest.Position == (100, 200)
 
-    # Missing attribute returns False
-    assert _copy_uno_prop(dest, src, "NoSuchProp") is False
+    # Missing attribute returns "missing"
+    assert _copy_uno_prop(dest, src, "NoSuchProp") == "missing"
+
+    # Destination rejecting a property returns "rejected"
+    class RejectDest:
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("CannotSet")
+
+        def __setattr__(self, name, val):
+            if name == "ZOrder":
+                raise RuntimeError("CannotSetAttr")
+            super().__setattr__(name, val)
+
+    reject_dest = RejectDest()
+    src_prop = MagicMock()
+    src_prop.getPropertyValue.return_value = 5
+    assert _copy_uno_prop(reject_dest, src_prop, "ZOrder") == "rejected"
 
 
 def test_decode_odf_name():
@@ -626,7 +644,7 @@ def test_copy_uno_prop_disposal_propagates():
 
     src_missing = MagicMock(spec=["getPropertyValue"])
     src_missing.getPropertyValue.side_effect = AttributeError("missing")
-    assert _copy_uno_prop(dest, src_missing, "NoSuchProp") is False
+    assert _copy_uno_prop(dest, src_missing, "NoSuchProp") == "missing"
 
 
 def test_copy_uno_prop_geometry_failure_raises():
@@ -647,6 +665,126 @@ def test_copy_uno_prop_geometry_failure_raises():
 
     with pytest.raises(RuntimeError, match="Failed to set Position"):
         _copy_uno_prop(dest, src, "Position")
+
+
+def test_clone_one_shape_rejected_prop_records_warning():
+    dest_doc = MagicMock()
+
+    class RejectingShape:
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            if name in ("ZOrder", "Position", "Size"):
+                raise RuntimeError("CannotSet")
+
+        def __setattr__(self, name, val):
+            if name in ("ZOrder", "Position", "Size"):
+                raise RuntimeError("CannotSetAttr")
+            super().__setattr__(name, val)
+
+    clone = RejectingShape()
+    dest_doc.createInstance.return_value = clone
+    dest_master = MagicMock()
+
+    src_shape = MagicMock()
+    src_shape.ShapeType = "com.sun.star.drawing.RectangleShape"
+    src_shape.getPropertyValue.side_effect = lambda n: 1 if n == "ZOrder" else (0, 0)
+
+    warnings: list[str] = []
+    # Position / Size still raise
+    with pytest.raises(RuntimeError, match="Failed to set Position"):
+        _clone_one_shape(dest_doc, dest_master, src_shape, shape_index=2, warnings=warnings)
+    # ZOrder was attempted before Position / Size and recorded its warning
+    assert "rejected ZOrder on shape 2" in warnings
+
+
+def test_clone_fill_gradient_produces_warning_token_and_status_ok(tmp_path):
+    dest = MagicMock()
+    dest.getDrawPages().getCount.return_value = 1
+    page0 = MagicMock()
+    dest.getDrawPages().getByIndex.return_value = page0
+
+    dest_master = MagicMock()
+    dest_master.getCount.return_value = 1
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest.getMasterPages.return_value = dest_masters
+
+    src_doc = MagicMock()
+    src_master = MagicMock()
+    src_master.Name = "GradientMaster"
+    src_shape = MagicMock()
+    src_shape.ShapeType = "com.sun.star.drawing.CustomShape"
+    grad_enum = MagicMock()
+    grad_enum.value = 2
+    src_shape.getPropertyValue.side_effect = lambda n: grad_enum if n == "FillStyle" else 0
+    src_master.getCount.return_value = 1
+    src_master.getByIndex.return_value = src_shape
+    src_masters = MagicMock()
+    src_masters.getCount.return_value = 1
+    src_masters.getByIndex.return_value = src_master
+    src_doc.getMasterPages.return_value = src_masters
+
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src_doc),
+        patch("plugin.draw.designs._close_hidden_doc"),
+        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
+        patch("plugin.draw.designs._master_entries", return_value=[]),
+    ):
+        out = apply_design_to_current_doc(
+            MagicMock(),
+            dest,
+            {"id": "grad", "name": "GradientMaster", "path": str(tmp_path / "grad.otp")},
+        )
+
+    assert out["status"] == "ok"
+    assert "fill gradient not copied on shape 0" in out["clone_warnings"]
+    assert out["clone_warning_count"] >= 1
+
+
+def test_apply_design_copies_clone_warnings_from_cloned_master():
+    dest = MagicMock()
+    dest.getDrawPages().getCount.return_value = 1
+    page0 = MagicMock()
+    dest.getDrawPages().getByIndex.return_value = page0
+
+    src = MagicMock()
+    master = MagicMock()
+    warns = ("rejected SomeProp on shape 0", "rejected OtherProp on master")
+    cloned = ClonedMaster(master, "Metropolis", 6, 1, 1, warnings=warns)
+
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=cloned),
+        patch("plugin.draw.designs._close_hidden_doc"),
+        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
+        patch("plugin.draw.designs._master_entries", return_value=[]),
+    ):
+        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
+
+    assert out["status"] == "ok"
+    assert out["clone_warnings"] == list(warns)
+    assert out["clone_warning_count"] == 2
+
+
+def test_open_design_source_hidden_closes_doc_when_guard_uno_raises():
+    from plugin.draw.designs import open_design_source_hidden
+
+    mock_model = MagicMock()
+    mock_desktop = MagicMock()
+    mock_desktop.loadComponentFromURL.return_value = mock_model
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop),
+        patch("plugin.framework.thread_guard.guard_uno", side_effect=RuntimeError("guard failed")),
+        patch("plugin.draw.designs._close_hidden_doc") as mock_close,
+    ):
+        with pytest.raises(RuntimeError, match="guard failed"):
+            open_design_source_hidden(ctx, {"id": "test", "path": "/path/to/test.otp"})
+
+    mock_close.assert_called_once_with(mock_model)
 
 
 def test_apply_design_chrome_missing_when_zero_reimports(tmp_path):
