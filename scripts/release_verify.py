@@ -68,7 +68,7 @@ def _make_uno_env(
         if sys.platform == "win32":
             # Tip: Windows ignores HOME. testing_runner finds the user profile under
             # %APPDATA%\LibreOffice\4, so point APPDATA at the scratch home too.
-            env["APPDATA"] = str(home / "AppData" / "Roaming")
+            env["APPDATA"] = str(home)
             env["USERPROFILE"] = str(home)
     env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
     if profile is not None:
@@ -113,16 +113,18 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    root = Path(tempfile.mkdtemp(prefix="writeragent-release-"))
+    # Tip: keep Windows paths short. The OXT carries tests/ paths over 100 chars, and
+    # unopkg fails ("Error while adding") once the unpacked path passes MAX_PATH (260).
+    root = Path(tempfile.mkdtemp(prefix="wa-" if sys.platform == "win32" else "writeragent-release-"))
     seed_dir = Path(str(root) + ".seed")
-    home = seed_dir / "home"
+    home = seed_dir / ("h" if sys.platform == "win32" else "home")
     seed_dir.mkdir(parents=True, exist_ok=True)
     home.mkdir(parents=True, exist_ok=True)
 
     if sys.platform == "darwin":
         profile = home / "Library" / "Application Support" / "LibreOffice" / "4"
     elif sys.platform == "win32":
-        profile = home / "AppData" / "Roaming" / "LibreOffice" / "4"
+        profile = home / "LibreOffice" / "4"
     else:
         profile = home / ".config" / "libreoffice" / "4"
 

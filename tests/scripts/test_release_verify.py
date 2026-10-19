@@ -183,11 +183,11 @@ def test_windows_profile_and_env(
     assert code == 0
 
     # Seed and the UNO run both use the scratch %APPDATA%, never the real profile.
-    home = seed_root / "home"
-    expected_profile = home / "AppData" / "Roaming" / "LibreOffice" / "4"
+    home = seed_root / "h"
+    expected_profile = home / "LibreOffice" / "4"
     seed_mock.assert_called_once_with(seed_root / "WriterAgent.oxt", expected_profile)
     uno_env = run_calls[-1]["env"]
-    assert uno_env["APPDATA"] == str(home / "AppData" / "Roaming")
+    assert uno_env["APPDATA"] == str(home)
     assert uno_env["USERPROFILE"] == str(home)
 
 
