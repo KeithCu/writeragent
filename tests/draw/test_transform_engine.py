@@ -544,7 +544,8 @@ def test_jump_to_slide_bool_does_not_land_on_slide_one() -> None:
     assert res["status"] == "error"
     assert res["failed_at"] == 0
     assert eng.current_slide == 0
-    assert any("Invalid JumpToSlide" in w for w in eng.warnings)
+    assert "Invalid JumpToSlide: True" in res.get("message", "")
+    assert not eng.warnings
 
 
 def test_construction_clamps_active_page_index() -> None:
@@ -1264,6 +1265,145 @@ def test_select_text_span_with_crlf_and_cr_linebreaks() -> None:
         assert c_start == 2
         assert c_end == len("first") + 1 + 3
         assert c_mode == "range"
+
+
+def test_static_schema_failure_aborts_before_earlier_commands_mutate() -> None:
+    # SetText.0 followed by static invalid JumpToSlide: True leaves shape untouched.
+    cursor = _CollapsingCursor()
+    shape = _MockShapeWithCursor(cursor, text="initial")
+    page = _MockPageWithShapes([shape])
+    eng, _, bridge = _engine(0, 2)
+    eng.pages = SimpleNamespace(getCount=lambda: 2, getByIndex=lambda idx: page)
+    eng.bridge = bridge
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"SetText.0": "mutated"},
+                    {"JumpToSlide": True},
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert res["applied"] == []
+    assert res["failed_at"] == 1
+    assert shape.text == "initial"
+
+    # SetText.0 followed by static invalid UnoCommand json leaves shape untouched.
+    res_uno = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {"SetText.0": "mutated"},
+                    {"UnoCommand": ".uno:Color {not-json}"},
+                ]
+            }
+        }
+    )
+    assert res_uno["status"] == "error"
+    assert res_uno["applied"] == []
+    assert res_uno["failed_at"] == 1
+    assert shape.text == "initial"
+
+    # EditTextObject with InsertText then bad UnoCommand does not insert text.
+    res_edit = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"InsertText": "inserted"},
+                            {"UnoCommand": ".uno:Color {not-json}"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res_edit["status"] == "error"
+    assert res_edit["applied"] == []
+    assert res_edit["failed_at"] == 0
+    assert shape.text == "initial"
+
+
+def test_bad_top_level_uno_command_aborts_before_slide_commands() -> None:
+    for bad_uno in (123, ".uno:Color {not-json}"):
+        eng, _deck, bridge = _engine(0, 3)
+        res = eng.apply(
+            {
+                "UnoCommand": bad_uno,
+                "Transforms": {
+                    "SlideCommands": [{"MoveSlide": 1}],
+                },
+            }
+        )
+        assert res["status"] == "error"
+        assert "failed_at" not in res
+        assert bridge.moved is None
+        assert res["applied"] == []
+
+
+def test_apply_empty_transforms_returns_ok() -> None:
+    eng, _, _ = _engine(0, 2)
+    for payload in ({}, {"Transforms": {}}, {"Transforms": {"SlideCommands": []}}):
+        res = eng.apply(payload)
+        assert res["status"] == "ok"
+        assert res["applied"] == []
+
+
+def test_set_shape_text_normalizes_crlf_without_cr() -> None:
+    from plugin.draw.transform_engine import _set_shape_text
+
+    class _FakeCursor:
+        def __init__(self, text_obj: "_FakeText") -> None:
+            self.text_obj = text_obj
+
+        def gotoEnd(self, select: bool) -> None:
+            pass
+
+        def setString(self, val: str) -> None:
+            self.text_obj.paragraphs.append(val)
+
+    class _FakeEnum:
+        def __init__(self) -> None:
+            self._done = False
+
+        def hasMoreElements(self) -> bool:
+            return not self._done
+
+        def nextElement(self) -> Any:
+            self._done = True
+            return object()
+
+    class _FakeText:
+        def __init__(self) -> None:
+            self.paragraphs: list[str] = []
+
+        def setString(self, val: str) -> None:
+            self.paragraphs = [val]
+
+        def createEnumeration(self) -> Any:
+            return _FakeEnum()
+
+        def createTextCursor(self) -> Any:
+            return _FakeCursor(self)
+
+        def insertControlCharacter(self, cursor: Any, char: int, select: bool) -> None:
+            pass
+
+    fake_text = _FakeText()
+
+    class _FakeShape:
+        def getText(self) -> Any:
+            return fake_text
+
+    success = _set_shape_text(_FakeShape(), "first\r\nsecond")
+    assert success is True
+    assert fake_text.paragraphs == ["first", "second"]
+    assert "\r" not in fake_text.paragraphs[0]
+    assert "\r" not in fake_text.paragraphs[1]
 
 
 

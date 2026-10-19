@@ -10,9 +10,13 @@ from plugin.draw.transform_schema import (
     COLLABORA_TRANSFORM_DSL_URL,
     get_slide_commands,
     is_deferred_command_key,
+    parse_slide_index_token,
     parse_transform_argument,
     resolve_layout_id,
+    split_uno_command,
     TRANSFORM_PARAM_DESCRIPTION,
+    validate_slide_commands,
+    validate_top_level_uno,
 )
 
 
@@ -298,6 +302,124 @@ def test_validate_slide_commands_edit_text_object():
         {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"InsertText": 123}]}]}}
     )
     assert err is not None and "InsertText requires a string" in err
+    assert idx == 0
+
+
+def test_parse_slide_index_token():
+    assert parse_slide_index_token("") == ("current", None)
+    assert parse_slide_index_token(None) == ("current", None)
+    assert parse_slide_index_token("last") == ("last", None)
+    assert parse_slide_index_token(" LAST ") == ("last", None)
+    assert parse_slide_index_token(0) == ("index", 0)
+    assert parse_slide_index_token(-1) == ("index", -1)
+    assert parse_slide_index_token("2") == ("index", 2)
+    assert parse_slide_index_token(" 2 ") == ("index", 2)
+    assert parse_slide_index_token(1.5) == ("index", 1)
+
+    assert parse_slide_index_token(True) is None
+    assert parse_slide_index_token(False) is None
+    assert parse_slide_index_token({}) is None
+    assert parse_slide_index_token("nope") is None
+
+
+def test_validate_slide_commands_slide_index_tokens():
+    for cmd in ("JumpToSlide", "DeleteSlide", "DuplicateSlide"):
+        for valid_val in ("", None, "last", " LAST ", 0, -1, "2", 1.5):
+            err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{cmd: valid_val}]}})
+            assert err is None, f"{cmd} with {valid_val!r} failed validation: {err}"
+            assert idx is None
+
+        for invalid_val in (True, False, {}, "nope"):
+            err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{cmd: invalid_val}]}})
+            assert err is not None and f"Invalid {cmd}:" in err, f"{cmd} with {invalid_val!r} did not fail: {err}"
+            assert idx == 0
+
+
+def test_validate_slide_commands_slide_names_must_be_strings():
+    for cmd in ("JumpToSlideByName", "InsertMasterSlideByName", "RenameSlide"):
+        err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{cmd: "Slide 1"}]}})
+        assert err is None
+        assert idx is None
+
+        err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{cmd: ""}]}})
+        assert err is None
+        assert idx is None
+
+        for non_str in (123, True, {}, ["name"]):
+            err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{cmd: non_str}]}})
+            assert err is not None and f"{cmd} requires a string" in err
+            assert idx == 0
+
+
+def test_split_uno_command():
+    assert split_uno_command(".uno:Bold") == (".uno:Bold", {})
+    color_arg = '.uno:Color {"Color.Color":{"type":"long","value":2777241}}'
+    assert split_uno_command(color_arg) == (".uno:Color", {"Color.Color": {"type": "long", "value": 2777241}})
+
+    assert "requires a non-empty string" in split_uno_command("")
+    assert "requires a non-empty string" in split_uno_command("   ")
+    assert "invalid JSON arguments" in split_uno_command(".uno:Color {not-json}")
+
+
+def test_validate_top_level_uno():
+    assert validate_top_level_uno(".uno:Bold") is None
+    color_arg = '.uno:Color {"Color.Color":{"type":"long","value":2777241}}'
+    assert validate_top_level_uno(color_arg) is None
+    assert validate_top_level_uno({"name": ".uno:Save", "arguments": {}}) is None
+    assert validate_top_level_uno({"Name": ".uno:Save"}) is None
+
+    assert "requires a non-empty string" in (validate_top_level_uno("") or "")
+    assert "requires a non-empty string" in (validate_top_level_uno("   ") or "")
+    assert "invalid JSON arguments" in (validate_top_level_uno(".uno:Color {not-json}") or "")
+
+    assert "Invalid UnoCommand specification" in (validate_top_level_uno(123) or "")
+    assert "Invalid UnoCommand specification" in (validate_top_level_uno({"name": ""}) or "")
+    assert "Invalid UnoCommand specification" in (validate_top_level_uno({"name": ".uno:Save", "arguments": 123}) or "")
+
+
+def test_validate_slide_commands_uno_command_and_edit_text_object():
+    # Top-level SlideCommands UnoCommand string validation
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": ".uno:Bold"}]}})
+    assert err is None and idx is None
+
+    color_arg = '.uno:Color {"Color.Color":{"type":"long","value":2777241}}'
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": color_arg}]}})
+    assert err is None and idx is None
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": ""}]}})
+    assert err is not None and "requires a non-empty string" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": "   "}]}})
+    assert err is not None and "requires a non-empty string" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": ".uno:Color {not-json}"}]}})
+    assert err is not None and "invalid JSON arguments" in err
+    assert idx == 0
+
+    # EditTextObject nested UnoCommand
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"UnoCommand": ".uno:Bold"}]}]}}
+    )
+    assert err is None and idx is None
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"UnoCommand": ".uno:Color {not-json}"}]}]}}
+    )
+    assert err is not None and "invalid JSON arguments" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"UnoCommand": ""}]}]}}
+    )
+    assert err is not None and "requires a non-empty string" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"UnoCommand": 123}]}]}}
+    )
+    assert err is not None and "UnoCommand requires a string" in err
     assert idx == 0
 
 

@@ -22,8 +22,11 @@ from plugin.draw.transform_schema import (
     classify_command_key,
     get_slide_commands,
     is_deferred_command_key,
+    parse_slide_index_token,
     resolve_layout_id,
+    split_uno_command,
     validate_slide_commands,
+    validate_top_level_uno,
 )
 from plugin.framework.errors import is_disposed_exception, uno_probe
 from plugin.writer.edit_review import WriterCompoundUndo
@@ -37,6 +40,7 @@ _SET_TEXT_RE = SET_TEXT_RE
 _EDIT_TEXT_RE = EDIT_TEXT_RE
 _MOVE_SLIDE_RE = MOVE_SLIDE_RE
 _VALID_LAYOUT_IDS = frozenset(AUTOLAYOUT_ID.values())
+_PARAGRAPH_BREAK = 0
 
 
 def _clear_empty_pres_obj(shape: Any) -> None:
@@ -51,6 +55,7 @@ def _clear_empty_pres_obj(shape: Any) -> None:
 
 
 def _set_shape_text(shape: Any, text: str) -> bool:
+    text = normalize_linebreaks(text)
     if hasattr(shape, "getText") and callable(getattr(shape, "getText", None)):
         try:
             xtext = shape.getText()
@@ -70,11 +75,7 @@ def _set_shape_text(shape: Any, text: str) -> bool:
                         cursor.gotoEnd(False)
                         for line in lines[1:]:
                             try:
-                                from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-                            except Exception:
-                                PARAGRAPH_BREAK = 0
-                            try:
-                                xtext.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                                xtext.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
                             except Exception as exc:
                                 if is_disposed_exception(exc):
                                     raise
@@ -101,16 +102,15 @@ def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool =
     clamp=False rejects an out-of-range number. DeleteSlide and DuplicateSlide
     use that: clamping made {"DeleteSlide": 99} delete the last slide.
     """
-    if isinstance(val, bool):
+    token = parse_slide_index_token(val)
+    if token is None:
         return None
-    if val == "" or val is None:
+    kind, idx = token
+    if kind == "current":
         return current
-    if isinstance(val, str) and val.strip().lower() == "last":
+    if kind == "last":
         return max(0, page_count - 1)
-    try:
-        idx = int(val)
-    except (TypeError, ValueError):
-        return None
+    assert idx is not None
     if clamp:
         return max(0, min(idx, page_count - 1))
     if idx < 0 or idx >= page_count:
@@ -441,6 +441,10 @@ class SlideCommandEngine:
         val_err, failed_at = validate_slide_commands(transform_obj)
         if val_err is not None:
             return self._error_result(message=val_err, failed_at=failed_at)
+        if "UnoCommand" in transform_obj:
+            top_err = validate_top_level_uno(transform_obj["UnoCommand"])
+            if top_err is not None:
+                return self._error_result(message=top_err)
         try:
             # Compound undo groups transform operations without rollback.
             with WriterCompoundUndo(self.doc, "WriterAgent: Transform document structure"):
@@ -501,7 +505,11 @@ class SlideCommandEngine:
                     self.warnings.append(msg)
                     return msg
             elif key == "JumpToSlideByName":
-                found = self._jump_to_name(str(value))
+                if not isinstance(value, str):
+                    msg = "%s requires a string" % key
+                    self.warnings.append(msg)
+                    return msg
+                found = self._jump_to_name(value)
                 if found is None:
                     msg = "JumpToSlideByName: slide not found: %r" % value
                     self.warnings.append(msg)
@@ -521,7 +529,11 @@ class SlideCommandEngine:
                 if err is not None:
                     return err
             elif key == "InsertMasterSlideByName":
-                err = self._insert_master(master_name=str(value))
+                if not isinstance(value, str):
+                    msg = "%s requires a string" % key
+                    self.warnings.append(msg)
+                    return msg
+                err = self._insert_master(master_name=value)
                 if err is not None:
                     return err
             elif key == "DeleteSlide":
@@ -547,7 +559,11 @@ class SlideCommandEngine:
                 if err is not None:
                     return err
             elif key == "RenameSlide":
-                if self.bridge.rename_slide(self.current_slide, str(value)):
+                if not isinstance(value, str):
+                    msg = "%s requires a string" % key
+                    self.warnings.append(msg)
+                    return msg
+                if self.bridge.rename_slide(self.current_slide, value):
                     self.applied.append("RenameSlide:%s" % value)
                 else:
                     msg = "RenameSlide failed"
@@ -603,10 +619,6 @@ class SlideCommandEngine:
                     if err is not None:
                         return err
                     continue
-                if classify_command_key(key) is None:
-                    msg = "Unknown or unsupported command key: %s" % key
-                    self.warnings.append(msg)
-                    return msg
                 msg = "Unknown or unsupported command key: %s" % key
                 self.warnings.append(msg)
                 return msg
@@ -783,7 +795,7 @@ class SlideCommandEngine:
                     selection_mode = mode
                 elif sk == "InsertText":
                     recognized_count += 1
-                    inserted = str(sv)
+                    inserted = normalize_linebreaks(str(sv))
                     try:
                         cursor.setString(inserted)
                         _clear_empty_pres_obj(shape)
@@ -798,7 +810,8 @@ class SlideCommandEngine:
                         selection_mode = "caret"
                     else:
                         cur_str = _cursor_string(cursor)
-                        if cur_str == inserted:
+                        cur_norm = normalize_linebreaks(cur_str) if isinstance(cur_str, str) else None
+                        if cur_norm == inserted:
                             selection_mode = "range"
                         elif cur_str == "":
                             go_left = getattr(cursor, "goLeft", None)
@@ -808,7 +821,9 @@ class SlideCommandEngine:
                                 except Exception as exc:
                                     if is_disposed_exception(exc):
                                         raise
-                            if _cursor_string(cursor) == inserted:
+                            left_str = _cursor_string(cursor)
+                            left_norm = normalize_linebreaks(left_str) if isinstance(left_str, str) else None
+                            if left_norm == inserted:
                                 selection_mode = "range"
                             else:
                                 msg = "InsertText could not select inserted text"
@@ -936,9 +951,17 @@ class SlideCommandEngine:
         success = False
         name = ""
         if isinstance(uno_spec, dict):
-            name = str(uno_spec.get("name") or uno_spec.get("Name") or "")
-            args = uno_spec.get("arguments") or uno_spec.get("Arguments") or {}
-            if name and self._dispatch_uno_named(name, args):
+            raw_name = uno_spec.get("name") if "name" in uno_spec else uno_spec.get("Name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                self.warnings.append("Invalid UnoCommand specification: %r" % uno_spec)
+                return False
+            name = raw_name
+            raw_args = uno_spec.get("arguments") if "arguments" in uno_spec else uno_spec.get("Arguments")
+            if raw_args is not None and not isinstance(raw_args, dict):
+                self.warnings.append("Invalid UnoCommand specification: %r" % uno_spec)
+                return False
+            args = raw_args or {}
+            if self._dispatch_uno_named(name, args):
                 self.applied.append("UnoCommand:%s" % name)
                 success = True
         elif isinstance(uno_spec, str):
@@ -976,22 +999,11 @@ class SlideCommandEngine:
     def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None, selection_mode: str = "none") -> bool:
         if not isinstance(cmd, str):
             return False
-        cmd = cmd.strip()
-        if not cmd:
+        res = split_uno_command(cmd)
+        if isinstance(res, str):
+            self.warnings.append(res)
             return False
-        # ".uno:Bold" or '.uno:Color {"Color.Color":...}'
-        parts = cmd.split(None, 1)
-        uno_name = parts[0]
-        arg_json = parts[1] if len(parts) > 1 else None
-        parsed: dict[str, Any] = {}
-        if arg_json:
-            from plugin.framework.json_utils import safe_json_loads
-
-            loaded = safe_json_loads(arg_json, default=None)
-            if not isinstance(loaded, dict):
-                self.warnings.append("UnoCommand %s has invalid JSON arguments: %r" % (uno_name, arg_json))
-                return False
-            parsed = loaded
+        uno_name, parsed = res
         if selection_mode == "caret":
             self.warnings.append("UnoCommand %s cannot be applied to a collapsed caret selection" % uno_name)
             return False

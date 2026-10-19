@@ -250,3 +250,53 @@ def test_whole_shape_selection_formats_cursor_without_toggle(ctx, doc):
     assert float(cursor.CharWeight) >= 150.0, f"bold cleared on second apply: weight={cursor.CharWeight}"
 
 
+@native_test
+@with_native_doc("impress")
+def test_set_text_crlf_normalized_and_select_paragraph_bold(ctx, doc):
+    """SetText normalizes CRLF so paragraph selection and range formatting match LF offsets."""
+    from plugin.doc.text_helpers import normalize_linebreaks
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from plugin.framework.tool import ToolContext
+
+    page = doc.getDrawPages().getByIndex(0)
+    shape = doc.createInstance("com.sun.star.drawing.TextShape")
+    page.add(shape)
+    shape_idx = page.getCount() - 1
+
+    tctx = ToolContext(doc, ctx, "impress", None, "test")
+    eng = SlideCommandEngine(tctx)
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {f"SetText.{shape_idx}": "first\r\nsecond"},
+                    {
+                        f"EditTextObject.{shape_idx}": [
+                            {"SelectText": [1]},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    },
+                ]
+            }
+        }
+    )
+    assert res.get("status") == "ok", f"apply failed: {res}"
+
+    xtext = shape.getText()
+    paras = normalize_linebreaks(xtext.getString()).split("\n")
+    assert paras == ["first", "second"], f"unexpected paragraphs: {paras!r}"
+
+    # First paragraph is not bold
+    cursor1 = xtext.createTextCursor()
+    cursor1.gotoStart(False)
+    cursor1.goRight(len("first"), True)
+    assert float(cursor1.CharWeight) < 150.0, f"first paragraph unexpectedly bold: {cursor1.CharWeight}"
+
+    # Second paragraph is bold
+    cursor2 = xtext.createTextCursor()
+    cursor2.gotoStart(False)
+    cursor2.goRight(len("first") + 1, False)
+    cursor2.goRight(len("second"), True)
+    assert float(cursor2.CharWeight) >= 150.0, f"second paragraph not bold: {cursor2.CharWeight}"
+
+

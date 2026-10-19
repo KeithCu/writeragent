@@ -17,7 +17,11 @@ from plugin.framework.tool import ToolBase, ToolBaseDummy, ToolContext
 class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
     """Apply a JSON command sequence to transform Draw/Impress document structure.
 
-    Disabled for default LLM tool lists (ToolBaseDummy). Re-enable by using ToolBase only.
+    Disabled for default LLM tool lists (ToolBaseDummy). To re-enable, three
+    decisions must be made together: drop ToolBaseDummy, set tier to "specialized",
+    and shorten the registered description so the full DSL stays in documentation.
+    Exposing the tool also requires an allowlist of allowed .uno command names, as
+    arbitrary UNO dispatch is unsafe (matching Collabora's GetKitUnoCommandList gate).
     Tests and manual calls: ``TransformDocumentStructure().execute(ctx, transform=...)``.
     """
 

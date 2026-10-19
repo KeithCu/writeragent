@@ -250,6 +250,57 @@ def get_slide_commands(transform_obj: dict[str, Any]) -> list[dict[str, Any]]:
     return [c for c in cmds if isinstance(c, dict)]
 
 
+def parse_slide_index_token(val: Any) -> tuple[str, int | None] | None:
+    """Parse slide index token into ('current', None), ('last', None), ('index', N), or None."""
+    if val == "" or val is None:
+        return ("current", None)
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, str) and val.strip().lower() == "last":
+        return ("last", None)
+    try:
+        return ("index", int(val))
+    except (TypeError, ValueError):
+        return None
+
+
+def split_uno_command(cmd: str) -> tuple[str, dict[str, Any]] | str:
+    """Split and parse UNO command string with optional JSON arguments.
+
+    Returns (command_name, args_dict) or an error message string.
+    """
+    stripped = cmd.strip()
+    if not stripped:
+        return "UnoCommand requires a non-empty string: %r" % (cmd,)
+    parts = stripped.split(None, 1)
+    name = parts[0]
+    if len(parts) == 1:
+        return (name, {})
+    rest = parts[1]
+    loaded = safe_json_loads(rest, default=None)
+    if not isinstance(loaded, dict):
+        return "UnoCommand %s has invalid JSON arguments: %r" % (name, rest)
+    return (name, loaded)
+
+
+def validate_top_level_uno(spec: Any) -> str | None:
+    """Validate top-level UnoCommand parameter shape before execution."""
+    if isinstance(spec, str):
+        res = split_uno_command(spec)
+        if isinstance(res, str):
+            return res
+        return None
+    if isinstance(spec, dict):
+        name = spec.get("name") if "name" in spec else spec.get("Name")
+        if not isinstance(name, str) or not name.strip():
+            return "Invalid UnoCommand specification: %r" % (spec,)
+        args = spec.get("arguments") if "arguments" in spec else spec.get("Arguments")
+        if args is not None and not isinstance(args, dict):
+            return "Invalid UnoCommand specification: %r" % (spec,)
+        return None
+    return "Invalid UnoCommand specification: %r" % (spec,)
+
+
 def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]:
     """Validate Transforms.SlideCommands array before performing any UNO operations.
 
@@ -288,7 +339,15 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
             return "Unknown or unsupported command key: %s" % key, idx
 
         # Value shape validations for commands that do not need the document
-        if key in ("InsertMasterSlide", "MoveSlide") or cmd_kind == "MoveSlide":
+        if key in ("JumpToSlide", "DeleteSlide", "DuplicateSlide"):
+            if parse_slide_index_token(val) is None:
+                return "Invalid %s: %r" % (key, val), idx
+
+        elif key in ("JumpToSlideByName", "InsertMasterSlideByName", "RenameSlide"):
+            if not isinstance(val, str):
+                return "%s requires a string" % key, idx
+
+        elif key in ("InsertMasterSlide", "MoveSlide") or cmd_kind == "MoveSlide":
             if isinstance(val, bool) or not isinstance(val, int):
                 return "Invalid %s index: %r" % (key, val), idx
 
@@ -304,6 +363,9 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
         elif key == "UnoCommand":
             if not isinstance(val, str):
                 return "UnoCommand requires a string", idx
+            uno_res = split_uno_command(val)
+            if isinstance(uno_res, str):
+                return uno_res, idx
 
         elif cmd_kind == "EditTextObject":
             if not isinstance(val, list) or len(val) == 0:
@@ -353,8 +415,11 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
                         return "InsertText requires a string: %r" % (sub_v,), idx
 
                 elif sub_k == "UnoCommand":
-                    if not isinstance(sub_v, str) or not sub_v.strip():
-                        return "UnoCommand requires a non-empty string: %r" % (sub_v,), idx
+                    if not isinstance(sub_v, str):
+                        return "UnoCommand requires a string", idx
+                    sub_uno_res = split_uno_command(sub_v)
+                    if isinstance(sub_uno_res, str):
+                        return sub_uno_res, idx
 
                 else:
                     return "Unknown EditTextObject sub-command: %s" % sub_k, idx
