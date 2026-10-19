@@ -117,7 +117,7 @@ def test_live_bookmark_still_resolves(monkeypatch):
     doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
     seen = {}
 
-    def fake_find(found_anchor, _ranges, _text=None):
+    def fake_find(found_anchor, _ranges, _text=None, entries=None):
         seen["anchor"] = found_anchor
         return 2
 
@@ -137,7 +137,7 @@ def test_section_locator_dispatches_to_writer_resolver(monkeypatch):
     doc.getTextSections = lambda: sections
     seen = {}
 
-    def fake_find(found_anchor, _ranges, _text=None):
+    def fake_find(found_anchor, _ranges, _text=None, entries=None):
         seen["anchor"] = found_anchor
         return 4
 
