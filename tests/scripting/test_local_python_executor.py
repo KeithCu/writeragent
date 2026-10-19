@@ -457,6 +457,39 @@ def test_injected_print_sep_end_file_unknown():
     assert "unexpected keyword argument" in str(exc_info.value)
 
 
+def test_print_follows_current_execution():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    executor("""
+def f():
+    print("from f")
+p = print
+""")
+
+    executor("""
+f()
+p("from p")
+""")
+    assert "from f" in executor.logs
+    assert "from p" in executor.logs
+
+    exec_a = LocalPythonExecutor(additional_authorized_imports=[])
+    exec_a.send_tools({})
+    exec_a("""
+def fn_a():
+    print("hello from fn_a")
+""")
+    fn_obj = exec_a.state["fn_a"]
+
+    exec_b = LocalPythonExecutor(additional_authorized_imports=[])
+    exec_b.send_tools({})
+    exec_b.send_variables({"fn_b": fn_obj})
+    exec_b("fn_b()")
+    assert "hello from fn_a" in exec_b.logs
+    assert exec_a.logs == ""
+
+
 def test_dotted_import_binding_xml():
     executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.*"])
     executor.send_tools({})
@@ -1229,11 +1262,11 @@ def test_operator_loader_and_spec_checks():
 
     with pytest.raises(InterpreterError) as exc_info:
         executor("import operator, re\nf = operator.attrgetter('__loader__')\nres = f(re)")
-    assert "Forbidden access to module" in str(exc_info.value)
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
 
     with pytest.raises(InterpreterError) as exc_info:
         executor("import operator, re\nf = operator.methodcaller('__getattribute__', '__loader__')\nres = f(re)")
-    assert "Forbidden access to module" in str(exc_info.value)
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
 
     executor('import json\nres1 = json.loads(\'{"__spec__": 1}\')\nres2 = json.loads(\'{"__spec__": 1, "__name__": "os"}\')')
     assert executor.state["res1"] == {"__spec__": 1}
@@ -1242,6 +1275,74 @@ def test_operator_loader_and_spec_checks():
     with pytest.raises(InterpreterError) as exc_info:
         executor("import random\nx = random._os")
     assert "Forbidden access to module" in str(exc_info.value)
+
+
+def test_string_based_attribute_dispatch_dunder_rejection():
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator", "string", "itertools", "functools"])
+    executor.send_tools({})
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import operator\nbase = operator.attrgetter('__bases__')(int)[0]")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    executor.send_variables({"base": int.__bases__[0]})
+    with pytest.raises(InterpreterError) as exc:
+        executor("import operator\noperator.methodcaller('__subclasses__')(base)")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import operator, itertools\nlist(itertools.starmap(operator.attrgetter, [('__subclasses__',)]))")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import operator\nlist(map(operator.methodcaller, ['__subclasses__']))")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import operator, functools\nfunctools.partial(operator.methodcaller, '__subclasses__')()")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("from operator import attrgetter as a, methodcaller as m\na('__subclasses__')")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("from operator import attrgetter as a, methodcaller as m\nm('__subclasses__')")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import string, itertools\nf = string.Formatter()\nlist(itertools.starmap(f.get_field, [('0.__subclasses__', [int], {})]))")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import string\nstring.Formatter().format('{0.__subclasses__}', int)")
+    assert "Forbidden access to dunder attribute" in str(exc.value)
+
+    code_allowed = """
+import operator, string, re
+
+res_add = operator.add(2, 3)
+res_item = operator.itemgetter(1)([10, 20, 30])
+res_upper = operator.methodcaller("upper")("hello")
+res_str = operator.methodcaller("__str__")(99)
+res_real = operator.attrgetter("real")(complex(3, 4))
+res_ver = operator.attrgetter("__version__")(re)
+
+class Item:
+    def __init__(self, name):
+        self.name = name
+
+item = Item("widget")
+res_fmt = string.Formatter().format("{0} {1.name}", "item:", item)
+"""
+    executor(code_allowed)
+    assert executor.state["res_add"] == 5
+    assert executor.state["res_item"] == 20
+    assert executor.state["res_upper"] == "HELLO"
+    assert executor.state["res_str"] == "99"
+    assert executor.state["res_real"] == 3.0
+    assert isinstance(executor.state["res_ver"], str)
+    assert executor.state["res_fmt"] == "item: widget"
 
 
 def test_allowed_dunder_methods_attribute_access():
@@ -1406,6 +1507,99 @@ class B:
     with pytest.raises(InterpreterError) as exc_info:
         executor("class C:\n    a, b = 1, 2\n")
     assert "Unsupported Assign target in class body" in str(exc_info.value)
+
+
+def test_keyword_only_none_defaults():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    executor("""
+def f(*, x=None):
+    return x
+res_def = f()
+res_def_val = f(x=42)
+
+lam = lambda *, x=None: x
+res_lam = lam()
+res_lam_val = lam(x=99)
+""")
+    assert executor.state["res_def"] is None
+    assert executor.state["res_def_val"] == 42
+    assert executor.state["res_lam"] is None
+    assert executor.state["res_lam_val"] == 99
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("def req(*, x): return x\nreq()")
+    assert "TypeError" in str(exc_info.value) or "missing" in str(exc_info.value)
+
+
+def test_chained_comparisons_truthiness_and_short_circuit():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    executor("""
+res1 = 1 < 2 < 3
+res2 = 1 < 2 > 3
+""")
+    assert executor.state["res1"] is True
+    assert executor.state["res2"] is False
+
+    code_short_circuit = """
+trail = []
+class ZeroLT:
+    def __lt__(self, other):
+        return 0
+
+def bad_call():
+    trail.append("ran")
+    return 10
+
+a = ZeroLT()
+res_zero = a < 5 < bad_call()
+"""
+    executor(code_short_circuit)
+    assert executor.state["res_zero"] == 0
+    assert executor.state["trail"] == []
+
+
+def test_hasattr_and_ast_assignment_dunder_guard():
+    import ast
+    from plugin.contrib.smolagents.local_python_executor import evaluate_ast
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["math"])
+    executor.send_tools({})
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("hasattr(int, '__bases__')")
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+    executor("import math\nres_has = hasattr(math, 'marker')")
+    assert executor.state["res_has"] is False
+
+    class Dummy:
+        pass
+
+    d = Dummy()
+    node_assign = ast.Assign(
+        targets=[ast.Attribute(value=ast.Name(id="obj", ctx=ast.Load()), attr="__dict__", ctx=ast.Store())],
+        value=ast.Constant(value={}),
+    )
+    with pytest.raises(InterpreterError) as exc_info:
+        evaluate_ast(node_assign, {"obj": d}, {}, {}, [])
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+    node_aug = ast.AugAssign(
+        target=ast.Attribute(value=ast.Name(id="obj", ctx=ast.Load()), attr="__dict__", ctx=ast.Store()),
+        op=ast.BitOr(),
+        value=ast.Constant(value={}),
+    )
+    with pytest.raises(InterpreterError) as exc_info:
+        evaluate_ast(node_aug, {"obj": d}, {}, {}, [])
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("class A: pass\nA().__dict__")
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
 
 
 
