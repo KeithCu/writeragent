@@ -271,6 +271,7 @@ def test_legend_position_none_with_has_legend_false_stays_false():
         warnings = _apply_chart_styling(chart_doc, legend_position="none")
     assert chart_doc.HasLegend is False
     enum.assert_not_called()
+    assert warnings == []
 
 
 def test_legend_runtime_exception_removes_inserted_calc_chart():
