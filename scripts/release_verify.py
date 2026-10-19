@@ -161,6 +161,9 @@ def main(argv: list[str]) -> int:
         shutil.copy2(PROJECT_ROOT / "pyproject.toml", root / "pyproject.toml")
 
         pytest_cmd = [sys.executable, "-m", "pytest"]
+        if sys.platform == "win32":
+            # pyproject sets timeout_method=signal; Windows has no SIGALRM.
+            pytest_cmd.append("--timeout-method=thread")
         for ignore in IGNORED_TESTS:
             pytest_cmd.append(f"--ignore={ignore}")
         k_expr = "not " + " and not ".join(DESELECTED_K)
