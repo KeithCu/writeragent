@@ -132,9 +132,8 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
             raise
         raw = None
 
-    normalized = _normalize_clsid_value(raw).strip()
-    if normalized:
-        return normalized.lower().strip("{}") in RECOGNIZED_CHART_CLSIDS
+    if _normalize_clsid_value(raw).strip():
+        return _is_chart_clsid(raw)
 
     # Missing CLSID: Writer embeds fall back to getDiagram() check
     if is_embed:
@@ -1421,7 +1420,7 @@ class UpsertChart(ToolBaseDummy):
                 log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out = {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
+        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
         if warnings:
             out["warnings"] = warnings
         return out
@@ -1477,7 +1476,7 @@ class UpsertChart(ToolBaseDummy):
             raise
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
+        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
         if warnings:
             out["warnings"] = warnings
         return out
