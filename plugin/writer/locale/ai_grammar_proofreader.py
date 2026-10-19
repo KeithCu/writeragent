@@ -76,6 +76,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
 )
 from plugin.writer.locale.grammar_proofread_text import (
     NormalizedProofError,
+    Utf16OffsetMap,
     active_spans_from_paragraph,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
@@ -91,6 +92,8 @@ from plugin.writer.locale.grammar_work_queue import (
     next_enqueue_seq,
 )
 from plugin.framework.thread_guard import background_if_dummy_thread
+
+BIND_RETRY_SEC: float = 1.5
 
 
 def _mark_grammar_disabled_notice() -> bool:
@@ -289,7 +292,12 @@ def _proofreading_markup_type() -> int:
     return _PROOFREADING_MARKUP_TYPE
 
 
-def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
+def _cached_errors_to_uno_tuple(
+    cached: tuple[dict[str, Any], ...],
+    ctx: Any,
+    doc_id: str,
+    u16_map: Utf16OffsetMap | None = None,
+) -> tuple[Any, ...]:
     from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
     from plugin.writer.locale.grammar_proofread_cache import ignored_rules_snapshot
 
@@ -309,10 +317,10 @@ def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, do
                 suggestions=tuple(d.get("suggestions") or ()),
                 short_comment=str(d.get("short_comment", "")),
                 full_comment=str(d.get("full_comment", "")),
-                rule_identifier=rule_ident
+                rule_identifier=rule_ident,
             )
         )
-    return _errors_to_uno_tuple(norms)
+    return _errors_to_uno_tuple(norms, u16_map=u16_map)
 
 
 def _locale_key(loc: Any) -> str:
@@ -375,10 +383,20 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
-def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: str, a_locale: Any, n_start_of_sentence_position: int, n_suggested_behind_end_of_sentence_position: int) -> Any:
+def _create_empty_result(
+    proofreader: Any,
+    a_document_identifier: Any,
+    a_text: str,
+    a_locale: Any,
+    n_start_of_sentence_position: int,
+    n_suggested_behind_end_of_sentence_position: int,
+    u16_map: Utf16OffsetMap | None = None,
+) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
     if uno_mod is None:
         raise RuntimeError("uno not available")
+    if u16_map is None:
+        u16_map = Utf16OffsetMap(a_text)
     a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
     a_res.aDocumentIdentifier = a_document_identifier
     a_res.aText = a_text
@@ -388,30 +406,36 @@ def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: s
     a_res.xProofreader = proofreader
     a_res.aErrors = ()
 
-    # Default: follow LO’s suggested end + Lightproof-style space adjustment (see
-    # ``_apply_proofreading_end_positions`` when we cover a computed sentence span).
-    n_next = n_suggested_behind_end_of_sentence_position
-    if n_next < len(a_text):
-        before = n_next
-        n_next = _advance_past_leading_whitespace(a_text, n_next)
-        ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
-        if n_next == before and ch != "":
-            n_next = n_suggested_behind_end_of_sentence_position + 1
+    # Default: follow LO's suggested end + Lightproof-style space adjustment in Python.
+    py_suggested = u16_map.utf16_to_py(n_suggested_behind_end_of_sentence_position)
+    py_next = py_suggested
+    if py_next < len(a_text):
+        before = py_next
+        py_next = _advance_past_leading_whitespace(a_text, py_next)
+        ch = a_text[py_next : py_next + 1] if py_next < len(a_text) else ""
+        if py_next == before and ch != "":
+            py_next = py_suggested + 1
     # nStartOfNextSentencePosition and nBehindEndOfSentencePosition are both the whitespace-advanced end.
-    a_res.nStartOfNextSentencePosition = n_next
-    a_res.nBehindEndOfSentencePosition = n_next
+    u16_next = u16_map.py_to_utf16(py_next)
+    a_res.nStartOfNextSentencePosition = u16_next
+    a_res.nBehindEndOfSentencePosition = u16_next
     return a_res
 
 
-def _apply_proofreading_end_positions(a_res: Any, a_text: str, covered_end: int) -> None:
+def _apply_proofreading_end_positions(
+    a_res: Any, a_text: str, covered_end: int, u16_map: Utf16OffsetMap | None = None
+) -> None:
     """Set traversal positions from the one-past-end of the span we actually checked (sentence-sized).
 
     Skips spaces after ``covered_end`` so Writer advances past inter-sentence whitespace.
     """
+    if u16_map is None:
+        u16_map = Utf16OffsetMap(a_text)
     n_next = min(max(0, covered_end), len(a_text))
     n_next = _advance_past_leading_whitespace(a_text, n_next)
-    a_res.nStartOfNextSentencePosition = n_next
-    a_res.nBehindEndOfSentencePosition = n_next
+    u16_next = u16_map.py_to_utf16(n_next)
+    a_res.nStartOfNextSentencePosition = u16_next
+    a_res.nBehindEndOfSentencePosition = u16_next
 
 
 # Cap rule-id sample so one result-window line stays greppable on long paragraphs.
@@ -476,6 +500,8 @@ def _obs_result_window(
     uncached_active_count: int,
     source: str,
     skip: str = "",
+    py_start: int | None = None,
+    py_behind: int | None = None,
 ) -> None:
     """Emit final ``do_proofreading_result_window`` after cache / Harper / enqueue.
 
@@ -488,7 +514,9 @@ def _obs_result_window(
     n_start = int(getattr(a_res, "nStartOfSentencePosition", 0) or 0)
     n_behind = int(getattr(a_res, "nBehindEndOfSentencePosition", 0) or 0)
     n_next = int(getattr(a_res, "nStartOfNextSentencePosition", 0) or 0)
-    cls = classify_errors_against_window(combined_errors, n_start, n_behind)
+    cls_start = py_start if py_start is not None else n_start
+    cls_behind = py_behind if py_behind is not None else n_behind
+    cls = classify_errors_against_window(combined_errors, cls_start, cls_behind)
     a_errors = getattr(a_res, "aErrors", ()) or ()
     fields: dict[str, Any] = {
         "doc_id": doc_id,
@@ -512,15 +540,22 @@ def _obs_result_window(
     grammar_obs("do_proofreading_result_window", **fields)
 
 
-def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ...]:
+def _errors_to_uno_tuple(
+    norms: Sequence[NormalizedProofError], u16_map: Utf16OffsetMap | None = None
+) -> tuple[Any, ...]:
     if uno_mod is None:
         return ()
     out: list[Any] = []
     markup_type = _proofreading_markup_type()
     for e in norms:
         a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
-        a_err.nErrorStart = e.n_error_start
-        a_err.nErrorLength = e.n_error_length
+        if u16_map is not None:
+            u16_start, u16_len = u16_map.utf16_span(e.n_error_start, e.n_error_length)
+            a_err.nErrorStart = u16_start
+            a_err.nErrorLength = u16_len
+        else:
+            a_err.nErrorStart = e.n_error_start
+            a_err.nErrorLength = e.n_error_length
         a_err.nErrorType = markup_type
         a_err.aRuleIdentifier = e.rule_identifier
         a_err.aSuggestions = tuple(e.suggestions)
@@ -558,6 +593,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         # XLinguServiceEventListener. Remember the miss and recover once.
         self._pending_proofread_again = False
         self._first_listener_proofread_again_done = False
+        self._last_split_key: tuple[str, str] | None = None
+        self._last_paragraph_spans: list[tuple[int, int, str]] = []
         from plugin.framework.logging import init_logging
         from plugin.writer.locale.grammar_persistence import grammar_registry
 
@@ -578,7 +615,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             if model is None:
                 import time
 
-                self._failed_bind_deadlines[doc_id] = time.monotonic() + 1.5
+                self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
                 return
             self._failed_bind_deadlines.pop(doc_id, None)
             try:
@@ -609,7 +646,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 else:
                     should_hop = True
         if should_hop:
-            _run_on_main_thread(self._ensure_document_bound_on_main, doc_id)
+            try:
+                _run_on_main_thread(self._ensure_document_bound_on_main, doc_id)
+            except TimeoutError:
+                with self._bind_lock:
+                    self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:
@@ -765,9 +806,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             emit_grammar_status("request", sent_text, result="Harper check")
             errors = res.get("errors", [])
             norm_errors = normalize_errors_for_text(sent_text, 0, len(sent_text), errors, self.ctx, loc_key)
-            filtered = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-            payload = [asdict(e) for e in filtered]
-            issue_count += len(payload)
+            active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
+            payload = [asdict(e) for e in norm_errors]
+            issue_count += len(active_errors)
             cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=ident)
             for err_item in payload:
                 adj = dict(err_item)
@@ -820,16 +861,20 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
                 raise RuntimeError("uno not available")
 
+            u16_map = Utf16OffsetMap(aText)
+            py_start = u16_map.utf16_to_py(nStartOfSentencePosition)
+            py_suggested_end = u16_map.utf16_to_py(nSuggestedBehindEndOfSentencePosition)
+
             # Build the empty result before the try. A failure here (missing ``uno``,
             # ``createUnoStruct``) must propagate out of ``doProofreading``. The
             # handler used to call ``_create_empty_result`` again with the same
             # arguments when ``a_res`` was still None. That second failure left the
             # Linguistic worker with an unhandled exception and could crash or hang Writer.
-            a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, u16_map=u16_map)
             try:
                 self._ensure_document_bound(aDocumentIdentifier)
 
-                loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+                loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, py_start, py_suggested_end)
                 if not loc_key:
                     return a_res
 
@@ -844,17 +889,23 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
                     checker_identity = grammar_checker_identity()
 
-                # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
-                paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
-                paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
+                # 1. One BreakIterator + dialogue-merge pass for the whole paragraph (memoized per paragraph+locale).
+                split_key = (loc_key, aText)
+                if self._last_split_key == split_key:
+                    paragraph_spans = self._last_paragraph_spans
+                else:
+                    paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
+                    paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
+                    self._last_split_key = split_key
+                    self._last_paragraph_spans = paragraph_spans
 
                 # 2. Active window: overlap-filter those spans (n_start==0 keeps all).
                 active_spans = self._resolve_work_spans(
                     aDocumentIdentifier,
                     loc_key,
                     aText,
-                    nStartOfSentencePosition,
-                    nSuggestedBehindEndOfSentencePosition,
+                    py_start,
+                    py_suggested_end,
                     paragraph_spans,
                 )
                 if not active_spans:
@@ -868,12 +919,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         uncached_active_count=0,
                         source="no_active_spans",
                         skip="no_active_spans",
+                        py_start=py_start,
+                        py_behind=py_suggested_end,
                     )
                     return a_res
 
                 # We set the covered end to the end of the active spans we are checking
                 covered_end = calculate_covered_span_end(active_spans)
-                _apply_proofreading_end_positions(a_res, aText, covered_end)
+                _apply_proofreading_end_positions(a_res, aText, covered_end, u16_map=u16_map)
 
                 grammar_obs(
                     "do_proofreading_covered_span",
@@ -930,7 +983,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         result_source = "enqueue"
 
                 if combined_errors:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier, u16_map=u16_map)
 
                 _obs_result_window(
                     aDocumentIdentifier,
@@ -941,6 +994,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     active_span_count=len(active_spans),
                     uncached_active_count=len(uncached_active_spans),
                     source=result_source,
+                    py_start=py_start,
+                    py_behind=covered_end,
                 )
                 return a_res
 
@@ -987,6 +1042,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 log.warning("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
                 raise RuntimeError("resetIgnoreRules failed: no active document found")
             _run_on_main_thread(_reset_ignore_rules_on_main, self.ctx, doc_id)
+            self.broadcast_proofread_again()
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
             raise

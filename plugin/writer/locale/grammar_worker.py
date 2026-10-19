@@ -169,24 +169,21 @@ def process_grammar_results(
             errors = results[idx]
             norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, bcp47)
 
-            filtered_errors = []
-            for e in norm_errors:
-                if is_rule_ignored(e.rule_identifier, ignored, global_ignored):
-                    continue
-                filtered_errors.append(e)
+            active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
+            payload = [asdict(e) for e in norm_errors]
 
             put_kwargs: dict[str, Any] = {"ctx": ec.ctx, "doc_id": item.doc_id}
             cache_ident = _item_cache_identity(item)
             if cache_ident:
                 put_kwargs["checker_identity"] = cache_ident
-            grammar_proofread_cache.cache_put_sentence(bcp47, text, [asdict(e) for e in filtered_errors], **put_kwargs)
+            grammar_proofread_cache.cache_put_sentence(bcp47, text, payload, **put_kwargs)
             if original_bcp47 and not grammar_proofread_locale.grammar_bcp47_tags_match(original_bcp47, bcp47):
                 log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
-                grammar_proofread_cache.cache_put_sentence(original_bcp47, text, [asdict(e) for e in filtered_errors], **put_kwargs)
+                grammar_proofread_cache.cache_put_sentence(original_bcp47, text, payload, **put_kwargs)
             else:
                 log.debug("[grammar] No double caching: original=%s, detected=%s", original_bcp47, bcp47)
 
-            summary.record(text, len(filtered_errors))
+            summary.record(text, len(active_errors))
 
     if summary.n_written:
         preview_src = summary.preview_source()

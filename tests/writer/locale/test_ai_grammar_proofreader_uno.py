@@ -97,6 +97,8 @@ def test_ignore_rule_filters_cached_error(ctx: Any) -> None:
         assert len(tuple(res2.aErrors)) == 0
         with unittest.mock.patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-99"):
             pr.resetIgnoreRules()
+        res3 = pr.doProofreading("doc-99", text, loc, 0, len(text), ())
+        assert len(tuple(res3.aErrors)) == 1
     finally:
         teardown_grammar_proof_tests(saved_enabled)
 
@@ -216,5 +218,49 @@ def test_incremental_nonzero_start_returns_only_overlapping_sentence(ctx: Any) -
         errs = tuple(res.aErrors)
         assert len(errs) == 1
         assert text[errs[0].nErrorStart : errs[0].nErrorStart + errs[0].nErrorLength] == "Complete"
+    finally:
+        teardown_grammar_proof_tests(saved_enabled)
+
+
+@native_test
+def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
+    from dataclasses import asdict
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    saved_enabled = setup_grammar_proof_tests(ctx)
+    try:
+        bi, loc = gt.get_break_iterator_and_locale(ctx, "en-US")
+        # Real BreakIterator.endOfSentence on "a👋b. c."
+        # Python end of "a👋b." is 4; UTF-16 end is 5.
+        raw_end = bi.endOfSentence("a👋b. c.", 0, loc)
+        assert raw_end == 5
+
+        # split_into_sentences on "👋👋 Hi. Bye." returns "👋👋 Hi. " and "Bye."
+        sents = gt.split_into_sentences(ctx, "en-US", "👋👋 Hi. Bye.")
+        assert len(sents) == 2
+        assert sents[0][1] == "👋👋 Hi. "
+        assert sents[1][1] == "Bye."
+
+        # doProofreading on "👋 they is fine." with cached error
+        pr = WriterAgentAiGrammarProofreader(ctx)
+        text = "👋 they is fine."
+        norms = gt.normalize_errors_for_text(
+            text,
+            0,
+            len(text),
+            [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
+            ctx=ctx,
+            loc_key="en-US",
+        )
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-uno-emoji")
+        res = pr.doProofreading("doc-uno-emoji", text, loc, 0, len(text), ())
+        assert res is not None
+        errs = tuple(res.aErrors)
+        assert len(errs) == 1
+        e0 = errs[0]
+        # In UTF-16, 👋 is 2 units, space is 1 unit -> start is 3, length is 7
+        u16_bytes = text.encode("utf-16le")
+        u16_slice = u16_bytes[e0.nErrorStart * 2 : (e0.nErrorStart + e0.nErrorLength) * 2].decode("utf-16le")
+        assert u16_slice == "they is"
     finally:
         teardown_grammar_proof_tests(saved_enabled)

@@ -2,11 +2,16 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Text pipeline for native grammar: BreakIterator, sentence splits, offset mapping."""
+"""Text pipeline for native grammar: BreakIterator, sentence splits, offset mapping.
+
+Internal offsets are Python code points. Convert only at the UNO and BreakIterator
+boundary. Cache keys and stored error dicts stay Python offsets.
+"""
 
 from __future__ import annotations
 
 import logging
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
@@ -57,6 +62,83 @@ from .grammar_proofread_locale import (
 )
 
 # ---------------------------------------------------------------------------
+# UTF-16 / Python code point offset conversion
+# ---------------------------------------------------------------------------
+
+
+class Utf16OffsetMap:
+    """Map between Python code point offsets and UTF-16 code unit offsets.
+
+    Internal offsets in the proofreader are Python code points. UNO boundaries
+    (such as ``doProofreading`` and ``BreakIterator`` positions) use UTF-16
+    code units. Non-BMP characters (ord > 0xFFFF) occupy two UTF-16 code units.
+    """
+
+    __slots__: tuple[str, ...] = ("_py_len", "_u16_len", "_non_bmp", "_high_surrogates", "_is_bmp")
+    _py_len: int
+    _u16_len: int
+    _is_bmp: bool
+    _non_bmp: list[int]
+    _high_surrogates: list[int]
+
+    def __init__(self, text: str) -> None:
+        self._py_len = len(text)
+        if text.isascii() or not any(ord(ch) > 0xFFFF for ch in text):
+            self._is_bmp = True
+            self._u16_len = self._py_len
+            self._non_bmp = []
+            self._high_surrogates = []
+        else:
+            self._is_bmp = False
+            self._non_bmp = [i for i, ch in enumerate(text) if ord(ch) > 0xFFFF]
+            self._high_surrogates = [idx + k for k, idx in enumerate(self._non_bmp)]
+            self._u16_len = self._py_len + len(self._non_bmp)
+
+    def py_to_utf16(self, index: int) -> int:
+        """Convert a Python code point index to a UTF-16 code unit index."""
+        if self._is_bmp:
+            return max(0, min(index, self._py_len))
+        p = max(0, min(index, self._py_len))
+        k = bisect_left(self._non_bmp, p)
+        return p + k
+
+    def utf16_to_py(self, index: int) -> int:
+        """Convert a UTF-16 code unit index to a Python code point index.
+
+        A UTF-16 index that falls inside a surrogate pair rounds to that code point.
+        """
+        if self._is_bmp:
+            return max(0, min(index, self._py_len))
+        if index <= 0:
+            return 0
+        if index >= self._u16_len:
+            return self._py_len
+        b = bisect_right(self._high_surrogates, index)
+        if b == 0:
+            return index
+        idx = b - 1
+        h = self._high_surrogates[idx]
+        if index == h or index == h + 1:
+            return self._non_bmp[idx]
+        return index - (idx + 1)
+
+    def utf16_span(self, start: int, length: int) -> tuple[int, int]:
+        """Convert a Python [start, start + length) span to (u16_start, u16_length)."""
+        if self._is_bmp:
+            s = max(0, min(start, self._py_len))
+            e = max(s, min(start + length, self._py_len))
+            return s, e - s
+        u_start = self.py_to_utf16(start)
+        u_end = self.py_to_utf16(start + length)
+        return u_start, max(0, u_end - u_start)
+
+
+def utf16_span(text: str, start: int, length: int) -> tuple[int, int]:
+    """Convert a Python [start, start + length) span in *text* to (u16_start, u16_length)."""
+    return Utf16OffsetMap(text).utf16_span(start, length)
+
+
+# ---------------------------------------------------------------------------
 # LibreOffice BreakIterator + Locale
 # ---------------------------------------------------------------------------
 
@@ -98,11 +180,14 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
     bi, locale = get_break_iterator_and_locale(ctx, locale_key)
 
+    u16_map = Utf16OffsetMap(text)
     pos = 0
     sentences = []
 
     while pos < len(text):
-        end_pos = bi.endOfSentence(text, pos, locale)
+        u16_pos = u16_map.py_to_utf16(pos)
+        end_u16 = bi.endOfSentence(text, u16_pos, locale)
+        end_pos = u16_map.utf16_to_py(end_u16)
 
         if end_pos <= pos:
             end_pos = len(text)
@@ -131,7 +216,9 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                     while k < len(text) and text[k].isspace():
                         k += 1
                     # Use BreakIterator from position k to find the real sentence end.
-                    new_end = bi.endOfSentence(text, k, locale)
+                    u16_k = u16_map.py_to_utf16(k)
+                    new_u16 = bi.endOfSentence(text, u16_k, locale)
+                    new_end = u16_map.utf16_to_py(new_u16)
                     log.debug("[grammar] split_abbrev_skip word=%r abbrev_len=%d new_end=%d", word, abbrev_len, new_end)
                     grammar_obs("split_abbrev_skip", word=word, abbrev_len=abbrev_len, i=i, k=k, new_end_pos=new_end)
                     # Forward-progress guard: BreakIterator has been observed to return
@@ -316,17 +403,21 @@ def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
 
     tokens = []
     start = 0
+    u16_map = Utf16OffsetMap(text)
     while start < len(text):
-        res = break_iterator.getWordBoundary(text, start, locale, 0, True)
-        if res.endPos <= start:
+        u16_start = u16_map.py_to_utf16(start)
+        res = break_iterator.getWordBoundary(text, u16_start, locale, 0, True)
+        py_start_pos = u16_map.utf16_to_py(res.startPos)
+        py_end_pos = u16_map.utf16_to_py(res.endPos)
+        if py_end_pos <= start:
             # BI failed to progress, take the rest as a single token
             tokens.append(text[start:])
             break
-        if res.startPos > start:
+        if py_start_pos > start:
             # BI skipped some text (e.g. control chars), include it as a token
-            tokens.append(text[start : res.startPos])
-        tokens.append(text[res.startPos : res.endPos])
-        start = res.endPos
+            tokens.append(text[start : py_start_pos])
+        tokens.append(text[py_start_pos : py_end_pos])
+        start = py_end_pos
     return tokens
 
 
@@ -451,7 +542,8 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
     results: list[NormalizedProofError] = []
     used_spans: list[tuple[int, int]] = []
 
-    bi, locale = get_break_iterator_and_locale(ctx, loc_key)
+    bi: Any = None
+    locale: Any = None
 
     search_pos = 0
 
@@ -480,6 +572,8 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 
         # 2. Expand span for overlap
         if correct and provider_span is None:
+            if bi is None:
+                bi, locale = get_break_iterator_and_locale(ctx, loc_key)
             pos, length = _expand_span_for_overlap(pos, length, correct, full_text, bi, locale)
             expanded_wrong = full_text[pos : pos + length]
             if expanded_wrong == correct:

@@ -1131,3 +1131,42 @@ def test_worker_process_chunk_fails_open_when_language_detection_raises() -> Non
     assert mock_grammar.call_args[0][0] == [(item, item.text)]
     assert mock_grammar.call_args[0][1] == "en-US"
 
+
+def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status() -> None:
+    from plugin.writer.locale.grammar_worker import process_grammar_results
+
+    item = _item("They is here.", doc_id="doc-1")
+    ec = _ec()
+    ec.gq = None
+    errors = [{"wrong": "They is", "correct": "They are", "type": "grammar", "reason": "agr", "rule_identifier": "wa_g_rule||agr"}]
+    norm_err = NormalizedProofError(
+        n_error_start=0,
+        n_error_length=7,
+        suggestions=("They are",),
+        short_comment="agr",
+        full_comment="agr",
+        rule_identifier="wa_g_rule||agr",
+    )
+
+    with (
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
+        patch("plugin.writer.locale.grammar_worker.emit_done_status") as mock_done,
+    ):
+        process_grammar_results([(item, item.text)], [errors], "en-US", "en-GB", 100, ec)
+
+        # Both cache puts (detected and original locale) receive the raw provider error
+        assert mock_put.call_count == 2
+        payload1 = mock_put.call_args_list[0][0][2]
+        payload2 = mock_put.call_args_list[1][0][2]
+        assert len(payload1) == 1
+        assert payload1[0]["rule_identifier"] == "wa_g_rule||agr"
+        assert len(payload2) == 1
+        assert payload2[0]["rule_identifier"] == "wa_g_rule||agr"
+
+        # Status text summary excludes the ignored rule (0 issues)
+        mock_done.assert_called_once()
+        assert "0 issues" in mock_done.call_args[1]["result"]
+
+
