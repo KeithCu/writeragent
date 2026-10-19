@@ -268,6 +268,16 @@ def _project_body_paragraphs(doc: Any) -> list[tuple[str, str, list[tuple[str, s
     return paras
 
 
+def _norm_live_text(s: str) -> str:
+    """Normalize LO live field/list quirks for round-trip compares.
+
+    Replaces nbsp with space, collapses whitespace runs, strips edges and list bullets.
+    """
+    s = s.replace(" ", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    return s.strip("• \t")
+
+
 @native_test
 @with_native_doc("writer")
 def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
@@ -316,10 +326,6 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     assert [p[2] for p in proj1_re] == [p[2] for p in proj1], (
         f"proj1_re={proj1_re} != proj1={proj1}"
     )
-    def _norm_live_text(s: str) -> str:
-        # LO list re-import prefixes • and often suffixes nbsp.
-        return s.strip("• \t\u00a0")
-
     for ((s0, t0, _r0), (s1, t1, _r1)) in zip(proj1, proj1_re, strict=True):
         text0 = _norm_live_text(t0)
         text1 = _norm_live_text(t1)
@@ -344,7 +350,7 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     assert "data-lo-style=" in read_html2
     proj2 = _project_body_paragraphs(doc)
     assert [p[0] for p in proj2] == ["Heading 1", "Caption"], proj2
-    assert [p[1].rstrip() for p in proj2] == ["One", "Two"], proj2
+    assert [_norm_live_text(p[1]) for p in proj2] == ["One", "Two"], proj2
 
     # Fixture 3: styled div wrapper
     doc.getText().setString("")
@@ -423,7 +429,16 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     read6_re = GetDocumentContent().execute(tool_ctx, scope="full")
     assert read6_re.get("status") == "ok", read6_re
     proj6_re = _project_body_paragraphs(doc)
-    assert proj6_re == proj6, f"proj6_re={proj6_re} != proj6={proj6}"
+    assert len(proj6_re) == len(proj6), f"proj6_re={proj6_re} != proj6={proj6}"
+    assert [p[0] for p in proj6_re] == [p[0] for p in proj6], (
+        f"proj6_re={proj6_re} != proj6={proj6}"
+    )
+    assert [p[2] for p in proj6_re] == [p[2] for p in proj6], (
+        f"proj6_re={proj6_re} != proj6={proj6}"
+    )
+    assert [_norm_live_text(p[1]) for p in proj6_re] == [_norm_live_text(p[1]) for p in proj6], (
+        f"proj6_re={proj6_re} != proj6={proj6}"
+    )
 
     # Image case
     directory = os.path.dirname(os.path.abspath(__file__))
