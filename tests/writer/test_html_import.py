@@ -387,7 +387,8 @@ def test_block_styles_stop_at_the_end_of_the_import():
     enum.nextElement.side_effect = paras
     end = 2  # the parked cursor sits where paragraph 2 starts
     text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
-    with patch.object(html_import.format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+    from plugin.writer import format as format_mod
+    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
         html_import._apply_block_lo_styles(MagicMock(), text, 0, ["Heading1", "Standard", "Standard", "Heading2"], end=end)
     assert apply.call_count == 2
 
@@ -397,6 +398,7 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     (an 18pt bold opening heading spread over the whole document)."""
     from unittest.mock import MagicMock, patch
 
+    from plugin.writer import format as format_mod
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -405,7 +407,7 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     leftover = text.createTextCursorByRange.return_value
     leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import.format_mod, "_deletion_author"):
+         patch.object(format_mod, "_deletion_author"):
         html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
@@ -418,12 +420,13 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
 def test_full_document_without_review_imports_in_place():
     from unittest.mock import MagicMock, patch
 
+    from plugin.writer import format as format_mod
     from plugin.writer import html_import
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import.format_mod, "_deletion_author"):
+         patch.object(format_mod, "_deletion_author"):
         html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
@@ -616,46 +619,70 @@ def test_full_document_refuses_before_deleting_anything():
     replace.assert_not_called()
 
 
-def test_html_to_plain_text_raises_instead_of_returning_markup():
-    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+def test_html_to_plain_text_pure_does_not_call_scratch_writer():
     from plugin.writer.html_import import html_to_plain_text
 
-    html = "<b>foo</b>"
-    with patch("plugin.writer.html_import.new_blank_writer", return_value=None):
-        with pytest.raises(ToolExecutionError, match="plain text"):
-            html_to_plain_text(html, MagicMock())
+    with patch("plugin.framework.uno_context.new_blank_writer") as mock_new_writer:
+        assert html_to_plain_text("<b>foo</b>", MagicMock()) == "foo"
+        mock_new_writer.assert_not_called()
 
-    doc = MagicMock()
-    with patch("plugin.writer.html_import.new_blank_writer", return_value=doc), \
-         patch("plugin.writer.html_import.format_mod._with_temp_buffer", side_effect=RuntimeError("import failed")):
-        with pytest.raises(ToolExecutionError, match="plain text"):
-            html_to_plain_text(html, MagicMock())
-    doc.close.assert_called_once_with(True)
+        assert html_to_plain_text("<p>Hello</p><p>World</p>", MagicMock()) == "Hello\nWorld"
+        mock_new_writer.assert_not_called()
 
-    with patch(
-        "plugin.writer.html_import.new_blank_writer",
-        side_effect=type("DisposedException", (Exception,), {})("gone"),
-    ):
-        with pytest.raises(DocumentDisposedError):
-            html_to_plain_text(html, MagicMock())
+        # Ruby input returns base text only
+        assert html_to_plain_text("<ruby>漢字<rt>かんじ</rt></ruby>", MagicMock()) == "漢字"
+        mock_new_writer.assert_not_called()
 
 
 def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch_doc():
     from plugin.writer.html_import import html_to_plain_text
 
-    with patch("plugin.writer.html_import.new_blank_writer") as mock_new_writer:
+    with patch("plugin.framework.uno_context.new_blank_writer") as mock_new_writer:
         res = html_to_plain_text("  plain text search  ", MagicMock())
         assert res == "plain text search"
         mock_new_writer.assert_not_called()
 
 
-def test_prefix_char_count_does_not_return_zero_on_failure():
+def test_content_has_markup_cases():
+    from plugin.writer.html_import import content_has_markup
+
+    # Unclosed elements and attribute variants are markup
+    assert content_has_markup("<h4>Title</h4>") is True
+    assert content_has_markup("<h4>Title") is True
+    assert content_has_markup('<a href="x">t</a>') is True
+    assert content_has_markup('<a href="x">t') is True
+    assert content_has_markup("<b class=x>t</b>") is True
+    assert content_has_markup("<b class=x>t") is True
+
+    # Unknown angle-bracket prose is not markup
+    assert content_has_markup("<spanish>hi</spanish>") is False
+    assert content_has_markup("a < b") is False
+    assert content_has_markup("List<String>") is False
+
+    # TeX and MathML are markup
+    assert content_has_markup(r"formula \(x\)") is True
+    assert content_has_markup(r"formula \[x\]") is True
+    assert content_has_markup("cost $$10") is True
+    assert content_has_markup("<math>...</math>") is True
+
+
+def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
     from plugin.writer import html_import
 
     text = MagicMock()
-    text.createTextCursor.return_value.gotoRange.side_effect = RuntimeError("range")
-    with pytest.raises(RuntimeError, match="range"):
-        html_import._prefix_char_count(text, MagicMock())
+    next_calls = []
+    text.createEnumeration.return_value.hasMoreElements.side_effect = lambda: True
+    text.createEnumeration.return_value.nextElement.side_effect = lambda: next_calls.append(1) or MagicMock()
+
+    cur = MagicMock()
+    walk_cur = MagicMock()
+    text.createTextCursorByRange.return_value = walk_cur
+    walk_cur.gotoNextParagraph.return_value = False
+
+    html_import._apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
+
+    assert len(next_calls) == 0, "createEnumeration should not be called when cursor is provided"
+    walk_cur.gotoStartOfParagraph.assert_called_once_with(False)
 
 
 def test_styled_insert_propagates_style_pass_failure():
@@ -664,8 +691,7 @@ def test_styled_insert_propagates_style_pass_failure():
     cursor = MagicMock()
     cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
     with patch.object(html_import, "_apply_block_lo_styles", side_effect=RuntimeError("style")), \
-         patch.object(html_import, "insert_html_fragment_at_cursor"), \
-         patch.object(html_import, "_count_preceding_paras", return_value=0):
+         patch.object(html_import, "insert_html_fragment_at_cursor"):
         with pytest.raises(RuntimeError, match="style"):
             html_import._insert_mixed_or_plain_html(
                 MagicMock(), MagicMock(), cursor,

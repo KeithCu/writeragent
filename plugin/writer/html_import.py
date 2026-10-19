@@ -30,48 +30,14 @@ if TYPE_CHECKING:
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import new_blank_writer, uno_same
+from plugin.framework.uno_context import uno_same
 from . import xhtml_style_postprocess as xhtml_post
-from . import format as format_mod
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
 log = logging.getLogger("writeragent.writer")
 # uno_read default where None is a real UNO result.
 _FAILED: Any = object()
-
-_MARKUP_PATTERNS = [
-    # HTML
-    "<b>",
-    "<i>",
-    "<p>",
-    "<h1",
-    "<h2",
-    "<h3",
-    "<table",
-    "<tr",
-    "<td",
-    "<ul>",
-    "<ol>",
-    "<li>",
-    "<div",
-    "<span",
-    "<br",
-    "<img",
-    "<strong",
-    "<em>",
-    "</",
-    "<html",
-    "<body",
-    "<!DOCTYPE",
-    "<math",
-    "<ruby",
-    "<rt",
-    # TeX (so plain ``\\( … \\)`` / ``$$`` is not misclassified as format-preserving)
-    "$$",
-    "\\(",
-    "\\[",
-]
 
 
 # StarWriter HTML import has no ruby rule: <ruby>漢字<rt>かんじ</rt></ruby> becomes
@@ -396,35 +362,6 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 
 
 
-def _count_preceding_paras(text_obj: Any, target: Any) -> int:
-    """Number of paragraphs in *text_obj* whose start is before *target* (insertion point).
-
-    Computed BEFORE the import so we know where the inserted block paragraphs begin (a saved
-    cursor would drift to the end of the inserted content)."""
-    idx = 0
-    e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if e is _FAILED:
-        return 0
-    guard = 0
-    while e.hasMoreElements() and guard < 200000:
-        guard += 1
-        try:
-            el = e.nextElement()
-        except Exception:
-            break
-        if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
-            continue
-        try:
-            if text_obj.compareRegionStarts(el.getStart(), target) == 1:
-                idx += 1
-            else:
-                break
-        except Exception:
-            break
-    return idx
-
-
-
 def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
 
@@ -435,6 +372,7 @@ def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
     to ``Standard`` instead of silently picking one. No candidate -> case-insensitive resolve,
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
+    from . import format as format_mod
     if fam is not None:
         # dict.fromkeys keeps first-seen order and drops duplicates.
         candidates: list[str] = uno_read(lambda: list(dict.fromkeys(n for n in fam.getElementNames() if n == token or xhtml_post.compact_lo_style_name(n) == token)), [])
@@ -451,54 +389,86 @@ def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
 
 
 
-def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: list[str | None], end: Any = None) -> None:
-    """Apply each block's data-lo-style to the inserted paragraphs (positionally), starting at
-    paragraph index *start_idx*. Reuses apply_paragraph_style_preserving_direct_char so the
-    named style is applied first and the import's inline char overrides survive on top.
+def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[str | None], end: Any = None) -> None:
+    """Apply each block's data-lo-style to the inserted paragraphs (positionally).
+
+    Forward cursor walk from the insertion point avoids scanning the whole document.
     Compact tokens (``Heading1``) are resolved to UNO names; unknown styles fall back to
     'Standard' (per the style-model plan)."""
+    from . import format as format_mod
+
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
-    # Collect the target paragraphs (from start_idx, at most len(styles)) before mutating.
-    paras: list[Any] = []
-    e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if e is _FAILED:
+
+    if isinstance(start, int):
+        # Enumeration fallback when start paragraph index is given directly (unit test mocks).
+        paras: list[Any] = []
+        e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+        if e is not _FAILED and e is not None:
+            i = 0
+            guard = 0
+            while e.hasMoreElements() and guard < 200000 and len(paras) < len(styles):
+                guard += 1
+                try:
+                    el = e.nextElement()
+                except Exception:
+                    break
+                if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
+                    continue
+                if i >= start:
+                    if end is not None and text_obj.compareRegionStarts(el.getStart(), end) != 1:
+                        break
+                    paras.append(el)
+                i += 1
+            style_cache: dict[Any, Any] = {}
+            for para_el, style in zip(paras, styles):
+                if not style:
+                    continue
+                resolved = _resolve_paragraph_style_token(model, fam, style)
+                try:
+                    cur = text_obj.createTextCursorByRange(para_el.getStart())
+                    cur.gotoEndOfParagraph(True)
+                    format_mod.apply_paragraph_style_preserving_direct_char(
+                        model, cur, resolved, style_cache=style_cache,
+                    )
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
         return
-    i = 0
-    guard = 0
-    while e.hasMoreElements() and guard < 200000 and len(paras) < len(styles):
-        guard += 1
+
+    try:
+        start_range = start.getStart() if hasattr(start, "getStart") else start
+        walk_cur = text_obj.createTextCursorByRange(start_range)
+        walk_cur.gotoStartOfParagraph(False)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return
+
+    style_cache = {}
+    for style in styles:
+        # Stop at the first paragraph that does not start before the parked end cursor.
         try:
-            el = e.nextElement()
+            if end is not None and text_obj.compareRegionStarts(walk_cur.getStart(), end) != 1:
+                break
         except Exception:
             break
-        if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
-            continue
-        if i >= start_idx:
-            # With more styled blocks than imported paragraphs, leftover styles
-            # go onto the paragraphs after the import -- in review mode, the
-            # old text a full_document just deleted. A paragraph style on
-            # deleted text turns its Delete into a Format change, so "Accept
-            # all" keeps the old header glued into one paragraph (relatos
-            # #35/#40, reproduced live). *end* is a cursor parked after the
-            # import: stop at the first paragraph that does not start before it.
-            if end is not None and text_obj.compareRegionStarts(el.getStart(), end) != 1:
-                break
-            paras.append(el)
-        i += 1
-    style_cache: dict[Any, Any] = {}
-    for para_el, style in zip(paras, styles):
-        if not style:
-            continue
-        resolved = _resolve_paragraph_style_token(model, fam, style)
+
+        if style:
+            resolved = _resolve_paragraph_style_token(model, fam, style)
+            try:
+                cur = text_obj.createTextCursorByRange(walk_cur.getStart())
+                cur.gotoEndOfParagraph(True)
+                format_mod.apply_paragraph_style_preserving_direct_char(
+                    model, cur, resolved, style_cache=style_cache,
+                )
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
+
         try:
-            cur = text_obj.createTextCursorByRange(para_el.getStart())
-            cur.gotoEndOfParagraph(True)
-            format_mod.apply_paragraph_style_preserving_direct_char(
-                model, cur, resolved, style_cache=style_cache,
-            )
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
+            if not walk_cur.gotoNextParagraph(False):
+                break
+        except Exception:
+            break
 
 
 
@@ -531,6 +501,7 @@ def _ensure_html_linebreaks(content: str) -> str:
     content = _normalize(content)
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
+        from . import format as format_mod
         content = format_mod._strip_html_boilerplate(content)
     # Why-comment: a table or <h4> has none of the old markers, so it was
     # wrapped in <p> and its newlines became <br>. Do not treat every tag as HTML.
@@ -553,65 +524,21 @@ def _ensure_html_linebreaks(content: str) -> str:
 
 
 
-def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> str:
-    """Convert HTML to plain text by loading it into LibreOffice and reading
-    the text out. Use this instead of regex stripping so entities, nested
-    tags, and whitespace are handled correctly.
+def html_to_plain_text(html_string: str, ctx: Any = None, config_svc: Any = None) -> str:
+    """Convert HTML to plain search text matching LibreOffice paragraph structure.
 
-    Raises ``ToolExecutionError`` when the scratch document cannot be created
-    or the import fails. Does not return the raw HTML.
+    Paragraphs, headings, list items, and table elements are separated by newlines;
+    line breaks (<br>) emit a newline. Intra-block whitespace collapses to a single space.
     """
     if not html_string or not isinstance(html_string, str):
         return (html_string or "").strip()
-    # Base only: StarWriter would concatenate <rt> into the search string.
+    # Plain text without markup or entities needs no parsing.
+    if "<" not in html_string and "&" not in html_string:
+        return html_string.strip()
+    from plugin.framework.html_stripper import html_to_search_text
+
     stripped, _unused_ruby = extract_and_strip_ruby(html_string)
-    # What was wrong: plain text without tags or entities raised ToolExecutionError
-    # when the scratch document could not be created (e.g. in test harnesses or
-    # when search input had no markup), even though there was no HTML to convert.
-    # How it happened: B1 raised unconditionally on a missing scratch doc without
-    # checking whether the string actually contained HTML tags or entities.
-    # Why this change fixes it: strings without '<' and '&' contain no HTML tags or
-    # character entities; their plain text representation is already in hand, so we
-    # return stripped.strip() directly without needing a scratch Writer doc.
-    if "<" not in stripped and "&" not in stripped:
-        return stripped.strip()
-    prepared = _wrap_html_fragment(stripped.strip())
-    temp_doc = None
-    try:
-        # Blank scratch doc: this reads the WHOLE body back, so a default
-        # template's text would be returned as if the caller had sent it.
-        temp_doc = new_blank_writer(ctx, target="_default")
-        if not temp_doc or not hasattr(temp_doc, "getText"):
-            # What was wrong: a missing scratch doc returned the raw HTML.
-            # How: search and dry_run use this string, so "<b>foo</b>" was
-            # looked up literally (not found, or dry_run count 0).
-            # Why: the caller gets the import error instead of a false miss.
-            raise ToolExecutionError(
-                "Could not turn that HTML into plain text for the search."
-            )
-        with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):
-            filter_name, _unused = format_mod._get_format_props(config_svc)
-            filter_props = (format_mod.create_property_value("FilterName", filter_name),)
-            text = temp_doc.getText()
-            cursor = text.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.insertDocumentFromURL(file_url, filter_props)
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            return cursor.getString().strip()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        if isinstance(exc, ToolExecutionError):
-            raise
-        raise ToolExecutionError(
-            "Could not turn that HTML into plain text for the search."
-        ) from exc
-    finally:
-        if temp_doc is not None:
-            try:
-                temp_doc.close(True)
-            except Exception:
-                pass
+    return html_to_search_text(stripped).strip()
 
 
 
@@ -843,6 +770,7 @@ def insert_html_fragment_at_cursor(
     """
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if model is not None else None
+    from . import format as format_mod
     with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):
         filter_name, _unused = format_mod._get_format_props(config_svc)
         filter_props = (format_mod.create_property_value("FilterName", filter_name),)
@@ -953,23 +881,8 @@ def _insert_mixed_or_plain_html(
     styled = apply_styles and any(block_styles)
     text_obj = cursor.getText()
     ruby_skip = _prefix_char_count(text_obj, cursor) if not has_math else 0
-    # Index of the paragraph where the inserted block content begins (computed pre-import).
-    # The first imported block MERGES into the paragraph that contains the cursor when the
-    # cursor is not at a paragraph boundary (target=end/search/selection). So count paragraphs
-    # strictly before the cursor's *paragraph* (not the cursor position) — otherwise the applied
-    # styles shift by one. (For full_document the cursor is already at the paragraph start.)
-    start_idx = 0
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
-    if styled:
-        ref = cursor.getStart()
-        try:
-            para_cur = text_obj.createTextCursorByRange(cursor.getStart())
-            para_cur.gotoStartOfParagraph(False)
-            ref = para_cur.getStart()
-        except Exception:
-            pass
-        start_idx = _count_preceding_paras(text_obj, ref)
 
     if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
@@ -988,7 +901,7 @@ def _insert_mixed_or_plain_html(
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
         # still looked like a finished insert.
-        _apply_block_lo_styles(model, text_obj, start_idx, block_styles, end=imported_end)
+        _apply_block_lo_styles(model, text_obj, cursor, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     if not has_math:
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
@@ -1103,7 +1016,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     # No html.unescape here: content.py already decoded complete character references on the
     # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
     # decodes entities in markup itself.
-    if not format_mod.content_has_markup(content):
+    if not content_has_markup(content):
         cursor.getText().insertString(cursor, content, False)
         return
     inline_html = content.replace("\\n", "\n").replace("\\t", "\t")
@@ -1232,6 +1145,7 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
+    from . import format as format_mod
     with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
     cursor.gotoStart(False)
@@ -1308,6 +1222,7 @@ def _replace_single_range_with_content(
 
     # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
     raise_if_range_hosts_nested_table(text_range)
+    from . import format as format_mod
     with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
 
@@ -1427,6 +1342,7 @@ def rewrite_exported_field_spans(html: str) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
     if not html or "title=" not in html:
         return html
+    from . import format as format_mod
 
     def _repl(match: re.Match[str]) -> str:
         title = match.group(1).lower()
@@ -1479,6 +1395,7 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         raise ToolExecutionError("Could not restore the %s field." % title) from e
     props = props or {}
     if title == "page-number":
+        from . import format as format_mod
         try:
             subtype_str = props.get("subtype", "CURRENT").strip().upper()
             st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str)
@@ -1833,11 +1750,14 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
 
 
 def content_has_markup(content: str | None) -> bool:
-    """Return ``True`` if *content* appears to contain Markdown or HTML."""
+    """Return ``True`` if *content* appears to contain HTML or math markup."""
     if not content or not isinstance(content, str):
         return False
-    lower = content.lower()
-    return any(p.lower() in lower for p in _MARKUP_PATTERNS)
+    from plugin.framework.html_stripper import text_has_real_html_tag
+
+    if text_has_real_html_tag(content):
+        return True
+    return "$$" in content or r"\(" in content or r"\[" in content or "<math" in content.lower()
 
 
 
@@ -1850,14 +1770,15 @@ def _content_has_block_markup(content: str | None) -> bool:
 
 
 
-def _range_has_special_portions(target_range: Any) -> bool:
-    """Return True if target_range contains non-Text portions (field, footnote, ruby, etc.)."""
+def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, int]] | None]:
+    """Return (has_special, portions_list_or_None)."""
     try:
         if not hasattr(target_range, "createEnumeration"):
-            return False
+            return False, None
         enum = target_range.createEnumeration()
         if enum is None:
-            return False
+            return False, None
+        portions: list[tuple[str, int]] = []
         while enum.hasMoreElements():
             elem = enum.nextElement()
             if hasattr(elem, "createEnumeration"):
@@ -1868,16 +1789,20 @@ def _range_has_special_portions(target_range: Any) -> bool:
                     if kind is None and hasattr(portion, "getPropertyValue"):
                         kind = portion.getPropertyValue("TextPortionType")
                     if kind and kind not in ("Text", "SoftPageBreak"):
-                        return True
+                        return True, None
+                    text_str = portion.getString() if hasattr(portion, "getString") else ""
+                    portions.append((kind or "Text", len(text_str)))
             else:
                 kind = getattr(elem, "TextPortionType", None)
                 if kind is None and hasattr(elem, "getPropertyValue"):
                     kind = elem.getPropertyValue("TextPortionType")
                 if kind and kind not in ("Text", "SoftPageBreak"):
-                    return True
+                    return True, None
+                text_str = elem.getString() if hasattr(elem, "getString") else ""
+                portions.append((kind or "Text", len(text_str)))
+        return False, portions
     except Exception:
-        pass
-    return False
+        return False, None
 
 
 def replace_preserving_format(
@@ -1944,6 +1869,7 @@ def replace_preserving_format(
         # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
         # context rollback also cleans up).
         original = cursor.getString()
+        from . import format as format_mod
         with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         if new_text:
@@ -1974,7 +1900,9 @@ def replace_preserving_format(
     # would run on the main thread, inside the caller's undo context.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
-    if _range_has_special_portions(target_range):
+    has_special, portions = _collect_range_portions(target_range)
+
+    if has_special:
         # Non-text portions (fields, ruby) advance by portion instead of char, so step 1-by-1.
         for i in range(overlap):
             sel = text.createTextCursorByRange(main_cursor)
@@ -1985,6 +1913,71 @@ def replace_preserving_format(
             if new_text[i] != old_text[i]:
                 sel.setString(new_text[i])
             main_cursor.gotoRange(sel.getEnd(), False)
+    elif portions is not None and sum(plen for _, plen in portions) == old_len:
+        # Coalesce changes inside each Text portion to avoid per-character setString calls.
+        offset = 0
+        for _kind, plen in portions:
+            if plen == 0:
+                continue
+            portion_start = offset
+            portion_end = offset + plen
+            offset = portion_end
+
+            if portion_start >= overlap:
+                break
+
+            slice_end = min(portion_end, overlap)
+            old_slice = old_text[portion_start:slice_end]
+            new_slice = new_text[portion_start:slice_end]
+            slice_len = len(old_slice)
+
+            if old_slice == new_slice:
+                if not _go_right(main_cursor, slice_len, False):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+                continue
+
+            p = 0
+            while p < slice_len and old_slice[p] == new_slice[p]:
+                p += 1
+            if p > 0:
+                if not _go_right(main_cursor, p, False):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+
+            s = 0
+            max_s = slice_len - p
+            while s < max_s and old_slice[slice_len - 1 - s] == new_slice[slice_len - 1 - s]:
+                s += 1
+
+            diff_len = slice_len - p - s
+            if diff_len > 0:
+                sel = text.createTextCursorByRange(main_cursor)
+                if not _go_right(sel, diff_len, True):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+                sel.setString(new_slice[p : slice_len - s])
+                main_cursor.gotoRange(sel.getEnd(), False)
+
+            if s > 0:
+                if not _go_right(main_cursor, s, False):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+
+        if offset < overlap:
+            for i in range(offset, overlap):
+                sel = text.createTextCursorByRange(main_cursor)
+                if not sel.goRight(1, True):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+                if new_text[i] != old_text[i]:
+                    sel.setString(new_text[i])
+                main_cursor.gotoRange(sel.getEnd(), False)
     else:
         i = 0
         while i < overlap:

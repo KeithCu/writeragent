@@ -263,3 +263,60 @@ def test_strip_html_tags_fast_path_and_entities():
     assert strip_html_tags("3 < 5") == "3 < 5"
 
 
+def test_html_to_search_text_paragraphs_and_breaks():
+    from plugin.framework.html_stripper import html_to_search_text
+
+    assert html_to_search_text("<p>a</p><p>b</p>") == "a\nb"
+    assert html_to_search_text("a<br>b") == "a\nb"
+    assert html_to_search_text("a<br/>b") == "a\nb"
+    assert html_to_search_text("a<br><br>b") == "a\n\nb"
+    assert html_to_search_text("<h1>Title</h1><p>Body</p>") == "Title\nBody"
+    assert html_to_search_text("<ul><li>Item 1</li><li>Item 2</li></ul>") == "Item 1\nItem 2"
+
+
+def test_html_to_search_text_intra_paragraph_newline_collapses():
+    from plugin.framework.html_stripper import html_to_search_text
+
+    assert html_to_search_text("<p>a\n  b</p>") == "a b"
+    assert html_to_search_text("<p>  word1   \t\n  word2  </p>") == "word1 word2"
+
+
+def test_html_to_search_text_discard_elements():
+    from plugin.framework.html_stripper import html_to_search_text
+
+    assert html_to_search_text("<script>alert(1)</script>hello") == "hello"
+    assert html_to_search_text("<style>body { color: red; }</style>world") == "world"
+    assert html_to_search_text("<head><title>Page</title></head><p>body</p>") == "body"
+
+
+def test_html_to_search_text_quoted_attributes_and_entities():
+    from plugin.framework.html_stripper import html_to_search_text
+
+    assert html_to_search_text('<img alt="a>b">text') == "text"
+    assert html_to_search_text('<a href="https://example.com?q=1&amp;x=2">link</a>') == "link"
+    assert html_to_search_text("a &amp; b &lt; c &gt; d &quot; e") == 'a & b < c > d " e'
+    assert html_to_search_text("a &incomplete entity") == "a &incomplete entity"
+
+
+def test_html_to_search_text_ruby_left_for_caller():
+    from plugin.framework.html_stripper import html_to_search_text
+
+    # Ruby stripping (<rt>/<rp>) is done by extract_and_strip_ruby in caller.
+    assert html_to_search_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字かんじ"
+
+
+def test_hypothesis_html_to_search_text_always_returns_string():
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+    from plugin.framework.html_stripper import html_to_search_text
+
+    @given(text=st.text(max_size=200))
+    @settings(max_examples=50)
+    def prop(text: str) -> None:
+        res = html_to_search_text(text)
+        assert isinstance(res, str)
+
+    prop()
+
+
+

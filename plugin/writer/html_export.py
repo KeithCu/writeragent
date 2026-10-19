@@ -31,7 +31,6 @@ from plugin.doc.text_helpers import (
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
-from . import format as format_mod
 
 log = logging.getLogger("writeragent.writer")
 # uno_read default where None is a real UNO result.
@@ -395,6 +394,7 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 def _export_xhtml(doc: Any, config_svc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
+    from . import format as format_mod
     with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.XHTML_EXTENSION) as (path, file_url):
         props = (format_mod.create_property_value("FilterName", format_mod.XHTML_FILTER),)
         doc.storeToURL(file_url, props)
@@ -419,6 +419,7 @@ def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see _paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
+        from . import format as format_mod
         with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.FODT_EXTENSION) as (path, file_url):
             props = (format_mod.create_property_value("FilterName", format_mod.FLAT_ODF_FILTER),)
             doc.storeToURL(file_url, props)
@@ -515,6 +516,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
         para, abort_on_portion_error=True, limit=limit, truncated_out=hit
     )
     if hit:
+        from . import format as format_mod
         msg = format_mod.walk_cap_warning("text portions", hit[0], limit)
         log.warning("%s", msg)
         if truncated_out is not None:
@@ -890,6 +892,7 @@ def _range_to_content_via_temp_doc(
             # A closed document must not start a second export.
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
+            from . import format as format_mod
             filter_name, _unused = format_mod._get_format_props(config_svc)
             with format_mod._with_temp_buffer(None, config_svc) as (path, file_url):
                 props = (format_mod.create_property_value("FilterName", filter_name),)
@@ -1036,6 +1039,7 @@ def document_to_content(
     # Fallback: legacy StarWriter export (so reads never hard-fail).
     try:
         t_phase = time.perf_counter()
+        from . import format as format_mod
         filter_name, _unused = format_mod._get_format_props(config_svc)
         with format_mod._with_temp_buffer(None, config_svc) as (path, file_url):
             props = (format_mod.create_property_value("FilterName", filter_name),)
@@ -1655,6 +1659,7 @@ def _page_number_subtype_to_name(subtype: Any) -> str:
 
 def _page_number_numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
+    from . import format as format_mod
     if isinstance(num_type, int):
         if num_type in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
             return format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[num_type]

@@ -398,3 +398,167 @@ def strip_html_tags(text: str) -> str:
     stripper = StreamingHTMLStripper()
     return stripper.feed(text) + stripper.finalize()
 
+
+_SEARCH_DISCARD_TAGS = frozenset({"script", "style", "head"})
+_SEARCH_BLOCK_TAGS = frozenset({
+    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+    "li", "ul", "ol",
+    "blockquote", "pre",
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+    "hr", "section", "article", "header", "footer", "nav", "aside",
+    "figure", "figcaption", "dd", "dt", "dl",
+})
+
+
+@deal.post(lambda result: isinstance(result, str))
+def html_to_search_text(text: str) -> str:
+    """Convert HTML markup to plain search text matching LibreOffice paragraph structure.
+
+    Paragraphs, headings, list items, and table elements are separated by newlines;
+    line breaks (<br>) emit a newline. Intra-block whitespace collapses to a single space.
+    """
+    # crosshair: off
+    if not text:
+        return ""
+    if "<" not in text and "&" not in text:
+        return re.sub(r"[ \t\r\n]+", " ", text).strip()
+
+    lines: list[str] = []
+    current_words: list[str] = []
+    current_word: list[str] = []
+
+    def flush_word() -> None:
+        if current_word:
+            current_words.append("".join(current_word))
+            current_word.clear()
+
+    def flush_block() -> None:
+        flush_word()
+        if current_words:
+            lines.append(" ".join(current_words))
+            current_words.clear()
+
+    def flush_line_break() -> None:
+        flush_word()
+        if current_words:
+            lines.append(" ".join(current_words))
+            current_words.clear()
+        else:
+            lines.append("")
+
+    in_tag = False
+    tag_buf: list[str] = []
+    quote = ""
+    discard_until = ""
+    discard_body: list[str] = []
+
+    i = 0
+    n = len(text)
+    while i < n:
+        char = text[i]
+        if not in_tag:
+            if char == "<":
+                in_tag = True
+                tag_buf = ["<"]
+                quote = ""
+            elif discard_until:
+                discard_body.append(char)
+                if len(discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in "".join(discard_body):
+                    for dc in discard_body:
+                        if dc.isspace():
+                            flush_word()
+                        else:
+                            current_word.append(dc)
+                    discard_until = ""
+                    discard_body.clear()
+            elif char.isspace():
+                flush_word()
+            else:
+                current_word.append(char)
+        elif quote:
+            if char == quote:
+                quote = ""
+            tag_buf.append(char)
+            if len(tag_buf) > 256:
+                for tc in tag_buf:
+                    if tc.isspace():
+                        flush_word()
+                    else:
+                        current_word.append(tc)
+                in_tag = False
+                tag_buf.clear()
+        elif char in ('"', "'"):
+            tag_buf.append(char)
+            quote = char
+        elif char == "<":
+            for tc in tag_buf:
+                if tc.isspace():
+                    flush_word()
+                else:
+                    current_word.append(tc)
+            tag_buf = ["<"]
+            quote = ""
+        elif char == ">":
+            buf_str = "".join(tag_buf)
+            in_tag = False
+            tag_buf.clear()
+            quote = ""
+            real = _is_real_html_tag(buf_str)
+            name, is_close, is_empty = _html_tag_name(buf_str)
+            if discard_until:
+                if real and is_close and name == discard_until:
+                    discard_until = ""
+                    discard_body.clear()
+                else:
+                    discard_body.append(buf_str + ">")
+            elif not real:
+                for tc in (buf_str + ">"):
+                    if tc.isspace():
+                        flush_word()
+                    else:
+                        current_word.append(tc)
+            elif name in _SEARCH_DISCARD_TAGS and not is_close and not is_empty:
+                discard_until = name
+                discard_body.clear()
+            elif name == "br":
+                flush_line_break()
+            elif name in _SEARCH_BLOCK_TAGS:
+                flush_block()
+        else:
+            tag_buf.append(char)
+            if len(tag_buf) == 2:
+                fc = tag_buf[1]
+                if not (fc.isalpha() or fc in ("/", "!", "?")):
+                    for tc in tag_buf:
+                        if tc.isspace():
+                            flush_word()
+                        else:
+                            current_word.append(tc)
+                    in_tag = False
+                    tag_buf.clear()
+            elif len(tag_buf) > 256:
+                for tc in tag_buf:
+                    if tc.isspace():
+                        flush_word()
+                    else:
+                        current_word.append(tc)
+                in_tag = False
+                tag_buf.clear()
+        i += 1
+
+    if in_tag and tag_buf:
+        for tc in tag_buf:
+            if tc.isspace():
+                flush_word()
+            else:
+                current_word.append(tc)
+
+    flush_block()
+    out = "\n".join(lines)
+    return re.sub(
+        r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
+        lambda m: html.unescape(m.group(0)),
+        out,
+    )
+
+
