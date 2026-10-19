@@ -19,7 +19,6 @@ from plugin.draw.transform_schema import (
     EDIT_TEXT_RE,
     MOVE_SLIDE_RE,
     SET_TEXT_RE,
-    classify_command_key,
     get_slide_commands,
     is_deferred_command_key,
     parse_slide_index_token,
