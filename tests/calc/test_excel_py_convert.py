@@ -3281,3 +3281,149 @@ def test_write_dag_formulas_multiple_cell_errors_collected(tmp_path: Path):
     assert "Sheet1!invalid_cell_1" in msg
     assert "Sheet1!invalid_cell_2" in msg
     assert not out.exists()
+
+
+def test_write_dag_formulas_drops_calc_chain_when_strip_python_parts_false(tmp_path: Path):
+    src = tmp_path / "with_calc_chain.xlsx"
+    out = tmp_path / "out.xlsx"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/calcChain.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml"/>
+  <Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>
+</Types>""",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        )
+        zf.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>""",
+        )
+        zf.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.microsoft.com/office/2022/10/relationships/pythonScript" Target="pythonScripts.xml"/>
+</Relationships>""",
+        )
+        zf.writestr(
+            "xl/worksheets/sheet1.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData><row r="1"><c r="A1"><f>_xlfn._xlws.PY(0,0)</f></c></row></sheetData>
+</worksheet>""",
+        )
+        zf.writestr("xl/calcChain.xml", "<calcChain xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><c r='A1'/></calcChain>")
+        zf.writestr("xl/pythonScripts.xml", "<pythonScripts><script>x = 1</script></pythonScripts>")
+    src.write_bytes(buf.getvalue())
+
+    cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="dag", original_code="x = 1", converted_code="x = 1", data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[cell])
+    write_dag_formulas_xlsx(src, report, out, strip_python_parts=False)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        names = zf.namelist()
+        assert "xl/calcChain.xml" not in names
+        assert "xl/pythonScripts.xml" in names
+
+        ct = zf.read("[Content_Types].xml").decode("utf-8")
+        assert "calcChain" not in ct
+        assert "/xl/pythonScripts.xml" in ct
+
+        rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+        assert "calcChain" not in rels
+        assert "pythonScripts.xml" in rels
+
+
+def test_ensure_workbook_full_calc_on_load_before_extlst():
+    from plugin.calc.excel_py_convert.xlsx_write import _ensure_workbook_full_calc_on_load
+
+    wb = ET.fromstring(
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        '<extLst><ext uri="{0000}"/></extLst>'
+        '</workbook>'
+    )
+    _ensure_workbook_full_calc_on_load(wb)
+    tags = [local_name(c.tag) for c in wb]
+    assert tags == ["sheets", "calcPr", "extLst"]
+    calc_pr = wb.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
+    assert calc_pr is not None
+    assert calc_pr.attrib.get("fullCalcOnLoad") == "1"
+
+
+def test_drop_py_code_sheets_places_calc_pr_before_extlst():
+    from plugin.calc.excel_py_convert.xlsx_write import _drop_py_code_sheets_from_workbook
+
+    wb_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+  <extLst><ext uri="{0000}"/></extLst>
+</workbook>"""
+    rels_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+
+    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set())
+    root = ET.fromstring(new_wb_xml)
+    tags = [local_name(c.tag) for c in root]
+    assert tags == ["sheets", "calcPr", "extLst"]
+    calc_pr = root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
+    assert calc_pr is not None
+    assert calc_pr.attrib.get("fullCalcOnLoad") == "1"
+
+
+def test_write_dag_formulas_places_calc_pr_before_extlst(tmp_path: Path):
+    src = tmp_path / "src_extlst.xlsx"
+    out = tmp_path / "out_extlst.xlsx"
+    sheet_xml = (
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1"><f>_xlfn._xlws.PY(0,0)</f></c></row></sheetData>'
+        '</worksheet>'
+    )
+    wb_xml = (
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        '<extLst><ext uri="{0000}"/></extLst>'
+        '</workbook>'
+    )
+    rels_xml = (
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '</Relationships>'
+    )
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="dag", original_code="x = 1", converted_code="x = 1", data_args=[], converted=True)
+    report = ConversionReport(direction="dag", cells=[cell])
+    write_dag_formulas_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        wb = ET.fromstring(zf.read("xl/workbook.xml"))
+        tags = [local_name(c.tag) for c in wb]
+        assert "calcPr" in tags
+        assert "extLst" in tags
+        assert tags.index("calcPr") < tags.index("extLst")
+

@@ -143,16 +143,18 @@ def _patch_content_types_dag(data: bytes, new_overrides: list[str], *, strip_pyt
     except ET.ParseError as exc:
         raise ValueError(f"malformed [Content_Types].xml: {exc}") from exc
     changed = False
-    if strip_python:
-        for child in list(root):
-            if local_name(child.tag) == "Override":
-                part_name = child.attrib.get("PartName", "")
-                if (
-                    part_name in ("/xl/pythonScripts.xml", "/xl/calcChain.xml")
+    for child in list(root):
+        if local_name(child.tag) == "Override":
+            part_name = child.attrib.get("PartName", "")
+            if part_name == "/xl/calcChain.xml" or (
+                strip_python
+                and (
+                    part_name == "/xl/pythonScripts.xml"
                     or part_name.startswith("/xl/pythonScripts/")
-                ):
-                    root.remove(child)
-                    changed = True
+                )
+            ):
+                root.remove(child)
+                changed = True
     existing_parts = {child.attrib.get("PartName", "") for child in root if local_name(child.tag) == "Override"}
     for part in new_overrides:
         if part not in existing_parts:
@@ -568,6 +570,37 @@ def _is_py_code_bank_sheet(
     return False
 
 
+_WORKBOOK_AFTER_CALC_PR = (
+    "oleSize",
+    "customWorkbookViews",
+    "pivotCaches",
+    "smartTagPr",
+    "smartTagTypes",
+    "webPublishing",
+    "fileRecoverPr",
+    "webPublishObjects",
+    "extLst",
+)
+_WORKBOOK_AFTER_DEFINED_NAMES = ("calcPr",) + _WORKBOOK_AFTER_CALC_PR
+
+
+def _ensure_workbook_full_calc_on_load(wb: ET.Element) -> ET.Element:
+    """Ensure workbook has calcPr with fullCalcOnLoad="1" in schema order."""
+    calc_pr = find_child(wb, "calcPr")
+    if calc_pr is not None:
+        calc_pr.attrib["fullCalcOnLoad"] = "1"
+        return calc_pr
+    tag = f"{{{SSML_NS}}}calcPr" if wb.tag.startswith("{") else "calcPr"
+    calc_pr = ET.Element(tag, attrib={"fullCalcOnLoad": "1"})
+    insert_idx = len(wb)
+    for idx, child in enumerate(list(wb)):
+        if local_name(child.tag) in _WORKBOOK_AFTER_CALC_PR:
+            insert_idx = idx
+            break
+    wb.insert(insert_idx, calc_pr)
+    return calc_pr
+
+
 def _drop_py_code_sheets_from_workbook(
     wb_xml: bytes,
     rels_xml: bytes,
@@ -603,12 +636,7 @@ def _drop_py_code_sheets_from_workbook(
             if any(defined_name_targets_sheet(name_attr, val, t) for t in drop_titles_set):
                 dn_container.remove(dn)
 
-    calc_pr = find_child(wb, "calcPr")
-    if calc_pr is not None:
-        calc_pr.attrib["fullCalcOnLoad"] = "1"
-    else:
-        tag = f"{{{SSML_NS}}}calcPr" if wb.tag.startswith("{") else "calcPr"
-        ET.SubElement(wb, tag, attrib={"fullCalcOnLoad": "1"})
+    _ensure_workbook_full_calc_on_load(wb)
 
     rels, rels_ns = parse_and_extract_namespaces(rels_xml)
 
@@ -1003,11 +1031,7 @@ def write_dag_formulas_xlsx(
                 dn_container = ET.Element(dn_tag)
                 insert_idx = len(wb_root)
                 for idx, child in enumerate(list(wb_root)):
-                    if local_name(child.tag) in (
-                        "calcPr", "oleSize", "customWorkbookViews", "pivotCaches",
-                        "smartTagPr", "smartTagTypes", "webPublishing", "fileRecoverPr",
-                        "webPublishObjects", "extLst",
-                    ):
+                    if local_name(child.tag) in _WORKBOOK_AFTER_DEFINED_NAMES:
                         insert_idx = idx
                         break
                 wb_root.insert(insert_idx, dn_container)
@@ -1044,15 +1068,19 @@ def write_dag_formulas_xlsx(
             if existing_sh is None:
                 new_sheet_parts[part_name] = serialize_xml_preserving_namespaces(bank_ws_root, bank_ws_ns)
 
-        calc_pr = find_child(wb_root, "calcPr")
-        if calc_pr is not None:
-            calc_pr.attrib["fullCalcOnLoad"] = "1"
-        else:
-            tag = f"{{{SSML_NS}}}calcPr" if wb_root.tag.startswith("{") else "calcPr"
-            ET.SubElement(wb_root, tag, attrib={"fullCalcOnLoad": "1"})
+        _ensure_workbook_full_calc_on_load(wb_root)
 
         if errors:
             raise ValueError("write_dag_formulas_xlsx failed:\n" + "\n".join(errors))
+
+        # Drop calcChain relationship so Excel does not attempt stale chain evaluation.
+        for rel in list(rels_root):
+            if local_name(rel.tag) != "Relationship":
+                continue
+            rel_type = rel.attrib.get("Type") or ""
+            target = rel.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
+            if rel_type.endswith(CALC_CHAIN_REL_TYPE_SUFFIX) or target == "calcChain.xml":
+                rels_root.remove(rel)
 
         wb_bytes = serialize_xml_preserving_namespaces(wb_root, wb_ns)
         rels_bytes = serialize_xml_preserving_namespaces(rels_root, rels_ns)
@@ -1060,7 +1088,9 @@ def write_dag_formulas_xlsx(
             rels_bytes = _strip_rels_python(rels_bytes)
 
     drop_prefixes = ("xl/pythonScripts/",) if strip_python_parts else ()
-    drop_exact = {"xl/pythonScripts.xml", "xl/calcChain.xml"} if strip_python_parts else set()
+    drop_exact = {"xl/calcChain.xml"}
+    if strip_python_parts:
+        drop_exact.add("xl/pythonScripts.xml")
 
     def _transform(zin: zipfile.ZipFile, zout: zipfile.ZipFile) -> None:
         for info in zin.infolist():
