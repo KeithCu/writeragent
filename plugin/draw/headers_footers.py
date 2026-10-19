@@ -56,8 +56,9 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     """
     bridge = DrawBridge(ctx.doc)
     pages = bridge.get_pages()
+    # Pass code keyword-only; the second positional argument was stored as code, inverting the chat payload.
     if page_index < 0 or page_index >= pages.getCount():
-        raise WriterAgentException("invalid_index", f"Slide index {page_index} is out of bounds. Must be between 0 and {pages.getCount() - 1}")
+        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {pages.getCount() - 1}", code="INVALID_INDEX")
     slide = pages.getByIndex(page_index)
     if is_master_page:
         try:
@@ -66,9 +67,9 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
             from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
-            raise WriterAgentException("no_master", f"Could not resolve master page for slide {page_index}: {e}") from e
+            raise WriterAgentException(f"Could not resolve master page for slide {page_index}: {e}", code="NO_MASTER") from e
         if master is None:
-            raise WriterAgentException("no_master", f"Slide {page_index} has no master page assigned.")
+            raise WriterAgentException(f"Slide {page_index} has no master page assigned.", code="NO_MASTER")
         return master
     return slide
 

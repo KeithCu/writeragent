@@ -107,7 +107,7 @@ def test_get_chat_system_prompt_allows_html_by_default_fallback():
     rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))
 
     # When get_config_bool fails, get_config_bool_safe must fall back to the module.yaml default.
-    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("Invalid stored value", "CONFIG_TYPE_ERROR")):
+    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("Invalid stored value", code="CONFIG_TYPE_ERROR")):
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     if rich_default:

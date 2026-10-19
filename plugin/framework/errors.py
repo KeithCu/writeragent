@@ -235,7 +235,7 @@ class WriterAgentException(Exception):
     details: dict[str, Any]
     context: dict[str, Any]
 
-    def __init__(self, message: Any, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
+    def __init__(self, message: Any, *, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
         # Accept both `details` and legacy `context` (alias).
         if details is None and context is not None:
             details = context

@@ -28,7 +28,7 @@ class DummyTool(ToolBase):
     name = 'dummy_tool'
     description = 'Dummy Tool'
 
-    def execute(self, **kwargs):
+    def execute(self, ctx: Any = None, **kwargs: Any) -> Any:
         pass
 
 class TestErrorHandling:
@@ -1081,5 +1081,20 @@ def test_format_error_for_display_connection_refused():
     display = format_error_for_display(exc)
     assert "Connection Refused" in display
     assert "local AI server" in display
+
+
+def test_writer_agent_exception_code_is_keyword_only():
+    from plugin.framework.errors import ConfigError, WriterAgentException
+
+    with pytest.raises(TypeError):
+        WriterAgentException("msg", "CODE")  # type: ignore[too-many-positional-arguments]  # ty: ignore[too-many-positional-arguments]
+
+    with pytest.raises(TypeError):
+        ConfigError("msg", "CONFIG_PATH_ERROR")  # type: ignore[too-many-positional-arguments]  # ty: ignore[too-many-positional-arguments]
+
+    exc = WriterAgentException("msg", code="CODE")
+    assert exc.code == "CODE"
+    assert exc.message == "msg"
+
 
 

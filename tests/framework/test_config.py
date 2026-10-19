@@ -1513,7 +1513,7 @@ class TestRobustNumericParsing:
 
 def test_get_config_before_init_warns_once(caplog):
     reset_config_for_tests()
-    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", "CONFIG_PATH_ERROR")):
+    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", code="CONFIG_PATH_ERROR")):
         with caplog.at_level(logging.WARNING):
             assert get_config("text_model") == ""
             assert get_config("text_model") == ""
@@ -1535,7 +1535,7 @@ def test_set_config_raises_when_path_empty():
 def test_remove_config_raises_when_path_unresolved():
     from plugin.framework.config import remove_config
 
-    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", "CONFIG_DIR_ERROR")):
+    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", code="CONFIG_DIR_ERROR")):
         with pytest.raises(ConfigError):
             remove_config("text_model")
 
@@ -1603,7 +1603,7 @@ def test_get_config_bool_safe_unknown_key_logs_once_and_returns_false(caplog):
 
 def test_get_config_int_safe_type_error_uses_schema_default(caplog):
     reset_config_for_tests()
-    with patch("plugin.framework.config.get_config_int", side_effect=ConfigError("bad", "CONFIG_TYPE_ERROR")):
+    with patch("plugin.framework.config.get_config_int", side_effect=ConfigError("bad", code="CONFIG_TYPE_ERROR")):
         with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
             val = get_config_int_safe("request_timeout")
     assert val == 120

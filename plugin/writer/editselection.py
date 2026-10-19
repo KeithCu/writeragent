@@ -96,7 +96,7 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
     def on_error(e: BaseException) -> None:
         session.abort_and_restore()
-        msgbox(ctx, title, _(format_error_message(e)))
+        msgbox(ctx, title, format_error_message(e))
 
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).
@@ -143,7 +143,7 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
     def on_error(e: BaseException) -> None:
         session.abort_and_restore()
-        msgbox(ctx, title, _(format_error_message(e)))
+        msgbox(ctx, title, format_error_message(e))
 
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).

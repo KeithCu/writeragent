@@ -207,7 +207,7 @@ class ConfigService(ServiceBase):
                     endpoint_text = "" if value is None else str(value)
                     resolved = _normalize_configured_endpoint_with_selector(endpoint_text, as_bool(get_config("is_openwebui")))
                     if not resolved:
-                        raise ConfigError("Endpoint text did not resolve to a URL", "CONFIG_INVALID_ENDPOINT", details={"value": value})
+                        raise ConfigError("Endpoint text did not resolve to a URL", code="CONFIG_INVALID_ENDPOINT", details={"value": value})
                     set_config("endpoint", resolved, event_key=key)
                 elif field == "image_model":
                     from plugin.framework.client.model_fetcher import set_image_model

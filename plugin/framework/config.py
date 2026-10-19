@@ -162,7 +162,7 @@ def _resolve_config_path_from_ctx(ctx: Any) -> str:
     if uno and user_config_path and str(user_config_path).startswith("file://"):
         user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
     if not isinstance(user_config_path, str) or not user_config_path.strip():
-        raise ConfigError("Invalid or missing UserConfig path setting", "CONFIG_PATH_ERROR")
+        raise ConfigError("Invalid or missing UserConfig path setting", code="CONFIG_PATH_ERROR")
     return os.path.join(user_config_path, CONFIG_FILENAME)
 
 
@@ -352,7 +352,7 @@ def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     try:
         body = json.dumps(data, indent=4)
     except (TypeError, ValueError) as e:
-        raise ConfigError(f"Config value is not JSON-serializable: {e}", "CONFIG_SAVE_ERROR") from e
+        raise ConfigError(f"Config value is not JSON-serializable: {e}", code="CONFIG_SAVE_ERROR") from e
     if not body.endswith("\n"):
         body += "\n"
     content = CONFIG_SCHEMA_COMMENT + body
@@ -389,7 +389,7 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
         with open(config_file_path, "r", encoding="utf-8") as f:
             text = f.read()
     except OSError as e:
-        raise ConfigError(f"Failed to read config: {e}", "CONFIG_READ_ERROR", details={"path": config_file_path}) from e
+        raise ConfigError(f"Failed to read config: {e}", code="CONFIG_READ_ERROR", details={"path": config_file_path}) from e
 
     data = _try_parse_config_dict(text)
     if data is not None:
@@ -408,14 +408,14 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
                         _write_config_file(config_file_path, data)
                         _invalidate_config_cache()
                 except OSError as e:
-                    raise ConfigError(f"Failed to write repaired config: {e}", "CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
+                    raise ConfigError(f"Failed to write repaired config: {e}", code="CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
             return data
         if fail_on_unrepairable:
             # A later set_config used to load this {} and os.replace the file,
             # wiping every other setting. The GET path raises too, so a bad
             # file is not cached as a fresh install with empty API keys.
             log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s).", config_file_path, backup_path or "none")
-            raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", "CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
+            raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", code="CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
         log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
         return {}
 
@@ -554,11 +554,11 @@ def _required_number(key: str, parse: Callable[[Any], _T], kind: str) -> _T:
         v = _config_schema._resolve_default(key)
     # Unknown keys raise from get_config / _resolve_default. "" is a known key whose value and default are empty; CONFIG_KEY_NOT_FOUND keeps that empty string from being parsed as 0.
     if v == "":
-        raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
+        raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", code="CONFIG_KEY_NOT_FOUND", details={"key": key})
     try:
         return parse(v)
     except ValueError as e:
-        raise ConfigError(f"Config key {key!r} has non-{kind} value: {v!r}", "CONFIG_TYPE_ERROR") from e
+        raise ConfigError(f"Config key {key!r} has non-{kind} value: {v!r}", code="CONFIG_TYPE_ERROR") from e
 
 
 def get_config_int(key: str) -> int:
@@ -880,7 +880,7 @@ class ConfigStore:
         """Apply *fn* to one key. One event if the file changes."""
         path = _config_path()
         if not path:
-            raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
+            raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
         self.apply(path, [(key, fn)], event_key=event_key, batch=False)
 
     def update_many(self, values: dict[str, Any]) -> None:
@@ -889,7 +889,7 @@ class ConfigStore:
             return
         path = _config_path()
         if not path:
-            raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
+            raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
 
         def _bind(key: str, stored: Any) -> Callable[[Any], Any]:
             def _replace(current: Any) -> Any:
@@ -943,7 +943,7 @@ class ConfigStore:
                 _invalidate_config_cache()
             except OSError as e:
                 log.exception("Error writing to %s", path)
-                raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
+                raise ConfigError(f"Failed to save config: {e}", code="CONFIG_SAVE_ERROR") from e
             if emit:
                 pending = _event_for_changes(effective, event_key=event_key, batch=batch)
         if pending is not None:
@@ -993,7 +993,7 @@ class ConfigStore:
                 _invalidate_config_cache()
             except OSError as e:
                 log.exception("Error writing to %s", path)
-                raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
+                raise ConfigError(f"Failed to remove config key: {e}", code="CONFIG_SAVE_ERROR") from e
             if emit:
                 pending = _PendingConfigEvent(event_key or key, (key,), None, old_value, False)
         if pending is not None:
@@ -1103,7 +1103,7 @@ def remove_config(key: str, *, event_key: str | None = None) -> None:
     """Remove a config key. Other keys in the file are left as they were read."""
     config_file_path = _config_path()
     if not config_file_path:
-        raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
+        raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
     _config_store.remove(config_file_path, key, event_key=event_key)
 
 
