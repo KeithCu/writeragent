@@ -624,40 +624,85 @@ def test_convert_uno_doc_to_excel_empty_bank_cell_leaves_reference():
 
 
 def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
-    """Exceeding 100k scanned formula cells marks report failed and refuses export."""
+    """Exceeding formula scan cap marks report failed and refuses export."""
+    from plugin.calc.excel_py_convert import uno_snapshot
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
     doc = CalcDocStub()
     sheet = doc.getSheets().getByName("Sheet1")
-    sheet.getCellRangeByName("A1").setFormula('=PY("x = 1")')
+    for r in range(1, 10):
+        sheet.getCellRangeByName(f"A{r}").setFormula("=1+1")
+
+    with patch.object(uno_snapshot, "FORMULA_SCAN_CAP", 5):
+        report = convert_uno_doc_to_excel(doc)
+        assert not report.ok
+        assert any("scan limit reached (5 formula cells); export aborted" in i for i in report.issues)
+
+    ctx = MagicMock()
+    path = tmp_path / "capped.xlsx"
+    path.touch()
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as mock_write,
+        patch("plugin.chatbot.dialogs.msgbox") as box,
+    ):
+        assert maybe_export_excel_py_on_save(ctx, doc) is False
+        mock_write.assert_not_called()
+        box.assert_called_once()
+
+
+def test_convert_uno_doc_to_excel_large_range_chunked_exports_later_window():
+    """Formula range larger than 100k cells under the cap exports =PY in later window."""
+    from plugin.calc.excel_py_convert import uno_snapshot
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
 
     mock_ranges = MagicMock()
     mock_ranges.getCount.return_value = 1
     mock_range = MagicMock()
-    mock_range.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0, EndRow=100_000, EndColumn=1)
-    mock_range.getFormulas.return_value = tuple(tuple("=1+1" for _ in range(100)) for _ in range(1005))
+    # 100_005 rows, 1 col = 100_005 cells (> 100_000)
+    mock_range.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0, EndRow=100_004, EndColumn=0)
     mock_ranges.getByIndex.return_value = mock_range
 
-    with patch.object(sheet, "queryContentCells", return_value=mock_ranges):
+    def _get_range_by_pos(start_col: int, start_row: int, end_col: int, end_row: int):
+        sub = MagicMock()
+        num_rows = end_row - start_row + 1
+        if start_row >= 100_000:
+            formulas = tuple(tuple(['=PY("x = 42")'] if r == 0 else ["=1"]) for r in range(num_rows))
+        else:
+            formulas = tuple(tuple(["=1"]) for _ in range(num_rows))
+        sub.getFormulas.return_value = formulas
+        return sub
+
+    with (
+        patch.object(sheet, "queryContentCells", return_value=mock_ranges),
+        patch.object(sheet, "getCellRangeByPosition", side_effect=_get_range_by_pos),
+        patch.object(uno_snapshot, "FORMULA_SCAN_CHUNK_ROWS", 50_000),
+    ):
         report = convert_uno_doc_to_excel(doc)
-        assert not report.ok
-        assert any("scan limit reached" in i for i in report.issues)
-        mock_range.getFormulas.assert_not_called()
+        assert report.ok
+        assert len(report.cells) == 1
+        assert report.cells[0].cell == "A100001"
+        assert "x = 42" in report.cells[0].converted_code
 
-    # Fits within max_scan: getFormulas is called
-    mock_range_fits = MagicMock()
-    mock_range_fits.getRangeAddress.return_value = MagicMock(StartRow=0, StartColumn=0, EndRow=1, EndColumn=1)
-    mock_range_fits.getFormulas.return_value = (('="hello"', '="world"'), ("=1", "=2"))
-    mock_ranges_fits = MagicMock()
-    mock_ranges_fits.getCount.return_value = 1
-    mock_ranges_fits.getByIndex.return_value = mock_range_fits
 
-    with patch.object(sheet, "queryContentCells", return_value=mock_ranges_fits):
-        convert_uno_doc_to_excel(doc)
-        mock_range_fits.getFormulas.assert_called_once()
+def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
+    """Unparseable =PY formula names the cell issue and blocks package write."""
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("B2").setFormula('=PY("x = 1" NOTANARG)')
+
+    report = convert_uno_doc_to_excel(doc)
+    assert not report.ok
+    assert any("Sheet1!B2: =PY formula could not be parsed" in i for i in report.issues)
 
     ctx = MagicMock()
-    path = tmp_path / "capped.xlsx"
+    path = tmp_path / "bad_py.xlsx"
     path.touch()
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
@@ -690,3 +735,126 @@ def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
         assert report.ok
         assert len(report.cells) == 2
         assert spy_get_cell.call_count == 0
+
+
+def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
+    """When a cell write fails midway, previous formulas and bank sheets are restored."""
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("A1").setFormula("=ORIGINAL_A1")
+    sheet.getCellRangeByName("B1").setFormula("=ORIGINAL_B1")
+
+    long_code = "x = " + "a" * 1200
+    c1 = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code=long_code,
+        converted_code=long_code,
+        converted=True,
+    )
+    c2 = ConvertedCell(
+        sheet="Sheet1",
+        cell="B1",
+        direction="dag",
+        original_code="y = 2",
+        converted_code="y = 2",
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[c1, c2])
+
+    def _failing_set_formula(val: str):
+        raise RuntimeError("simulated setFormula failure on B1")
+
+    sheet.getCellRangeByName("B1").setFormula = _failing_set_formula
+
+    path = tmp_path / "test.xlsx"
+    path.touch()
+
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
+        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
+    ):
+        result = maybe_convert_excel_py_document(MagicMock(), doc)
+        assert result is False
+        from plugin.doc.udprops import get_document_property
+        assert get_document_property(doc, _CONVERTED_PROP) is None
+        assert sheet.getCellRangeByName("A1").getFormula() == "=ORIGINAL_A1"
+        assert not doc.getSheets().hasByName("py_code_Sheet1")
+
+
+def test_apply_dag_formulas_preflight_failure_writes_nothing():
+    """Preflight failure (unknown sheet or non-bank collision) leaves doc unchanged."""
+    doc_a = CalcDocStub()
+    sheet_a = doc_a.getSheets().getByName("Sheet1")
+    sheet_a.getCellRangeByName("A1").setFormula("=ORIGINAL")
+    c_unknown = ConvertedCell(
+        sheet="NoSuchSheet",
+        cell="A1",
+        direction="dag",
+        original_code="1",
+        converted_code="1",
+        converted=True,
+    )
+    report_a = ConversionReport(direction="dag", cells=[c_unknown])
+    errors_a = apply_dag_formulas_to_calc_doc(doc_a, report_a)
+    assert any("unmapped sheet" in err for err in errors_a)
+    assert sheet_a.getCellRangeByName("A1").getFormula() == "=ORIGINAL"
+    assert doc_a.getSheets().getCount() == 1
+
+    doc_b = CalcDocStub()
+    sheet_b = doc_b.getSheets().getByName("Sheet1")
+    sheet_b.getCellRangeByName("A1").setFormula("=ORIGINAL")
+    doc_b.getSheets().insertNewByName("py_code_Sheet1", 1)
+    fake_bank = doc_b.getSheets().getByName("py_code_Sheet1")
+    fake_bank.getCellRangeByName("A1").setString("user data")
+
+    long_code = "x = " + "b" * 1200
+    c_bank = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code=long_code,
+        converted_code=long_code,
+        converted=True,
+    )
+    report_b = ConversionReport(direction="dag", cells=[c_bank])
+    errors_b = apply_dag_formulas_to_calc_doc(doc_b, report_b)
+    assert any("Bank sheet collision" in err for err in errors_b)
+    assert sheet_b.getCellRangeByName("A1").getFormula() == "=ORIGINAL"
+    assert fake_bank.getCellRangeByName("A1").getString() == "user data"
+
+
+def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
+    """Successful apply logs warning if ExcelPyDagMeta store fails, leaving open converted."""
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("A1").setFormula('=PY("x = 1")')
+
+    c = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[c])
+    path = tmp_path / "valid.xlsx"
+    path.touch()
+
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
+        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
+        patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
+        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
+    ):
+        result = maybe_convert_excel_py_document(MagicMock(), doc)
+        assert result is True
+        from plugin.doc.udprops import get_document_property
+        assert get_document_property(doc, _CONVERTED_PROP) == "1"
+        assert mock_warn.called
+        assert any("ExcelPyDagMeta" in str(arg) for call in mock_warn.call_args_list for arg in call.args)

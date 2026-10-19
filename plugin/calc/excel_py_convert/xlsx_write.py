@@ -265,12 +265,21 @@ class _WorksheetCellIndex:
         self.sheet_data: ET.Element = _ensure_sheet_data(ws_root)
         self.rows: dict[int, ET.Element] = {}
         self.cells_by_row: dict[ET.Element, dict[int, ET.Element]] = {}
+        self.max_row: int = 0
+        self.max_col_by_row: dict[ET.Element, int] = {}
+        self.has_non_row: bool = False
+        self.has_non_c_by_row: dict[ET.Element, bool] = {}
         self._build_index()
 
     def _build_index(self) -> None:
         current_row_num = 0
+        self.max_row = 0
+        self.max_col_by_row = {}
+        self.has_non_row = False
+        self.has_non_c_by_row = {}
         for row in list(self.sheet_data):
             if local_name(row.tag) != "row":
+                self.has_non_row = True
                 continue
             r_attr = row.attrib.get("r")
             if r_attr is not None:
@@ -280,11 +289,16 @@ class _WorksheetCellIndex:
                     current_row_num += 1
             else:
                 current_row_num += 1
+            if current_row_num > self.max_row:
+                self.max_row = current_row_num
             self.rows[current_row_num] = row
             row_cells: dict[int, ET.Element] = {}
             current_col_num = 0
+            max_col = 0
+            has_non_c = False
             for c in list(row):
                 if local_name(c.tag) != "c":
+                    has_non_c = True
                     continue
                 c_r = c.attrib.get("r")
                 if c_r:
@@ -295,8 +309,12 @@ class _WorksheetCellIndex:
                         current_col_num += 1
                 else:
                     current_col_num += 1
+                if current_col_num > max_col:
+                    max_col = current_col_num
                 row_cells[current_col_num] = c
             self.cells_by_row[row] = row_cells
+            self.max_col_by_row[row] = max_col
+            self.has_non_c_by_row[row] = has_non_c
 
     def ensure_cell(self, a1: str) -> ET.Element:
         parsed = _a1_row_col(a1)
@@ -309,25 +327,38 @@ class _WorksheetCellIndex:
         if row_el is None:
             row_tag = f"{{{SSML_NS}}}row" if self.sheet_data.tag.startswith("{") else "row"
             row_el = ET.Element(row_tag, attrib={"r": str(target_row)})
-            insert_row_idx = len(self.sheet_data)
-            current_row_num = 0
-            for idx, r in enumerate(list(self.sheet_data)):
-                if local_name(r.tag) != "row":
-                    continue
-                r_attr = r.attrib.get("r")
-                if r_attr is not None:
-                    try:
-                        current_row_num = int(r_attr)
-                    except ValueError:
+
+            # Ascending inserts rescanned every sibling, so a new bank column was quadratic
+            # (about 2s for 5000 rows); append is valid only when the parent has no extLst
+            # or other non-cell/non-row children.
+            if not self.has_non_row and target_row > self.max_row:
+                self.sheet_data.append(row_el)
+                self.max_row = target_row
+            else:
+                insert_row_idx = len(self.sheet_data)
+                current_row_num = 0
+                for idx, r in enumerate(list(self.sheet_data)):
+                    if local_name(r.tag) != "row":
+                        self.has_non_row = True
+                        continue
+                    r_attr = r.attrib.get("r")
+                    if r_attr is not None:
+                        try:
+                            current_row_num = int(r_attr)
+                        except ValueError:
+                            current_row_num += 1
+                    else:
                         current_row_num += 1
-                else:
-                    current_row_num += 1
-                if current_row_num > target_row:
-                    insert_row_idx = idx
-                    break
-            self.sheet_data.insert(insert_row_idx, row_el)
+                    if current_row_num > target_row:
+                        insert_row_idx = idx
+                        break
+                self.sheet_data.insert(insert_row_idx, row_el)
+                if target_row > self.max_row:
+                    self.max_row = target_row
             self.rows[target_row] = row_el
             self.cells_by_row[row_el] = {}
+            self.max_col_by_row[row_el] = 0
+            self.has_non_c_by_row[row_el] = False
 
         # 2. Locate or insert <c> in ascending order within row_el
         row_cells = self.cells_by_row[row_el]
@@ -344,25 +375,38 @@ class _WorksheetCellIndex:
         c_tag = f"{{{SSML_NS}}}c" if row_el.tag.startswith("{") else "c"
         cell = ET.Element(c_tag, attrib={"r": a1_canonical})
 
-        insert_col_idx = len(row_el)
-        current_col_num = 0
-        for idx, c in enumerate(list(row_el)):
-            if local_name(c.tag) != "c":
-                insert_col_idx = idx
-                break
-            c_r = c.attrib.get("r")
-            if c_r:
-                parsed_c = _a1_row_col(c_r)
-                if parsed_c is not None:
-                    current_col_num = parsed_c[1]
+        max_col = self.max_col_by_row.get(row_el, 0)
+        has_non_c = self.has_non_c_by_row.get(row_el, False)
+
+        # Ascending inserts rescanned every sibling, so a new bank column was quadratic
+        # (about 2s for 5000 rows); append is valid only when the parent has no extLst
+        # or other non-cell/non-row children.
+        if not has_non_c and target_col > max_col:
+            row_el.append(cell)
+            self.max_col_by_row[row_el] = target_col
+        else:
+            insert_col_idx = len(row_el)
+            current_col_num = 0
+            for idx, c in enumerate(list(row_el)):
+                if local_name(c.tag) != "c":
+                    self.has_non_c_by_row[row_el] = True
+                    insert_col_idx = idx
+                    break
+                c_r = c.attrib.get("r")
+                if c_r:
+                    parsed_c = _a1_row_col(c_r)
+                    if parsed_c is not None:
+                        current_col_num = parsed_c[1]
+                    else:
+                        current_col_num += 1
                 else:
                     current_col_num += 1
-            else:
-                current_col_num += 1
-            if current_col_num > target_col:
-                insert_col_idx = idx
-                break
-        row_el.insert(insert_col_idx, cell)
+                if current_col_num > target_col:
+                    insert_col_idx = idx
+                    break
+            row_el.insert(insert_col_idx, cell)
+            if target_col > max_col:
+                self.max_col_by_row[row_el] = target_col
         row_cells[target_col] = cell
         return cell
 
@@ -717,6 +761,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         patched: dict[str, ET.Element] = {}
         original_namespaces: dict[str, dict[str, str]] = {}
         for part, cells in by_part.items():
+            cells.sort(key=lambda c: _a1_row_col(c.cell) or (0, 0))
             root = patched.get(part)
             if root is None:
                 try:
@@ -853,6 +898,7 @@ def write_dag_formulas_xlsx(
         original_namespaces: dict[str, dict[str, str]] = {}
 
         for part, cells in by_part.items():
+            cells.sort(key=lambda c: _a1_row_col(c.cell) or (0, 0))
             try:
                 root, ns_map = parse_and_extract_namespaces(zin.read(part))
             except KeyError:
@@ -978,7 +1024,8 @@ def write_dag_formulas_xlsx(
             if CODE_SHEET_NOTE_CELL not in bank_entries:
                 bank_entries[CODE_SHEET_NOTE_CELL] = CODE_SHEET_NOTE
 
-            for a1, text in bank_entries.items():
+            sorted_bank_entries = sorted(bank_entries.items(), key=lambda item: _a1_row_col(item[0]) or (0, 0))
+            for a1, text in sorted_bank_entries:
                 if _ILLEGAL_XML_CHARS_RE.search(text):
                     errors.append(f"{code_sheet}!{a1}: string contains illegal XML character")
                     continue

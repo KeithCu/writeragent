@@ -328,10 +328,3 @@ def ensure_code_sheet_uno(doc: Any, code_sheet: str, bank: dict[str, str] | None
     return sheet
 
 
-def write_script_bank_uno(doc: Any, banks: dict[str, dict[str, str]]) -> None:
-    for code_sheet, bank in sorted(banks.items()):
-        if not bank:
-            continue
-        sheet = ensure_code_sheet_uno(doc, code_sheet, bank=bank)
-        for a1, code in sorted(bank.items()):
-            sheet.getCellRangeByName(a1).setString(code)

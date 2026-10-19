@@ -5,6 +5,7 @@
 import sys
 import types
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 
@@ -88,7 +89,7 @@ def setup_uno_mocks():
 
         # We must use types.ModuleType and attach empty classes to avoid 'metaclass conflict' with ty
         sys.modules["unohelper"].Base = MockBase
-        sys.modules["unohelper.Base"] = MockBase
+        sys.modules["unohelper.Base"] = cast("Any", MockBase)
 
     created_com_shells: set[str] = set()
     for mod in _COM_SUN_STAR_MOCK_MODULE_KEYS:
@@ -701,6 +702,12 @@ class CalcSheetsStub:
         self._order.insert(idx, name)
         self._sheets[name] = sheet
 
+    def removeByName(self, name):
+        if name in self._sheets:
+            del self._sheets[name]
+        if name in self._order:
+            self._order.remove(name)
+
 
 class CalcControllerStub:
     """Current controller with both attribute and method access styles."""
@@ -714,6 +721,25 @@ class CalcControllerStub:
 
     def getSelection(self):
         return self.Selection
+
+
+class _UserDefinedPropertiesStub:
+    def __init__(self):
+        self.values = {}
+
+    def hasByName(self, name):
+        return name in self.values
+
+    def getPropertyValue(self, name):
+        if name not in self.values:
+            raise KeyError(name)
+        return self.values[name]
+
+    def setPropertyValue(self, name, value):
+        self.values[name] = value
+
+    def addProperty(self, name, _attrs, value):
+        self.values[name] = value
 
 
 class CalcDocStub:
@@ -755,6 +781,7 @@ class CalcDocStub:
         self._close_calls = []
         self._created = {}
         self._props = dict(props or {})
+        self._user_defined_properties = _UserDefinedPropertiesStub()
         self._document_event_listeners = []
         self._calculate_all_calls = 0
         # Number-format supplier hooks for inspector/enrichment pytest (override via kwargs).
@@ -765,6 +792,13 @@ class CalcDocStub:
 
     def supportsService(self, svc):
         return svc == "com.sun.star.sheet.SpreadsheetDocument"
+
+    def getDocumentProperties(self):
+        class _DocProps:
+            def __init__(self, user_props):
+                self.UserDefinedProperties = user_props
+
+        return _DocProps(self._user_defined_properties)
 
     def getSheets(self):
         return self._sheets

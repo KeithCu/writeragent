@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+FORMULA_SCAN_CHUNK_ROWS = 2048
+FORMULA_SCAN_CAP = 2_000_000
+
+
 def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     """Snapshot DAG ``=PY`` cells from an open Calc doc (UNO) → Excel conversion report.
 
@@ -101,10 +105,10 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
         return val if val and val.strip() else None
 
     # Higher ceiling than sidebar discovery — export must see every PY cell.
-    max_scan = 100_000
     total_scanned = 0
     stop_scanning = False
     scan_limit_reached = False
+    unparseable_issues: list[str] = []
 
     for sheet_name, sheet in sheet_by_name.items():
         if stop_scanning:
@@ -117,51 +121,73 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
         count = int(formula_cells.getCount())
 
         for i in range(count):
-            if total_scanned >= max_scan:
-                # stop_scanning breaks both loops; a per-sheet counter would let later sheets scan past max_scan.
+            if total_scanned >= FORMULA_SCAN_CAP:
+                # stop_scanning breaks all loops; a per-sheet counter would let later sheets scan past the cap.
                 scan_limit_reached = True
                 stop_scanning = True
                 break
             cell_range = formula_cells.getByIndex(i)
             addr = cell_range.getRangeAddress()
-            area = (int(addr.EndRow) - int(addr.StartRow) + 1) * (int(addr.EndColumn) - int(addr.StartColumn) + 1)
-            if area > max_scan - total_scanned:
-                scan_limit_reached = True
-                stop_scanning = True
-                break
-            formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
-            if formula_matrix is None:
-                continue
-            for r_idx, row_formulas in enumerate(formula_matrix):
-                if total_scanned >= max_scan:
+            start_row = int(addr.StartRow)
+            end_row = int(addr.EndRow)
+            start_col = int(addr.StartColumn)
+            end_col = int(addr.EndColumn)
+            row_span = end_row - start_row + 1
+
+            if row_span > FORMULA_SCAN_CHUNK_ROWS and hasattr(sheet, "getCellRangeByPosition"):
+                chunks: list[tuple[int, Any]] = []
+                for r_start in range(start_row, end_row + 1, FORMULA_SCAN_CHUNK_ROWS):
+                    r_end = min(r_start + FORMULA_SCAN_CHUNK_ROWS - 1, end_row)
+                    sub_range = sheet.getCellRangeByPosition(start_col, r_start, end_col, r_end)
+                    if sub_range is not None:
+                        chunks.append((r_start, sub_range))
+            else:
+                chunks = [(start_row, cell_range)]
+
+            for chunk_start_row, target_range in chunks:
+                if total_scanned >= FORMULA_SCAN_CAP:
                     scan_limit_reached = True
                     stop_scanning = True
                     break
-                row = addr.StartRow + r_idx
-                for c_idx, formula in enumerate(row_formulas):
-                    total_scanned += 1
-                    if not formula or not is_py_formula_text(str(formula)):
-                        continue
-                    col = addr.StartColumn + c_idx
-                    a1 = f"{index_to_column(col)}{row + 1}"
-                    canonical = canonicalize_py_formula_for_parse(str(formula))
-                    parts = parse_python_formula(canonical)
-                    if parts is None:
-                        continue
-                    resolved = resolve_bank_cell_reference(parts.code, _uno_lookup)
-                    if resolved is not None and resolved.strip():
-                        formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
-                    else:
-                        formula_out = canonical
-                    cell_meta: dict[str, Any] = {}
-                    stored = meta_map.get(cell_meta_key(sheet_name, a1))
-                    if isinstance(stored, dict):
-                        cell_meta = dict(stored)
-                    triples.append((sheet_name, a1, formula_out, cell_meta))
+                formula_matrix = target_range.getFormulas() if hasattr(target_range, "getFormulas") else None
+                if formula_matrix is None:
+                    continue
+                for r_idx, row_formulas in enumerate(formula_matrix):
+                    if total_scanned >= FORMULA_SCAN_CAP:
+                        scan_limit_reached = True
+                        stop_scanning = True
+                        break
+                    row = chunk_start_row + r_idx
+                    for c_idx, formula in enumerate(row_formulas):
+                        if total_scanned >= FORMULA_SCAN_CAP:
+                            scan_limit_reached = True
+                            stop_scanning = True
+                            break
+                        total_scanned += 1
+                        if not formula or not is_py_formula_text(str(formula)):
+                            continue
+                        col = start_col + c_idx
+                        a1 = f"{index_to_column(col)}{row + 1}"
+                        canonical = canonicalize_py_formula_for_parse(str(formula))
+                        parts = parse_python_formula(canonical)
+                        if parts is None:
+                            unparseable_issues.append(f"{sheet_name}!{a1}: =PY formula could not be parsed")
+                            continue
+                        resolved = resolve_bank_cell_reference(parts.code, _uno_lookup)
+                        if resolved is not None and resolved.strip():
+                            formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
+                        else:
+                            formula_out = canonical
+                        cell_meta: dict[str, Any] = {}
+                        stored = meta_map.get(cell_meta_key(sheet_name, a1))
+                        if isinstance(stored, dict):
+                            cell_meta = dict(stored)
+                        triples.append((sheet_name, a1, formula_out, cell_meta))
 
     report = convert_dag_cells_to_excel(triples)
+    report.issues.extend(unparseable_issues)
     if scan_limit_reached:
-        report.issues.append(f"scan limit reached ({max_scan} formula cells); export aborted")
+        report.issues.append(f"scan limit reached ({FORMULA_SCAN_CAP} formula cells); export aborted")
     doc_url = uno_probe(lambda: str(doc.getURL() or ""), "")
     if not doc_url:
         doc_url = getattr(doc, "url", "") or ""

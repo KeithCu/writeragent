@@ -2935,6 +2935,20 @@ def test_ensure_cell_child_order_extlst_between_cells():
     assert row[1].attrib.get("r") == "B1"
 
 
+def test_ensure_cell_ascending_large_sequence():
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
+
+    ws_root = ET.fromstring(
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData/></worksheet>'
+    )
+    index = _WorksheetCellIndex(ws_root)
+    for i in range(1, 5001):
+        index.ensure_cell(f"H{i}")
+    row_nums = [int(r.attrib["r"]) for r in index.sheet_data if local_name(r.tag) == "row"]
+    assert row_nums == list(range(1, 5001))
+
+
 def test_set_cell_xlws_formula_child_order_extlst_without_f():
     from plugin.calc.excel_py_convert.xlsx_write import _set_cell_xlws_formula
 

@@ -120,7 +120,10 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
         set_document_property(doc, _CONVERTED_PROP, "1")
         from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
 
-        best_effort(lambda: store_dag_meta_on_doc(doc, report), "excel_py auto-open: store ExcelPyDagMeta")
+        try:
+            store_dag_meta_on_doc(doc, report)
+        except Exception:
+            log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
         doc.setModified(True)
         log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
         return True
