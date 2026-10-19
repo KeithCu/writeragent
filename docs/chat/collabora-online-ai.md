@@ -84,7 +84,7 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 *   **Collabora's Path**: `DocumentToolDescriptions.hpp` + kit `transformdocumentstructure` + `AIChatSession.cpp`.
 *   **WriterAgent Path**: Unified transform engine (appendix C summarizes schema; full spec in upstream header). See roadmap P2.
 
-    A command that does not apply returns `status: "error"` and `failed_at`; earlier commands in `applied` stay in the document under one `WriterCompoundUndo` step; a failed top-level `UnoCommand` returns error before `SlideCommands`; a command exception returns error with `failed_at`; a failed sub-command stops the rest of that `EditTextObject`, and a failed `SelectText` does not leave the previous range formatted; `InsertText` selects the inserted text so a following `.uno:Bold` / `.uno:Italic` formats that text (`drviews2.cxx`); invalid layout names and out-of-range ids error.
+    A command that does not apply returns `status: "error"` and `failed_at`; earlier commands in `applied` stay in the document under one `WriterCompoundUndo` step; a failed top-level `UnoCommand` returns error before `SlideCommands`; a command exception returns error with `failed_at`; a failed sub-command stops the rest of that `EditTextObject`, and a failed `SelectText` does not leave the previous range formatted; `InsertText` selects the inserted text so a following `.uno:Bold` / `.uno:Italic` formats that text (`drviews2.cxx`); invalid layout names and out-of-range ids error; text selection fails closed on out-of-range paragraph or character indexes rather than clamping; whole-shape selection (`SelectText: []`) formats mapped UNO properties directly on the cursor to prevent toggle dispatches.
 
 ### 4. Progressive Slide Layout & Image Sequencing
 
@@ -226,40 +226,8 @@ Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets m
 
 **EditTextObject formatting**: Partial-selection commands that exist on a text cursor range: Bold, Italic, Underline, Strikeout, Shadowed, SuperScript, SubScript, the four `*Para` alignments (LeftPara, RightPara, JustifyPara, CenterPara), `Color`, and `CharBackColor`. Whole-shape dispatch still covers `DefaultBullet` and `DefaultNumbering`.
 
-**Minimal PyUNO example** (layout + text only):
+**Implementation**: Use production [`SlideCommandEngine`](../../plugin/draw/transform_engine.py). In WriterAgent V1, image generation (`GenerateImage.N`, `InsertImageAt.N`), marking (`MarkObject`, `UnMarkObject`), and content controls (`ContentControls.*`) are deferred (use atomic draw/image tools instead), and the tool is currently unregistered (`ToolBaseDummy`).
 
-```python
-IMPRESS_LAYOUTS = {
-    "AUTOLAYOUT_TITLE": 0,
-    "AUTOLAYOUT_TITLE_CONTENT": 1,
-    "AUTOLAYOUT_TITLE_2CONTENT": 3,
-    "AUTOLAYOUT_TITLE_ONLY": 19,
-    "AUTOLAYOUT_NONE": 20,
-    # … see DocumentToolDescriptions.hpp for full list
-}
-
-def apply_slide_commands(ctx, slide_commands: list[dict[str, Any]]) -> dict[str, Any]:
-    from plugin.writer.edit_review import WriterCompoundUndo
-    doc = ctx.doc
-    pages = doc.getDrawPages()
-    current = 0
-    undo = WriterCompoundUndo(doc, "WriterAgent: Slide transform")
-    try:
-        for cmd in slide_commands:
-            if "JumpToSlide" in cmd:
-                val = cmd["JumpToSlide"]
-                current = pages.getCount() - 1 if val == "last" else max(0, min(int(val), pages.getCount() - 1))
-            elif "ChangeLayoutByName" in cmd:
-                lid = IMPRESS_LAYOUTS.get(cmd["ChangeLayoutByName"])
-                if lid is not None:
-                    pages.getByIndex(current).Layout = lid
-            elif any(k.startswith("SetText.") for k in cmd):
-                # Placeholder iteration — see full schema for EditTextObject
-                pass
-        return {"status": "ok"}
-    finally:
-        undo.close()
-```
 
 ### D. Progressive Image Generation & Placement
 
@@ -449,7 +417,7 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 | Topic | Collabora Online | WriterAgent |
 | :--- | :--- | :--- |
 | Tool definitions | `wsd/AIChatSession.cpp` — `buildToolDefinitions` | [`plugin/framework/tool.py`](../../plugin/framework/tool.py) |
-| Transform schema | `wsd/DocumentToolDescriptions.hpp` | (gap — roadmap P2) |
+| Transform schema | `wsd/DocumentToolDescriptions.hpp` | [`plugin/draw/transform_schema.py`](../../plugin/draw/transform_schema.py) |
 | Kit / LOKit handlers | `kit/ChildSession.cpp` — `extractlinktargets`, `extractdocumentstructure`, `transformdocumentstructure` | PyUNO direct (no kit IPC) |
 | Browser AI sidebar | `browser/src/control/Control.AIChatSidebar.ts` | [`plugin/chatbot/panel.py`](../../plugin/chatbot/panel.py) |
 | WebSocket protocol | `wsd/ClientSession.cpp`, `browser/.../CanvasTileLayer.js` — `aichat`, `aichatprogress`, `aichatapproval` | In-process queues / dialogs |

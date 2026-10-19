@@ -1086,4 +1086,132 @@ def test_uno_command_invalid_json_arguments_warns_and_does_not_dispatch() -> Non
     assert any("invalid JSON arguments" in w for w in eng.warnings)
 
 
+def test_calculate_text_selection_span_pure_rules() -> None:
+    from plugin.draw.transform_engine import _calculate_text_selection_span
+
+    # In-range
+    assert _calculate_text_selection_span("a\nb\nc", [1]) == (2, 3, "range")
+    assert _calculate_text_selection_span("Hello world", [0, 1, 0, 3]) == (1, 3, "range")
+    assert _calculate_text_selection_span(
+        "first paragraph\nsecond paragraph\nthird paragraph", [0, 6, 1, 6]
+    ) == (6, 22, "range")
+
+    # Out-of-range paragraph
+    res_p = _calculate_text_selection_span("a\nb\nc", [99])
+    assert isinstance(res_p, str) and "paragraph index 99 out of range" in res_p
+
+    # Out-of-range end paragraph
+    res_ep = _calculate_text_selection_span("a\nb\nc", [0, 0, 99])
+    assert isinstance(res_ep, str) and "end paragraph index 99 out of range" in res_ep
+
+    # Out-of-range character index
+    res_c = _calculate_text_selection_span("a\nb\nc", [0, 99])
+    assert isinstance(res_c, str) and "char index 99 past paragraph 0" in res_c
+
+    res_ec = _calculate_text_selection_span("a\nb\nc", [0, 0, 0, 99])
+    assert isinstance(res_ec, str) and "char index 99 past paragraph 0" in res_ec
+
+
+def test_whole_shape_selection_formats_cursor_and_unmapped_dispatches() -> None:
+    eng, calls, controller = _dispatch_engine()
+    cursor = _Cursor("Title")
+    shape = _Shape("Title")
+
+    # Mapped UNO command (.uno:Bold) writes directly to cursor without dispatch or shape selection
+    ok = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="all")
+    assert ok is True
+    assert cursor.props.get("CharWeight") == 150.0
+    assert calls == []
+    assert controller.selected == []
+
+    # Unmapped UNO command (.uno:DefaultBullet) dispatches via controller and DispatchHelper
+    ok_bullet = eng._dispatch_uno_string(".uno:DefaultBullet", cursor=cursor, shape=shape, selection_mode="all")
+    assert ok_bullet is True
+    assert calls == [".uno:DefaultBullet"]
+    assert controller.selected == [shape]
+
+
+def test_apply_rejects_bad_command_list_before_uno_write() -> None:
+    eng, deck, bridge = _engine(0, 2)
+
+    # [42, {"NoSuch": 1}] reports failed_at 0
+    res = eng.apply({"Transforms": {"SlideCommands": [42, {"NoSuch": 1}]}})
+    assert res["status"] == "error"
+    assert res["failed_at"] == 0
+    assert res["applied"] == []
+
+    # [{"JumpToSlide": 0}, 42, {"NoSuch": 1}] reports failed_at 1, JumpToSlide not applied
+    res2 = eng.apply({"Transforms": {"SlideCommands": [{"JumpToSlide": 0}, 42, {"NoSuch": 1}]}})
+    assert res2["status"] == "error"
+    assert res2["failed_at"] == 1
+    assert "JumpToSlide:0" not in res2["applied"]
+    assert res2["applied"] == []
+
+    # Empty dict {} fails at that index
+    res_empty = eng.apply({"Transforms": {"SlideCommands": [{}]}})
+    assert res_empty["status"] == "error"
+    assert res_empty["failed_at"] == 0
+    assert res_empty["applied"] == []
+
+    # Multi-key object fails before applying first key
+    res_multi = eng.apply(
+        {"Transforms": {"SlideCommands": [{"JumpToSlide": 1, "NoSuch": 2}]}}
+    )
+    assert res_multi["status"] == "error"
+    assert res_multi["failed_at"] == 0
+    assert "JumpToSlide:1" not in res_multi["applied"]
+
+    # Deferred command fails before apply
+    res_def = eng.apply({"Transforms": {"SlideCommands": [{"GenerateImage.0": {}}]}})
+    assert res_def["status"] == "error"
+    assert res_def["failed_at"] == 0
+    assert res_def["applied"] == []
+
+    # Unknown command fails before apply
+    res_unk = eng.apply({"Transforms": {"SlideCommands": [{"NoSuch": 1}]}})
+    assert res_unk["status"] == "error"
+    assert res_unk["failed_at"] == 0
+    assert res_unk["applied"] == []
+
+    # EditTextObject empty array fails before apply
+    res_eto_empty = eng.apply({"Transforms": {"SlideCommands": [{"EditTextObject.0": []}]}})
+    assert res_eto_empty["status"] == "error"
+    assert res_eto_empty["failed_at"] == 0
+
+    # EditTextObject empty sub-object fails before apply
+    res_eto_sub_empty = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{}]}]}}
+    )
+    assert res_eto_sub_empty["status"] == "error"
+    assert res_eto_sub_empty["failed_at"] == 0
+
+    # SelectText length > 4 fails before apply
+    res_sel_len = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [1, 2, 3, 4, 5]}]}]}}
+    )
+    assert res_sel_len["status"] == "error"
+    assert res_sel_len["failed_at"] == 0
+
+    # SelectText negative fails before apply
+    res_sel_neg = eng.apply(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [-1]}]}]}}
+    )
+    assert res_sel_neg["status"] == "error"
+    assert res_sel_neg["failed_at"] == 0
+
+
+def test_edit_text_object_empty_array_returns_own_message_not_stale_warning() -> None:
+    shape0 = _MockShapeWithCursor(_CollapsingCursor())
+    page = _MockPageWithShapes([shape0])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.warnings.append("Stale planted warning")
+
+    msg = eng._edit_text_object(0, [])
+    assert msg is not None
+    assert "sub-commands list cannot be empty" in msg
+    assert msg != "Stale planted warning"
+
+
+
 

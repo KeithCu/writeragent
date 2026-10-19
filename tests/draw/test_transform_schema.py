@@ -137,3 +137,167 @@ def test_all_autolayout_by_name_appear_in_transform_description():
         expected = f"{name} (id={layout_id})"
         assert expected in TRANSFORM_PARAM_DESCRIPTION
 
+
+def test_classify_command_key():
+    from plugin.draw.transform_schema import classify_command_key
+
+    assert classify_command_key("JumpToSlide") == "JumpToSlide"
+    assert classify_command_key("SetText.0") == "SetText"
+    assert classify_command_key("EditTextObject.2") == "EditTextObject"
+    assert classify_command_key("MoveSlide.1") == "MoveSlide"
+    assert classify_command_key("GenerateImage.0") == "deferred"
+    assert classify_command_key("MarkObject") == "deferred"
+    assert classify_command_key("NoSuchCommand") is None
+    assert classify_command_key(123) is None
+
+
+def test_validate_slide_commands_success_and_missing():
+    from plugin.draw.transform_schema import validate_slide_commands
+
+    assert validate_slide_commands({}) == (None, None)
+    assert validate_slide_commands({"Transforms": {}}) == (None, None)
+    assert validate_slide_commands({"Transforms": {"SlideCommands": []}}) == (None, None)
+    valid_payload = {
+        "Transforms": {
+            "SlideCommands": [
+                {"JumpToSlide": 0},
+                {"ChangeLayoutByName": "AUTOLAYOUT_TITLE"},
+                {"SetText.0": "Hello"},
+                {
+                    "EditTextObject.0": [
+                        {"SelectText": []},
+                        {"UnoCommand": ".uno:Bold"},
+                        {"SelectParagraph": 0},
+                        {"InsertText": "World"},
+                    ]
+                },
+            ]
+        }
+    }
+    assert validate_slide_commands(valid_payload) == (None, None)
+
+
+def test_validate_slide_commands_non_dict_and_empty_and_multikey():
+    from plugin.draw.transform_schema import validate_slide_commands
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [42]}})
+    assert err is not None and "non-empty object with one key" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"JumpToSlide": 0}, {}]}})
+    assert err is not None and "non-empty object with one key" in err
+    assert idx == 1
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"JumpToSlide": 0, "DeleteSlide": 1}]}}
+    )
+    assert err is not None and "exactly one command key" in err
+    assert idx == 0
+
+
+def test_validate_slide_commands_deferred_and_unknown():
+    from plugin.draw.transform_schema import validate_slide_commands
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"GenerateImage.0": {}}]}})
+    assert err is not None and "GenerateImage.0 is not supported" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"NoSuchCommand": 1}]}})
+    assert err is not None and "Unknown or unsupported command key: NoSuchCommand" in err
+    assert idx == 0
+
+
+def test_validate_slide_commands_shape_checks():
+    from plugin.draw.transform_schema import validate_slide_commands
+
+    # Bool or non-int MoveSlide
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"MoveSlide": True}]}})
+    assert err is not None and "Invalid MoveSlide index" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"MoveSlide.0": "not-int"}]}})
+    assert err is not None and "Invalid MoveSlide.0 index" in err
+    assert idx == 0
+
+    # Invalid layout
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"ChangeLayout": 9999}]}})
+    assert err is not None and "Unknown layout in ChangeLayout" in err
+    assert idx == 0
+
+    # Non-string SetText
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"SetText.0": 123}]}})
+    assert err is not None and "SetText.0 requires a string" in err
+    assert idx == 0
+
+    # Non-string UnoCommand
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"UnoCommand": 123}]}})
+    assert err is not None and "UnoCommand requires a string" in err
+    assert idx == 0
+
+
+def test_validate_slide_commands_edit_text_object():
+    from plugin.draw.transform_schema import validate_slide_commands
+
+    # Empty array
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"EditTextObject.0": []}]}})
+    assert err is not None and "requires an array of sub-commands" in err
+    assert idx == 0
+
+    # Sub-command not dict
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"EditTextObject.0": [42]}]}})
+    assert err is not None and "sub-command must be an object with one key" in err
+    assert idx == 0
+
+    # Sub-command empty dict
+    err, idx = validate_slide_commands({"Transforms": {"SlideCommands": [{"EditTextObject.0": [{}]}]}})
+    assert err is not None and "sub-command must be an object with one key" in err
+    assert idx == 0
+
+    # SelectText length > 4
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [1, 2, 3, 4, 5]}]}]}}
+    )
+    assert err is not None and "0 to 4 integers" in err
+    assert idx == 0
+
+    # SelectText negatives and non-int
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [-1]}]}]}}
+    )
+    assert err is not None and "negative paragraph index" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [True]}]}]}}
+    )
+    assert err is not None and "Invalid non-int element" in err
+    assert idx == 0
+
+    # SelectText None
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": None}]}]}}
+    )
+    assert err is not None and "requires a list" in err
+    assert idx == 0
+
+    # SelectParagraph non-int or negative
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectParagraph": True}]}]}}
+    )
+    assert err is not None and "Invalid SelectParagraph index" in err
+    assert idx == 0
+
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectParagraph": -1}]}]}}
+    )
+    assert err is not None and "negative paragraph index" in err
+    assert idx == 0
+
+    # InsertText non-string
+    err, idx = validate_slide_commands(
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"InsertText": 123}]}]}}
+    )
+    assert err is not None and "InsertText requires a string" in err
+    assert idx == 0
+
+

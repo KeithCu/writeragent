@@ -105,6 +105,21 @@ def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
     assert mode == "range"
     assert selected.getString() == "paragraph\nsecond"
 
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [99])
+    assert mode is None
+    assert selected.getString() == ""
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [0, 0, 99])
+    assert mode is None
+    assert selected.getString() == ""
+
+    cursor = xtext.createTextCursor()
+    selected, mode = eng._select_text(xtext, cursor, [0, 0, 0, 99])
+    assert mode is None
+    assert selected.getString() == ""
+
 
 @native_test
 @with_native_doc("impress")
@@ -154,4 +169,69 @@ def test_insert_text_leaves_selection_for_formatting(ctx, doc):
     cursor.goRight(len(second), True)
     assert cursor.getString() == second
     assert str(cursor.CharPosture.value) != "ITALIC"
+
+
+@native_test
+@with_native_doc("impress")
+def test_whole_shape_selection_formats_cursor_without_toggle(ctx, doc):
+    """SelectText: [] applies mapped UNO formatting to full cursor without toggling."""
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from plugin.framework.tool import ToolContext
+
+    page = doc.getDrawPages().getByIndex(0)
+    shape = doc.createInstance("com.sun.star.drawing.TextShape")
+    page.add(shape)
+    shape.setString("Hello\nHello")
+
+    tctx = ToolContext(doc, ctx, "impress", None, "test")
+    eng = SlideCommandEngine(tctx)
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"SelectText": []},
+                            {"UnoCommand": ".uno:Bold"},
+                            {"UnoCommand": ".uno:CenterPara"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res.get("status") == "ok", res
+
+    xtext = shape.getText()
+    cursor = xtext.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.goRight(len("Hello"), True)
+    assert float(cursor.CharWeight) >= 150.0
+
+    # Second paragraph not left behind
+    cursor.gotoStart(False)
+    cursor.goRight(len("Hello") + 1, False)
+    cursor.goRight(len("Hello"), True)
+    assert float(cursor.CharWeight) >= 150.0
+
+    # Second .uno:Bold on full span does not clear weight
+    res2 = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"SelectText": []},
+                            {"UnoCommand": ".uno:Bold"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res2.get("status") == "ok", res2
+    cursor.gotoStart(False)
+    cursor.goRight(len("Hello"), True)
+    assert float(cursor.CharWeight) >= 150.0
+
 

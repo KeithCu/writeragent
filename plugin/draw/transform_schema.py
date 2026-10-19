@@ -13,12 +13,32 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from plugin.framework.json_utils import safe_json_loads
 
 # Upstream source for TRANSFORM_PARAM_DESCRIPTION and layout name tables.
 COLLABORA_TRANSFORM_DSL_URL = "https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp"
+
+# Exact command names supported in SlideCommands.
+EXACT_COMMAND_KEYS = frozenset({
+    "JumpToSlide",
+    "JumpToSlideByName",
+    "InsertMasterSlide",
+    "InsertMasterSlideByName",
+    "DeleteSlide",
+    "DuplicateSlide",
+    "MoveSlide",
+    "RenameSlide",
+    "ChangeLayout",
+    "ChangeLayoutByName",
+    "UnoCommand",
+})
+
+SET_TEXT_RE = re.compile(r"^SetText\.(\d+)$", re.I)
+EDIT_TEXT_RE = re.compile(r"^EditTextObject\.(\d+)$", re.I)
+MOVE_SLIDE_RE = re.compile(r"^MoveSlide\.(\d+)$", re.I)
 
 # Impress ``page.Layout`` ids from include/xmloff/autolayout.hxx.
 # Deprecated names (CHART, TAB, TEXTOBJ, …) keep their historic numbers.
@@ -178,6 +198,23 @@ def is_deferred_command_key(key: str) -> bool:
     return any(key.startswith(p) for p in _DEFERRED_PREFIXES)
 
 
+def classify_command_key(key: Any) -> str | None:
+    """Classify a slide command key into a known category or None if unknown."""
+    if not isinstance(key, str):
+        return None
+    if is_deferred_command_key(key):
+        return "deferred"
+    if key in EXACT_COMMAND_KEYS:
+        return key
+    if SET_TEXT_RE.match(key):
+        return "SetText"
+    if EDIT_TEXT_RE.match(key):
+        return "EditTextObject"
+    if MOVE_SLIDE_RE.match(key):
+        return "MoveSlide"
+    return None
+
+
 def parse_transform_argument(raw: Any) -> tuple[dict[str, Any] | None, str | None]:
     """Parse transform JSON string or dict. Returns (obj, error_message)."""
     if raw is None:
@@ -211,3 +248,115 @@ def get_slide_commands(transform_obj: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(cmds, list):
         return []
     return [c for c in cmds if isinstance(c, dict)]
+
+
+def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]:
+    """Validate Transforms.SlideCommands array before performing any UNO operations.
+
+    Returns (None, None) if valid, or (error_message, failed_at_index).
+    """
+    if not isinstance(transform_obj, dict):
+        return None, None
+    transforms = transform_obj.get("Transforms")
+    if not isinstance(transforms, dict):
+        return None, None
+    cmds = transforms.get("SlideCommands")
+    if not isinstance(cmds, list):
+        return None, None
+
+    for idx, entry in enumerate(cmds):
+        if not isinstance(entry, dict) or not entry:
+            return f"SlideCommands[{idx}] must be a non-empty object with one key", idx
+        if len(entry) != 1:
+            return f"SlideCommands[{idx}] must have exactly one command key", idx
+
+        key = next(iter(entry.keys()))
+        if not isinstance(key, str):
+            return f"SlideCommands[{idx}] command key must be a string", idx
+
+        val = entry[key]
+
+        if is_deferred_command_key(key):
+            return (
+                "%s is not supported in WriterAgent V1; use image_generate or atomic draw tools."
+                % key,
+                idx,
+            )
+
+        cmd_kind = classify_command_key(key)
+        if cmd_kind is None:
+            return "Unknown or unsupported command key: %s" % key, idx
+
+        # Value shape validations for commands that do not need the document
+        if key in ("InsertMasterSlide", "MoveSlide") or cmd_kind == "MoveSlide":
+            if isinstance(val, bool) or not isinstance(val, int):
+                return "Invalid %s index: %r" % (key, val), idx
+
+        elif key in ("ChangeLayout", "ChangeLayoutByName"):
+            lid = resolve_layout_id(val)
+            if lid is None or lid not in AUTOLAYOUT_ID.values():
+                return "Unknown layout in %s" % key, idx
+
+        elif cmd_kind == "SetText":
+            if not isinstance(val, str):
+                return "%s requires a string" % key, idx
+
+        elif key == "UnoCommand":
+            if not isinstance(val, str):
+                return "UnoCommand requires a string", idx
+
+        elif cmd_kind == "EditTextObject":
+            if not isinstance(val, list) or len(val) == 0:
+                return "%s requires an array of sub-commands" % key, idx
+            for sub in val:
+                if not isinstance(sub, dict) or len(sub) != 1:
+                    return "%s: sub-command must be an object with one key: %r" % (key, sub), idx
+                sub_k = next(iter(sub.keys()))
+                if not isinstance(sub_k, str):
+                    return "%s: sub-command key must be a string: %r" % (key, sub_k), idx
+                sub_v = sub[sub_k]
+
+                if sub_k == "SelectText":
+                    if sub_v is None or not isinstance(sub_v, list):
+                        return "SelectText requires a list or empty array: %r" % (sub_v,), idx
+                    if len(sub_v) > 4:
+                        return "SelectText requires 0 to 4 integers: %r" % (sub_v,), idx
+                    for item in sub_v:
+                        if isinstance(item, bool) or not isinstance(item, int):
+                            return "Invalid non-int element in SelectText: %r" % (item,), idx
+                    n = len(sub_v)
+                    if n == 1:
+                        if sub_v[0] < 0:
+                            return "SelectText: negative paragraph index %d" % sub_v[0], idx
+                    elif n == 2:
+                        if sub_v[0] < 0 or sub_v[1] < 0:
+                            return "SelectText: negative index [%d, %d]" % (sub_v[0], sub_v[1]), idx
+                    elif n == 3:
+                        p, c, ep = sub_v[0], sub_v[1], sub_v[2]
+                        if p < 0 or c < 0 or ep < 0 or ep < p:
+                            return "SelectText: negative or invalid span [%d, %d, %d]" % (p, c, ep), idx
+                    elif n == 4:
+                        p, start, ep, end_char = sub_v[0], sub_v[1], sub_v[2], sub_v[3]
+                        if p < 0 or start < 0 or ep < 0 or end_char < 0:
+                            return "SelectText: negative coordinates [%d, %d, %d, %d]" % (p, start, ep, end_char), idx
+                        if ep < p or (ep == p and end_char < start):
+                            return "SelectText: negative span [%d, %d] to [%d, %d]" % (p, start, ep, end_char), idx
+
+                elif sub_k == "SelectParagraph":
+                    if isinstance(sub_v, bool) or not isinstance(sub_v, int):
+                        return "Invalid SelectParagraph index: %r" % (sub_v,), idx
+                    if sub_v < 0:
+                        return "SelectParagraph: negative paragraph index %d" % sub_v, idx
+
+                elif sub_k == "InsertText":
+                    if not isinstance(sub_v, str):
+                        return "InsertText requires a string: %r" % (sub_v,), idx
+
+                elif sub_k == "UnoCommand":
+                    if not isinstance(sub_v, str) or not sub_v.strip():
+                        return "UnoCommand requires a non-empty string: %r" % (sub_v,), idx
+
+                else:
+                    return "Unknown EditTextObject sub-command: %s" % sub_k, idx
+
+    return None, None
