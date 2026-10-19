@@ -530,9 +530,10 @@ def test_unknown_widget_rejected_by_settings_and_standalone(tmp_path: Path, bad_
 
 
 def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
-    """Saved field specs for all Settings tab modules and inline children match XDL control IDs."""
-    from unittest.mock import patch
+    """Saved field specs for core, image, and modules match XDL control IDs."""
+    from unittest.mock import MagicMock, patch
     from plugin._manifest import MODULES
+    from plugin.chatbot.settings_dialog import get_settings_field_specs
     from plugin.chatbot.settings_fields import build_module_field_specs
     from plugin.chatbot.settings_tab_order import iter_settings_field_modules
 
@@ -546,8 +547,26 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
 
     tab_modules = list(iter_settings_field_modules(MODULES))
 
-    all_specs_names = set()
-    with patch("plugin.chatbot.settings_fields.get_config", return_value=""):
+    all_specs_names: set[str] = set()
+    ctx = MagicMock()
+    with (
+        patch("plugin.chatbot.settings_dialog.get_config_str", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=1),
+        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=1.0),
+        patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
+        patch("plugin.chatbot.settings_dialog.get_text_model", return_value="dummy_text"),
+        patch("plugin.chatbot.settings_dialog.get_image_model", return_value="dummy_image"),
+        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="default"),
+        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value="secret"),
+        patch("plugin.chatbot.settings_fields.get_config", return_value=""),
+        patch("plugin.chatbot.settings_fields.call_options_provider", return_value=[{"label": "Stub", "value": "stub"}]),
+    ):
+        settings_specs = get_settings_field_specs(ctx)
+        for spec in settings_specs:
+            name = spec["name"]
+            all_specs_names.add(name)
+            assert name in xdl_ids, f"Field spec {name} missing from SettingsDialog.xdl"
+
         for m in tab_modules:
             specs = build_module_field_specs(m["name"], control_ids="prefixed")
             for spec in specs:
@@ -563,6 +582,27 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
                 btn_id = f"{prefix}__{fname}"
                 assert btn_id in xdl_ids, f"Button {btn_id} missing from SettingsDialog.xdl"
                 assert btn_id not in all_specs_names, f"Button {btn_id} should not be in field specs"
+
+
+def test_settings_dialog_tab_pages(tmp_path: Path) -> None:
+    """Verify generated dlg:page numbers for template and module tab controls."""
+    xdl_path, _ = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    pages_by_id: dict[str, str] = {
+        ctrl_id: page
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
+        and (page := el.get(f"{{{_DLG_NS}}}page")) is not None
+    }
+
+    assert pages_by_id["endpoint"] == "1"
+    assert pages_by_id["image_base_size"] == "2"
+    assert pages_by_id["audio__stt_provider"] == "3"
+    assert pages_by_id["doc__grammar_proofreader_enabled"] == "4"
+    assert pages_by_id["chatbot__max_tool_rounds"] == "5"
+    assert pages_by_id["embeddings__folder_search_mode"] == "6"
+    assert pages_by_id["mcp__mcp_enabled"] == "7"
+    assert pages_by_id["scripting__python_venv_path"] == "8"
 
 
 def test_vision_standalone_dialog_fields_agreement() -> None:

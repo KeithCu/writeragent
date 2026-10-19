@@ -10,7 +10,7 @@ import logging
 from typing import Any, Callable
 
 from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail
-from plugin.framework.errors import best_effort, suppress_disposed
+from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseTopWindowListener
 
@@ -82,13 +82,29 @@ class ModuleConfigDialog:
 
     @classmethod
     @main_thread_only
-    def show(cls, ctx: Any, module_name: str) -> None:
+    def show(cls, ctx: Any, module_name: str) -> ModuleConfigDialog:
+        # Re-raising a live dialog with toFront preserves unsaved edits instead of destroying it.
         existing = _active_dialogs.get(module_name)
-        if existing is not None:
+        if existing is not None and not existing._closed and existing._dlg is not None:
+            try:
+                to_front = getattr(existing._dlg, "toFront", None)
+                if callable(to_front):
+                    to_front()
+                set_focus = getattr(existing._dlg, "setFocus", None)
+                if callable(set_focus):
+                    set_focus()
+                return existing
+            except Exception as exc:
+                if not is_disposed_exception(exc):
+                    raise
+                existing.close()
+        elif existing is not None:
             existing.close()
+
         dialog = cls(ctx, module_name)
         dialog._open()
         _active_dialogs[module_name] = dialog
+        return dialog
 
     def _forget_active(self) -> None:
         # Pop only if this instance is still registered; windowClosing returns before

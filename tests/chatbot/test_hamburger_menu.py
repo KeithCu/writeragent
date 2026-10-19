@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the hamburger popup menu."""
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.hamburger_menu import show_hamburger_menu
@@ -189,4 +190,122 @@ class TestHamburgerMenu:
             show_hamburger_menu(ctx, frame, button_ctrl)
             # Verify insertItem was called on popup
             assert popup.insertItem.call_count > 5
+
+    def test_debug_submenu_omitted_when_tests_unbundled(self):
+        ctx = MagicMock()
+        smgr = MagicMock()
+        popup = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        smgr.createInstanceWithContext.return_value = popup
+        popup.execute.return_value = 0
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+
+        with (
+            patch("plugin.main._tests_bundled", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        labels = [c.args[1] for c in popup.insertItem.call_args_list]
+        assert "Debug" not in labels
+        assert "Run format tests" not in labels
+        assert "Evaluation Dashboard" not in labels
+
+    def test_debug_submenu_included_when_tests_bundled(self):
+        ctx = MagicMock()
+        smgr = MagicMock()
+        popup = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        smgr.createInstanceWithContext.return_value = popup
+        popup.execute.return_value = 0
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+
+        with (
+            patch("plugin.main._tests_bundled", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        labels = [c.args[1] for c in popup.insertItem.call_args_list]
+        assert "Debug" in labels
+        assert "Run format tests" in labels
+
+    def test_hamburger_menu_commands_parity_with_addons_xcu(self):
+        import xml.etree.ElementTree as ET
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[2]
+        addons_xcu = repo_root / "extension" / "Addons.xcu"
+        root = ET.parse(addons_xcu).getroot()
+        oor_name = "{http://openoffice.org/2001/registry}name"
+
+        menubar_urls = set()
+        for node in root.iter("node"):
+            if node.get(oor_name) == "org.extension.writeragent.menubar":
+                for item in node.iter("node"):
+                    for prop in item.findall("prop"):
+                        if prop.get(oor_name) == "URL":
+                            val = prop.find("value")
+                            if val is not None and val.text:
+                                u = val.text.strip()
+                                if u != "private:separator" and u != "org.extension.writeragent:main.NoOp":
+                                    menubar_urls.add(u)
+
+        ctx = MagicMock()
+        smgr = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        commands: set[str] = set()
+
+        def create_instance(name: str, *args: Any) -> Any:
+            if name == "com.sun.star.awt.PopupMenu":
+                m = MagicMock()
+                m.execute.return_value = 0
+                m.setCommand.side_effect = lambda _nid, cmd: commands.add(cmd)
+                return m
+            return MagicMock()
+
+        smgr.createInstanceWithContext.side_effect = create_instance
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+
+        with (
+            patch("plugin.main._tests_bundled", return_value=True),
+            patch("plugin.main.get_menu_text", return_value="Toggle MCP Server"),
+            patch("plugin.main._get_menu_icon", return_value="stopped"),
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
+            patch("plugin.librepy.sidebar_menus.document_has_notebook_registry", return_value=True),
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        # Every menubar URL in extension/Addons.xcu except main.NoOp is in that set.
+        assert menubar_urls.issubset(commands)
+
+        # Every collected command is either a menubar URL or one of notebook.run_all, notebook.run_from_here, notebook.stop.
+        notebook_cmds = {
+            "org.extension.writeragent:notebook.run_all",
+            "org.extension.writeragent:notebook.run_from_here",
+            "org.extension.writeragent:notebook.stop",
+        }
+        assert commands == menubar_urls | notebook_cmds
+
+        # Toolbar-only review commands are not in the popup.
+        for review_cmd in (
+            "org.extension.writeragent:writer.review_prev",
+            "org.extension.writeragent:writer.review_next",
+            "org.extension.writeragent:writer.review_accept_all",
+            "org.extension.writeragent:writer.review_reject_all",
+        ):
+            assert review_cmd not in commands
+
 

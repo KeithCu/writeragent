@@ -275,6 +275,46 @@ def test_apply_settings_voice_display_label_stores_id_for_that_provider():
         assert stored.get("audio.tts_voice") == "fr_FR-siwis-medium"
 
 
+def test_apply_settings_voice_resolves_provider_and_model_from_custom_spec_names():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [
+        {
+            "name": "custom_prov_ctrl",
+            "config_key": "audio.tts_provider",
+            "options": [
+                {"value": "kokoro", "label": "Kokoro (Local Neural, ONNX CPU)"},
+                {"value": "piper", "label": "Piper (Local Fast Neural, CPU)"},
+            ],
+        },
+        {
+            "name": "custom_model_ctrl",
+            "config_key": "audio.tts_model",
+        },
+        {
+            "name": "custom_voice_ctrl",
+            "config_key": "audio.tts_voice",
+            "options": [
+                {"value": "ff_siwis", "label": "French Female - Siwis"},
+            ],
+        },
+    ]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.audio.tts_voices.set_config") as tts_set:
+        apply_settings_result(MagicMock(), {
+            "custom_prov_ctrl": "Piper (Local Fast Neural, CPU)",
+            "custom_model_ctrl": "",
+            "custom_voice_ctrl": "French Female - Siwis",
+        })
+        tts_set.assert_not_called()
+        assert stored.get("audio.tts_voice_piper") == "fr_FR-siwis-medium"
+        assert stored.get("audio.tts_voice") == "fr_FR-siwis-medium"
+
+
 def test_apply_settings_result_tts_speed():
     from plugin.chatbot.settings_dialog import apply_settings_result
 

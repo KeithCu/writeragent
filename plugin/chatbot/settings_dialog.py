@@ -25,7 +25,7 @@ from plugin.framework.config import (
     get_config_str,
 )
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.framework.url_utils import normalize_endpoint_url
 
 from typing import Any
@@ -35,33 +35,20 @@ import logging
 log = logging.getLogger(__name__)
 
 # English labels stored in image_default_aspect and mapped to image-tool enums.
-# Display strings are aspect_label_gettext(); do not pass the tuple through _().
+# Marked with N_() so gettext extracts them while values remain English strings.
 IMAGE_ASPECT_RATIO_LABELS: tuple[str, ...] = (
-    "Square",
-    "Landscape (16:9)",
-    "Portrait (9:16)",
-    "Landscape (3:2)",
-    "Portrait (2:3)",
+    N_("Square"),
+    N_("Landscape (16:9)"),
+    N_("Portrait (9:16)"),
+    N_("Landscape (3:2)"),
+    N_("Portrait (2:3)"),
 )
 
 
 def aspect_label_gettext(canonical: str) -> str:
-    """Translated combo label for one English aspect string.
-
-    Literals stay inside _() so xgettext extracts them. _(IMAGE_ASPECT_RATIO_LABELS item)
-    is invisible to extract, which is why Square stayed English in the UI
-    while the catalog already had 正方形 / Cuadrado.
-    """
-    if canonical == "Square":
-        return _("Square")
-    if canonical == "Landscape (16:9)":
-        return _("Landscape (16:9)")
-    if canonical == "Portrait (9:16)":
-        return _("Portrait (9:16)")
-    if canonical == "Landscape (3:2)":
-        return _("Landscape (3:2)")
-    if canonical == "Portrait (2:3)":
-        return _("Portrait (2:3)")
+    """Translated combo label for one English aspect string."""
+    if canonical in IMAGE_ASPECT_RATIO_LABELS:
+        return _(canonical)
     return canonical
 
 
@@ -295,8 +282,12 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             # the dialog opened. Read the combo text and this result's provider.
             # set_scoped_tts_voice writes both voice keys via set_config; stage
             # them in this batch instead.
-            prov = result.get("audio__tts_provider") or ""
-            model = result.get("audio__tts_model") or ""
+            prov_spec = next((s for s in field_specs if s.get("config_key") == "audio.tts_provider"), None)
+            model_spec = next((s for s in field_specs if s.get("config_key") == "audio.tts_model"), None)
+            prov_key = prov_spec["name"] if prov_spec and "name" in prov_spec else "audio__tts_provider"
+            model_key = model_spec["name"] if model_spec and "name" in model_spec else "audio__tts_model"
+            prov = result.get(prov_key) or ""
+            model = result.get(model_key) or ""
             options = voice_options_for_provider(str(prov), str(model))
             val = voice_choice_to_id(str(result.get(key) or ""), options)
             clean_v = clean_voice_name(val)

@@ -114,7 +114,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
         pos += 1
 
-        from plugin.main import _get_menu_icon, get_menu_text
+        from plugin.main import _get_menu_icon, _tests_bundled, get_menu_text
 
         mcp_toggle_text = get_menu_text("mcp.toggle_server") or _("Toggle MCP Server")
         add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
@@ -142,33 +142,35 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             add_item(popup, _("Stop"), "notebook.stop", pos)
             pos += 1
 
-        # 6. Separator
-        popup.insertSeparator(pos)
-        pos += 1
-
-        # 7. Debug Submenu
-        debug_popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
-        if debug_popup is not None:
-            d_pos = 0
-            if is_writer_doc:
-                add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_pos)
-                d_pos += 1
-            if is_calc_doc:
-                add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_pos)
-                d_pos += 1
-                add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_pos)
-                d_pos += 1
-            if is_draw_doc:
-                add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_pos)
-                d_pos += 1
-            add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
-            d_pos += 1
-
-            debug_id = next_id[0]
-            next_id[0] += 1
-            popup.insertItem(debug_id, _("Debug"), 0, pos)
-            popup.setPopupMenu(debug_id, debug_popup)
+        # Release builds strip Debug from Addons.xcu; omit commands when tests are unbundled.
+        if _tests_bundled():
+            # 6. Separator
+            popup.insertSeparator(pos)
             pos += 1
+
+            # 7. Debug Submenu
+            debug_popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
+            if debug_popup is not None:
+                d_pos = 0
+                if is_writer_doc:
+                    add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_pos)
+                    d_pos += 1
+                if is_calc_doc:
+                    add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_pos)
+                    d_pos += 1
+                    add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_pos)
+                    d_pos += 1
+                if is_draw_doc:
+                    add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_pos)
+                    d_pos += 1
+                add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
+                d_pos += 1
+
+                debug_id = next_id[0]
+                next_id[0] += 1
+                popup.insertItem(debug_id, _("Debug"), 0, pos)
+                popup.setPopupMenu(debug_id, debug_popup)
+                pos += 1
 
         # 8. Report bug
         add_item(popup, _("Report bug..."), "main.report_bug", pos)

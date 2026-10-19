@@ -88,7 +88,7 @@ def test_generate_pot_pot_only_omits_keyword(
     out = capsys.readouterr().out
     assert "Regenerating translation templates (.pot) without updating .po..." in out
     cmd = mock_run.call_args[0][0]
-    assert "--keyword=N_" not in cmd
+    assert "--keyword=N_" in cmd
     assert "--add-location=file" in cmd
     assert "-f" in cmd
 

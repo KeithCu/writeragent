@@ -232,3 +232,27 @@ def test_librepy_images_section_points_at_python_assets():
     assert by_url[run_url] == "%origin%/assets/python_32.png"
     assert by_url[cell_url] == "%origin%/assets/python_cell_32.png"
     assert by_url[settings_url] == "%origin%/assets/gear_32.png"
+
+
+def test_librepy_hamburger_specs_parity_with_addons_xcu():
+    from plugin.librepy.sidebar_menus import _librepy_hamburger_specs
+
+    root = ET.parse(_ADDONS_XCU).getroot()
+    menubar_urls: set[str] = set()
+    for node in root.iter("node"):
+        if node.get(_OOR_NAME) == "org.extension.librepy.menubar":
+            for item in node.iter("node"):
+                for prop in item.findall("prop"):
+                    if prop.get(_OOR_NAME) == "URL":
+                        val = prop.find("value")
+                        if val is not None and val.text:
+                            u = val.text.strip()
+                            if u != "private:separator":
+                                menubar_urls.add(u)
+
+    specs_urls = {
+        f"org.extension.librepy:{action}"
+        for _, action, _, _ in _librepy_hamburger_specs()
+        if not action.startswith("notebook.")
+    }
+    assert specs_urls == menubar_urls

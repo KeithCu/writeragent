@@ -121,7 +121,7 @@ def _extract_python_msgids(py_files: list[str]) -> set[str]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            if not (isinstance(func, ast.Name) and func.id == "_"):
+            if not (isinstance(func, ast.Name) and func.id in ("_", "N_")):
                 continue
             if not node.args:
                 continue

@@ -11,7 +11,7 @@ Translations are stored in the repository-root `locales/` directory (sibling of 
 From the repository root, use **`make extract-strings`** (driven by **`scripts/extract_strings.py`**). Order matters:
 
 1. **`scripts/extract_xdl_strings.py`** — writes a temporary `plugin/xdl_strings.py` with `_()` lines extracted from XDL dialogs so `xgettext` can pick them up.
-2. **`xgettext`** — scans `plugin/**/*.py` (passed via `-f` with a temporary list file); `--keyword=N_` is included on `extract-strings` (`refresh-pot` omits it).
+2. **`xgettext`** — scans `plugin/**/*.py` (passed via `-f` with a temporary list file); `--keyword=N_` is included on both `extract-strings` and `refresh-pot` paths (extracts `_` and `N_`).
 3. **`scripts/merge_module_yaml_into_pot.py`** — merges translatable strings from `plugin/**/module.yaml` (module titles, config labels, helpers, option labels) into the same POT using **polib**, deduplicated by `msgid`. Requires `polib` and `PyYAML` (see `pyproject.toml`). Idempotent: re-running does not duplicate entries.
 4. **Removes** the temporary `plugin/xdl_strings.py` and file list.
 5. In default mode, merges template updates into `locales/**/writeragent.po` using `msgmerge` and `msgattrib`.

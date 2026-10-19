@@ -19,7 +19,7 @@ String extraction and catalog updates are driven by [`scripts/extract_strings.py
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Input list & xgettext**: Python files are collected depth-first and written to a temporary list file passed to `xgettext` via `-f`. `--keyword=N_` is passed on `extract-strings` (`refresh-pot` omits it).
+3. **Input list & xgettext**: Python files are collected depth-first and written to a temporary list file passed to `xgettext` via `-f`. `--keyword=N_` is passed on both `extract-strings` and `refresh-pot` paths (extracts `_` and `N_`).
 
 4. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, helpers, `button_text`, options) into the same POT, deduplicated by `msgid`. `button_text` is the button caption (`dlg:value` → `Label`); `translate_dialog` already calls `_()` on it, so a missing catalog entry stays English. Requires `polib` and PyYAML.
 
@@ -34,11 +34,11 @@ String extraction and catalog updates are driven by [`scripts/extract_strings.py
 | Target | Role |
 |--------|------|
 | `make extract-strings` | Full pipeline via `scripts/extract_strings.py`: XDL stub → `xgettext` (`-f`, `--keyword=N_`) → YAML merge → **delete stub** → **`merge-translations`** on every `writeragent.po`. Use when sources change and you want POT and all POs updated. |
-| `make refresh-pot` | `scripts/extract_strings.py --pot-only`: regenerates `writeragent.pot` only (no `--keyword=N_`) **without** merging into `.po` files. |
+| `make refresh-pot` | `scripts/extract_strings.py --pot-only`: regenerates `writeragent.pot` only (with `--keyword=N_`) **without** merging into `.po` files. |
 | `make preview-translations` | `refresh-pot` then `scripts/translate_missing.py --preview` (status table of completion vs POT). Used by normal `make build`. |
 | `make merge-translations` | `scripts/extract_strings.py --merge-only`: for each `writeragent.po`, `msgmerge --update` from `writeragent.pot`, then `msgattrib --no-obsolete` so removed strings do not linger as obsolete entries. |
 | `make compile-translations` | Compile every `.po` to `.mo` via [`scripts/compile_translations.py`](../scripts/compile_translations.py) (`polib.save_as_mofile`; no GNU `msgfmt` / `find`). Required for LibreOffice and for unit tests that load catalogs. |
-| `make compile-translations-core` | LibrePy only: build `build/generated/librepy.pot` from bundled sources (`_()` via ast, no GNU `xgettext`), filter each `writeragent.po` to those msgids, compile slim `.mo` with polib (no `msgfmt`) under `build/generated/locales/` (part of `make build-core`). Windows CI does not have gettext on PATH (GHA 33780509372). |
+| `make compile-translations-core` | LibrePy only: build `build/generated/librepy.pot` from bundled sources (`_()` and `N_()` via ast, no GNU `xgettext`), filter each `writeragent.po` to those msgids, compile slim `.mo` with polib (no `msgfmt`) under `build/generated/locales/` (part of `make build-core`). Windows CI does not have gettext on PATH (GHA 33780509372). |
 | `make add-language LANG=xx` | Creates `locales/xx/LC_MESSAGES/writeragent.po` from the POT and compiles an initial `.mo`. |
 
 **Note:** `make build` runs `preview-translations` (refresh POT + preview), not necessarily the full `extract-strings` + merge. Run **`make extract-strings`** when you add or change marked strings and need all locale files updated from the new template.

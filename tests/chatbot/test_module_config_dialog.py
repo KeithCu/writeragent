@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.module_config_dialog import (
@@ -29,11 +30,14 @@ def test_get_module_config_dialog_id_for_vision():
 
 
 def test_manifest_vision_module_has_config_dialog():
+    from typing import cast
     from plugin._manifest import MODULES
 
-    vision = next(m for m in MODULES if m.get("name") == "vision")
+    vision = cast("dict[str, Any]", next(m for m in MODULES if m.get("name") == "vision"))
     assert vision.get("settings_tab") is False
-    assert vision.get("config_dialog", {}).get("id") == "VisionSettingsDialog"
+    config_dlg = vision.get("config_dialog")
+    assert isinstance(config_dlg, dict)
+    assert config_dlg.get("id") == "VisionSettingsDialog"
 
 
 def test_get_module_config_field_specs_skips_internal_and_non_persisted():
@@ -56,19 +60,33 @@ def test_get_module_config_field_specs_skips_internal_and_non_persisted():
 
 
 def test_manifest_vision_insert_mode_has_options():
+    from typing import cast
     from plugin._manifest import MODULES
 
-    vision = next(m for m in MODULES if m.get("name") == "vision")
-    schema = vision.get("config", {}).get("insert_mode", {})
+    vision = cast("dict[str, Any]", next(m for m in MODULES if m.get("name") == "vision"))
+    cfg = vision.get("config")
+    assert isinstance(cfg, dict)
+    schema = cfg.get("insert_mode")
+    assert isinstance(schema, dict)
     assert schema.get("widget") == "select"
-    assert len(schema.get("options") or []) >= 2
+    opts = schema.get("options")
+    assert isinstance(opts, list) and len(opts) >= 2
 
 
 def test_populate_settings_control_sets_translated_option_labels():
-    model = type("M", (), {"StringItemList": ()})()
-    ctrl = type("C", (), {})()
-    ctrl.getModel = lambda: model  # type: ignore[method-assign]
-    ctrl.setText = lambda _text: None  # type: ignore[method-assign]
+    class DummyModel:
+        StringItemList: tuple[str, ...] = ()
+
+    model = DummyModel()
+
+    class DummyCtrl:
+        def getModel(self) -> DummyModel:
+            return model
+
+        def setText(self, _text: str) -> None:
+            pass
+
+    ctrl = DummyCtrl()
 
     field = {
         "name": "insert_mode",
@@ -287,13 +305,43 @@ def test_disposing_from_old_dialog_does_not_evict_replacement():
         assert dialog_b._closed is False
         dlg_b.dispose.assert_not_called()
 
-        # 4. show() C. Closes B and leaves C registered.
-        ModuleConfigDialog.show(ctx, "vision")
-        dialog_c = _active_dialogs["vision"]
-        assert dialog_c is not dialog_b
-        assert dialog_b._closed is True
-        dlg_b.dispose.assert_called_once()
+        # 4. show() while B is open raises B without closing or disposing it.
+        ret = ModuleConfigDialog.show(ctx, "vision")
+        assert ret is dialog_b
+        assert _active_dialogs.get("vision") is dialog_b
+        assert dialog_b._closed is False
+        dlg_b.dispose.assert_not_called()
+        dlg_b.toFront.assert_called_once()
+        dlg_b.setFocus.assert_called_once()
         dlg_c.dispose.assert_not_called()
+
+
+def test_show_recreates_when_to_front_raises_disposed():
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, _active_dialogs
+
+    ctx = MagicMock()
+    dlg_a = MagicMock()
+    dlg_b = MagicMock()
+    _active_dialogs.clear()
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", side_effect=[(dlg_a, ""), (dlg_b, "")]),
+        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+    ):
+        ModuleConfigDialog.show(ctx, "vision")
+        assert _active_dialogs.get("vision") is not None
+        dialog_a = _active_dialogs["vision"]
+
+        class DisposedException(RuntimeError):
+            pass
+
+        dlg_a.toFront.side_effect = DisposedException("object disposed")
+        ret = ModuleConfigDialog.show(ctx, "vision")
+        assert ret is not dialog_a
+        assert _active_dialogs["vision"] is ret
+        assert ret._dlg is dlg_b
+
 
 
 def test_close_does_not_evict_different_registered_dialog():

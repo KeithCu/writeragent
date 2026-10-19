@@ -17,11 +17,13 @@ import tempfile
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import extract_xdl_strings  # noqa: E402
-from merge_module_yaml_into_pot import merge_yaml_into_pot  # noqa: E402
+from scripts import extract_xdl_strings  # noqa: E402
+from scripts.merge_module_yaml_into_pot import merge_yaml_into_pot  # noqa: E402
 
 
 def _find_py_files(dir_path: str | Path, root_path: str | Path = PROJECT_ROOT) -> list[str]:
@@ -59,9 +61,7 @@ def generate_pot(pot_only: bool = False, root_path: Path = PROJECT_ROOT) -> int:
                 tf.write(f"{p}\n")
             list_path = tf.name
 
-        cmd = ["xgettext", "--add-location=file"]
-        if not pot_only:
-            cmd.append("--keyword=N_")
+        cmd = ["xgettext", "--add-location=file", "--keyword=N_"]
         cmd.extend([
             "-d",
             "writeragent",

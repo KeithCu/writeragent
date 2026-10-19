@@ -92,10 +92,12 @@ def test_extract_python_msgids_reads_underscore_calls(tmp_path: Path) -> None:
         '_( "Plain" )\n'
         "_('BoldBit')\n"
         '_(\n    "multiline"\n)\n'
+        'N_("Kept")\n'
+        'not_a_call = "skip_var"\n'
         'other("skip")\n',
         encoding="utf-8",
     )
-    assert _extract_python_msgids([str(src)]) == {"Plain", "BoldBit", "multiline"}
+    assert _extract_python_msgids([str(src)]) == {"Plain", "BoldBit", "multiline", "Kept"}
 
 
 def test_xdl_paths_filters_to_shipped_dialogs_only(tmp_path: Path) -> None:
