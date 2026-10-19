@@ -68,8 +68,8 @@ def _make_uno_env(
         if sys.platform == "win32":
             # Tip: Windows ignores HOME. testing_runner finds the user profile under
             # %APPDATA%\LibreOffice\4, so point APPDATA at the scratch home too.
+            # Leave USERPROFILE alone: soffice and its Python inherit this env.
             env["APPDATA"] = str(home)
-            env["USERPROFILE"] = str(home)
     env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
     if profile is not None:
         env["WRITERAGENT_UNO_SEED_PROFILE"] = str(profile)

@@ -188,7 +188,7 @@ def test_windows_profile_and_env(
     seed_mock.assert_called_once_with(seed_root / "WriterAgent.oxt", expected_profile)
     uno_env = run_calls[-1]["env"]
     assert uno_env["APPDATA"] == str(home)
-    assert uno_env["USERPROFILE"] == str(home)
+    assert uno_env.get("USERPROFILE") != str(home)
 
 
 def test_execution_order_and_pytest_argv(
