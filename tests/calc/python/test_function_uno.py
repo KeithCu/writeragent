@@ -117,33 +117,25 @@ def _close_leftover_showcase_docs(ctx) -> int:
 
 
 def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
-    """Wait until the doc's deferred spill / sheet-repair timers ran and undo is out of context.
+    """Wait until the doc's deferred spill / sheet-repair timers have run.
 
-    Tip: closing while a deferred spill still holds an undo context hangs close() on Windows.
+    Tip: closing while a deferred spill write is still pending hangs close() on Windows.
     """
     from plugin.calc.python import function as python_function
     from plugin.framework.queue_executor import pump_main_thread_work_queue
 
     key = _lifecycle_key(doc)
-    um = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
         with python_function._PENDING_SPILL_LOCK:
             pending = [t for k, t in python_function._PENDING_SPILL_TIMERS if k == key and not python_function._spill_timer_finished(t)]
-        in_context = False
-        if um is not None:
-            try:
-                in_context = bool(um.isInContext())
-            except Exception:
-                in_context = False
-        if not pending and not in_context:
-            # A timer that just fired may still have its write queued for the UI thread.
-            time.sleep(0.3)
-            pump_main_thread_work_queue(max_items=20)
-            if um is None or not um.isInContext():
-                return
+        if not pending:
+            break
         time.sleep(0.05)
+    # A timer that just fired may still have its write queued for the UI thread.
+    time.sleep(0.3)
+    pump_main_thread_work_queue(max_items=20)
 
 
 def _close_doc_and_clear_sessions(ctx, doc) -> None:
