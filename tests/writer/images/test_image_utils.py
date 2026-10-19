@@ -311,11 +311,14 @@ class TestEndpointImageProvider:
                 assert exc_info.value.code == "USER_STOPPED"
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
-    def test_save_url_content_type_and_magic_validation(self):
+    def test_save_url_content_type_and_magic_validation(self, tmp_path, monkeypatch):
         """_save_url rejects HTML and non-image bytes, and validates image magic."""
         import glob
         import tempfile
         from plugin.framework.client.http_transport import HttpResult
+
+        # Tip: own temp dir, so other workers' wa-img-* files never show up in the diff.
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
         provider = EndpointImageProvider({"model": "test"}, MockContext())
 
