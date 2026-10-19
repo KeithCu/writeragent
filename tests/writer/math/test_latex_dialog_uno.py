@@ -224,6 +224,7 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
     embed = eo.getByName(name)
 
     set_config("last_latex_input", "previous_session_latex")
+    set_config("last_latex_display_block", False)  # earlier tests can leave True
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
