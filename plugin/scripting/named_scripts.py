@@ -349,7 +349,7 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
     skip = {"__name__", "_print_outputs", "_operations_count"}
     ns = SimpleNamespace()
     for key, val in state.items():
-        if key in skip:
+        if not isinstance(key, str) or key in skip:
             continue
         setattr(ns, key, val)
     return ns

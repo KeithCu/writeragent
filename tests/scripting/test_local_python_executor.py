@@ -443,10 +443,10 @@ def test_injected_print_sep_end_file_unknown():
     executor.send_tools({})
 
     executor('print("a", "b", sep="-")')
-    assert str(executor.state["_print_outputs"]).endswith("a-b\n")
+    assert executor.logs.endswith("a-b\n")
 
     executor('print(1, 2, end="!")')
-    assert str(executor.state["_print_outputs"]).endswith("1 2!")
+    assert executor.logs.endswith("1 2!")
 
     with pytest.raises(InterpreterError) as exc_info:
         executor('print("foo", file="something")')
@@ -1202,6 +1202,211 @@ def test_future_annotations_and_collections_abc_execute():
     with pytest.raises(InterpreterError) as exc_info:
         executor("import os")
     assert str(exc_info.value) == "Import of os is not allowed."
+
+
+def test_import_from_forbidden_dunder_attributes():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    for name in ("__loader__", "__spec__", "__dict__", "__builtins__", "__getattribute__"):
+        with pytest.raises(InterpreterError) as exc_info:
+            executor(f"from re import {name}")
+        assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+    executor("from re import __version__\nres_ver = __version__")
+    assert isinstance(executor.state["res_ver"], str)
+
+    executor("from __future__ import annotations\nres_ann = 1")
+    assert executor.state["res_ann"] == 1
+
+    executor("from collections.abc import Mapping\nres_map = issubclass(dict, Mapping)")
+    assert executor.state["res_map"] is True
+
+
+def test_operator_loader_and_spec_checks():
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator", "json"])
+    executor.send_tools({})
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import operator, re\nf = operator.attrgetter('__loader__')\nres = f(re)")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import operator, re\nf = operator.methodcaller('__getattribute__', '__loader__')\nres = f(re)")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+    executor('import json\nres1 = json.loads(\'{"__spec__": 1}\')\nres2 = json.loads(\'{"__spec__": 1, "__name__": "os"}\')')
+    assert executor.state["res1"] == {"__spec__": 1}
+    assert executor.state["res2"] == {"__spec__": 1, "__name__": "os"}
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import random\nx = random._os")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+
+def test_allowed_dunder_methods_attribute_access():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    code_init = """
+class Base:
+    def __init__(self):
+        self.val = 10
+
+class Derived(Base):
+    def __init__(self):
+        super().__init__()
+
+d = Derived()
+res_init = d.val
+"""
+    executor(code_init)
+    assert executor.state["res_init"] == 10
+
+    code_str_repr = """
+class A:
+    def __str__(self):
+        return "custom_str"
+    def __repr__(self):
+        return "custom_repr"
+
+a = A()
+s = a.__str__()
+r = a.__repr__()
+"""
+    executor(code_str_repr)
+    assert executor.state["s"] == "custom_str"
+    assert executor.state["r"] == "custom_repr"
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("(1).__class__")
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("class A: pass\nA().__dict__")
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+
+
+def test_print_alias_and_map_and_user_super():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    executor('p = print\np("alias_output")')
+    assert "alias_output" in executor.logs
+
+    executor('list(map(print, ["map_out1", "map_out2"]))')
+    assert "map_out1" in executor.logs
+    assert "map_out2" in executor.logs
+
+    code_super = """
+def super():
+    return 42
+res = super()
+"""
+    executor(code_super)
+    assert executor.state["res"] == 42
+
+
+def test_top_level_signals_and_with_cleanup():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    for sig_code in ("return 5", "break", "continue", "yield 1"):
+        with pytest.raises(InterpreterError) as exc_info:
+            executor(sig_code)
+        assert "SyntaxError" in str(exc_info.value) or "outside" in str(exc_info.value)
+
+    executor("from __future__ import annotations\nx = 100")
+    assert executor.state["x"] == 100
+
+    class TrackingCM:
+        def __init__(self, log_list):
+            self.log_list = log_list
+
+        def __enter__(self):
+            self.log_list.append("enter")
+            return self
+
+        def __exit__(self, exc_type, exc_val, tb):
+            self.log_list.append("exit")
+            return True
+
+    from plugin.contrib.smolagents.local_python_executor import evaluate_python_code
+
+    for exc_cls in (KeyboardInterrupt, SystemExit, GeneratorExit):
+        trace = []
+        with pytest.raises(exc_cls):
+            evaluate_python_code(
+                f"with cm: raise {exc_cls.__name__}()",
+                state={"cm": TrackingCM(trace)},
+            )
+        assert trace == ["enter", "exit"]
+
+
+def test_executor_bookkeeping_isolation_and_ops_budget():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    code_mutations = """
+_operations_count = {"counter": -999999999}
+_print_outputs = 123
+del _print_outputs
+_active_exceptions = 456
+print("still intact")
+"""
+    executor(code_mutations)
+    assert "still intact" in executor.logs
+
+    from unittest.mock import patch
+
+    with patch("plugin.contrib.smolagents.local_python_executor.MAX_OPERATIONS", 50):
+        with pytest.raises(InterpreterError) as exc_info:
+            executor("for i in range(100): pass")
+        assert "Reached the max number of operations" in str(exc_info.value)
+
+    code_class_cell = """
+class Base:
+    def greet(self):
+        return "hello"
+
+class Child(Base):
+    def greet(self):
+        __class_cell__ = "corrupted"
+        return super().greet() + " child"
+
+c = Child()
+res = c.greet()
+"""
+    executor(code_class_cell)
+    assert executor.state["res"] == "hello child"
+
+
+def test_class_body_subscript_assignment():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    code_subscript = """
+class A:
+    d = {}
+    d["x"] = 1
+"""
+    executor(code_subscript)
+    assert getattr(executor.state["A"], "d") == {"x": 1}
+
+    code_attr = """
+class Target:
+    val = 0
+t = Target()
+class B:
+    t.val = 42
+"""
+    executor(code_attr)
+    assert getattr(executor.state["t"], "val") == 42
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("class C:\n    a, b = 1, 2\n")
+    assert "Unsupported Assign target in class body" in str(exc_info.value)
+
 
 
 

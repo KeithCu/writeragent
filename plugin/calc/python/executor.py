@@ -29,7 +29,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError, InterpreterError, LocalPythonExecutor
+from plugin.contrib.smolagents.local_python_executor import (
+    ExecutionTimeoutError,
+    InterpreterError,
+    LocalPythonExecutor,
+    print_outputs_from_state,
+)
 from plugin.framework.tool import ToolBaseDummy
 
 if TYPE_CHECKING:
@@ -165,9 +170,7 @@ class PythonExecutor:
 
     def _captured_stdout(self) -> str:
         state = getattr(self.executor, "state", None)
-        if not isinstance(state, dict):
-            return ""
-        return str(state.get("_print_outputs") or "")
+        return print_outputs_from_state(state)
 
     def last_stdout(self) -> str:
         return self._captured_stdout()
