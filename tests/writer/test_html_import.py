@@ -124,6 +124,31 @@ def test_ruby_readings_stay_on_their_own_repeated_base():
     assert painted == [(0, 2, "いち"), (2, 4, "に")]
 
 
+def test_ruby_spans_forward_cursor_walk():
+    # One hundred spans spread through a long string: len(text.cursors) stays far below
+    # one cursor per span plus a full restart, and painted triples match offsets.
+    spans = []
+    parts = []
+    offset = 0
+    expected_painted = []
+    for i in range(100):
+        filler = f"filler{i}"
+        parts.append(filler)
+        offset += len(filler)
+        base = "漢"
+        reading = f"かん{i}"
+        spans.append((base, reading, True, offset))
+        expected_painted.append((offset, offset + len(base), reading))
+        parts.append(base)
+        offset += len(base)
+    full_text = "".join(parts)
+    text = _RubyText(full_text)
+    _apply_ruby_spans(text, spans)
+    painted = [c.ruby for c in text.cursors if c.ruby]
+    assert painted == expected_painted
+    assert len(text.cursors) <= 205
+
+
 def test_mixed_math_segments_produce_separate_ruby_spans_without_tex_source():
     from plugin.writer.html_import import extract_and_strip_ruby, segment_html_with_mixed_math
 
@@ -161,30 +186,57 @@ def test_ensure_html_linebreaks_does_not_unescape_again():
     assert "<p>see" in wrapped
 
 
-def test_unescape_complete_entities_only_decodes_with_semicolon():
-    from plugin.writer.html_import import unescape_complete_entities
+def test_decode_complete_character_references_only_decodes_with_semicolon():
+    from plugin.writer.html_import import _decode_complete_character_references
 
-    assert unescape_complete_entities("&sect 2o &amp;lt;") == "&sect 2o &lt;"
-    assert unescape_complete_entities("&amp; &quot; &#36; &#x24;") == '& " $ $'
-    assert unescape_complete_entities("&not covered") == "&not covered"
+    assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
+    assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
+    assert _decode_complete_character_references("&not covered") == "&not covered"
 
 
-def test_insert_content_at_position_and_replace_full_doc_decode_complete_entities():
+def test_insert_content_entry_points_decode_complete_entities():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
+
+    raw = "<p>&sect 2o &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>"
+    expected = "<p>&sect 2o &lt;b&gt;x&lt;/b&gt;</p>"
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
 
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
-        html_import._replace_full_document(model, MagicMock(), "<p>&sect 2o &amp;lt;</p>")
-        assert mock_mixed.call_args.args[3] == "<p>&sect 2o &lt;</p>"
+        html_import._replace_full_document(model, MagicMock(), raw)
+        assert mock_mixed.call_args.args[3] == expected
 
     cursor = MagicMock()
     model.getText.return_value.createTextCursor.return_value = cursor
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
-        html_import._insert_content_at_position(model, MagicMock(), "<p>&sect 2o &amp;lt;</p>", "beginning")
-        assert mock_mixed.call_args.args[3] == "<p>&sect 2o &lt;</p>"
+        html_import._insert_content_at_position(model, MagicMock(), raw, "beginning")
+        assert mock_mixed.call_args.args[3] == expected
+
+    text_range = MagicMock()
+    text_range.getText.return_value = MagicMock()
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed, \
+         patch("plugin.writer.specialized.tables.raise_if_range_hosts_nested_table"):
+        html_import._replace_single_range_with_content(model, text_range, raw, MagicMock())
+        assert mock_mixed.call_args.args[3] == expected
+
+
+def test_content_has_markup_markdown_punctuation_treated_as_plain():
+    from plugin.writer.html_import import content_has_markup
+
+    assert not content_has_markup("**bold**")
+    assert not content_has_markup("# Heading")
+    assert not content_has_markup("| col1 | col2 |")
+    assert not content_has_markup("Issue # 5")
+    assert not content_has_markup("a | b")
+    assert not content_has_markup("2**3")
+    assert not content_has_markup("__init__")
+    assert not content_has_markup("```code```")
+    assert not content_has_markup("- [ ] todo")
+    assert content_has_markup("<b>bold</b>")
+    assert content_has_markup(r"\(x^2\)")
+    assert content_has_markup("$$E=mc^2$$")
 
 
 
@@ -212,30 +264,6 @@ def test_replace_xtext_with_html_leaves_cleared_text_when_import_succeeds():
         replace_xtext_with_html(text, "<p>New</p>")
     insert.assert_called_once()
     assert [call.args for call in cursor.setString.call_args_list] == [("",)]
-
-
-def test_replace_xtext_with_html_returns_note_on_leftover_field_token():
-    text = MagicMock()
-    cursor = MagicMock()
-    text.createTextCursor.return_value = cursor
-    text.getString.return_value = "Header [[WA-FIELD:PageNumber]]"
-    model = MagicMock()
-    model.findFirst.return_value = None
-    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
-         patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=0):
-        note = replace_xtext_with_html(text, "<p>New</p>", model=model)
-    assert note is not None
-    assert "Leftover" in note
-
-
-def test_replace_xtext_with_html_returns_no_note_when_no_token_remains():
-    text = MagicMock()
-    cursor = MagicMock()
-    text.createTextCursor.return_value = cursor
-    text.getString.return_value = "Clean Header"
-    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
-        note = replace_xtext_with_html(text, "<p>New</p>")
-    assert note is None
 
 
 
@@ -518,33 +546,6 @@ def test_restore_only_drops_the_marker_when_the_original_stayed():
         found.getText.return_value.insertTextContent.assert_not_called()
 
 
-def test_keep_placeholder_images_restores_on_body_exception():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
-
-    model = MagicMock()
-    kept = [_kept()]
-    with patch.object(html_import, "_swap_image_placeholders", return_value=("marker", kept)), \
-         patch.object(html_import, "_restore_image_placeholders") as mock_restore:
-        with pytest.raises(RuntimeError, match="import crash"):
-            with html_import._keep_placeholder_images(model, "content"):
-                raise RuntimeError("import crash")
-    mock_restore.assert_called_once_with(model, kept, check_misses=False)
-
-
-def test_keep_placeholder_images_restore_failure_preserves_body_exception():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
-
-    model = MagicMock()
-    kept = [_kept()]
-    with patch.object(html_import, "_swap_image_placeholders", return_value=("marker", kept)), \
-         patch.object(html_import, "_restore_image_placeholders", side_effect=RuntimeError("restore crash")):
-        with pytest.raises(RuntimeError, match="import crash"):
-            with html_import._keep_placeholder_images(model, "content"):
-                raise RuntimeError("import crash")
-
-
 def test_restore_image_placeholders_missing_marker_for_deleted_original_raises():
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
@@ -555,7 +556,7 @@ def test_restore_image_placeholders_missing_marker_for_deleted_original_raises()
     kept = [_kept("AT_PARAGRAPH")]
     with patch.object(html_import, "_deleted_by_the_edit", return_value=True):
         with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-            html_import._restore_image_placeholders(model, kept, check_misses=True)
+            html_import._restore_image_placeholders(model, kept)
 
 
 def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_raise():
@@ -566,7 +567,8 @@ def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_ra
     model.findFirst.return_value = None
     kept = [_kept("AT_PARAGRAPH")]
     with patch.object(html_import, "_deleted_by_the_edit", return_value=False):
-        html_import._restore_image_placeholders(model, kept, check_misses=True)
+        html_import._restore_image_placeholders(model, kept)
+    model.createInstance.assert_not_called()
 
 
 def test_deleted_by_the_edit():

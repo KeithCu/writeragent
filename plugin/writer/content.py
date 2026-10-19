@@ -21,6 +21,7 @@ LO findFirst / chained-regex helpers live in ``plugin.writer.search``.
 
 from __future__ import annotations
 
+import html as html_mod
 import logging
 import re
 import threading
@@ -131,8 +132,9 @@ def _grow_over_edge_space(found: Any, separator: int) -> Any:
     return grown
 
 
-# Complete character references only; a bare "&" is never touched.
-from plugin.writer.html_import import _COMPLETE_ENTITY_RE as _ENTITY_RE, unescape_complete_entities  # noqa: E402
+# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
+# Guards the plain-text unescape so a bare "&" is never touched.
+_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
 def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
@@ -1136,21 +1138,16 @@ class ApplyDocumentContent(ToolBase):
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
-            # The import path unescapes HTML entities (html_import
-            # `_ensure_html_linebreaks`, and LO's own filter). This
-            # format-preserving path must do the same, or raw_content lands
-            # verbatim. content_has_markup() sees no tag in "R&#36;5.000,00",
-            # so a model that escaped the dollar sign takes the plain path and
-            # the six characters "&#36;" land in the petition. Run the same
-            # html.unescape the import path uses, so both paths agree on what
-            # the model's text means. Decode ONLY complete references
-            # (_ENTITY_RE, ";" required): html.unescape on the whole string
-            # also expands semicolon-less names, so "&sect 2o" becomes "§ 2o"
-            # and "&not incluidos" becomes "¬ incluidos". A bare "&" in
-            # "Banco & Cia" is never touched.
+            # HTML entry points decode complete references once, and the StarWriter
+            # filter decodes what remains in markup. This format-preserving path must
+            # do the same, or raw_content lands verbatim. content_has_markup() sees no tag
+            # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
+            # ONLY complete references (_ENTITY_RE, ";" required); unescaping the whole
+            # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
+            # in "Banco & Cia" is never touched.
             if _ENTITY_RE.search(content):
                 _before_ent = content
-                content = unescape_complete_entities(content)
+                content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
                 if content != _before_ent:
                     log.debug(
                         "apply_document_content: decoded HTML entities on the plain-text path (len %d -> %d)",

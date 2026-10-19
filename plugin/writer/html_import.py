@@ -41,16 +41,6 @@ log = logging.getLogger("writeragent.writer")
 _FAILED: Any = object()
 
 _MARKUP_PATTERNS = [
-    # Markdown
-    "**",
-    "__",
-    "``",
-    "# ",
-    "## ",
-    "### ",
-    "| ",
-    "|---",
-    "- [ ]",
     # HTML
     "<b>",
     "<i>",
@@ -763,19 +753,33 @@ def _deleted_by_the_edit(model: Any, original: Any) -> bool:
     return False
 
 
-def _restore_image_placeholders(model: Any, kept: list[_KeptImage], *, check_misses: bool = False) -> None:
+def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
     """Put a copy of each kept picture where its marker landed, and remove the marker."""
-    missed: list[str] = []
     for image in kept:
         search = model.createSearchDescriptor()
         search.SearchString = image.marker
         search.SearchCaseSensitive = True
         found = model.findFirst(search)
+        if found is None and hasattr(model, "getTextTables"):
+            try:
+                tables = model.getTextTables()
+                for tbl_name in tables.getElementNames():
+                    tbl = tables.getByName(tbl_name)
+                    for cell_name in tbl.getCellNames():
+                        cell = tbl.getCellByName(cell_name)
+                        if hasattr(cell, "createSearchDescriptor"):
+                            cell_found = cell.findFirst(search)
+                            if cell_found is not None:
+                                found = cell_found
+                                break
+                    if found is not None:
+                        break
+            except Exception:
+                pass
         if found is None:
-            if check_misses and getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original):
-                missed.append(image.name)
-            else:
-                log.warning("kept image %r: marker not found after the import", image.name)
+            if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original):
+                raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
+            log.warning("kept image %r: marker not found after the import", image.name)
             continue
         text = found.getText()
         if getattr(image.anchor, "value", "") == "AT_PAGE" or not _deleted_by_the_edit(model, image.original):
@@ -798,29 +802,15 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage], *, check_mis
                 log.debug("kept image %r: could not restore %s", image.name, prop, exc_info=True)
         with contextlib.suppress(Exception):
             picture.setName(image.name)  # taken while the original is a pending deletion
-    if missed:
-        names = ", ".join(repr(n) for n in missed)
-        raise ToolExecutionError(f"Kept image marker not found after import: {names}")
 
 
 @contextlib.contextmanager
 def _keep_placeholder_images(model: Any, content: str) -> Iterator[str]:
     """Yield *content* with data-less images swapped for markers; put the pictures back after."""
     swapped, kept = _swap_image_placeholders(model, content)
-    # Restore image placeholders on both success and failure so markers are not left in the document.
-    try:
-        yield swapped
-    except Exception:
-        if kept:
-            try:
-                _restore_image_placeholders(model, kept, check_misses=False)
-            except Exception as restore_exc:
-                reraise_if_disposed(restore_exc)
-                log.error("Failed to restore image placeholders after import error: %s", restore_exc, exc_info=True)
-        raise
-    else:
-        if kept:
-            _restore_image_placeholders(model, kept, check_misses=True)
+    yield swapped
+    if kept:
+        _restore_image_placeholders(model, kept)
 
 
 def _cursor_goto_document_end(model: Any, cursor: Any) -> None:
@@ -1138,7 +1128,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
 _COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def unescape_complete_entities(text: str) -> str:
+def _decode_complete_character_references(text: str) -> str:
     """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
     if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
         return text
@@ -1154,7 +1144,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
 
 
 def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
-    content = unescape_complete_entities(content)
+    content = _decode_complete_character_references(content)
 
     text = model.getText()
     cursor = text.createTextCursor()
@@ -1236,7 +1226,7 @@ def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = 
 
 
 def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
-    content = unescape_complete_entities(content)
+    content = _decode_complete_character_references(content)
 
     text = model.getText()
     cursor = text.createTextCursor()
@@ -1295,7 +1285,7 @@ def replace_single_range_with_content(
 def _replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
 ) -> None:
-    prepared = unescape_complete_entities(content)
+    prepared = _decode_complete_character_references(content)
     text_obj = text_range.getText()
 
     # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
@@ -1627,13 +1617,10 @@ def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
                 props[k] = v
     return props
 
-_FIELD_RESTORE_CAP = 200
-
-
 def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search."""
     restored = 0
-    for _unused in range(_FIELD_RESTORE_CAP):
+    for _unused in range(50):
         try:
             plain = text_obj.getString() or ""
         except Exception as e:
@@ -1675,13 +1662,18 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     walked = 0
     if text_obj is not None:
         walked = _restore_fields_by_cursor(model, text_obj)
-        if walked:
-            plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
-            if plain is _FAILED:
-                return walked
-            if "[[WA-FIELD:" not in plain:
-                return walked
+        plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
+        if plain is not _FAILED and "[[WA-FIELD:" not in plain:
+            return walked
     if model is None or not hasattr(model, "createSearchDescriptor"):
+        if text_obj is not None:
+            plain = uno_read(lambda: text_obj.getString() or "", "")
+            if "[[WA-FIELD:" in plain:
+                match = _FIELD_TOKEN_RE.search(plain)
+                tok = match.group(0) if match else "[[WA-FIELD:...]]"
+                raise ToolExecutionError(
+                    f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+                )
         return walked
     restored = walked
 
@@ -1722,6 +1714,15 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
 
             found = nxt
 
+    if text_obj is not None:
+        plain = uno_read(lambda: text_obj.getString() or "", "")
+        if "[[WA-FIELD:" in plain:
+            match = _FIELD_TOKEN_RE.search(plain)
+            tok = match.group(0) if match else "[[WA-FIELD:...]]"
+            raise ToolExecutionError(
+                f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+            )
+
     return restored
 
 
@@ -1743,7 +1744,7 @@ def _restore_xtext_string(text_obj: Any, original: str) -> None:
         log.exception("replace_xtext_with_html: could not restore text after a failed import")
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> str | None:
+def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
@@ -1805,11 +1806,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                             has_content = True
                             break
                 except Exception as e:
-                    # What was wrong: a failed portion walk left has_content False
-                    # and the last paragraph was deleted.
-                    # How: that paragraph can hold a frame, field, or image whose
-                    # getString() is empty.
-                    # Why: skip the delete unless the walk actually finishes empty.
+                    # A frame, field, or image paragraph has empty getString(); delete only when the walk finishes empty.
                     reraise_if_disposed(e)
                     log.debug("Failed to inspect trailing paragraph portions: %s", e)
                     has_content = True
@@ -1834,13 +1831,8 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         reraise_if_disposed(e)
         log.debug("Failed to inspect trailing paragraph: %s", e)
 
-    plain = uno_read(lambda: text_obj.getString() or "", "")
-    if "[[WA-FIELD:" in plain:
-        return "Leftover field placeholder(s) could not be restored."
-    return None
 
-
-def content_has_markup(content: str) -> bool:
+def content_has_markup(content: str | None) -> bool:
     """Return ``True`` if *content* appears to contain Markdown or HTML."""
     if not content or not isinstance(content, str):
         return False
@@ -1849,13 +1841,43 @@ def content_has_markup(content: str) -> bool:
 
 
 
-def _content_has_block_markup(content: str) -> bool:
+def _content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
     lower = content.lower()
     return any(p in lower for p in _BLOCK_MARKUP_PATTERNS)
 
+
+
+def _range_has_special_portions(target_range: Any) -> bool:
+    """Return True if target_range contains non-Text portions (field, footnote, ruby, etc.)."""
+    try:
+        if not hasattr(target_range, "createEnumeration"):
+            return False
+        enum = target_range.createEnumeration()
+        if enum is None:
+            return False
+        while enum.hasMoreElements():
+            elem = enum.nextElement()
+            if hasattr(elem, "createEnumeration"):
+                penum = elem.createEnumeration()
+                while penum.hasMoreElements():
+                    portion = penum.nextElement()
+                    kind = getattr(portion, "TextPortionType", None)
+                    if kind is None and hasattr(portion, "getPropertyValue"):
+                        kind = portion.getPropertyValue("TextPortionType")
+                    if kind and kind not in ("Text", "SoftPageBreak"):
+                        return True
+            else:
+                kind = getattr(elem, "TextPortionType", None)
+                if kind is None and hasattr(elem, "getPropertyValue"):
+                    kind = elem.getPropertyValue("TextPortionType")
+                if kind and kind not in ("Text", "SoftPageBreak"):
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def replace_preserving_format(
@@ -1950,30 +1972,40 @@ def replace_preserving_format(
 
     # Do not pump processEvents inside this edit. A queued tool or a keystroke
     # would run on the main thread, inside the caller's undo context.
-    # Process overlapping characters: skip equal runs with one cursor advance,
-    # and replace changed characters one by one to preserve formatting.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
-    i = 0
-    while i < overlap:
-        if new_text[i] == old_text[i]:
-            run_start = i
-            while i < overlap and new_text[i] == old_text[i]:
-                i += 1
-            k = i - run_start
-            if not _go_right(main_cursor, k, False):
-                raise ToolExecutionError(
-                    "Could not replace that text in place (the selection did not advance)."
-                )
-        else:
+    if _range_has_special_portions(target_range):
+        # Non-text portions (fields, ruby) advance by portion instead of char, so step 1-by-1.
+        for i in range(overlap):
             sel = text.createTextCursorByRange(main_cursor)
             if not sel.goRight(1, True):
                 raise ToolExecutionError(
                     "Could not replace that text in place (the selection did not advance)."
                 )
-            sel.setString(new_text[i])
+            if new_text[i] != old_text[i]:
+                sel.setString(new_text[i])
             main_cursor.gotoRange(sel.getEnd(), False)
-            i += 1
+    else:
+        i = 0
+        while i < overlap:
+            if new_text[i] == old_text[i]:
+                run_start = i
+                while i < overlap and new_text[i] == old_text[i]:
+                    i += 1
+                k = i - run_start
+                if not _go_right(main_cursor, k, False):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+            else:
+                sel = text.createTextCursorByRange(main_cursor)
+                if not sel.goRight(1, True):
+                    raise ToolExecutionError(
+                        "Could not replace that text in place (the selection did not advance)."
+                    )
+                sel.setString(new_text[i])
+                main_cursor.gotoRange(sel.getEnd(), False)
+                i += 1
 
     # Handle length changes.
     if new_len > old_len:

@@ -598,10 +598,81 @@ def test_replace_preserving_format_skips_equal_runs():
 
     text = _Text()
     with patch.object(hi, "_is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAA"), "AAAB")
+        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
 
-    assert moves == [(3, False), (1, True)]
-    assert writes == ["B"]
+    assert moves == [(5, False), (1, True)]
+    assert writes == ["Y"]
+
+
+def test_replace_preserving_format_special_portion_keeps_one_step_loop():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi
+
+    moves = []
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            moves.append((n, expand))
+            return True
+
+        def setString(self, value):
+            writes.append(value)
+
+        def getEnd(self):
+            return object()
+
+        def gotoRange(self, _end, _expand):
+            pass
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+        def insertString(self, *_args):
+            pass
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Portion:
+        TextPortionType = "TextField"
+
+    class _Para:
+        def createEnumeration(self):
+            return _Enum([_Portion()])
+
+    class _Range:
+        def __init__(self, text, string):
+            self._text = text
+            self._string = string
+
+        def getText(self):
+            return self._text
+
+        def getString(self):
+            return self._string
+
+        def getStart(self):
+            return object()
+
+        def createEnumeration(self):
+            return _Enum([_Para()])
+
+    text = _Text()
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
+
+    # Special portion: each character is checked 1-by-1
+    assert moves == [(1, True)] * 6
+    assert writes == ["Y"]
 
 
 def test_replace_preserving_format_equal_string_is_noop():
@@ -667,14 +738,14 @@ def test_replace_preserving_format_equal_run_go_right_false_raises():
             return _Text()
 
         def getString(self):
-            return "AAAA"
+            return "AAAAAX"
 
         def getStart(self):
             return object()
 
     with patch.object(hi, "_is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
-            hi.replace_preserving_format(MagicMock(), _Range(), "AAAB")
+            hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
 
     assert writes == []
 

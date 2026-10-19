@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import html as html_std
 import logging
 import sys
 from typing import Any
@@ -27,7 +28,6 @@ from plugin.framework.uno_context import _read_runtime_uid, clear_writer_body, g
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support
-from plugin.writer.html_import import unescape_complete_entities
 
 log = logging.getLogger("writeragent.calc")
 
@@ -179,7 +179,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     sheet = bridge.get_active_sheet()
     cell = bridge.get_cell(sheet, col, row)
 
-    content = unescape_complete_entities(html)
+    content = html_std.unescape(html)
     prepared = format_support._ensure_html_linebreaks(content)
 
     temp_doc = None

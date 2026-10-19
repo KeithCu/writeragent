@@ -601,7 +601,7 @@ def replace_single_range_with_content(model: Any, text_range: Any, content: str,
     return impl(model, text_range, content, ctx, config_svc)
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> str | None:
+def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     from .html_import import replace_xtext_with_html as impl
     return impl(text_obj, html, config_svc, model)
 
@@ -626,7 +626,7 @@ def content_has_block_markup(content: str) -> bool:
     return impl(content)
 
 
-def _content_has_block_markup(content: str) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _content_has_block_markup(content: str | None) -> bool:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _content_has_block_markup as impl
     return impl(content)
 

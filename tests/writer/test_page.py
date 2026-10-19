@@ -1508,36 +1508,6 @@ def test_set_header_rolls_back_enable_when_import_fails():
         assert calls[1] == ("HeaderIsOn", False)
 
 
-def test_set_header_footer_surfaces_warning_on_leftover_field_token():
-    from plugin.writer.page import PageSetHeaderFooterText
-
-    doc = MagicMock()
-    style = MagicMock()
-    style.getPropertyValue.side_effect = lambda prop: True if prop == "HeaderIsOn" else MagicMock()
-    doc.getStyleFamilies().getByName().getByName.return_value = style
-    ctx = SimpleNamespace(doc=doc, services=MagicMock())
-
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value="Leftover field placeholder(s) could not be restored."):
-        res = PageSetHeaderFooterText().execute(ctx, region="header", content="<p>Test</p>")
-        assert res["status"] == "ok"
-        assert res["warning"] == "Leftover field placeholder(s) could not be restored."
-
-
-def test_set_header_footer_no_warning_when_no_token():
-    from plugin.writer.page import PageSetHeaderFooterText
-
-    doc = MagicMock()
-    style = MagicMock()
-    style.getPropertyValue.side_effect = lambda prop: True if prop == "HeaderIsOn" else MagicMock()
-    doc.getStyleFamilies().getByName().getByName.return_value = style
-    ctx = SimpleNamespace(doc=doc, services=MagicMock())
-
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=None):
-        res = PageSetHeaderFooterText().execute(ctx, region="header", content="<p>Test</p>")
-        assert res["status"] == "ok"
-        assert "warning" not in res
-
-
 def test_set_columns_spacing_zero_clears_inner_margins():
     from plugin.writer.page import PageSetColumns
     doc = MagicMock()
