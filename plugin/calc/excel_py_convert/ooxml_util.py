@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import threading
 from typing import TYPE_CHECKING, Callable
 import zipfile
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
@@ -18,6 +19,15 @@ PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_DOC_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 PY_SCRIPT_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
+PYTHON_SCRIPT_REL_TYPE = "http://schemas.microsoft.com/office/2022/relationships/pythonScript"
+CALC_CHAIN_REL_TYPE_SUFFIX = "/calcChain"
+
+_XML_NS_LOCK = threading.RLock()
+
+
+def xml_namespace_lock() -> threading.RLock:
+    """Hold across parse and serialize to protect process-global ET.register_namespace."""
+    return _XML_NS_LOCK
 
 # Standard prefixes and namespaces used by Excel and OpenXML packages.
 STANDARD_OOXML_NAMESPACES: dict[str, str] = {
@@ -71,12 +81,13 @@ def find_child(parent: ET.Element, name: str) -> ET.Element | None:
 
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
     """Parse XML bytes into an ElementTree root, registering and returning all in-scope namespaces."""
-    ns_map: dict[str, str] = {}
-    for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
-        ns_map[prefix] = uri
-        ET.register_namespace(prefix, uri)
-    root = ET.fromstring(data)
-    return root, ns_map
+    with _XML_NS_LOCK:
+        ns_map: dict[str, str] = {}
+        for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
+            ns_map[prefix] = uri
+            ET.register_namespace(prefix, uri)
+        root = ET.fromstring(data)
+        return root, ns_map
 
 
 def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: dict[str, str] | None = None) -> bytes:
@@ -88,7 +99,8 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
     those prefixes and inject the missing xmlns declaration on the opening
     root tag.
     """
-    out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    with _XML_NS_LOCK:
+        out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     ns_map = dict(STANDARD_OOXML_NAMESPACES)
     if original_namespaces:
         ns_map.update(original_namespaces)
