@@ -510,16 +510,18 @@ class PersistentEditor:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
             try:
+                # Flag instead of return: return in finally is a SyntaxWarning.
+                ready_to_read = True
                 if sys.platform != "win32":
                     ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.05)
-                    if not ready:
-                        return
-                remainder = stderr.read()
-                if remainder:
-                    for piece in remainder.decode("utf-8", errors="replace").splitlines():
-                        if piece:
-                            log.debug("editor child: %s", piece)
-                            self._append_stderr_line(piece, generation=generation)
+                    ready_to_read = bool(ready)
+                if ready_to_read:
+                    remainder = stderr.read()
+                    if remainder:
+                        for piece in remainder.decode("utf-8", errors="replace").splitlines():
+                            if piece:
+                                log.debug("editor child: %s", piece)
+                                self._append_stderr_line(piece, generation=generation)
             except Exception:
                 log.debug("editor stderr drain tail read failed", exc_info=True)
 

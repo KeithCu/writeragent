@@ -90,9 +90,9 @@ _deal_allow_headers_ok = (
 
 
 def _deal_origins_config_ok_pytest(value: object) -> bool:
-    # User config may list more than DEAL_MAX_CMD_ARGS origins. The body
-    # drops entries it cannot normalize.
-    return value is None or isinstance(value, (str, list))
+    # Raw user config: accept anything; the body drops what it cannot use.
+    del value
+    return True
 
 
 def _deal_origins_config_ok_crosshair(value: object) -> bool:

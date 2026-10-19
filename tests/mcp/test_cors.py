@@ -765,3 +765,42 @@ def test_tunnel_host_lookup_does_not_swallow(monkeypatch):
     with pytest.raises(RuntimeError, match="broken tunnel"):
         get_configured_tunnel_host()
 
+
+def test_normalize_origins_list_bad_and_empty_inputs():
+    # Bad or empty origins config values must not raise PreContractError.
+    assert normalize_origins_list({}) == []
+    assert normalize_origins_list(123) == []
+    assert normalize_origins_list(False) == []
+    assert normalize_origins_list("") == []
+    assert normalize_origins_list([]) == []
+    assert normalize_origins_list(None) == []
+    assert normalize_origins_list(["https://example.com", 123, ""]) == ["https://example.com"]
+
+
+@pytest.mark.parametrize(
+    "bad_or_empty",
+    [
+        {},
+        "",
+        [],
+        None,
+        123,
+        False,
+        {"not": "a list"},
+        ["https://valid.example.com", "", 42, "not a url"],
+    ],
+)
+def test_reload_cors_bad_or_empty_origins_does_not_crash(bad_or_empty):
+    services = MagicMock()
+    proxy = MagicMock()
+    proxy.get.side_effect = lambda key, default=None: bad_or_empty if key == "cors_allowed_origins" else None
+    services.config.proxy_for.return_value = proxy
+
+    # Bad or empty config values must not crash module reload or raise PreContractError.
+    reload_cors_policy_from_config(services)
+    if bad_or_empty == ["https://valid.example.com", "", 42, "not a url"]:
+        assert "https://valid.example.com" in get_extra_allowed_origins()
+    else:
+        assert get_extra_allowed_origins() == frozenset()
+
+

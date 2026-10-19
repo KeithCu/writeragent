@@ -330,10 +330,9 @@ class EvaluateFormula(ToolCalcErrorBase):
                     except Exception:
                         cleanup_failed = True
                         log.exception("Failed to cleanup evaluation sheet")
+                        # No return in finally; the cleanup_failed check below reports it.
                         if eval_result is not None:
                             eval_result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
-                        else:
-                            return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
 
         if cleanup_failed and eval_result is None:
             return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
