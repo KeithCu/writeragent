@@ -309,6 +309,32 @@ def test_evaluate_formula(ctx, doc):
     assert "error_code" in res_err, f"Expected error_code in response: {res_err}"
     assert "#DIV/0!" in res_err.get("message", ""), f"Expected division by zero message, got {res_err.get('message')}"
 
+    um = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
+    titles_before = list(um.getAllUndoActionTitles()) if um else []
+    was_modified = doc.isModified() if hasattr(doc, "isModified") else False
+
+    # Numeric zero formula evaluation
+    res_zero = eval_tool.execute(tctx, formula="=1-1")
+    assert res_zero.get("status") == "ok", f"evaluate_formula zero failed: {res_zero}"
+    assert res_zero.get("result") == 0.0, f"Expected 0.0, got {res_zero.get('result')}"
+    assert isinstance(res_zero.get("result"), float), "Expected float 0.0"
+
+    # String zero formula evaluation
+    res_str_zero = eval_tool.execute(tctx, formula='="0"')
+    assert res_str_zero.get("status") == "ok", f"evaluate_formula string zero failed: {res_str_zero}"
+    assert res_str_zero.get("result") == "0", f"Expected '0', got {res_str_zero.get('result')}"
+    assert isinstance(res_str_zero.get("result"), str), "Expected string '0'"
+
+    # Verify no temporary evaluation sheet was left behind
+    sheet_names = doc.getSheets().getElementNames()
+    assert not any(name.startswith("__wa_eval_copy_") for name in sheet_names), f"Leftover eval sheets: {sheet_names}"
+
+    # Verify undo history and modified status are unchanged
+    titles_after = list(um.getAllUndoActionTitles()) if um else []
+    assert titles_after == titles_before, f"Undo actions changed: {titles_after} vs {titles_before}"
+    if hasattr(doc, "isModified"):
+        assert doc.isModified() == was_modified, f"isModified changed from {was_modified} to {doc.isModified()}"
+
 
 @native_test
 @with_native_doc("calc")
