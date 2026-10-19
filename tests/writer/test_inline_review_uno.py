@@ -503,3 +503,37 @@ def test_fast_travel_none_when_no_changes_uno(ctx, doc):
     _body(doc, ctx, "Nothing tracked here.")
     assert pending_agent_change_count(doc) == 0
     assert goto_adjacent_agent_change(doc, True) is None, "no changes -> nowhere to travel"
+
+
+@native_test
+@with_native_doc("writer")
+def test_fast_travel_visits_across_text_objects_uno(ctx, doc):
+    _body(doc, ctx, "Intro paragraph, no change.", "Body one.", "Body two.")
+    cursor = doc.getText().createTextCursor()
+    r = _find(doc, "Body one.")
+    assert r is not None
+    cursor.gotoRange(r.getEnd(), False)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    doc.getText().insertTextContent(cursor, table, False)
+    cell = table.getCellByName("A1")
+    cell.getText().setString("Cell text.")
+
+    _agent_edit(
+        doc,
+        ctx,
+        ("Body one.", "Body one EDITED."),
+        ("Cell text.", "Cell text EDITED."),
+        ("Body two.", "Body two EDITED."),
+    )
+
+    order = [c["token"] for c in agent_changes(doc)]
+    assert len(order) == 3
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(doc.getText().getStart(), False)
+    visited = [goto_adjacent_agent_change(doc, True) for _ in range(4)]
+    assert visited == [order[0], order[1], order[2], order[0]], (
+        "next must visit across text objects: %r vs order %r" % (visited, order)
+    )
+

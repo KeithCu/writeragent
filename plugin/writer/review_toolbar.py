@@ -212,12 +212,14 @@ def refresh_review_toolbar(model: Any) -> None:
     if model is None:
         return
     try:
-        from plugin.writer.inline_review import pending_agent_change_count
+        from plugin.writer.review_scan import agent_change_presence
 
         lm = _layout_manager(model)
         if lm is None:
             return
-        count = pending_agent_change_count(model)
+        count, reliable = agent_change_presence(model, stop_at_first=True)
+        if not reliable:
+            return
         if count > 0:
             lm.showElement(TOOLBAR_RESOURCE_URL)
             # Extension toolbars default to FLOATING; dock to the top the FIRST time THIS document's

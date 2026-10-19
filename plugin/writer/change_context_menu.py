@@ -76,9 +76,10 @@ def _build_menu(model: Any, event: Any) -> Any:
         from com.sun.star.ui import ActionTriggerSeparatorType
 
         from plugin.framework.i18n import _
-        from plugin.writer.inline_review import has_agent_changes
+        from plugin.writer.review_scan import agent_change_presence
 
-        has = has_agent_changes(model)
+        count, reliable = agent_change_presence(model, stop_at_first=True)
+        has = count > 0 or not reliable
         log.debug("change_context_menu: notifyContextMenuExecute (Writer), has_agent_changes=%s", has)
         if not has:
             return IGNORED

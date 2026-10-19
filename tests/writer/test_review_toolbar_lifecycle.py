@@ -90,7 +90,7 @@ def test_toolbar_docks_once_per_document():
     model.getRuntimeUID.return_value = "uid-D"
     with patch("plugin.writer.review_toolbar._layout_manager", return_value=MagicMock()), \
          patch("plugin.writer.review_toolbar._dock_top") as dock, \
-         patch("plugin.writer.inline_review.pending_agent_change_count", side_effect=[1, 0, 1]):
+         patch("plugin.writer.review_scan.agent_change_presence", side_effect=[(1, True), (0, True), (1, True)]):
         rt.refresh_review_toolbar(model)   # 0 -> 1 : show + dock
         rt.refresh_review_toolbar(model)   #   -> 0 : hide
         rt.refresh_review_toolbar(model)   # 0 -> 1 : show, NO re-dock
