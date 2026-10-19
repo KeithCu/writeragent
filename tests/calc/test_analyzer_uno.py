@@ -22,8 +22,11 @@ def test_analyzer_get_sheet_summary(ctx, doc):
     bridge = CalcBridge(doc)
     analyzer = SheetAnalyzer(bridge)
     active_sheet.getCellByPosition(0, 0).setString("Header")
+    active_sheet.getCellByPosition(1, 0).setValue(2024)
     active_sheet.getCellByPosition(0, 5).setString("TestEnd")
     summary = analyzer.get_sheet_summary()
 
     assert summary.get("sheet_name") == active_sheet.getName(), "Sheet name mismatch"
-    assert summary.get("row_count") >= 6, f"Row count mismatch: {summary}"
+    assert (summary.get("row_count") or 0) >= 6, f"Row count mismatch: {summary}"
+    assert "2024" in summary.get("headers", []), f"Header 2024 not found in: {summary}"
+

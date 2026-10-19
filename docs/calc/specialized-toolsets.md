@@ -44,8 +44,9 @@ When sending a user query in Calc, WriterAgent dynamically builds a structured d
   - User-visible sheet names (leading `_` tabs such as xlsx→ods `__Anonymous_Sheet_DB__*` are omitted; they stay in the workbook — delete-at-trial-open is parked).
   - Active sheet name (if the active tab is an internal `_` sheet, the first user-visible sheet is summarized instead).
   - Used range dimensions (e.g., `A1:F50`, total rows × columns).
-  - Column headers (first row of the used range).
-  - Active selection range (e.g., `B2:D10`) and, for small selections, a textual preview of selected cell values.
+  - Column headers (first row of the used range, capped at 100 columns with `(+N more columns)`).
+  - Active selection range (e.g., `B2:D10`) and, for small selections, a textual preview of selected cell values (omitted with `Selection omitted: active tab is an internal sheet.` when the active tab is an internal `_` sheet).
+  - Finished context strings are capped at `max_context` (default `CHAT_DOCUMENT_CONTEXT_MAX_CHARS` = 8000), truncated with `\n\n[... document truncated ...]`.
 - **Context Refresh**: Context is regenerated on every chat send so the LLM always sees the current sheet state.
 - **`list_sheets` / `get_sheet_summary`**: Same leading-`_` omit rule. The sheets are not deleted.
 
