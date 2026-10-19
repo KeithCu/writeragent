@@ -8,6 +8,7 @@ from plugin.draw.transform_schema import (
     AUTOLAYOUT_BY_NAME,
     AUTOLAYOUT_ID,
     COLLABORA_TRANSFORM_DSL_URL,
+    coerce_int,
     get_slide_commands,
     is_deferred_command_key,
     parse_slide_index_token,
@@ -421,5 +422,56 @@ def test_validate_slide_commands_uno_command_and_edit_text_object():
     )
     assert err is not None and "UnoCommand requires a string" in err
     assert idx == 0
+
+
+def test_coerce_int():
+    assert coerce_int(2) == 2
+    assert coerce_int("2") == 2
+    assert coerce_int(" 2 ") == 2
+    assert coerce_int(2.0) == 2
+    assert coerce_int("2.0") == 2
+    assert coerce_int(0) == 0
+    assert coerce_int("0") == 0
+    assert coerce_int(-1) == -1
+    assert coerce_int("-1") == -1
+
+    assert coerce_int(True) is None
+    assert coerce_int(False) is None
+    assert coerce_int(2.5) is None
+    assert coerce_int("2.5") is None
+    assert coerce_int("abc") is None
+    assert coerce_int(None) is None
+    assert coerce_int([]) is None
+    assert coerce_int({}) is None
+
+
+def test_validate_slide_commands_coerces_ints():
+    valid_payloads = [
+        {"Transforms": {"SlideCommands": [{"InsertMasterSlide": "2"}]}},
+        {"Transforms": {"SlideCommands": [{"InsertMasterSlide": 2.0}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide": "2"}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide": 2.0}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide.0": "2"}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide.0": 2.0}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": ["2"]}]}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [2.0]}]}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectParagraph": "2"}]}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectParagraph": 2.0}]}]}},
+    ]
+    for p in valid_payloads:
+        err, idx = validate_slide_commands(p)
+        assert err is None and idx is None, f"expected valid for {p}, got {err}"
+
+    invalid_payloads = [
+        {"Transforms": {"SlideCommands": [{"InsertMasterSlide": True}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide": True}]}},
+        {"Transforms": {"SlideCommands": [{"MoveSlide.0": True}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectText": [True]}]}]}},
+        {"Transforms": {"SlideCommands": [{"EditTextObject.0": [{"SelectParagraph": True}]}]}},
+    ]
+    for p in invalid_payloads:
+        err, idx = validate_slide_commands(p)
+        assert err is not None and idx == 0, f"expected error for {p}, got {err}"
+
 
 

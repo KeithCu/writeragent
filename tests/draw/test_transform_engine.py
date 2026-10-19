@@ -383,46 +383,46 @@ def test_select_text_forms_and_caret_bold() -> None:
 
     # [] selects whole text
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [])
+    _, mode, _ = eng._select_text(xtext, cursor, [])
     assert cursor.getString() == full_text
     assert mode == "all"
 
     # [para] selects that paragraph
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [1])
+    _, mode, _ = eng._select_text(xtext, cursor, [1])
     assert cursor.getString() == "second paragraph"
     assert mode == "range"
 
     # [para, char] moves to caret and selects nothing
     cursor = _OffsetCursor(full_text)
-    selected, mode = eng._select_text(xtext, cursor, [0, 6])
+    selected, mode, _ = eng._select_text(xtext, cursor, [0, 6])
     assert selected.getString() == ""
     assert mode == "caret"
 
     # [para, char, endPara] selects from [para, char] through end of endPara
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6, 1])
+    _, mode, _ = eng._select_text(xtext, cursor, [0, 6, 1])
     assert cursor.getString() == "paragraph\nsecond paragraph"
     assert mode == "range"
 
     # [para, char, endPara, endChar] on same paragraph: absolute span (endChar - char)
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6, 0, 15])
+    _, mode, _ = eng._select_text(xtext, cursor, [0, 6, 0, 15])
     assert cursor.getString() == "paragraph"
     assert mode == "range"
 
     # [para, char, endPara, endChar] across paragraphs
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6, 1, 6])
+    _, mode, _ = eng._select_text(xtext, cursor, [0, 6, 1, 6])
     assert cursor.getString() == "paragraph\nsecond"
     assert mode == "range"
 
     # Caret plus .uno:Bold does not dispatch and does not set CharWeight
     cursor = _OffsetCursor(full_text)
-    _, mode = eng._select_text(xtext, cursor, [0, 6])
+    _, mode, _ = eng._select_text(xtext, cursor, [0, 6])
     shape = _Shape(full_text)
     res = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode=mode)
-    assert res is False
+    assert res is not None
     assert calls == []
     assert controller.selected == []
     assert "CharWeight" not in cursor.props
@@ -451,11 +451,11 @@ def test_select_text_caret_form_collapses_on_impress_quirk() -> None:
             self.anchor = self.pos
 
     raw_cursor = _ImpressQuirkCursor(full_text)
-    selected, mode = eng._select_text(xtext, raw_cursor, [0, 6])
+    selected, mode, _ = eng._select_text(xtext, raw_cursor, [0, 6])
     assert mode == "caret"
     assert selected.isCollapsed()
     # getString may still be the full shape on Impress; range form still works.
-    range_selected, range_mode = eng._select_text(xtext, selected, [1])
+    range_selected, range_mode, _ = eng._select_text(xtext, selected, [1])
     assert range_mode == "range"
     assert range_selected.getString() == "second paragraph"
 
@@ -971,13 +971,13 @@ def test_get_string_raises_in_selection_mode_none_does_not_dispatch() -> None:
     shape = _Shape("some text")
 
     res_none = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="none")
-    assert res_none is False
+    assert res_none is not None
     assert calls == []
     assert controller.selected == []
     assert any("failed to read text cursor" in w for w in eng.warnings)
 
     res_range = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="range")
-    assert res_range is True
+    assert res_range is None
     assert cursor.props.get("CharWeight") == 150.0
     assert calls == []
     assert controller.selected == []
@@ -1113,7 +1113,7 @@ def test_move_slide_rollback_error_caught_in_apply() -> None:
 def test_uno_command_invalid_json_arguments_warns_and_does_not_dispatch() -> None:
     eng, calls, controller = _dispatch_engine()
     res = eng._dispatch_uno_string(".uno:Color {not-json}")
-    assert res is False
+    assert res is not None
     assert calls == []
     assert any("invalid JSON arguments" in w for w in eng.warnings)
 
@@ -1151,14 +1151,14 @@ def test_whole_shape_selection_formats_cursor_and_unmapped_dispatches() -> None:
 
     # Mapped UNO command (.uno:Bold) writes directly to cursor without dispatch or shape selection
     ok = eng._dispatch_uno_string(".uno:Bold", cursor=cursor, shape=shape, selection_mode="all")
-    assert ok is True
+    assert ok is None
     assert cursor.props.get("CharWeight") == 150.0
     assert calls == []
     assert controller.selected == []
 
     # Unmapped UNO command (.uno:DefaultBullet) dispatches via controller and DispatchHelper
     ok_bullet = eng._dispatch_uno_string(".uno:DefaultBullet", cursor=cursor, shape=shape, selection_mode="all")
-    assert ok_bullet is True
+    assert ok_bullet is None
     assert calls == [".uno:DefaultBullet"]
     assert controller.selected == [shape]
 
@@ -1404,6 +1404,44 @@ def test_set_shape_text_normalizes_crlf_without_cr() -> None:
     assert fake_text.paragraphs == ["first", "second"]
     assert "\r" not in fake_text.paragraphs[0]
     assert "\r" not in fake_text.paragraphs[1]
+
+
+def test_select_text_failure_reports_own_error_not_stale_warning() -> None:
+    # A prior warning in self.warnings must not leak as the error message when SelectText fails.
+    cursor = _OffsetCursor("first paragraph\nsecond paragraph")
+    shape = _MockShapeWithCursor(cursor)
+    page = _MockPageWithShapes([shape])
+    eng, _, _ = _engine(0, 1)
+    eng.pages = SimpleNamespace(getCount=lambda: 1, getByIndex=lambda idx: page)
+    eng.warnings.append("Unrelated prior warning")
+
+    res = eng.apply(
+        {
+            "Transforms": {
+                "SlideCommands": [
+                    {
+                        "EditTextObject.0": [
+                            {"SelectText": [99]},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    assert res["status"] == "error"
+    assert "Unrelated prior warning" not in res["message"]
+    assert "SelectText" in res["message"]
+
+
+def test_select_text_missing_cursor_reports_own_error_with_prior_warning() -> None:
+    eng, _, _ = _engine(0, 1)
+    eng.warnings.append("Unrelated prior warning")
+    cursor, mode, err = eng._select_text(None, None, [0])
+    assert mode is None
+    assert err is not None
+    assert "Unrelated prior warning" not in err
+    assert "SelectText" in err
+
 
 
 

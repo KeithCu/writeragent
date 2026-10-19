@@ -58,7 +58,7 @@ def test_select_text_same_paragraph_absolute_span(ctx, doc):
     eng = SlideCommandEngine(tctx)
     xtext = shape.getText()
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 1, 0, 3])
+    selected, mode, _ = eng._select_text(xtext, cursor, [0, 1, 0, 3])
     # Absolute span from index 1 to 3 covers 'el' (length 2), not 'ell' (length 3).
     assert selected.getString() == "el"
     assert mode == "range"
@@ -82,21 +82,21 @@ def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
     xtext = shape.getText()
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [])
+    selected, mode, _ = eng._select_text(xtext, cursor, [])
     assert mode == "all", f"expected mode 'all', got {mode!r}"
     assert normalize_linebreaks(selected.getString()) == "first paragraph\nsecond paragraph\nthird paragraph", (
         f"unexpected selection: {selected.getString()!r}"
     )
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [1])
+    selected, mode, _ = eng._select_text(xtext, cursor, [1])
     assert mode == "range", f"expected mode 'range', got {mode!r}"
     assert normalize_linebreaks(selected.getString()) == "second paragraph", (
         f"unexpected selection: {selected.getString()!r}"
     )
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 6])
+    selected, mode, _ = eng._select_text(xtext, cursor, [0, 6])
     assert mode == "caret", f"expected mode 'caret', got {mode!r}"
     # Impress TextCursor.getString() often returns the whole shape even for a caret.
     is_collapsed = getattr(selected, "isCollapsed", None)
@@ -106,30 +106,33 @@ def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
         raise AssertionError(f"unexpected caret selection: {selected.getString()!r}")
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 6, 1])
+    selected, mode, _ = eng._select_text(xtext, cursor, [0, 6, 1])
     assert mode == "range", f"expected mode 'range', got {mode!r}"
     assert normalize_linebreaks(selected.getString()) == "paragraph\nsecond paragraph", (
         f"unexpected selection: {selected.getString()!r}"
     )
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 6, 1, 6])
+    selected, mode, _ = eng._select_text(xtext, cursor, [0, 6, 1, 6])
     assert mode == "range", f"expected mode 'range', got {mode!r}"
     assert normalize_linebreaks(selected.getString()) == "paragraph\nsecond", (
         f"unexpected selection: {selected.getString()!r}"
     )
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [99])
+    selected, mode, err = eng._select_text(xtext, cursor, [99])
     assert mode is None, f"expected mode None, got {mode!r}"
+    assert err is not None
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 0, 99])
+    selected, mode, err = eng._select_text(xtext, cursor, [0, 0, 99])
     assert mode is None, f"expected mode None, got {mode!r}"
+    assert err is not None
 
     cursor = xtext.createTextCursor()
-    selected, mode = eng._select_text(xtext, cursor, [0, 0, 0, 99])
+    selected, mode, err = eng._select_text(xtext, cursor, [0, 0, 0, 99])
     assert mode is None, f"expected mode None, got {mode!r}"
+    assert err is not None
 
 
 @native_test

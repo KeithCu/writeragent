@@ -250,6 +250,27 @@ def get_slide_commands(transform_obj: dict[str, Any]) -> list[dict[str, Any]]:
     return [c for c in cmds if isinstance(c, dict)]
 
 
+def coerce_int(val: Any) -> int | None:
+    """Coerce an int, integral float, or digit string to int. Reject bools."""
+    if isinstance(val, bool) or val is None:
+        return None
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        return int(val) if val.is_integer() else None
+    if isinstance(val, str):
+        s = val.strip()
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                f = float(s)
+                return int(f) if f.is_integer() else None
+            except ValueError:
+                return None
+    return None
+
+
 def parse_slide_index_token(val: Any) -> tuple[str, int | None] | None:
     """Parse slide index token into ('current', None), ('last', None), ('index', N), or None."""
     if val == "" or val is None:
@@ -348,7 +369,7 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
                 return "%s requires a string" % key, idx
 
         elif key in ("InsertMasterSlide", "MoveSlide") or cmd_kind == "MoveSlide":
-            if isinstance(val, bool) or not isinstance(val, int):
+            if coerce_int(val) is None:
                 return "Invalid %s index: %r" % (key, val), idx
 
         elif key in ("ChangeLayout", "ChangeLayoutByName"):
@@ -383,32 +404,36 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
                         return "SelectText requires a list or empty array: %r" % (sub_v,), idx
                     if len(sub_v) > 4:
                         return "SelectText requires 0 to 4 integers: %r" % (sub_v,), idx
+                    int_sub_v: list[int] = []
                     for item in sub_v:
-                        if isinstance(item, bool) or not isinstance(item, int):
+                        coerced = coerce_int(item)
+                        if coerced is None:
                             return "Invalid non-int element in SelectText: %r" % (item,), idx
-                    n = len(sub_v)
+                        int_sub_v.append(coerced)
+                    n = len(int_sub_v)
                     if n == 1:
-                        if sub_v[0] < 0:
-                            return "SelectText: negative paragraph index %d" % sub_v[0], idx
+                        if int_sub_v[0] < 0:
+                            return "SelectText: negative paragraph index %d" % int_sub_v[0], idx
                     elif n == 2:
-                        if sub_v[0] < 0 or sub_v[1] < 0:
-                            return "SelectText: negative index [%d, %d]" % (sub_v[0], sub_v[1]), idx
+                        if int_sub_v[0] < 0 or int_sub_v[1] < 0:
+                            return "SelectText: negative index [%d, %d]" % (int_sub_v[0], int_sub_v[1]), idx
                     elif n == 3:
-                        p, c, ep = sub_v[0], sub_v[1], sub_v[2]
+                        p, c, ep = int_sub_v[0], int_sub_v[1], int_sub_v[2]
                         if p < 0 or c < 0 or ep < 0 or ep < p:
                             return "SelectText: negative or invalid span [%d, %d, %d]" % (p, c, ep), idx
                     elif n == 4:
-                        p, start, ep, end_char = sub_v[0], sub_v[1], sub_v[2], sub_v[3]
+                        p, start, ep, end_char = int_sub_v[0], int_sub_v[1], int_sub_v[2], int_sub_v[3]
                         if p < 0 or start < 0 or ep < 0 or end_char < 0:
                             return "SelectText: negative coordinates [%d, %d, %d, %d]" % (p, start, ep, end_char), idx
                         if ep < p or (ep == p and end_char < start):
                             return "SelectText: negative span [%d, %d] to [%d, %d]" % (p, start, ep, end_char), idx
 
                 elif sub_k == "SelectParagraph":
-                    if isinstance(sub_v, bool) or not isinstance(sub_v, int):
+                    coerced_p = coerce_int(sub_v)
+                    if coerced_p is None:
                         return "Invalid SelectParagraph index: %r" % (sub_v,), idx
-                    if sub_v < 0:
-                        return "SelectParagraph: negative paragraph index %d" % sub_v, idx
+                    if coerced_p < 0:
+                        return "SelectParagraph: negative paragraph index %d" % coerced_p, idx
 
                 elif sub_k == "InsertText":
                     if not isinstance(sub_v, str):
