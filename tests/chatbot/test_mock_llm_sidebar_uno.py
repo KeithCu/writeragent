@@ -1712,7 +1712,7 @@ def _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener
     """
     from plugin.chatbot.sidebar_test_hooks import (
         adopt_runtime_send_listeners,
-        close_component,
+        close_calc_document,
         current_component,
         desktop_from_ctx,
         find_calc_component,
@@ -1725,7 +1725,7 @@ def _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener
         # task on the half-built window (Window::GetCursor, ScTabViewShell::Deactivate).
         wait_for_chat_dialog_controls(ctx, timeout=10.0, doc=calc)
         time.sleep(0.5)
-    close_component(calc)
+    close_calc_document(ctx, calc)
     # Wait for the Calc window to finish closing before focusing Writer. Focusing
     # right away crashed LibreOffice once (Calc's half-closed view got the
     # deactivate call, TabBar::GetPageCount in the E23 stack).
@@ -3462,7 +3462,7 @@ def _m_ramble_in_calc_then_close(ctx, case: str, before_close: Callable[[], None
 
     Calc is used so the Writer session the other cases share survives the close.
     """
-    from plugin.chatbot.sidebar_test_hooks import close_component, current_component, open_calc_document
+    from plugin.chatbot.sidebar_test_hooks import close_calc_document, current_component, open_calc_document
 
     _reset_mock_runtime()
     assert _session is not None
@@ -3480,7 +3480,7 @@ def _m_ramble_in_calc_then_close(ctx, case: str, before_close: Callable[[], None
         calc_transcript = _transcript()
         if before_close is not None:
             before_close()
-        close_component(calc)
+        close_calc_document(ctx, calc)
         calc = None
         # The mock only stops writing when the client hangs up, so 0 here means the stream was cancelled.
         assert _m_wait_open_streams(lambda n: n == 0, timeout=8.0), (
@@ -3711,7 +3711,7 @@ def test_r4_stop_mid_stream(ctx):
 def test_r5_close_doc_pending_tool(ctx):
     """Closing the document while its chat turn is in flight settles cleanly; Writer chat still works."""
     from plugin.chatbot.sidebar_test_hooks import (
-        close_component,
+        close_calc_document,
         current_component,
         open_calc_document,
         set_query_text_via_controls,
@@ -3734,7 +3734,7 @@ def test_r5_close_doc_pending_tool(ctx):
         uno_click(controls["send"])
         assert _wait_stop_enabled(timeout=8.0), "R5 Calc turn never started"
         calc_transcript = _transcript()
-        close_component(calc)
+        close_calc_document(ctx, calc)
         calc = None
         time.sleep(2.0)
         assert "traceback" not in calc_transcript.lower(), f"R5 traceback in transcript: {calc_transcript[-400:]}"

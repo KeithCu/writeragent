@@ -1049,6 +1049,10 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(_load_visible_calc_factory, sl=sl)
         _write_debug_snapshot(sl)
         return
+    if op == "CLOSE_CALC":
+        _post_to_soffice_vcl(_close_visible_calc, sl=sl)
+        _write_debug_snapshot(sl)
+        return
     # Packet O: fake vision backend inside soffice (the OCR venv is not installed in CI).
     if op.startswith("FAKE_VISION_"):
         _apply_fake_vision(op[len("FAKE_VISION_"):].lower())
@@ -1558,6 +1562,36 @@ def close_component(doc: Any) -> None:
         best_effort(lambda: doc.close(True), "close component")
     elif hasattr(doc, "dispose"):
         best_effort(doc.dispose, "dispose component")
+
+
+def _close_visible_calc() -> None:
+    """Close every open Calc on soffice VCL (run via :func:`_post_to_soffice_vcl`)."""
+    from plugin.framework.uno_context import get_ctx
+
+    for doc in list(iter_desktop_components(get_ctx())):
+        if component_is_calc(doc):
+            close_component(doc)
+
+
+def close_calc_document(ctx: Any, doc: Any, *, timeout: float = 10.0) -> None:
+    """Close the visible Calc on soffice's main thread and wait until it is gone.
+
+    Tip: a URP doc.close() runs on a soffice URP thread. On macOS that thread's
+    autoreleased AppKit menus are freed when it exits, off the main thread, and
+    LibreOffice aborts (NSMenu dealloc, R5). On Linux it raced VCL idle tasks (E23).
+    """
+    _require_debug()
+    if doc is None:
+        return
+    try:
+        execute_debug_sidebar_op("CLOSE_CALC", ctx=ctx)
+    except Exception:
+        log.debug("CLOSE_CALC dispatch failed", exc_info=True)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() < deadline and find_calc_component(ctx) is not None:
+        time.sleep(0.1)
+    if find_calc_component(ctx) is not None:
+        close_component(doc)
 
 
 def _load_visible_calc_factory() -> None:
