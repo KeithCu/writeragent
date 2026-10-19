@@ -343,7 +343,9 @@ def _visible_portions(
             chunk = portion.getString()
         except Exception:
             continue
-        if chunk:
+        # A Frame portion (as-character formula/object) has no text but html export
+        # still needs it in place; it adds zero to offsets.
+        if chunk or portion_type == "Frame":
             yield portion, chunk
 
 
