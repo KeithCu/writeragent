@@ -167,7 +167,17 @@ def _index_outside_paragraphs(
     return 0
 
 
-def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj: Any = None) -> int:
+def paragraph_entries(para_ranges: list[Any]) -> list[tuple[int, Any]]:
+    """Filtered enumeration entries for text paragraphs."""
+    return [(idx, para) for idx, para in enumerate(para_ranges) if _is_text_paragraph(para)]
+
+
+def find_paragraph_for_range(
+    match_range: Any,
+    para_ranges: list[Any],
+    text_obj: Any = None,
+    entries: list[tuple[int, Any]] | None = None,
+) -> int:
     # text_obj is Any (not Any | None): None is a valid default, but typing it
     # optional made basedpyright treat compareRegionStarts as optional access.
     """Return the enumeration index of the element that contains *match_range*.
@@ -185,7 +195,8 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
         if text_obj is None:
             text_obj = match_range.getText()
         match_start = match_range.getStart()
-        entries = [(idx, para) for idx, para in enumerate(para_ranges) if _is_text_paragraph(para)]
+        if entries is None:
+            entries = paragraph_entries(para_ranges)
         low = 0
         high = len(entries) - 1
 

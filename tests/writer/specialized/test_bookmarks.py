@@ -543,3 +543,68 @@ def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
         assert key_b not in _PENDING_STRIPS
         assert "_mcp_b_old" not in doc_b.bookmarks
 
+
+def test_untracked_is_modified_raises_does_not_call_set_modified():
+    doc = MagicMock()
+    doc.isModified.side_effect = RuntimeError("cannot read modified")
+    doc.getUndoManager.return_value = MagicMock()
+    svc = BookmarkService()
+    with svc._untracked(doc):
+        pass
+    doc.setModified.assert_not_called()
+
+
+def test_strip_and_restore_after_save_failed_is_modified_does_not_call_set_modified(monkeypatch):
+    from plugin.writer.specialized.bookmarks import _PENDING_STRIPS
+
+    doc = MagicMock()
+    doc.isModified.side_effect = RuntimeError("cannot read modified")
+    doc.getUndoManager.return_value = MagicMock()
+    doc.getBookmarks.return_value.getElementNames.return_value = []
+    svc = BookmarkService()
+    monkeypatch.setattr(svc, "_doc_key", lambda d: "test_doc_key")
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.is_cacheable_doc_key", lambda k: True)
+    monkeypatch.setattr(svc, "get_mcp_bookmark_map", lambda d: {0: "_mcp_heading"})
+
+    try:
+        svc.strip_for_save(doc)
+        rec = _PENDING_STRIPS.get("test_doc_key")
+        assert rec is not None
+        assert rec.was_modified is None
+
+        svc.restore_after_save(doc, saved=False)
+        doc.setModified.assert_not_called()
+    finally:
+        _PENDING_STRIPS.pop("test_doc_key", None)
+
+
+def test_bookmark_list_isolates_bad_bookmark():
+    doc = MagicMock()
+    bookmarks = MagicMock()
+    doc.getBookmarks.return_value = bookmarks
+    bookmarks.getElementNames.return_value = ["good_bm", "bad_bm"]
+
+    good_bm = MagicMock()
+    good_anchor = MagicMock()
+    good_anchor.getString.return_value = "Anchor text here"
+    good_bm.getAnchor.return_value = good_anchor
+
+    bad_bm = MagicMock()
+    bad_bm.getAnchor.side_effect = RuntimeError("damaged anchor")
+
+    def get_by_name(name):
+        if name == "good_bm":
+            return good_bm
+        return bad_bm
+
+    bookmarks.getByName.side_effect = get_by_name
+
+    ctx = MagicMock(doc=doc)
+    res = BookmarkList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 2
+    assert res["bookmarks"][0] == {"name": "good_bm", "text": "Anchor text here"}
+    assert res["bookmarks"][1]["name"] == "bad_bm"
+    assert res["bookmarks"][1]["stale"] is True
+    assert "damaged anchor" in res["bookmarks"][1]["error"]
+

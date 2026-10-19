@@ -16,13 +16,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer comment / annotation tools."""
 
+import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
+from plugin.framework.errors import reraise_if_disposed
 import uno
 
 from plugin.framework.tool import ToolBase
 from ..specialized_base import ToolWriterCommentBase
+
+log = logging.getLogger("writeragent.writer.comments")
 
 
 class CommentList(ToolWriterCommentBase):
@@ -40,6 +44,10 @@ class CommentList(ToolWriterCommentBase):
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
+        from plugin.doc.paragraph_search import paragraph_entries
+
+        entries = paragraph_entries(para_ranges)
+        label_cache: dict[int, str] = {}
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
@@ -50,7 +58,9 @@ class CommentList(ToolWriterCommentBase):
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
 
-            entry = _read_annotation(field, para_ranges, text_obj, doc_svc, doc=doc)
+            entry = _read_annotation(
+                field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+            )
 
             if author_filter:
                 af = (author_filter or "").lower()
@@ -369,6 +379,10 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
     text_obj = doc.getText()
+    from plugin.doc.paragraph_search import paragraph_entries
+
+    entries = paragraph_entries(para_ranges)
+    label_cache: dict[int, str] = {}
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
     tasks = []
@@ -376,7 +390,10 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue
-        content = field.getPropertyValue("Content") or ""
+        try:
+            content = field.getPropertyValue("Content") or ""
+        except Exception:
+            content = ""
         matched_prefix = None
         for prefix in _WORKFLOW_TASK_PREFIXES:
             if content.startswith(prefix):
@@ -386,12 +403,32 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
             continue
         if prefix_filter and matched_prefix != prefix_filter:
             continue
-        if unresolved_only and field.getPropertyValue("Resolved"):
-            continue
-        entry = _read_annotation(field, para_ranges, text_obj, doc_svc, doc=doc)
+        if unresolved_only:
+            try:
+                if field.getPropertyValue("Resolved"):
+                    continue
+            except Exception:
+                pass
+        entry = _read_annotation(
+            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+        )
         entry["prefix"] = matched_prefix
         tasks.append(entry)
     return {"status": "ok", "tasks": tasks, "count": len(tasks)}
+
+
+def _parse_workflow_content(content: str) -> list[tuple[str | None, str]]:
+    """Parse workflow lines into (key, value) pairs, with key=None for bare lines."""
+    items: list[tuple[str | None, str]] = []
+    for line in content.splitlines():
+        if ":" in line:
+            key, _sep, value = line.partition(":")
+            items.append((key.strip(), value.strip()))
+        else:
+            stripped = line.strip()
+            if stripped:
+                items.append((None, stripped))
+    return items
 
 
 def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
@@ -406,11 +443,7 @@ def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
         if author != "MCP-WORKFLOW":
             continue
         content = field.getPropertyValue("Content") or ""
-        workflow = {}
-        for line in content.splitlines():
-            if ":" in line:
-                key, _sep, value = line.partition(":")
-                workflow[key.strip()] = value.strip()
+        workflow = {k: v for k, v in _parse_workflow_content(content) if k is not None}
         return {"status": "ok", "workflow": workflow}
     return {"status": "ok", "workflow": None}
 
@@ -457,9 +490,10 @@ def _comment_check_stop(ctx: Any) -> dict[str, Any]:
         author = field.getPropertyValue("Author") or ""
         resolved = field.getPropertyValue("Resolved")
         if author == "MCP-WORKFLOW" and content:
-            lower = content.lower()
-            if "stop" in lower or "pause" in lower:
-                workflow_stop = True
+            for _key, val in _parse_workflow_content(content):
+                if val.lower() in ("stop", "pause"):
+                    workflow_stop = True
+                    break
         if not resolved and content:
             upper = content.strip().upper()
             if upper.startswith("STOP") or upper.startswith("CANCEL"):
@@ -481,6 +515,7 @@ class CommentScanTasks(ToolWriterCommentBase):
         "required": [],
     }
     uno_services: list[str] | None = _COMMENT_UNO
+    is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_scan_tasks(ctx, kwargs)
@@ -518,9 +553,10 @@ class CommentWorkflowSet(ToolWriterCommentBase):
 class CommentCheckStop(ToolWriterCommentBase):
     name: str | None = "comment_check_stop"
     intent: str | None = "review"
-    description: str = "Detect STOP/CANCEL comments or workflow stop/pause in the MCP-WORKFLOW dashboard."
+    description: str = "Detect STOP/CANCEL comments or a dashboard value exactly equal to stop or pause in the MCP-WORKFLOW dashboard."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = _COMMENT_UNO
+    is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_check_stop(ctx)
@@ -617,57 +653,75 @@ def _read_annotation(
     text_obj: Any,
     doc_svc: Any,
     doc: Any = None,
+    entries: Any = None,
+    label_cache: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     from plugin.framework.uno_context import uno_same
     from plugin.writer.search import describe_match_location
 
     entry: dict[str, Any] = {}
-    for prop, key in _ANNOTATION_PROPERTIES:
-        val = field.getPropertyValue(prop)
-        if key in ("author", "content") and val is None:
-            val = ""
-        entry[key] = val
+    name_read: str | None = None
+    try:
+        for prop, key in _ANNOTATION_PROPERTIES:
+            val = field.getPropertyValue(prop)
+            if key in ("author", "content") and val is None:
+                val = ""
+            entry[key] = val
+            if key == "name" and val:
+                name_read = val
 
-    dt = field.getPropertyValue("DateTimeValue")
-    if dt is not None:
-        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-            getattr(dt, "Year", 0),
-            getattr(dt, "Month", 0),
-            getattr(dt, "Day", 0),
-            getattr(dt, "Hours", 0),
-            getattr(dt, "Minutes", 0),
-        )
-    else:
-        entry["date"] = ""
+        dt = field.getPropertyValue("DateTimeValue")
+        if dt is not None:
+            entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
+                getattr(dt, "Year", 0),
+                getattr(dt, "Month", 0),
+                getattr(dt, "Day", 0),
+                getattr(dt, "Hours", 0),
+                getattr(dt, "Minutes", 0),
+            )
+        else:
+            entry["date"] = ""
 
-    # getAnchor().getString() is often empty (the anchor reads as a point even for
-    # spanning comments), so fall back to the enclosing paragraph text and say so via
-    # anchor_is_paragraph_context.
-    anchor = field.getAnchor()
-    preview = ""
-    if anchor is not None:
-        entry["location"] = describe_match_location(anchor, doc)
-        doc_text = doc.getText() if doc is not None else text_obj
-        try:
-            anchor_text = anchor.getText()
-        except Exception:
-            anchor_text = None
-        if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
-            entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        # getAnchor().getString() is often empty (the anchor reads as a point even for
+        # spanning comments), so fall back to the enclosing paragraph text and say so via
+        # anchor_is_paragraph_context.
+        anchor = field.getAnchor()
+        preview = ""
+        if anchor is not None:
+            entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
+            doc_text = text_obj
+            try:
+                anchor_text = anchor.getText()
+            except Exception:
+                anchor_text = None
+            if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
+                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                from plugin.doc.paragraph_search import confirm_paragraph_index
 
-        try:
-            preview = (anchor.getString() or "")[:80]
-        except Exception:
-            preview = ""
-        if not preview:
-            from plugin.writer.search import enclosing_paragraph_text
+                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                if placed is not None:
+                    entry["paragraph_index"] = placed
 
-            ptxt = (enclosing_paragraph_text(anchor) or "").strip()
-            if ptxt:
-                preview = ptxt[:120]
-                entry["anchor_is_paragraph_context"] = True
-    else:
-        entry["location"] = "body"
-    entry["anchor_preview"] = preview
-    return entry
+            try:
+                preview = (anchor.getString() or "")[:80]
+            except Exception:
+                preview = ""
+            if not preview:
+                from plugin.writer.search import enclosing_paragraph_text
+
+                ptxt = (enclosing_paragraph_text(anchor) or "").strip()
+                if ptxt:
+                    preview = ptxt[:120]
+                    entry["anchor_is_paragraph_context"] = True
+        else:
+            entry["location"] = "body"
+        entry["anchor_preview"] = preview
+        return entry
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("Failed to read annotation: %s", exc)
+        err_entry: dict[str, Any] = {"error": str(exc), "stale": True}
+        if name_read is not None:
+            err_entry["name"] = name_read
+        return err_entry

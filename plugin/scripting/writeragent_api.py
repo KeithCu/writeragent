@@ -633,7 +633,7 @@ class _CommentProxy:
         return _rpc_call("add_cell_comment", cell=cell, text=text, sheet=sheet)
 
     def check_stop(self) -> dict[str, Any]:
-        """Detect STOP/CANCEL comments or workflow stop/pause in the MCP-WORKFLOW dashboard."""
+        """Detect STOP/CANCEL comments or a dashboard value exactly equal to stop or pause in the MCP-WORKFLOW dashboard."""
         return _rpc_call("comment_check_stop")
 
     def delete(self, *, name: str | None = None, author: str | None = None) -> dict[str, Any]:
@@ -983,13 +983,14 @@ error = _ErrorProxy()
 class _FieldProxy:
     """Proxy for field tools."""
 
-    def delete(self, ids: list[Any]) -> dict[str, Any]:
-        """Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove.
+    def delete(self, ids: list[Any], *, snapshot: str | None = None) -> dict[str, Any]:
+        """Deletes one or more text fields from the document by their 1-based ID in the fields_list snapshot. Pass the snapshot string from fields_list to ensure IDs have not shifted.
 
         Args:
             ids (required): A list of 1-based IDs representing the text fields to delete.
+            snapshot (optional): Optional snapshot hash from fields_list to prevent deleting shifted fields.
         """
-        return _rpc_call("fields_delete", ids=ids)
+        return _rpc_call("fields_delete", ids=ids, snapshot=snapshot)
 
     def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
         """Insert a text field at the specified target position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Supports various field types natively provided by LibreOffice. Common field types include: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', 'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', 'EmbeddedObjectCount', and 'Annotation'. Specify optional properties to configure the field.

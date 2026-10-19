@@ -9,6 +9,7 @@
 
 """Writer text fields — specialized fields domain."""
 
+import hashlib
 from typing import Any
 
 from plugin.framework.errors import is_real_disposal
@@ -35,6 +36,48 @@ def _is_annotation(field: Any) -> bool:
         if is_real_disposal(e):
             raise
         return False
+
+
+def _specific_field_service(field: Any) -> str:
+    """Return the most specific com.sun.star.text.textfield.* service name."""
+    try:
+        services = field.getSupportedServiceNames()
+    except Exception:
+        services = ()
+    candidates = [
+        s for s in services
+        if isinstance(s, str) and s.startswith("com.sun.star.text.textfield.")
+    ]
+    narrower = [s for s in candidates if s != "com.sun.star.text.textfield.TextField"]
+    if narrower:
+        return sorted(narrower)[0]
+    if candidates:
+        return candidates[0]
+    return ""
+
+
+def _compute_document_fields_snapshot(doc: Any) -> str:
+    from ..search import describe_match_location
+
+    fields = doc.getTextFields()
+    enum = fields.createEnumeration()
+    hf_labels: dict[int, str] = {}
+    hasher = hashlib.sha256()
+    while enum.hasMoreElements():
+        field = enum.nextElement()
+        if _is_annotation(field):
+            continue
+        service = _specific_field_service(field)
+        try:
+            pres = field.getPresentation(False)
+        except Exception:
+            pres = ""
+        try:
+            loc = describe_match_location(field.getAnchor(), doc, hf_labels)
+        except Exception:
+            loc = "unknown"
+        hasher.update(f"{service}|{pres}|{loc}\n".encode("utf-8"))
+    return hasher.hexdigest()
 
 
 class FieldsUpdateAll(ToolWriterFieldBase):
@@ -76,6 +119,7 @@ class FieldsList(ToolWriterFieldBase):
 
         results = []
         hf_labels: dict[int, str] = {}
+        hasher = hashlib.sha256()
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -117,20 +161,34 @@ class FieldsList(ToolWriterFieldBase):
             except Exception:
                 location = "unknown"
 
+            service = _specific_field_service(field)
+            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
+
             results.append({"id": count, "presentation": presentation, "content": content,
                             "location": location, "properties": props})
 
-        return {"status": "ok", "field_count": count, "fields": results}
+        return {"status": "ok", "field_count": count, "snapshot": hasher.hexdigest(), "fields": results}
 
 
 class FieldsDelete(ToolWriterFieldBase):
     name: str | None = "fields_delete"
     intent: str | None = "edit"
-    description: str = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
+    description: str = (
+        "Deletes one or more text fields from the document by their 1-based ID in the fields_list snapshot. "
+        "Pass the snapshot string from fields_list to ensure IDs have not shifted."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."},
+            "snapshot": {"type": "string", "description": "Optional snapshot hash from fields_list to prevent deleting shifted fields."},
+        },
+        "required": ["ids"],
+    }
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        snapshot = kwargs.get("snapshot")
         raw_ids = kwargs.get("ids")
         if not isinstance(raw_ids, list):
             return self._tool_error("Parameter 'ids' must be a list of integers.")
@@ -149,6 +207,15 @@ class FieldsDelete(ToolWriterFieldBase):
             return self._tool_error("No field IDs provided.", requested_count=0, missing_ids=[])
 
         doc = ctx.doc
+        if snapshot is not None:
+            current_snapshot = _compute_document_fields_snapshot(doc)
+            if current_snapshot != snapshot:
+                return {
+                    "status": "error",
+                    "code": "FIELD_LIST_STALE",
+                    "message": "Document fields have changed since fields_list. Call fields_list again.",
+                    "deleted_count": 0,
+                }
         from ..search import describe_match_location  # deferred, see FieldsList.execute
 
         fields = doc.getTextFields()

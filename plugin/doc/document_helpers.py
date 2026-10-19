@@ -763,9 +763,15 @@ class DocumentService(ServiceBase):
         """Return list of top-level paragraph elements."""
         return _get_paragraph_ranges(doc)
 
-    def find_paragraph_for_range(self, anchor: Any, para_ranges: list[Any], text_obj: Any = None) -> int:
+    def find_paragraph_for_range(
+        self,
+        anchor: Any,
+        para_ranges: list[Any],
+        text_obj: Any = None,
+        entries: list[tuple[int, Any]] | None = None,
+    ) -> int:
         """Return the 0-based paragraph index that contains anchor."""
-        return _find_paragraph_for_range(anchor, para_ranges, text_obj)
+        return _find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
         """Resolve a locator string to a paragraph index.

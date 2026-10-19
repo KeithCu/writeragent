@@ -322,6 +322,12 @@ class ProximityService(ServiceBase):
                 paragraphs.append(entry)
             result["paragraphs"] = paragraphs
 
+        from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
+
+        entries = None
+        if any(k in include for k in ("images", "tables", "frames", "comments")):
+            entries = paragraph_entries(para_ranges)
+
         if "images" in include:
             images = []
             graphics = doc.getGraphicObjects()
@@ -329,8 +335,9 @@ class ProximityService(ServiceBase):
                 try:
                     g = graphics.getByName(name)
                     anchor = g.getAnchor()
-                    pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-                    if start_idx <= pi <= end_idx:
+                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                    if pi is not None and start_idx <= pi <= end_idx:
                         size = g.getPropertyValue("Size")
                         images.append({"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100})
                 except Exception:
@@ -344,8 +351,9 @@ class ProximityService(ServiceBase):
                 try:
                     t = text_tables.getByName(name)
                     anchor = t.getAnchor()
-                    pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-                    if start_idx <= pi <= end_idx:
+                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                    if pi is not None and start_idx <= pi <= end_idx:
                         tables.append({"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
                 except Exception:
                     pass
@@ -358,8 +366,9 @@ class ProximityService(ServiceBase):
                 try:
                     fr = text_frames.getByName(fname)
                     anchor = fr.getAnchor()
-                    pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-                    if start_idx <= pi <= end_idx:
+                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                    if pi is not None and start_idx <= pi <= end_idx:
                         size = fr.getPropertyValue("Size")
                         frames.append({"name": fname, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
                 except Exception:
@@ -387,8 +396,9 @@ class ProximityService(ServiceBase):
                         anchor_text = None
                     if anchor_text is None or not uno_same(anchor_text, text_obj):
                         continue
-                    pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-                    if start_idx <= pi <= end_idx:
+                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                    if pi is not None and start_idx <= pi <= end_idx:
                         author = field.getPropertyValue("Author")
                         content = field.getPropertyValue("Content")
                         resolved_flag = field.getPropertyValue("Resolved")

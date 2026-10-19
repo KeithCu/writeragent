@@ -479,8 +479,12 @@ class ImageList(ToolWriterImageBase):
         doc_svc = getattr(ctx.services, "document", None)
         para_ranges = None
         text_obj = None
+        entries = None
         if not is_calc and not is_draw and doc_svc:
             para_ranges = doc_svc.get_paragraph_ranges(doc)
+            from plugin.doc.paragraph_search import paragraph_entries
+
+            entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
 
         images = []
@@ -503,8 +507,13 @@ class ImageList(ToolWriterImageBase):
                     if not is_calc and not is_draw:
                         try:
                             anchor = graphic.getAnchor()
-                            if doc_svc and anchor is not None:
-                                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                            if doc_svc and anchor is not None and para_ranges is not None:
+                                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                                from plugin.doc.paragraph_search import confirm_paragraph_index
+
+                                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                                if placed is not None:
+                                    paragraph_index = placed
                         except Exception as exc:
                             reraise_if_disposed(exc)
 
@@ -655,7 +664,12 @@ class ImageGetInfo(ToolWriterImageBase):
                 doc_svc = ctx.services.document
                 para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
                 text_obj = ctx.doc.getText()
-                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                from plugin.doc.paragraph_search import confirm_paragraph_index
+
+                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                if placed is not None:
+                    paragraph_index = placed
             except Exception as exc:
                 reraise_if_disposed(exc)
 

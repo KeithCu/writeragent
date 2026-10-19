@@ -42,13 +42,13 @@ _ACTIVE_SAVE_HOOK_KEYS: set[str] = set()
 
 class _PendingStrip:
     names: dict[int, str]
-    was_modified: bool
+    was_modified: bool | None
     doc: Any
     __slots__: ClassVar[tuple[str, ...]] = ("names", "was_modified", "doc")
 
-    def __init__(self, names: dict[int, str], was_modified: bool, doc: Any) -> None:
+    def __init__(self, names: dict[int, str], was_modified: bool | None, doc: Any) -> None:
         self.names = dict(names)
-        self.was_modified = bool(was_modified)
+        self.was_modified = was_modified if was_modified is None else bool(was_modified)
         self.doc = doc
 
 
@@ -136,11 +136,11 @@ class BookmarkService(ServiceBase):
         asked for the heading tree would see "Save changes?" and Ctrl+Z
         would undo a bookmark instead of their last edit.
         """
-        was = False
+        was: bool | None = None
         try:
             was = bool(doc.isModified())
         except Exception:
-            was = False
+            was = None
         manager = None
         try:
             manager = doc.getUndoManager()
@@ -160,10 +160,11 @@ class BookmarkService(ServiceBase):
                         "manager may be left locked",
                         exc_info=True,
                     )
-            try:
-                doc.setModified(was)
-            except Exception:
-                log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
+            if was is not None:
+                try:
+                    doc.setModified(was)
+                except Exception:
+                    log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
     def _read_mcp_bookmark_map_and_names(
         self, doc: Any, para_ranges: list[Any] | None = None, strict: bool = False
@@ -183,13 +184,19 @@ class BookmarkService(ServiceBase):
             names_list = [n for n in names if isinstance(n, str)]
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
+            from plugin.doc.paragraph_search import paragraph_entries
+
+            entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
             for name in names_list:
                 if not name.startswith("_mcp_"):
                     continue
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
-                para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
+                try:
+                    para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                except TypeError:
+                    para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
                 # A failed placement returns 0, so a stale _mcp_ mark must not be
                 # stored as the bookmark for the first paragraph.
                 # confirm_paragraph_index keeps 0 only when the anchor is actually
@@ -420,11 +427,11 @@ class BookmarkService(ServiceBase):
             key = self._doc_key(doc)
             if not is_cacheable_doc_key(key):
                 return
-            was = False
+            was: bool | None = None
             try:
                 was = bool(doc.isModified())
             except Exception:
-                was = False
+                was = None
             try:
                 bm_map = self.get_mcp_bookmark_map(doc)
             except Exception as exc:
@@ -465,7 +472,7 @@ class BookmarkService(ServiceBase):
         try:
             if saved:
                 target.setModified(False)
-            else:
+            elif rec.was_modified is not None:
                 target.setModified(rec.was_modified)
         except Exception:
             log.debug("BookmarkService: post-restore setModified failed", exc_info=True)
@@ -537,9 +544,15 @@ class BookmarkList(ToolWriterBookmarkBase):
         names = bookmarks.getElementNames()
         result = []
         for name in names:
-            bm = bookmarks.getByName(name)
-            anchor_text = bm.getAnchor().getString()
-            result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
+            try:
+                bm = bookmarks.getByName(name)
+                anchor = bm.getAnchor()
+                anchor_text = anchor.getString() if anchor is not None else ""
+                result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("BookmarkList: failed to read bookmark %r: %s", name, exc)
+                result.append({"name": name, "error": str(exc), "stale": True})
         return {"status": "ok", "bookmarks": result, "count": len(result)}
 
 

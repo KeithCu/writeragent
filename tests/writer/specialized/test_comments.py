@@ -38,8 +38,58 @@ def test_comment_workflow_split_tool_names():
     assert comments.CommentWorkflowSet.name == "comment_workflow_set"
     assert comments.CommentCheckStop.name == "comment_check_stop"
     assert comments.CommentWorkflowSet.is_mutation is True
-    assert not getattr(comments.CommentScanTasks, "is_mutation", False)
+    assert comments.CommentScanTasks().detects_mutation() is False
+    assert comments.CommentScanTasks().requires_document_lock() is False
+    assert comments.CommentCheckStop().detects_mutation() is False
+    assert comments.CommentCheckStop().requires_document_lock() is False
     assert not hasattr(comments, "CommentWorkflow")
+
+
+def test_specialized_writer_tools_mutation_and_uno_services_contract():
+    from plugin.writer.specialized import bookmarks, comments, fields, forms
+
+    expected_mutations = {
+        # Comments
+        comments.CommentList: False,
+        comments.CommentScanTasks: False,
+        comments.CommentWorkflowGet: False,
+        comments.CommentCheckStop: False,
+        comments.AddComment: True,
+        comments.CommentDelete: True,
+        comments.CommentResolve: True,
+        comments.CommentWorkflowSet: True,
+        # Bookmarks
+        bookmarks.BookmarkList: False,
+        bookmarks.BookmarkGet: False,
+        bookmarks.BookmarkResolve: False,
+        bookmarks.BookmarkCleanup: True,
+        bookmarks.BookmarkCreate: True,
+        bookmarks.BookmarkDelete: True,
+        bookmarks.BookmarkRename: True,
+        # Fields
+        fields.FieldsList: False,
+        fields.FieldsUpdateAll: True,
+        fields.FieldsDelete: True,
+        fields.FieldsInsert: True,
+        # Forms
+        forms.FormListControls: False,
+        forms.FormCreateControl: True,
+        forms.FormCreate: True,
+        forms.FormGenerate: True,
+        forms.FormEditControl: True,
+        forms.FormDeleteControl: True,
+    }
+
+    form_union = forms._FORM_DOC_SERVICES
+    text_doc = ["com.sun.star.text.TextDocument"]
+
+    for tool_cls, expected_mut in expected_mutations.items():
+        tool = tool_cls()
+        assert tool.detects_mutation() is expected_mut, f"{tool.name} detects_mutation should be {expected_mut}"
+        if tool_cls in (forms.FormListControls, forms.FormCreateControl, forms.FormCreate, forms.FormGenerate, forms.FormEditControl, forms.FormDeleteControl):
+            assert tool.uno_services == form_union, f"{tool.name} uno_services should be form union"
+        else:
+            assert tool.uno_services == text_doc, f"{tool.name} uno_services should be text_doc"
 
 
 def test_workflow_task_prefixes_shared():
@@ -665,5 +715,159 @@ def test_comment_list_disposal_is_document_disposed():
     ctx = MagicMock()
     ctx.doc.getTextFields.side_effect = DocumentDisposedError("gone")
     res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_comment_check_stop_whole_value():
+    from plugin.writer.specialized.comments import _comment_check_stop
+
+    def make_field(author: str, content: str, resolved: bool = False):
+        f = MagicMock()
+        f.supportsService.return_value = True
+        f.getPropertyValue.side_effect = lambda prop: {
+            "Content": content,
+            "Resolved": resolved,
+            "Author": author,
+        }.get(prop, "")
+        return f
+
+    class FakeEnum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    # 1. Nonstop and Stop logging do not trip stop
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+        make_field("MCP-WORKFLOW", "Status: nonstop\nTask: Stop logging"),
+    ])
+    ctx = MagicMock(doc=doc)
+    res = _comment_check_stop(ctx)
+    assert res["should_stop"] is False
+    assert res["workflow_stop"] is False
+
+    # 2. Status: pause trips stop
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+        make_field("MCP-WORKFLOW", "Status: pause"),
+    ])
+    res = _comment_check_stop(ctx)
+    assert res["should_stop"] is True
+    assert res["workflow_stop"] is True
+
+    # 3. Bare stop line trips stop
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+        make_field("MCP-WORKFLOW", "step: 1\nstop"),
+    ])
+    res = _comment_check_stop(ctx)
+    assert res["should_stop"] is True
+    assert res["workflow_stop"] is True
+
+    # 4. Unresolved STOP now comment sets stop_signals
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+        make_field("Reviewer", "STOP now please", resolved=False),
+    ])
+    res = _comment_check_stop(ctx)
+    assert res["should_stop"] is True
+    assert res["workflow_stop"] is False
+    assert len(res["stop_signals"]) == 1
+    assert res["stop_signals"][0]["author"] == "Reviewer"
+
+
+def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
+    from plugin.writer.specialized.comments import _read_annotation
+
+    anchor = MagicMock()
+    anchor.getString.return_value = "hello"
+    text_obj = MagicMock()
+    anchor.getText.return_value = text_obj
+    field = MagicMock()
+    field.getAnchor.return_value = anchor
+    field.getPropertyValue.side_effect = lambda p: {
+        "Author": "User",
+        "Content": "Comment",
+        "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
+    }.get(p, "")
+    doc_svc = MagicMock()
+    doc_svc.find_paragraph_for_range.return_value = 0
+
+    with patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.framework.uno_context.uno_same", return_value=True), \
+         patch("plugin.doc.paragraph_search.confirm_paragraph_index", return_value=None):
+        entry = _read_annotation(field, [], text_obj, doc_svc)
+
+    assert "paragraph_index" not in entry
+
+
+def test_comment_list_isolates_bad_comment():
+    from plugin.writer.specialized.comments import CommentList
+
+    field_good = MagicMock()
+    field_good.supportsService.return_value = True
+    field_good.getPropertyValue.side_effect = lambda p: {
+        "Author": "Alice",
+        "Content": "Looks good",
+        "Name": "c1",
+        "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
+    }.get(p, "")
+    anchor_good = MagicMock()
+    anchor_good.getString.return_value = "good"
+    field_good.getAnchor.return_value = anchor_good
+
+    field_bad = MagicMock()
+    field_bad.supportsService.return_value = True
+    field_bad.getPropertyValue.side_effect = RuntimeError("corrupted comment")
+
+    class FiniteEnum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    doc = MagicMock()
+    doc.getText.return_value = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FiniteEnum([field_bad, field_good])
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    res = CommentList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 2
+    assert res["comments"][0]["stale"] is True
+    assert "corrupted comment" in res["comments"][0]["error"]
+    assert res["comments"][1]["author"] == "Alice"
+
+
+def test_comment_list_propagates_real_disposal_from_item():
+    from plugin.writer.specialized.comments import CommentList
+
+    field_bad = MagicMock()
+    field_bad.supportsService.return_value = True
+    field_bad.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
+
+    class FiniteEnum:
+        def __init__(self, items):
+            self._items = list(items)
+        def hasMoreElements(self):
+            return bool(self._items)
+        def nextElement(self):
+            return self._items.pop(0)
+
+    doc = MagicMock()
+    doc.getText.return_value = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FiniteEnum([field_bad])
+    doc_svc = MagicMock()
+    doc_svc.get_paragraph_ranges.return_value = []
+    ctx = MagicMock(doc=doc)
+    ctx.services.document = doc_svc
+
+    res = CommentList().execute_safe(ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"

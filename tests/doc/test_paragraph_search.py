@@ -175,3 +175,36 @@ def test_find_paragraph_for_range_disposed():
 
     with pytest.raises(DocumentDisposedError):
         find_paragraph_for_range(match_range, [])
+
+
+def test_two_finds_with_shared_entries_calls_supports_service_once():
+    from plugin.doc.paragraph_search import paragraph_entries
+
+    p0 = MagicMock()
+    p0.supportsService.return_value = True
+    p0.getStart.return_value = 0
+    p0.getEnd.return_value = 10
+
+    p1 = MagicMock()
+    p1.supportsService.return_value = True
+    p1.getStart.return_value = 20
+    p1.getEnd.return_value = 30
+
+    elements = [p0, p1]
+    entries = paragraph_entries(elements)
+
+    assert p0.supportsService.call_count == 1
+    assert p1.supportsService.call_count == 1
+
+    text = _TextObj()
+    m1 = _Para(5, 5)
+    m2 = _Para(25, 25)
+
+    idx1 = find_paragraph_for_range(m1, elements, text, entries=entries)
+    idx2 = find_paragraph_for_range(m2, elements, text, entries=entries)
+
+    assert idx1 == 0
+    assert idx2 == 1
+    assert p0.supportsService.call_count == 1
+    assert p1.supportsService.call_count == 1
+
