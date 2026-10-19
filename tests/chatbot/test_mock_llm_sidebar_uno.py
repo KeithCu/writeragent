@@ -328,6 +328,15 @@ def _start_until_stop_enabled(text: str, *, delay_ms: int = 40, timeout: float =
         send_deadline = time.monotonic() + 5.0
         while time.monotonic() <= send_deadline and _send_enabled() is False:
             time.sleep(0.05)
+        if _send_enabled() is False:
+            # The text update can miss the deck; set it again rather than click a
+            # button that still reads Record (that starts a take, not a send).
+            set_query_text_via_controls(controls, text)
+            send_deadline = time.monotonic() + 5.0
+            while time.monotonic() <= send_deadline and _send_enabled() is False:
+                time.sleep(0.05)
+        label = getattr(controls["send"].getModel(), "Label", None)
+        assert label == "Send", "Send button never armed for %r (label %r)" % (text, label)
         uno_click(controls["send"])
     else:
         sl = getattr(_session, "listener", None)
