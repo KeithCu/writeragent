@@ -947,9 +947,9 @@ class _SkipRange:
         return "WHOLE"
 
 
-def test_string_skipping_redline_unreadable_type_uses_whole_string():
-    # What was wrong: a failed RedlineType read was `pass`, so the skip toggle
-    # stayed off and the deleted text was kept in the "accepted" string.
+def test_string_skipping_redline_unreadable_type_returns_prefix():
+    # What was wrong: falling back to the whole string glued deleted text.
+    # Why this fixes it: return the skipped prefix accumulated before the error.
     from plugin.writer.edit_review import _string_skipping_redline
 
     span = _SkipRange([_SkipPara([
@@ -958,16 +958,16 @@ def test_string_skipping_redline_unreadable_type_uses_whole_string():
         _SkipPortion("Text", text="gone"),
         _SkipPortion("Redline", "Delete"),
     ])])
-    assert _string_skipping_redline(span, "Delete") == "WHOLE"
+    assert _string_skipping_redline(span, "Delete") == "keep"
 
 
-def test_string_skipping_redline_unreadable_portion_type_uses_whole_string():
+def test_string_skipping_redline_unreadable_portion_type_returns_prefix():
     from plugin.writer.edit_review import _string_skipping_redline
 
     span = _SkipRange([_SkipPara([
         _SkipPortion("Text", text="keep", boom="TextPortionType"),
     ])])
-    assert _string_skipping_redline(span, "Delete") == "WHOLE"
+    assert _string_skipping_redline(span, "Delete") == ""
 
 
 def test_string_skipping_redline_closed_portion_raises():

@@ -78,7 +78,10 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
   scan still fail-closes. The user's own pre-existing redlines never block or confuse it.
 * Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the **change's own
   redline span** (not the whole paragraph), so several changes in one paragraph each get a correct
-  outcome and `final_text` preview.
+  outcome and `final_text` preview. The anchor bookmark lives inside the edit's undo step without
+  locking the undo manager, so one Undo removes both the edit and the bookmark together. Before
+  dispatching Accept or Reject, any leftover `wa_review_*` bookmarks are removed under undo lock so
+  undoing the reject never encounters unregistered bookmark indexes.
 * Tracking is forced on for the duration even if the user didn't have it on, and their prior
   `RecordChanges` state is restored afterward. Markup is forced **visible** (`ShowChanges = True`)
   so a reviewable change is never left invisible.
@@ -97,7 +100,9 @@ Small edits in long paragraphs use **surgical** tracked changes instead of one w
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import.
+  stranded mid-import. In `full_document` replace, any synthetic leftover paragraph break opened
+  before the import is deleted untracked (`RecordChanges` temporarily off) so the paragraph break
+  is not a tracked delete, keeping separate paragraphs intact without word concatenation.
 
 Optional environment overrides (no Settings UI):
 
@@ -124,7 +129,7 @@ A tracked change disappears on **both** accept and reject, so the outcome is der
 the anchored region against the pre-computed accept-form and reject-form, not by reading the
 redline afterward.
 
-If a portion read fails while building that accept-form or reject-form, the whole range's raw string is used.
+If a portion read fails while building that accept-form or reject-form, the accumulated skipped prefix is used (without falling back to the raw string which could glue deleted text).
 
 ## Tool response shape
 

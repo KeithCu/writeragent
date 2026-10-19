@@ -655,6 +655,51 @@ def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
     _execute_dispatch(ctx, controller, command)
 
 
+def _remove_review_bookmarks(model: Any, token: str | None = None) -> None:
+    """Drop wa_review_* bookmarks (off the undo stack) before Accept/Reject, so Undo of the
+    reject never meets a bookmark it did not record (that crashed soffice)."""
+    try:
+        bookmarks = model.getBookmarks()
+    except Exception:
+        return
+    prefix = "wa_review_"
+    target_name = token.replace("wa-review:", prefix).replace(":", "_") if token else None
+    try:
+        names = bookmarks.getElementNames()
+    except Exception:
+        return
+    to_remove = [
+        name for name in names
+        if (name == target_name if target_name else name.startswith(prefix))
+    ]
+    if not to_remove:
+        return
+    mgr = None
+    try:
+        if hasattr(model, "getUndoManager"):
+            mgr = model.getUndoManager()
+            if mgr is not None:
+                mgr.lock()
+    except Exception:
+        mgr = None
+    try:
+        for name in to_remove:
+            try:
+                if bookmarks.hasByName(name):
+                    bm = bookmarks.getByName(name)
+                    anchor = bm.getAnchor()
+                    if anchor is not None:
+                        anchor.getText().removeTextContent(bm)
+            except Exception:
+                pass
+    finally:
+        if mgr is not None:
+            try:
+                mgr.unlock()
+            except Exception:
+                pass
+
+
 def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], bool]:
     """Calculate (removed_agent_tokens, foreign_safe) between two snapshots."""
     # Tip: RedlineIdentifier reuses the SwRangeRedline object address across PopData
@@ -729,6 +774,7 @@ def resolve_agent_change(
             view_cursor.gotoRange(right, True)
             try:
                 dispatched = True
+                _remove_review_bookmarks(model, token)
                 _dispatch_resolve(ctx, controller, accept)
             except Exception:
                 log.exception("inline_review: exact dispatch failed for %s", token)
@@ -775,6 +821,7 @@ def resolve_agent_change(
         view_cursor.gotoRange(end.getEnd(), True)
         try:
             dispatched = True
+            _remove_review_bookmarks(model, token)
             _dispatch_resolve(ctx, controller, accept)
         except Exception:
             log.exception("inline_review: paragraph dispatch failed for %s", token)
@@ -917,6 +964,8 @@ def _resolve_overlapping_agent_changes(
                 view_cursor.gotoRange(right, True)
                 try:
                     dispatched = True
+                    for tok in pending:
+                        _remove_review_bookmarks(model, tok)
                     _dispatch_resolve(ctx, controller, accept)
                 except Exception:
                     break
@@ -963,6 +1012,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     if _is_all_redlines_agent(entry_view):
         try:
             controller = model.getCurrentController()
+            _remove_review_bookmarks(model)
             command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
             _execute_dispatch(ctx, controller, command)
         except Exception:

@@ -301,3 +301,18 @@ def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
 
     result = session.wait_for_review(timeout=0.1)
     assert result == {"complete": True, "timed_out": False, "changes": []}, result
+
+
+@native_test
+@with_native_doc("writer")
+def test_bookmark_reverted_with_edit_undo_uno(ctx, doc):
+    """Anchor bookmark is in the same undo context as the edit, so Undo removes both."""
+    _body(doc, ctx, "This clause is important.")
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.record_mutation(_replace_fn(doc, "This clause is important.", "This clause is essential."))
+    assert len(_wa_bookmarks(doc)) == 1, "anchor bookmark should exist before review"
+    um = doc.getUndoManager()
+    assert um.isUndoPossible()
+    um.undo()
+    assert _wa_bookmarks(doc) == [], "undo must revert the anchor bookmark along with the edit"
+    assert len(_redlines(doc)) == 0, "undo must revert the redline"

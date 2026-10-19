@@ -1234,7 +1234,15 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
     if leftover.getString() == "":
         leftover.collapseToStart()
         leftover.goLeft(1, True)
-        leftover.setString("")
+        # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
+        was_rec = bool(model.getPropertyValue("RecordChanges"))
+        if was_rec:
+            model.setPropertyValue("RecordChanges", False)
+        try:
+            leftover.setString("")
+        finally:
+            if was_rec:
+                model.setPropertyValue("RecordChanges", True)
 
 
 

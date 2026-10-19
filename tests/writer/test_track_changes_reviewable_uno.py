@@ -33,6 +33,8 @@ from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_m
 from plugin.framework.config import set_config, get_config
 import plugin.writer.format as fmt
 import plugin.writer.html_import as html_import
+from plugin.writer.edit_review import _string_skipping_redline
+from plugin.writer.inline_review import resolve_all_agent_changes
 
 _FLAG = "doc.agent_edit_review_mode"
 
@@ -791,3 +793,122 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     assert get_string_without_tracked_deletions(rng) == visible
     if before_in_context is not None:
         assert bool(undo.isInContext()) is before_in_context, "refuse must not open an undo context"
+
+
+def _two_para_body(doc, ctx, p1="Alpha initiative", p2="project Beta"):
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    text.insertString(cur, p1, False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, p2, False)
+    if len(doc.getRedlines()):
+        _accept_all(doc, ctx)
+
+
+def _all_paras(doc):
+    out = []
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        out.append(e.nextElement().getString())
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
+    """Two paragraphs, review mode on, replace_full_document with uppercased body:
+    no paragraph getString() concatenates boundary words ('initiativeproject'),
+    skip-Delete equals new body, skip-Insert equals old body."""
+    _two_para_body(doc, ctx, "Alpha initiative", "project Beta")
+    prev = get_config(_FLAG)
+    set_config(_FLAG, "wait")
+    try:
+        tool_ctx = _tool_ctx(doc, ctx)
+        tool = ApplyDocumentContent()
+        res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
+        assert res.get("status") == "ok", res
+
+        paras = _all_paras(doc)
+        for p in paras:
+            assert "initiativeproject" not in p.lower(), "paragraph mark was deleted, joining words: %r" % p
+
+        accepted = _string_skipping_redline(doc.getText(), "Delete")
+        rejected = _string_skipping_redline(doc.getText(), "Insert")
+        assert accepted == "ALPHA INITIATIVE\nPROJECT BETA", "skip-Delete text must match new body: %r" % accepted
+        assert rejected == "Alpha initiative\nproject Beta", "skip-Insert text must match old body: %r" % rejected
+    finally:
+        set_config(_FLAG, prev)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer")
+def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
+    """resolve_all_agent_changes(accept=False) then undo(): process stays alive,
+    body equals original, redlines back as clean Delete+Insert, second undo removes edit."""
+    _two_para_body(doc, ctx, "Alpha initiative", "project Beta")
+    prev = get_config(_FLAG)
+    set_config(_FLAG, "wait")
+    try:
+        tool_ctx = _tool_ctx(doc, ctx)
+        tool = ApplyDocumentContent()
+        res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
+        assert res.get("status") == "ok", res
+
+        resolve_res = resolve_all_agent_changes(doc, ctx, accept=False)
+        assert resolve_res >= 1, "at least one agent change resolved: %r" % resolve_res
+
+        um = doc.getUndoManager()
+        assert um.isUndoPossible(), "undo must be possible after reject all"
+        um.undo()  # Undo of RejectAllTrackedChanges - must not crash soffice!
+
+        # Redlines are back as clean Delete + Insert
+        rl_types = _redline_types(doc)
+        assert "Delete" in rl_types and "Insert" in rl_types, "redlines must be restored: %r" % rl_types
+        assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
+        assert _string_skipping_redline(doc.getText(), "Delete") == "ALPHA INITIATIVE\nPROJECT BETA"
+
+        # A second undo removes that edit in one step
+        assert um.isUndoPossible(), "second undo must be possible"
+        um.undo()
+        assert len(doc.getRedlines()) == 0, "second undo must remove edit redlines"
+        assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
+    finally:
+        set_config(_FLAG, prev)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer")
+def test_plain_two_para_track_changes_reject_and_undo_uno(ctx, doc):
+    """The same Reject + Undo on a two-paragraph change made only with RecordChanges and setString."""
+    _two_para_body(doc, ctx, "Alpha initiative", "project Beta")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("ALPHA INITIATIVE\nPROJECT BETA")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _reject_all(doc, ctx)
+    um = doc.getUndoManager()
+    assert um.isUndoPossible()
+    um.undo()  # Undo of RejectAllTrackedChanges
+    assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
+    assert _string_skipping_redline(doc.getText(), "Delete") == "ALPHA INITIATIVE\nPROJECT BETA"
+    rl_types = _redline_types(doc)
+    assert len(rl_types) > 0, "redlines restored on undo"
+
+    assert um.isUndoPossible()
+    um.undo()
+    assert len(doc.getRedlines()) == 0
+    assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"

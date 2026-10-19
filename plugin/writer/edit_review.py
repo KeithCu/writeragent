@@ -221,37 +221,49 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     parts: list[str] = []
 
     def walk() -> bool:
-        first = True
+        # Tip: keep skipping across paragraphs; emit a break only between paragraphs with kept text.
+        emitted_any = False
+        skipping = False
         while para_enum.hasMoreElements():
             para = para_enum.nextElement()
-            if not first:
-                parts.append("\n")
-            first = False
             try:
                 portion_enum = para.createEnumeration()
-            except Exception:
-                parts.append(para.getString())
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 continue
-            skipping = False
-            while portion_enum.hasMoreElements():
-                portion = portion_enum.nextElement()
-                # These reads do not fail on a live portion. Swallowing one
-                # dropped that portion's text or left the Delete/Insert skip
-                # toggle wrong. A throw uses the raw string below.
-                portion_type = portion.getPropertyValue("TextPortionType")
-                if portion_type == "Redline":
-                    if str(portion.getPropertyValue("RedlineType")) == skip_type:
-                        skipping = not skipping
-                    continue
-                if skipping:
-                    continue
-                chunk = portion.getString()
-                if chunk:
-                    parts.append(chunk)
+            para_chunks = []
+            has_non_skipped = False
+            try:
+                while portion_enum.hasMoreElements():
+                    portion = portion_enum.nextElement()
+                    portion_type = portion.getPropertyValue("TextPortionType")
+                    if portion_type == "Redline":
+                        if str(portion.getPropertyValue("RedlineType")) == skip_type:
+                            skipping = not skipping
+                        continue
+                    if skipping:
+                        continue
+                    has_non_skipped = True
+                    chunk = portion.getString()
+                    if chunk:
+                        para_chunks.append(chunk)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                if has_non_skipped and para_chunks:
+                    if emitted_any:
+                        parts.append("\n")
+                    parts.append("".join(para_chunks))
+                break
+
+            if has_non_skipped:
+                if emitted_any:
+                    parts.append("\n")
+                emitted_any = True
+                if para_chunks:
+                    parts.append("".join(para_chunks))
         return True
 
-    if not uno_read(walk, False):
-        return text_range.getString()
+    uno_read(walk, False)
     return "".join(parts)
 
 
@@ -378,90 +390,103 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
-        # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
-        before, before_ok = self._redline_idents()
-        result = apply_fn()
-        if not before_ok:
-            # The pre-edit redline snapshot was incomplete, so we can't reliably tell which redlines
-            # are NEW (ours) from pre-existing ones (the user's). Tagging now could stamp a user's
-            # redline as an agent change -> Accept/Reject All would later resolve it. Fail closed:
-            # the edit still applied, but we DON'T tag or register it -- its redlines stay untagged,
-            # so they read as the user's own and are never auto-resolved.
-            log.warning("EditReviewSession: pre-edit redline snapshot unreliable; leaving this edit "
-                        "untagged (not a reviewable agent change) to avoid mis-tagging user redlines")
-            return result
+        mgr = None
+        try:
+            um = self.doc.getUndoManager()
+            if um is not None and not um.isLocked():
+                um.enterUndoContext(_AGENT_EDIT_UNDO_TITLE)
+                mgr = um
+        except Exception:
+            mgr = None
+        try:
+            # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
+            before, before_ok = self._redline_idents()
+            result = apply_fn()
+            if not before_ok:
+                # The pre-edit redline snapshot was incomplete, so we can't reliably tell which redlines
+                # are NEW (ours) from pre-existing ones (the user's). Tagging now could stamp a user's
+                # redline as an agent change -> Accept/Reject All would later resolve it. Fail closed:
+                # the edit still applied, but we DON'T tag or register it -- its redlines stay untagged,
+                # so they read as the user's own and are never auto-resolved.
+                log.warning("EditReviewSession: pre-edit redline snapshot unreliable; leaving this edit "
+                            "untagged (not a reviewable agent change) to avoid mis-tagging user redlines")
+                return result
 
-        # Find the new redlines with a COMPLETE post-edit scan. If incomplete we can't be sure we
-        # found the whole change (e.g. only one mark of a Delete/Insert pair), so fail closed: leave
-        # the edit untagged rather than register a fragment.
-        new_redlines, after_ok = _review_scan.new_redlines_since(self.doc, before)
-        if not after_ok:
-            log.warning("EditReviewSession: post-edit redline scan incomplete; leaving this edit "
-                        "untagged to avoid registering a half-tagged change")
-            return result
-        if not new_redlines:
-            return result
+            # Find the new redlines with a COMPLETE post-edit scan. If incomplete we can't be sure we
+            # found the whole change (e.g. only one mark of a Delete/Insert pair), so fail closed: leave
+            # the edit untagged rather than register a fragment.
+            new_redlines, after_ok = _review_scan.new_redlines_since(self.doc, before)
+            if not after_ok:
+                log.warning("EditReviewSession: post-edit redline scan incomplete; leaving this edit "
+                            "untagged to avoid registering a half-tagged change")
+                return result
+            if not new_redlines:
+                return result
 
-        # A failed tag or a failed missing-bookmark clear can leave
-        # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
-        # len(self.changes) would mint that same n again, so the leftover becomes
-        # the next registered token and wait_for_review stays blocked after the
-        # user resolves the new change.
-        n = self._next_change
-        self._next_change += 1
-        token = self._token(n)
-        with self._undo_lock():
+            # A failed tag or a failed missing-bookmark clear can leave
+            # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
+            # len(self.changes) would mint that same n again, so the leftover becomes
+            # the next registered token and wait_for_review stays blocked after the
+            # user resolves the new change.
+            n = self._next_change
+            self._next_change += 1
+            token = self._token(n)
             # All-or-nothing: register ONLY on full success. On any failure the partial set is
             # reverted; orphans==0 is a clean revert, orphans>0 means a tag could not be removed
             # (broken UNO state) -- surface it loudly. Either way leave the edit unregistered.
             success, orphans = _tag_new_redlines(new_redlines, token)
-        if not success:
-            if orphans:
-                # The token can remain on the redline. The leftover stays unregistered,
-                # its index is not issued again, and _pending_tokens will not treat that
-                # leftover as a reason to keep waiting.
-                log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
-                            "reverted; leaving this edit unregistered", orphans)
-            else:
-                log.warning("EditReviewSession: tagging failed and was reverted; leaving this edit "
-                            "untagged (not a reviewable agent change)")
-            return result
+            if not success:
+                if orphans:
+                    # The token can remain on the redline. The leftover stays unregistered,
+                    # its index is not issued again, and _pending_tokens will not treat that
+                    # leftover as a reason to keep waiting.
+                    log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
+                                "reverted; leaving this edit unregistered", orphans)
+                else:
+                    log.warning("EditReviewSession: tagging failed and was reverted; leaving this edit "
+                                "untagged (not a reviewable agent change)")
+                return result
 
-        # Bounding span across the new redlines -> anchor bookmark + expected end states.
-        # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
-        # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
-        # starts/ends can collapse the span for replace changes.
-        ranges = []
-        for rl in new_redlines:
-            try:
-                s = rl.getPropertyValue("RedlineStart")
-                e = rl.getPropertyValue("RedlineEnd")
-            except Exception:
-                continue
-            if s is not None and e is not None:
-                ranges.append((s, e))
-        bookmark_name = ""
-        accepted_text = rejected_text = ""
-        if ranges:
-            try:
-                span = ranges[0][0].getText().createTextCursorByRange(ranges[0][0])
-                for s, e in ranges:
-                    span.gotoRange(s, True)  # expand=True grows the span in either direction
-                    span.gotoRange(e, True)
-                # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
-                # span, not the whole paragraph -- so when several changes share a paragraph each
-                # one's outcome/final_text reflects only itself, and a change deep in a long
-                # paragraph is never truncated out of the preview.
-                accepted_text = _string_skipping_redline(span, "Delete")
-                rejected_text = _string_skipping_redline(span, "Insert")
-                bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
-                bm = self.doc.createInstance("com.sun.star.text.Bookmark")
-                bm.setName(bookmark_name)
-                with self._undo_lock():
+            # Bounding span across the new redlines -> anchor bookmark + expected end states.
+            # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
+            # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
+            # starts/ends can collapse the span for replace changes.
+            ranges = []
+            for rl in new_redlines:
+                try:
+                    s = rl.getPropertyValue("RedlineStart")
+                    e = rl.getPropertyValue("RedlineEnd")
+                except Exception:
+                    continue
+                if s is not None and e is not None:
+                    ranges.append((s, e))
+            bookmark_name = ""
+            accepted_text = rejected_text = ""
+            if ranges:
+                try:
+                    span = ranges[0][0].getText().createTextCursorByRange(ranges[0][0])
+                    for s, e in ranges:
+                        span.gotoRange(s, True)  # expand=True grows the span in either direction
+                        span.gotoRange(e, True)
+                    # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
+                    # span, not the whole paragraph -- so when several changes share a paragraph each
+                    # one's outcome/final_text reflects only itself, and a change deep in a long
+                    # paragraph is never truncated out of the preview.
+                    accepted_text = _string_skipping_redline(span, "Delete")
+                    rejected_text = _string_skipping_redline(span, "Insert")
+                    bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
+                    bm = self.doc.createInstance("com.sun.star.text.Bookmark")
+                    bm.setName(bookmark_name)
                     span.getText().insertTextContent(span, bm, True)
-            except Exception:
-                bookmark_name = ""
-                log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
+                except Exception:
+                    bookmark_name = ""
+                    log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
+        finally:
+            if mgr is not None:
+                try:
+                    mgr.leaveUndoContext()
+                except Exception:
+                    pass
 
         # No bookmark → do not register. ChangeRecord with bookmark="" makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:
