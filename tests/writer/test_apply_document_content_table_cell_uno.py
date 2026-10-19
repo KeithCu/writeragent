@@ -406,3 +406,60 @@ def test_empty_replacement_of_a_two_paragraph_cell_deletes_the_table_uno(ctx, do
     assert res.get("status") == "ok", res
     assert res.get("table_deleted") == "Fee", res
     assert doc.getTextTables().hasByName("Fee") is False
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_table_position_after_uno(ctx, doc):
+    """Tip: inserting a table with position='after' must preserve the table, not delete it."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Header paragraph", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    html = "<table><tr><td>Col A</td><td>Col B</td></tr></table>"
+    assert doc.getTextTables().getCount() == 0
+
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        content=[html],
+        old_content="Header",
+        target="search",
+        position="after",
+    )
+    assert res.get("status") == "ok", f"Expected ok, got {res}"
+    assert res.get("inserted") is True
+    assert doc.getTextTables().getCount() == 1, "Expected table to be created"
+    table = doc.getTextTables().getByIndex(0)
+    assert table.getCellByName("A1").getString() == "Col A"
+    assert table.getCellByName("B1").getString() == "Col B"
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_table_failure_reported_uno(ctx, doc):
+    """Tip: tool must report failure honestly if a table insert produces no table."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from unittest.mock import patch
+    from plugin.writer import format as format_support
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Header paragraph", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    html = "<table><tr><td>Fail</td></tr></table>"
+
+    # Simulate an import failure where no table is produced in the document
+    with patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            tool_ctx,
+            content=[html],
+            old_content="Header",
+            target="search",
+            position="after",
+        )
+    assert res.get("status") == "error", f"Expected error status, got {res}"
+    assert res.get("code") == "TABLE_INSERT_FAILED"
+    assert "Table insert produced no table in document." in res.get("message", "")

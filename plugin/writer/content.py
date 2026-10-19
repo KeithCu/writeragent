@@ -54,6 +54,7 @@ from plugin.framework.errors import (
     format_error_payload,
     reraise_if_disposed,
     safe_json_loads,
+    uno_read,
 )
 from plugin.writer import search as search_mod
 from plugin.writer.hyperlink_fixup import (
@@ -168,6 +169,20 @@ def _attach_table_deletion(resp: dict[str, Any], names: list[str], tracked: bool
         resp["pending_review"] = True
     resp["message"] = (resp.get("message") or "").rstrip() + " " + extra["message"]
     return resp
+
+
+def _doc_table_count(doc: Any) -> int | None:
+    """Safe table count from doc.getTextTables(); returns None if unreadable or mock."""
+    try:
+        tables = uno_read(lambda: doc.getTextTables(), None)
+        if tables is None:
+            return None
+        count = uno_read(lambda: tables.getCount(), None)
+        if isinstance(count, int):
+            return count
+    except Exception:
+        pass
+    return None
 
 
 def _note_unlisted_tracked_changes(result: dict[str, Any]) -> None:
@@ -1000,7 +1015,7 @@ class ApplyDocumentContent(ToolBase):
                     result, _unused = execute_on_main_thread(_do_edit, timeout=60.0)
                 return self._annotate_review_status(ctx.ctx, result)
             except ToolExecutionError as e:
-                return self._tool_error(str(e))
+                return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
                 if session_box:
                     self._release_review_session(session_box[0], on_main=on_main)
@@ -1027,7 +1042,7 @@ class ApplyDocumentContent(ToolBase):
         except ToolExecutionError as e:
             if session_box:
                 self._release_review_session(session_box[0], on_main=False)
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
         except Exception:
             if session_box:
                 self._release_review_session(session_box[0], on_main=False)
@@ -1185,6 +1200,7 @@ class ApplyDocumentContent(ToolBase):
             return s
 
         content_to_insert = content
+        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         if target == "full_document":
             session = _open_session()
             with session:
@@ -1193,13 +1209,26 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content_to_insert, config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
+            if has_table:
+                tables_after = _doc_table_count(ctx.doc)
+                if tables_after is not None and tables_after == 0:
+                    return self._tool_error(
+                        "Table insert produced no table in document.",
+                        code="TABLE_INSERT_FAILED"), session
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
             session = _open_session()
+            tables_before = _doc_table_count(ctx.doc)
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "end", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
+            if has_table and tables_before is not None:
+                tables_after = _doc_table_count(ctx.doc)
+                if tables_after is not None and tables_after <= tables_before:
+                    return self._tool_error(
+                        "Table insert produced no table in document.",
+                        code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at end."},
                 collapsed_anchor(ctx.doc.getText().getEnd())), session
@@ -1214,14 +1243,27 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "selection", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
+            if has_table:
+                tables_after = _doc_table_count(ctx.doc)
+                if tables_after is not None and tables_after == 0:
+                    return self._tool_error(
+                        "Table insert produced no table in document.",
+                        code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
         if target == "beginning":
             session = _open_session()
+            tables_before = _doc_table_count(ctx.doc)
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "beginning", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
+            if has_table and tables_before is not None:
+                tables_after = _doc_table_count(ctx.doc)
+                if tables_after is not None and tables_after <= tables_before:
+                    return self._tool_error(
+                        "Table insert produced no table in document.",
+                        code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at beginning."},
                 collapsed_anchor(ctx.doc.getText().getStart())), session
@@ -1460,6 +1502,8 @@ class ApplyDocumentContent(ToolBase):
                 edge = found.getStart() if position == "before" else found.getEnd()
                 insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
 
+            tables_before = _doc_table_count(doc)
+
             def _insert_next_to_match() -> None:
                 if not is_block:
                     format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content), config_svc=config_svc)
@@ -1478,9 +1522,19 @@ class ApplyDocumentContent(ToolBase):
                 leftover.gotoEndOfParagraph(True)
                 if leftover.getString() == "":
                     # Delete the last imported block's break; a tracked insertion swallows it.
+                    # Only drop a real break: after a table, goLeft(1) selects the table.
                     leftover.collapseToStart()
-                    leftover.goLeft(1, True)
-                    leftover.setString("")
+                    if leftover.goLeft(1, True):
+                        if leftover.getString() == "\n":
+                            leftover.setString("")
+                        else:
+                            leftover.collapseToEnd()
+                if has_table and tables_before is not None:
+                    tables_after = _doc_table_count(doc)
+                    if tables_after is not None and tables_after <= tables_before:
+                        raise ToolExecutionError(
+                            "Table insert produced no table in document.",
+                            code="TABLE_INSERT_FAILED")
 
             anchor = collapsed_anchor(found)
             with session:
@@ -1536,6 +1590,12 @@ class ApplyDocumentContent(ToolBase):
         resp = search_mod.build_search_replace_response(1, use_preserve=use_preserve)
         if occurrence is not None:
             resp["occurrence"] = occurrence
+        if has_table:
+            tables_after = _doc_table_count(doc)
+            if tables_after is not None and tables_after == 0:
+                return self._tool_error(
+                    "Table insert produced no table in document.",
+                    code="TABLE_INSERT_FAILED"), session
         self._attach_hyperlink_reports(resp, reports or [])
         return attach_edited_context(resp, anchor), session
 

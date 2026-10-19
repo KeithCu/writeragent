@@ -190,7 +190,10 @@ def _next_to_match_found(*, at_paragraph_edge: bool, leftover: str = ""):
     cursor.getPropertyValue.return_value = None
     cursor.isStartOfParagraph.return_value = at_paragraph_edge
     cursor.isEndOfParagraph.return_value = at_paragraph_edge
-    cursor.getString.return_value = leftover
+    if leftover:
+        cursor.getString.return_value = leftover
+    else:
+        cursor.getString.side_effect = ["", "\n", "\n", "\n"]
     return found, cursor
 
 
@@ -235,6 +238,53 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
             _edit_ctx(), content=["<p>novo</p>"], target="search", old_content="fim.", position="after")
     assert res["status"] == "ok" and "snapped_to_paragraph" not in res
     cursor.setString.assert_not_called()
+
+
+def test_position_after_table_preserves_table():
+    """Tip: stepping left from a paragraph following a table spans into the table; don't delete it."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    # 1st call: empty leftover paragraph; 2nd call: goLeft spanned table cell text.
+    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    ctx = _edit_ctx()
+    # Mock table count to increase from 0 to 1 so honesty check passes.
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
+            target="search", old_content="world", position="after")
+
+    assert res["status"] == "ok"
+    cursor.goLeft.assert_called_once_with(1, True)
+    cursor.setString.assert_not_called()
+
+
+def test_table_insert_reports_failure_when_no_table_produced():
+    """Tip: table insert must honestly report failure if table count did not increase."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    ctx = _edit_ctx()
+    # Table count remains 0 before and after.
+    ctx.doc.getTextTables.return_value.getCount.return_value = 0
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
+            target="search", old_content="world", position="after")
+
+    assert res["status"] == "error"
+    assert res.get("code") == "TABLE_INSERT_FAILED"
+    assert "Table insert produced no table in document." in res.get("message", "")
 
 
 def test_position_before_block_goes_to_paragraph_start_without_a_break():
