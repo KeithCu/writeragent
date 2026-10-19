@@ -12,6 +12,7 @@
   <dlg:button dlg:id="btn_tab_image" dlg:left="68" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Image"/>
 
   <!-- AUTO_GENERATED_TABS -->
+  <!-- END AUTO_GENERATED_TABS -->
 
   <!-- === Page 1: General Settings === -->
   <dlg:text dlg:id="label_endpoint" dlg:page="1" dlg:left="8" dlg:top="26" dlg:width="150" dlg:height="10" dlg:value="Endpoint URL (/v1 added):" dlg:align="left"/>
@@ -69,6 +70,7 @@
   <dlg:checkbox dlg:id="image_insert_frame" dlg:page="2" dlg:left="115" dlg:top="56" dlg:width="100" dlg:height="10" dlg:value="Insert Frame" dlg:checked="false"/>
 
   <!-- AUTO_GENERATED_PAGES -->
+  <!-- END AUTO_GENERATED_PAGES -->
 
 
   <!-- OK Button (always visible). OK writes config (execute() true).

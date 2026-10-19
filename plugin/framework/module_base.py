@@ -23,8 +23,8 @@ import os
 from abc import ABC
 from typing import Any, cast
 
+from plugin.framework import module_graph
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.errors import ConfigError
 
 log = logging.getLogger("writeragent.module_base")
 
@@ -131,39 +131,7 @@ class ModuleLoader:
         Sorts modules based on their required services.
         Ensures dependencies are initialized before the modules that require them.
         """
-        by_name = {m["name"]: m for m in modules}
-        provides = {}
-        for m in modules:
-            for svc in m.get("provides_services", []):
-                provides[svc] = m["name"]
-
-        visited = set()
-        visiting = set()
-        order = []
-
-        def visit(name: str) -> None:
-            if name in visited:
-                return
-            if name in visiting:
-                raise ConfigError(f"Cyclic module requires graph at {name!r}", code="MODULE_CYCLE")
-            visiting.add(name)
-            m = by_name.get(name)
-            if m is None:
-                visiting.discard(name)
-                return
-            for req in m.get("requires", []):
-                provider = provides.get(req, req)
-                if provider in by_name:
-                    visit(provider)
-            visiting.discard(name)
-            visited.add(name)
-            order.append(m)
-
-        if "core" in by_name:
-            visit("core")
-        for name in by_name:
-            visit(name)
-        return order
+        return module_graph.topo_sort(modules)
 
     @classmethod
     def load_modules(cls, services_registry: Any) -> list[ModuleBase]:

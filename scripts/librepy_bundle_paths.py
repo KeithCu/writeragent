@@ -148,6 +148,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/queue_executor.py",
     "plugin/framework/uno_listeners.py",
     "plugin/framework/module_base.py",
+    "plugin/framework/module_graph.py",
     "plugin/framework/ast_stmt_edit.py",
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
