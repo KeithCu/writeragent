@@ -57,6 +57,8 @@ _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 _LIVE_SEND_LISTENERS: list[Any] = []
 # Last native-test ctx so URP fallbacks can executeDispatch without get_ctx().
 _HOOK_CTX: Any = None
+# Last doc whose deck wait_for_chat_dialog_controls was asked for.
+_HOOK_DOC: Any = None
 # Out-of-process mock-sidebar: controller bound to the live XDL ListBox over URP.
 _URP_SLASH_POPUP: Any = None
 
@@ -1266,7 +1268,7 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> di
 
         uno_ctx = get_ctx()
     if doc is None:
-        doc = current_component(uno_ctx)
+        doc = _urp_target_doc(uno_ctx)
     frame = _doc_frame(doc)
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
@@ -1288,12 +1290,33 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> di
     return _read_debug_snapshot()
 
 
+def _urp_target_controls(ctx: Any) -> dict[str, Any]:
+    """Chat controls of the current doc, else of the last doc a test focused.
+
+    Tip: on macOS, after a Calc window closes, the desktop's current component
+    can stay on a doc with no chat deck even though Writer is in front.
+    """
+    controls = chat_dialog_controls(ctx, current_component(ctx))
+    if controls:
+        return controls
+    doc = _HOOK_DOC
+    if doc is not None:
+        return chat_dialog_controls(ctx, doc) or {}
+    return {}
+
+
+def _urp_target_doc(ctx: Any) -> Any:
+    doc = current_component(ctx)
+    if _HOOK_DOC is not None and not chat_dialog_controls(ctx, doc) and chat_dialog_controls(ctx, _HOOK_DOC):
+        return _HOOK_DOC
+    return doc
+
+
 def _urp_send_control() -> Any:
     ctx = _HOOK_CTX
     if ctx is None:
         return None
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    return controls.get("send")
+    return _urp_target_controls(ctx).get("send")
 
 
 def _try_click_send_for_kind(kind: SendEventKind) -> bool:
@@ -1327,8 +1350,7 @@ def _urp_record_click_took() -> bool:
     ctx = _HOOK_CTX
     if ctx is None:
         return False
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    return control_enabled(controls.get("stop")) is True
+    return control_enabled(_urp_target_controls(ctx).get("stop")) is True
 
 
 def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
@@ -1909,8 +1931,10 @@ def wait_for_chat_dialog_controls(
     Pass *doc* to target a specific model (Calc after :func:`open_calc_document`,
     Packet P dual Writer+Calc). Default is ``current_component``.
     """
-    global _HOOK_CTX
+    global _HOOK_CTX, _HOOK_DOC
     _HOOK_CTX = ctx
+    if doc is not None:
+        _HOOK_DOC = doc
     _require_debug()
     deadline = time.monotonic() + max(0.0, timeout)
     last: dict[str, Any] | None = None
@@ -2156,7 +2180,7 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         return
     ctx = _HOOK_CTX
     if ctx is not None:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+        controls = _urp_target_controls(ctx)
         set_query_text_via_controls(controls, text)
         # QueryTextListener may not fire over URP setText; refresh inside soffice.
         popup = ensure_slash_popup()
@@ -2301,7 +2325,7 @@ def _urp_slash_controller() -> Any:
     ctx = _HOOK_CTX
     if ctx is None:
         return None
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    controls = _urp_target_controls(ctx)
     ctrl = controls.get("slash_popup")
     query = controls.get("query")
     if ctrl is None or query is None:
@@ -2336,7 +2360,7 @@ def ensure_slash_popup(*, listener: Any = None) -> Any:
         ctrl = None
         ctx = _HOOK_CTX
         if ctx is not None:
-            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+            controls = _urp_target_controls(ctx)
             ctrl = controls.get("slash_popup")
         if ctrl is None:
             return _urp_slash_controller()
@@ -2473,7 +2497,7 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
     ctx = _HOOK_CTX
     if ctx is None:
         return
-    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    controls = _urp_target_controls(ctx)
     clear_btn = controls.get("clear")
     if clear_btn is not None:
         try:
@@ -2790,7 +2814,7 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
             ctx = _HOOK_CTX
             if ctx is None:
                 return False
-            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+            controls = _urp_target_controls(ctx)
             stop = controls.get("stop")
             send = controls.get("send")
             if control_enabled(stop) is True:
