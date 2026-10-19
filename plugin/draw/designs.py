@@ -825,11 +825,11 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     design_id = str(design.get("id") or "").strip().lower()
 
     dest_ratio = 16.0 / 9.0
+    dw = 0
+    dh = 0
     try:
         pages = dest_doc.getDrawPages()
         p0 = pages.getByIndex(0) if pages.getCount() > 0 else None
-        dw = 0
-        dh = 0
         if p0 is not None:
             dw = getattr(p0, "Width", 0) or 0
             dh = getattr(p0, "Height", 0) or 0
@@ -926,6 +926,15 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             res = _copy_uno_prop(dest_master, src_master, prop)
             if res == "rejected":
                 warnings.append(f"rejected {prop} on master")
+        # Size the clone to the destination deck so named 4:3 masters with 16:9 .otp geometry still apply as 4:3.
+        if dw and dh:
+            try:
+                dest_master.Width = int(dw)
+                dest_master.Height = int(dh)
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                log.debug("set cloned master size to dest deck failed", exc_info=True)
         _clone_master_background(dest_master, src_master, warnings)
         try:
             src_count = int(src_master.getCount())
