@@ -844,9 +844,13 @@ def _range_to_content_via_temp_doc(
                     run_start = cur_offset
                     run_end = cur_offset + run_len
                     cur_offset += run_len
-                    if run_end <= trim_start or run_start >= trim_end:
-                        continue
                     emb = portion_math_embed(p)
+                    if emb is not None:
+                        # A formula portion can be zero-length; keep it when it sits inside the window.
+                        if run_start < trim_start or run_start > trim_end:
+                            continue
+                    elif run_end <= trim_start or run_start >= trim_end:
+                        continue
                     if emb is not None:
                         ph = chr(0xE000 + len(math_records))
                         starmath = read_starmath(emb)

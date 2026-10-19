@@ -351,8 +351,11 @@ def _portion_embedded(portion: Any) -> Any | None:
         if obj is not None and _is_math_embed(obj):
             return obj
     # Writer exposes an as-character object only through the Frame portion's
-    # content enumeration; the portion has no TextEmbeddedObject property.
+    # content enumeration. Text portions enumerate objects anchored nearby too,
+    # so only a Frame portion counts (else the text before a formula is lost).
     try:
+        if str(portion.getPropertyValue("TextPortionType") or "") != "Frame":
+            return None
         enum = portion.createContentEnumeration("com.sun.star.text.TextContent")
     except Exception:
         return None
