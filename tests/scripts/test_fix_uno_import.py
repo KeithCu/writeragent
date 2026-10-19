@@ -64,6 +64,8 @@ def test_directory_without_python(tmp_path: Path, capsys: pytest.CaptureFixture[
 
 
 def test_current_uno_pth_unmodified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # POSIX .pth layout; the Windows staging copy has its own test below.
+    monkeypatch.setattr(fix_uno_import.sys, "platform", "linux")
     venv_dir, _py_bin, site_packages = _make_fake_venv(tmp_path)
     (site_packages / "types_unopy-1.0.dist-info").mkdir()
     uno_dir = tmp_path / "lo_uno"
@@ -84,6 +86,8 @@ def test_current_uno_pth_unmodified(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_stale_uno_pth_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # POSIX .pth layout; the Windows staging copy has its own test below.
+    monkeypatch.setattr(fix_uno_import.sys, "platform", "linux")
     venv_dir, _py_bin, site_packages = _make_fake_venv(tmp_path)
     (site_packages / "types_unopy-1.0.dist-info").mkdir()
     uno_dir = tmp_path / "lo_uno"
@@ -206,6 +210,8 @@ def test_oserror_during_write_cleans_tmp_and_preserves_pth(tmp_path: Path, monke
 
 
 def test_stored_paths_are_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # POSIX .pth layout; the Windows staging copy has its own test below.
+    monkeypatch.setattr(fix_uno_import.sys, "platform", "linux")
     venv_dir, _py_bin, site_packages = _make_fake_venv(tmp_path)
     (site_packages / "types_unopy-1.0.dist-info").mkdir()
 
@@ -222,6 +228,8 @@ def test_stored_paths_are_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_duplicate_lo_program_omitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    # POSIX .pth layout; the Windows staging copy has its own test below.
+    monkeypatch.setattr(fix_uno_import.sys, "platform", "linux")
     venv_dir, _py_bin, site_packages = _make_fake_venv(tmp_path)
     (site_packages / "types_unopy-1.0.dist-info").mkdir()
     uno_dir = tmp_path / "lo_program"

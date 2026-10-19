@@ -54,7 +54,8 @@ def _xdl_paths(root: str = PROJECT_ROOT) -> list[str]:
     paths: list[str] = []
     for rel in (*LIBREPY_DIALOG_FILES, *LIBREPY_GENERATED_DIALOG_FILES):
         if rel.endswith(".xdl"):
-            p = os.path.join(root, rel)
+            # normpath: rel uses "/", so Windows got mixed separators.
+            p = os.path.normpath(os.path.join(root, rel))
             if os.path.isfile(p):
                 paths.append(p)
     return paths
