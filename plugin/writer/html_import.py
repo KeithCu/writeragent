@@ -853,6 +853,25 @@ def _insert_mixed_html_and_math_at_cursor(
 
 
 
+def _insert_start_anchor(text_obj: Any, cursor: Any) -> Any:
+    """Cursor one character before the insert point, or ``None`` at the start of the text."""
+    anchor = text_obj.createTextCursorByRange(cursor.getStart())
+    return anchor if anchor.goLeft(1, False) else None
+
+
+def _insert_start_from_anchor(text_obj: Any, anchor: Any, cursor: Any) -> Any:
+    """Start of the imported content, from the anchor taken before the import."""
+    try:
+        if anchor is None:
+            return text_obj.getStart()
+        start = text_obj.createTextCursorByRange(anchor.getStart())
+        start.goRight(1, False)
+        return start
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return cursor
+
+
 def _insert_mixed_or_plain_html(
     model: Any,
     ctx: Any,
@@ -883,6 +902,9 @@ def _insert_mixed_or_plain_html(
     ruby_skip = _prefix_char_count(text_obj, cursor) if not has_math else 0
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
+    # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
+    # content, so anchor one character to the left and step back right after the import.
+    start_anchor = _insert_start_anchor(text_obj, cursor) if styled else None
 
     if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
@@ -901,7 +923,7 @@ def _insert_mixed_or_plain_html(
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
         # still looked like a finished insert.
-        _apply_block_lo_styles(model, text_obj, cursor, block_styles, end=imported_end)
+        _apply_block_lo_styles(model, text_obj, _insert_start_from_anchor(text_obj, start_anchor, cursor), block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     if not has_math:
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
