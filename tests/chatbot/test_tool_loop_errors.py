@@ -876,3 +876,58 @@ def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
     assert _handle_stream_error(test_instance, _overflow_payload("boom")) is None
     assert test_instance.audio_wav_path is None
     assert not wav.exists()
+
+
+def test_stream_error_cleans_failed_image_from_history(test_instance):
+    """When an image request fails with image-unsupported error, the image is stripped from history."""
+    test_instance.session.messages.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "describe the image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        ],
+    })
+    test_instance.session.db = MagicMock()
+
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-oss-20b:nitro"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"),
+        patch("plugin.framework.client.model_fetcher.set_native_vision_support") as mock_set_vision,
+    ):
+        payload = {"message": "No endpoints found that support image input"}
+        recovered = test_instance._handle_stream_error(payload)
+
+    assert recovered is None
+    mock_set_vision.assert_called_once_with("gpt-oss-20b:nitro", "https://openrouter.ai/api", supported=False)
+    # The image block was stripped from user message content in session
+    user_msgs = [m for m in test_instance.session.messages if m.get("role") == "user"]
+    assert user_msgs[-1]["content"] == "describe the image"
+    assert not any(isinstance(m.get("content"), list) for m in test_instance.session.messages)
+    # And persisted DB content was updated
+    test_instance.session.db.update_last_user_content.assert_called_once_with("describe the image")
+
+
+def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
+    """A text-only model like gpt-oss-20b:nitro does not attach selected image."""
+    test_instance._get_document_model = MagicMock()
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+
+    api_config = {
+        "endpoint": "https://openrouter.ai/api",
+        "model": "gpt-oss-20b:nitro",
+        "api_key": "test-key",
+        "chat_max_tool_rounds": 1,
+    }
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.writer.images.image_tools.get_selected_image_base64") as mock_get_img,
+    ):
+        test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
+
+    # Image should not be extracted or attached because model lacks vision
+    mock_get_img.assert_not_called()
+    user_msgs = [m for m in test_instance.session.messages if m.get("role") == "user"]
+    assert user_msgs[-1]["content"] == "describe the image"

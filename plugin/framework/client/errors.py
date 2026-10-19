@@ -165,3 +165,12 @@ def is_audio_unsupported_error(e: Any) -> bool:
             return True
 
     return False
+
+
+def is_image_unsupported_error(e: Any) -> bool:
+    """True when the provider says the model takes no image input."""
+    msg = str(e).lower()
+    # OpenRouter 404: 'No endpoints found that support image input'
+    if "support image input" in msg:
+        return True
+    return ("image" in msg or "vision" in msg) and ("not supported" in msg or "unsupported" in msg)

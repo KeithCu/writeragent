@@ -45,6 +45,12 @@ def test_free_not_equivalent_to_base() -> None:
     assert not openrouter_model_ids_equivalent("openai/gpt-oss-120b:free", "openai/gpt-oss-120b", _CATALOG)
 
 
+def test_equivalent_vendor_prefix_omitted() -> None:
+    assert openrouter_model_ids_equivalent("gpt-oss-20b:nitro", "openai/gpt-oss-20b")
+    assert openrouter_model_ids_equivalent("openai/gpt-oss-20b", "gpt-oss-20b:nitro")
+    assert not openrouter_model_ids_equivalent("anthropic/claude", "openai/claude")
+
+
 def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
     """Deep check-all run 32840960268: Prev 11:29. Split/resolve stay on (~2 min)."""
     from pathlib import Path

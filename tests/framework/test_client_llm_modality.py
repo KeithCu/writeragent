@@ -7,6 +7,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.errors import (
     is_audio_unsupported_error,
+    is_image_unsupported_error,
     _format_http_error_response,
 )
 
@@ -25,6 +26,18 @@ def test_is_audio_unsupported_error():
     # Just a general error
     assert is_audio_unsupported_error("Connection timed out") is False
     assert is_audio_unsupported_error("HTTP Error 401") is False
+
+
+def test_is_image_unsupported_error():
+    # OpenRouter error: 'No endpoints found that support image input'
+    assert is_image_unsupported_error("No endpoints found that support image input") is True
+    assert is_image_unsupported_error("no endpoints found that support image input") is True
+    assert is_image_unsupported_error("unsupported modality: image") is True
+    assert is_image_unsupported_error("image not supported by this model") is True
+
+    # Negative cases
+    assert is_image_unsupported_error("Connection timed out") is False
+    assert is_image_unsupported_error("HTTP Error 401: Unauthorized") is False
 
 def test_format_error_message():
     import urllib.error

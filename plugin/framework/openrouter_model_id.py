@@ -96,4 +96,13 @@ def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] |
         return sa == sb
     if sa == sb:
         return True
-    return resolve_openrouter_catalog_id(sa, catalog_ids) == resolve_openrouter_catalog_id(sb, catalog_ids)
+    ra = resolve_openrouter_catalog_id(sa, catalog_ids)
+    rb = resolve_openrouter_catalog_id(sb, catalog_ids)
+    if ra == rb:
+        return True
+    # Tip: 'gpt-oss-20b:nitro' (no vendor) must still match 'openai/gpt-oss-20b'.
+    if "/" in ra and "/" not in rb:
+        return ra.split("/", 1)[1] == rb
+    if "/" in rb and "/" not in ra:
+        return rb.split("/", 1)[1] == ra
+    return False

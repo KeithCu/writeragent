@@ -405,6 +405,9 @@ class ToolCallingMixin:
 
         self._set_status("Reading document...")
         started = running_turn(self)
+        if isinstance(started, TurnController):
+            started.text_model = str(api_config.get("model") or "") or None
+            started.endpoint = client._endpoint()
         turn_session = started.session if started is not None else None
         if turn_session is None:
             # Clear replaced messages, or Stop aborted the turn, while this
@@ -854,6 +857,43 @@ class ToolCallingMixin:
         else:
             err_msg = resolve_exception_message(e)
             crash_blob = err_msg
+
+        # Tip: a model that rejects images must not keep them in history, or
+        # every later prompt fails too. Mark it text-only and strip the image.
+        from plugin.framework.client.errors import is_image_unsupported_error
+
+        if is_image_unsupported_error(crash_blob):
+            turn = current_turn(self)
+            turn_model = getattr(turn, "text_model", None)
+            turn_endpoint = getattr(turn, "endpoint", None)
+            if not turn_model:
+                from plugin.framework.client.model_fetcher import get_text_model
+                turn_model = get_text_model()
+            if not turn_endpoint:
+                from plugin.framework.config import get_current_endpoint
+                turn_endpoint = get_current_endpoint()
+            if turn_model:
+                from plugin.framework.client.model_fetcher import set_native_vision_support
+                set_native_vision_support(turn_model, turn_endpoint, supported=False)
+
+            if getattr(self, "session", None) and getattr(self.session, "messages", None):
+                for msg in reversed(self.session.messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content")
+                        if isinstance(content, list):
+                            text_parts = [
+                                str(p.get("text", ""))
+                                for p in content
+                                if isinstance(p, dict) and p.get("type") == "text"
+                            ]
+                            clean_text = "\n".join(t for t in text_parts if t).strip()
+                            if not clean_text:
+                                clean_text = getattr(self, "_active_query_text", "") or ""
+                            msg["content"] = clean_text
+                            if getattr(self.session, "db", None) and hasattr(self.session.db, "update_last_user_content"):
+                                self.session.db.update_last_user_content(clean_text)
+                        break
+
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death
         # is not overflow — compact-and-retry on a dead llama-server is worse
