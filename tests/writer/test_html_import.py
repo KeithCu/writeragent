@@ -1119,3 +1119,86 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     has_special, portions = _collect_range_portions(mock_range)
     assert has_special is False
     assert portions == []
+
+
+def test_restore_fields_by_cursor_single_walk_reverse_order():
+    """Restore multiple field tokens in a single portion enumeration walk in reverse order."""
+    from unittest.mock import MagicMock, patch
+    from plugin.writer.html_import import _restore_fields_by_cursor
+
+    nonce = "test1234"
+    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
+    tok2 = f"[[WA-FIELD:{nonce}:date]]"
+    full_str = f"Page {tok1} on {tok2}"
+
+    class _Portion:
+        def __init__(self, s):
+            self.s = s
+
+        def getPropertyValue(self, name):
+            assert name == "TextPortionType"
+            return "Text"
+
+        def getString(self):
+            return self.s
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def createEnumeration(self):
+            return _Enum([_Portion(f"Page {tok1} "), _Portion(f"on {tok2}")])
+
+    class _Text:
+        def __init__(self):
+            self.plain = full_str
+            self.enum_calls = 0
+
+        def getString(self):
+            return self.plain
+
+        def createEnumeration(self):
+            self.enum_calls += 1
+            return _Enum([_Para()])
+
+    text = _Text()
+    model = MagicMock()
+    inserted_titles = []
+
+    def _inserted(unused_model, cursor, title, *args):
+        inserted_titles.append(title)
+        return True
+
+    with (
+        patch("plugin.writer.html_import._cursor_over") as mock_cursor_over,
+        patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted),
+    ):
+        mock_cursor_over.side_effect = lambda _txt, _off, tok: MagicMock()
+        restored = _restore_fields_by_cursor(model, text, nonce=nonce)
+
+    assert restored == 2
+    assert text.enum_calls == 1
+    assert inserted_titles == ["date", "page-number"]
+
+
+def test_restore_field_placeholders_skips_when_prefix_absent():
+    """When the field token prefix is absent from plain text, return 0 without enumeration."""
+    from unittest.mock import MagicMock
+    from plugin.writer.html_import import _restore_field_placeholders
+
+    text = MagicMock()
+    text.getString.return_value = "No fields here"
+    model = MagicMock()
+
+    restored = _restore_field_placeholders(model, text, nonce="abc123")
+    assert restored == 0
+    text.createEnumeration.assert_not_called()
+    model.createSearchDescriptor.assert_not_called()
+
