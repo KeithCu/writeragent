@@ -320,7 +320,14 @@ class FieldsInsert(ToolWriterFieldBase):
         if not cursor:
             return self._tool_error("Failed to resolve target location.")
 
-        properties = properties or {}
+        properties = dict(properties) if properties else {}
+        if field_type == "PageNumber":
+            # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
+            properties.setdefault("NumberingType", 4)
+            if "SubType" not in properties:
+                import uno
+                properties["SubType"] = uno.Enum("com.sun.star.text.PageNumberType", "CURRENT")
+
         full_service_name = f"com.sun.star.text.textfield.{field_type}"
 
         field = doc.createInstance(full_service_name)

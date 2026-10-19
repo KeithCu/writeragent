@@ -96,3 +96,29 @@ def test_fields_insert_search_absorb(ctx, doc):
     assert "TARGET" not in body
     assert "alpha" in body
     assert "omega" in body
+
+
+@native_test
+@with_native_doc("writer")
+def test_fields_insert_page_number_visible_default(ctx, doc):
+    """PageNumber inserted with no properties defaults to NumberingType=4 and SubType=CURRENT, visible on page 1."""
+    from com.sun.star.text.PageNumberType import CURRENT
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = FieldsInsert().execute(tool_ctx, field="PageNumber", target="end")
+    assert res["status"] == "ok", res
+
+    enum = doc.getTextFields().createEnumeration()
+    page_field = None
+    while enum.hasMoreElements():
+        f = enum.nextElement()
+        if f.supportsService("com.sun.star.text.textfield.PageNumber"):
+            page_field = f
+            break
+
+    assert page_field is not None, "PageNumber field was not inserted"
+    assert page_field.getPropertyValue("NumberingType") == 4
+    assert page_field.getPropertyValue("SubType") == CURRENT
+    # Must be visible (renders '1' on page 1), not blank
+    assert page_field.getPresentation(False) == "1"
+

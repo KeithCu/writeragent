@@ -97,7 +97,9 @@ def test_fields_insert(mock_ctx):
 
     assert res["status"] == "ok"
     doc.createInstance.assert_called_with("com.sun.star.text.textfield.PageNumber")
-    assert mock_field.setPropertyValue.call_count == 2
+    assert mock_field.setPropertyValue.call_count == 3
+    mock_field.setPropertyValue.assert_any_call("NumberingType", 4)
+    mock_field.setPropertyValue.assert_any_call("IsDate", True)
 
     # Text insertion uses the cursor returned by resolve_target_cursor. Since the cell-safe fix,
     # the selection cursor is built in the SELECTION's own text object (rng.getText()), not the
@@ -105,6 +107,43 @@ def test_fields_insert(mock_ctx):
     rng = mock_controller.getSelection().getByIndex()
     used_cursor = rng.getText().createTextCursorByRange()
     used_cursor.getText().insertTextContent.assert_called_with(used_cursor, mock_field, False)
+
+
+def test_fields_insert_page_number_defaults(mock_ctx):
+    """When inserting PageNumber with no properties, default to NumberingType=4 and SubType=CURRENT."""
+    doc = mock_ctx.doc
+    mock_field = MagicMock()
+    doc.createInstance.return_value = mock_field
+
+    res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="selection")
+    assert res["status"] == "ok"
+
+    import uno
+    expected_subtype = uno.Enum("com.sun.star.text.PageNumberType", "CURRENT")
+
+    mock_field.setPropertyValue.assert_any_call("NumberingType", 4)
+    mock_field.setPropertyValue.assert_any_call("SubType", expected_subtype)
+    assert res["applied_properties"]["NumberingType"] == 4
+    assert res["applied_properties"]["SubType"] == expected_subtype
+
+
+def test_fields_insert_page_number_custom_properties_preserved(mock_ctx):
+    """Explicit properties for PageNumber override default NumberingType and SubType."""
+    doc = mock_ctx.doc
+    mock_field = MagicMock()
+    doc.createInstance.return_value = mock_field
+
+    import uno
+    custom_subtype = uno.Enum("com.sun.star.text.PageNumberType", "NEXT")
+
+    props = {"NumberingType": 2, "SubType": custom_subtype}
+    res = FieldsInsert().execute(mock_ctx, field="PageNumber", properties=props, target="selection")
+    assert res["status"] == "ok"
+
+    mock_field.setPropertyValue.assert_any_call("NumberingType", 2)
+    mock_field.setPropertyValue.assert_any_call("SubType", custom_subtype)
+    assert res["applied_properties"]["NumberingType"] == 2
+    assert res["applied_properties"]["SubType"] == custom_subtype
 
 
 def test_fields_insert_reports_the_failing_property(mock_ctx):
