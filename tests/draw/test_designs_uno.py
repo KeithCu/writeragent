@@ -7,7 +7,10 @@ from __future__ import annotations
 import json
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+try:
+    from plugin.tests.testing_utils import TestingFactory, with_native_doc  # ty: ignore[unresolved-import]
+except ImportError:
+    from tests.testing_utils import TestingFactory, with_native_doc
 
 
 def _exec(doc, ctx, name, args, doc_type="impress"):
@@ -189,3 +192,107 @@ def test_apply_design_draw_not_impress(ctx, doc):
     out = _exec(doc, ctx, "apply_design", {"design": "Metropolis"}, doc_type="draw")
     assert out.get("status") == "error", out
     assert out.get("code") == "UNSUPPORTED_DOC_TYPE", out
+
+
+@native_test
+@with_native_doc("impress")
+def test_apply_design_clones_shipped_template_chrome(ctx, doc):
+    from plugin.draw.designs import create_presentation_from_design, resolve_design
+
+    listed = _exec(doc, ctx, "list_designs", {})
+    available_ids = [d["id"] for d in (listed.get("designs") or [])]
+
+    # Sunset
+    if "sunset" in available_ids:
+        entry = resolve_design(ctx, "sunset")
+        assert entry
+        hidden_doc = create_presentation_from_design(ctx, entry, hidden=True)
+        try:
+            expected_bg_color = None
+            src_m = hidden_doc.getMasterPages().getByIndex(0)
+            if hasattr(src_m, "Background") and hasattr(src_m.Background, "FillColor"):
+                expected_bg_color = src_m.Background.FillColor
+        finally:
+            TestingFactory.close_doc(hidden_doc)
+
+        out_sunset = _exec(doc, ctx, "apply_design", {"design": "sunset"})
+        assert out_sunset.get("status") == "ok", out_sunset
+        master = doc.getDrawPages().getByIndex(0).MasterPage
+        if expected_bg_color is not None and hasattr(master, "Background") and hasattr(master.Background, "FillColor"):
+            assert master.Background.FillColor == expected_bg_color
+        has_group_with_children = False
+        for j in range(int(master.getCount())):
+            sh = master.getByIndex(j)
+            if "GroupShape" in str(getattr(sh, "ShapeType", "") or ""):
+                if int(sh.getCount()) > 0:
+                    has_group_with_children = True
+                    break
+        assert has_group_with_children, "Sunset cloned master missing populated GroupShape"
+
+        # Reapply Sunset: verify cleanup of previous same-named master
+        out_reapply = _exec(doc, ctx, "apply_design", {"design": "sunset"})
+        assert out_reapply.get("status") == "ok", out_reapply
+        sunset_masters = [
+            doc.getMasterPages().getByIndex(k)
+            for k in range(doc.getMasterPages().getCount())
+            if str(getattr(doc.getMasterPages().getByIndex(k), "Name", "") or "").lower() == "sunset"
+        ]
+        assert len(sunset_masters) == 1
+
+    # Beehive
+    if "beehive" in available_ids:
+        out_bee = _exec(doc, ctx, "apply_design", {"design": "beehive"})
+        assert out_bee.get("status") == "ok", out_bee
+        master = doc.getDrawPages().getByIndex(0).MasterPage
+        has_bee_group = any(
+            "GroupShape" in str(getattr(master.getByIndex(j), "ShapeType", "") or "")
+            and int(master.getByIndex(j).getCount()) > 0
+            for j in range(int(master.getCount()))
+        )
+        assert has_bee_group, "Beehive cloned master missing populated GroupShape"
+
+    # Vivid
+    if "vivid" in available_ids:
+        out_vivid = _exec(doc, ctx, "apply_design", {"design": "vivid"})
+        assert out_vivid.get("status") == "ok", out_vivid
+        master = doc.getDrawPages().getByIndex(0).MasterPage
+        has_geom = False
+        for j in range(int(master.getCount())):
+            sh = master.getByIndex(j)
+            if "CustomShape" in str(getattr(sh, "ShapeType", "") or ""):
+                geom = getattr(sh, "CustomShapeGeometry", None)
+                if geom:
+                    has_geom = True
+                    break
+        assert has_geom, "Vivid cloned master missing non-empty CustomShapeGeometry"
+
+    # Grey Elegant
+    if "grey_elegant" in available_ids or "grey-elegant" in available_ids:
+        did = "grey_elegant" if "grey_elegant" in available_ids else "grey-elegant"
+        out_grey = _exec(doc, ctx, "apply_design", {"design": did})
+        assert out_grey.get("status") == "ok", out_grey
+        applied = str(out_grey.get("applied_master") or "").lower()
+        assert "grey" in applied and "elegant" in applied
+
+
+@native_test
+@with_native_doc("impress")
+def test_apply_design_aspect_ratio_selection(ctx, doc):
+    listed = _exec(doc, ctx, "list_designs", {})
+    available_ids = [d["id"] for d in (listed.get("designs") or [])]
+    if "beehive" not in available_ids:
+        return
+
+    # Set page 0 to 4:3 (28000 x 21000)
+    p0 = doc.getDrawPages().getByIndex(0)
+    p0.Width = 28000
+    p0.Height = 21000
+
+    out = _exec(doc, ctx, "apply_design", {"design": "beehive"})
+    assert out.get("status") == "ok", out
+    master = p0.MasterPage
+    mw = getattr(master, "Width", 0)
+    mh = getattr(master, "Height", 0)
+    if mw and mh:
+        ratio = float(mw) / float(mh)
+        assert abs(ratio - (4.0 / 3.0)) < 0.05, f"Expected 4:3 master ratio, got {mw}x{mh} ({ratio})"

@@ -50,7 +50,7 @@ from plugin.draw.design_look import derive_otp_look
 from plugin.draw.otp_zip import extract_member, find_member, read_member
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import is_disposed_exception, is_real_disposal
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import get_service_manager, uno_same
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
@@ -87,6 +87,33 @@ class DesignChromeMissingError(RuntimeError):
 def _decode_odf_name(name: str) -> str:
     """Decode ODF style name escapes (_20_ -> space, _5f_ -> _, _3a_ -> :)."""
     return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), name)
+
+
+def _normalize_master_name(name: str) -> str:
+    """Normalize master name: decode ODF, lower, [_-] -> space, strip trailing 16:9 or 4:3."""
+    decoded = _decode_odf_name(str(name or "")).lower()
+    decoded = re.sub(r"[_-]+", " ", decoded)
+    decoded = re.sub(r"[\s]*(16:9|4:3)\s*$", "", decoded)
+    return " ".join(decoded.split())
+
+
+_FILL_STYLE_NAMES = {0: "none", 1: "solid", 2: "gradient", 3: "hatch", 4: "bitmap"}
+
+
+def _fill_style_kind(val: Any) -> str:
+    """Resolve FillStyle enum or int to standard kind name."""
+    raw = getattr(val, "value", val)
+    if isinstance(raw, str):
+        raw_upper = raw.strip().upper()
+        if raw_upper in ("NONE", "SOLID", "GRADIENT", "HATCH", "BITMAP"):
+            return raw_upper.lower()
+        try:
+            raw = int(raw)
+        except (ValueError, TypeError):
+            return "unknown"
+    if isinstance(raw, int) or hasattr(raw, "__index__"):
+        return _FILL_STYLE_NAMES.get(int(raw), "unknown")
+    return "unknown"
 
 
 def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
@@ -155,6 +182,20 @@ _CLONE_SHAPE_PROPS = (
     "TextAutoGrowWidth",
     "TextHorizontalAdjust",
     "TextVerticalAdjust",
+    "CustomShapeGeometry",
+    "Geometry",
+    "Polygon",
+    "PolyPolygon",
+    "PolyPolygonBezier",
+    "RotateAngle",
+    "CharPosture",
+    "CharUnderline",
+    "TextFitToSize",
+    "ParaAdjust",
+    "ParaLeftMargin",
+    "ParaRightMargin",
+    "ParaTopMargin",
+    "ParaBottomMargin",
 )
 _CLONE_MASTER_PAGE_PROPS = ("BackgroundFullSize", "BorderLeft", "BorderRight", "BorderTop", "BorderBottom", "Width", "Height")
 
@@ -302,9 +343,12 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
 def _match_listed_design(designs: list[dict[str, str]], needle: str) -> dict[str, str] | None:
     """Match a listed design by id, name, path, or file URL."""
     lower = needle.lower()
+    lower_stem = lower[:-4] if lower.endswith(".otp") else lower
     path_norm = os.path.normcase(os.path.normpath(needle)) if not needle.startswith("file:") else ""
     for entry in designs:
         if entry["id"] == lower or entry["name"].lower() == lower:
+            return entry
+        if lower_stem != lower and (entry["id"] == lower_stem or entry["name"].lower() == lower_stem):
             return entry
         if path_norm and os.path.normcase(entry["path"]) == path_norm:
             return entry
@@ -519,7 +563,9 @@ def _graphic_from_file_url(uno_ctx: Any, file_url: str) -> Any | None:
     from plugin.writer.format import create_property_value
 
     try:
-        smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
+        smgr = get_service_manager(uno_ctx)
+        if smgr is None:
+            return None
         provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
         if provider is None:
             return None
@@ -541,9 +587,6 @@ def _reimport_graphic(
     """Attach chrome without sharing the Hidden source SfxItemPool."""
     if uno_ctx is None:
         return False
-    import tempfile
-
-    from plugin.framework.url_utils import path_to_file_url
     from plugin.writer.format import create_property_value
 
     # 1) Extracted image path — never opens the Hidden Graphic.
@@ -552,17 +595,26 @@ def _reimport_graphic(
         log.debug("clone_master graphic via extracted file path=%s", image_path)
         new_graphic = _graphic_from_file_url(uno_ctx, url)
         if new_graphic is not None:
-            dest_shape.Graphic = new_graphic
-            return True
+            try:
+                dest_shape.Graphic = new_graphic
+                return True
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
+                log.debug("assigning extracted graphic failed", exc_info=True)
 
     # 2) Last resort: round-trip the live Graphic (may still be pool-sensitive).
     try:
         graphic = src_shape.Graphic
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         return False
     if graphic is None:
         return False
-    smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
+    smgr = get_service_manager(uno_ctx)
+    if smgr is None:
+        return False
     provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
     if provider is None:
         return False
@@ -619,19 +671,38 @@ def _clone_one_shape(
         elif res == "copied" and prop == "FillStyle":
             try:
                 val = src_shape.getPropertyValue("FillStyle")
-            except Exception:
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
                 val = getattr(src_shape, "FillStyle", None)
-            if val is not None:
-                try:
-                    int_val = int(getattr(val, "value", val))
-                except (ValueError, TypeError):
-                    int_val = -1
-                if int_val not in (0, 1):
-                    fill_kind = {2: "gradient", 3: "hatch", 4: "bitmap"}.get(int_val, "unknown")
-                    token = f"fill {fill_kind} not copied on shape {shape_index}"
+            fill_kind = _fill_style_kind(val)
+            if fill_kind == "gradient":
+                grad_res = _copy_uno_prop(clone, src_shape, "FillGradient")
+                if grad_res != "copied":
+                    token = f"fill gradient not copied on shape {shape_index}"
                     shape_warnings.append(token)
                     if warnings is not None:
                         warnings.append(token)
+                else:
+                    _copy_uno_prop(clone, src_shape, "FillTransparenceGradient")
+            elif fill_kind == "hatch":
+                hatch_res = _copy_uno_prop(clone, src_shape, "FillHatch")
+                if hatch_res != "copied":
+                    token = f"fill hatch not copied on shape {shape_index}"
+                    shape_warnings.append(token)
+                    if warnings is not None:
+                        warnings.append(token)
+            elif fill_kind == "bitmap":
+                token = f"fill bitmap not copied on shape {shape_index}"
+                shape_warnings.append(token)
+                if warnings is not None:
+                    warnings.append(token)
+            elif fill_kind not in ("none", "solid"):
+                token = f"fill {fill_kind} not copied on shape {shape_index}"
+                shape_warnings.append(token)
+                if warnings is not None:
+                    warnings.append(token)
+
     reimported: bool | None = None
     if "GraphicObject" in shape_type:
         reimported = _reimport_graphic(
@@ -641,11 +712,102 @@ def _clone_one_shape(
             image_path=image_path,
         )
         log.debug("clone_master graphic_reimport ok=%s type=%s", reimported, shape_type)
+
+    if "GroupShape" in shape_type:
+        src_child_count = 0
+        try:
+            src_child_count = int(src_shape.getCount())
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+        for child_idx in range(src_child_count):
+            src_child = src_shape.getByIndex(child_idx)
+            _clone_one_shape(
+                dest_doc,
+                clone,
+                src_child,
+                uno_ctx,
+                shape_index=child_idx,
+                warnings=warnings,
+            )
+        dest_child_count = 0
+        try:
+            dest_child_count = int(clone.getCount())
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+        if src_child_count > 0 and dest_child_count == 0:
+            raise DesignChromeMissingError(
+                f"Cloned group on shape {shape_index} has no children (expected {src_child_count}).",
+                warnings=tuple(warnings or ()),
+            )
+
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
     log.debug("clone_shape index=%s type=%s warnings=%s", shape_index, shape_type, shape_warnings)
     return shape_type, reimported
+
+
+def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[str]) -> None:
+    """Reconstruct solid page background without assigning source Background object."""
+    try:
+        src_bg = getattr(src_master, "Background", None)
+        if src_bg is None and hasattr(src_master, "getPropertyValue"):
+            src_bg = src_master.getPropertyValue("Background")
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        src_bg = None
+    if src_bg is None:
+        return
+    try:
+        fill_style = (
+            src_bg.getPropertyValue("FillStyle")
+            if hasattr(src_bg, "getPropertyValue")
+            else getattr(src_bg, "FillStyle", None)
+        )
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        fill_style = getattr(src_bg, "FillStyle", None)
+    kind = _fill_style_kind(fill_style)
+    if kind == "solid":
+        try:
+            src_color = (
+                src_bg.getPropertyValue("FillColor")
+                if hasattr(src_bg, "getPropertyValue")
+                else getattr(src_bg, "FillColor", None)
+            )
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            src_color = getattr(src_bg, "FillColor", None)
+        try:
+            dest_bg = getattr(dest_master, "Background", None)
+            if dest_bg is None and hasattr(dest_master, "getPropertyValue"):
+                dest_bg = dest_master.getPropertyValue("Background")
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            dest_bg = None
+        if dest_bg is not None:
+            try:
+                dest_bg.setPropertyValue("FillStyle", fill_style)
+            except Exception:
+                try:
+                    dest_bg.FillStyle = fill_style
+                except Exception:
+                    pass
+            try:
+                dest_bg.setPropertyValue("FillColor", src_color)
+            except Exception:
+                try:
+                    dest_bg.FillColor = src_color
+                except Exception:
+                    pass
+    elif kind == "bitmap":
+        warnings.append("fill bitmap not copied on master")
 
 
 def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> ClonedMaster:
@@ -658,25 +820,54 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     src_masters = src_doc.getMasterPages()
     if src_masters.getCount() < 1:
         raise RuntimeError("Design source has no master pages.")
-    src_master = None
+
     design_name = str(design.get("name") or "").strip()
     design_id = str(design.get("id") or "").strip().lower()
+
+    dest_ratio = 16.0 / 9.0
+    try:
+        pages = dest_doc.getDrawPages()
+        if pages.getCount() > 0:
+            p0 = pages.getByIndex(0)
+            dw = getattr(p0, "Width", 28000)
+            dh = getattr(p0, "Height", 15750)
+            if dh and float(dh) > 0:
+                dest_ratio = float(dw) / float(dh)
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+
+    norm_design_id = _normalize_master_name(design_id)
+    norm_design_name = _normalize_master_name(design_name)
+
+    matching_candidates: list[tuple[int, Any, float]] = []
+    all_candidates: list[tuple[int, Any, float]] = []
+
     for i in range(src_masters.getCount()):
-        candidate = src_masters.getByIndex(i)
-        # MasterPage.Name does not fail on a live page. Swallowing a failure
-        # skipped that master and hid a closed document.
-        name = str(candidate.Name or "")
-        lower = name.strip().lower()
-        if lower and (lower == design_name.lower() or lower == design_id):
-            src_master = candidate
-            if not design_name:
-                design_name = name
-            break
-    if src_master is None:
-        src_master = src_masters.getByIndex(0)
-        if not design_name:
-            # MasterPage.Name does not fail on a live page.
-            design_name = str(src_master.Name or "") or "Imported"
+        cand = src_masters.getByIndex(i)
+        cand_name = str(getattr(cand, "Name", "") or "")
+        norm_cand_name = _normalize_master_name(cand_name)
+
+        sw = getattr(cand, "Width", 0)
+        sh = getattr(cand, "Height", 0)
+        try:
+            cand_ratio = float(sw) / float(sh) if sh and float(sh) > 0 else dest_ratio
+        except Exception:
+            cand_ratio = dest_ratio
+        diff = abs(cand_ratio - dest_ratio)
+
+        item = (i, cand, diff)
+        all_candidates.append(item)
+        if norm_cand_name and (norm_cand_name == norm_design_id or norm_cand_name == norm_design_name):
+            matching_candidates.append(item)
+
+    pool = matching_candidates if matching_candidates else all_candidates
+    _best_idx, best_master, best_diff = min(pool, key=lambda x: (x[2], x[0]))
+    src_master = best_master
+    aspect_mismatch = best_diff > 0.05
+
+    if not design_name:
+        design_name = str(getattr(src_master, "Name", "") or "") or "Imported"
 
     dest_masters = dest_doc.getMasterPages()
     # Always insert a new master. Reusing a same-named master cleared its
@@ -694,12 +885,15 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     tmp_dir = tempfile.mkdtemp(prefix="wa_otp_clone_")
     try:
         warnings: list[str] = []
+        if aspect_mismatch:
+            warnings.append("aspect mismatch")
         # Factory placeholders on the new master are not user content.
         _clear_master_shapes(dest_master)
         for prop in _CLONE_MASTER_PAGE_PROPS:
             res = _copy_uno_prop(dest_master, src_master, prop)
             if res == "rejected":
                 warnings.append(f"rejected {prop} on master")
+        _clone_master_background(dest_master, src_master, warnings)
         try:
             src_count = int(src_master.getCount())
         except Exception as exc:
@@ -869,6 +1063,18 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     # getDrawPages().getCount() does not fail on a live document.
     # A closed document must not be reported as zero slides.
     dest_doc.getDrawPages().getCount()
+    try:
+        is_ro = bool(callable(getattr(dest_doc, "isReadonly", None)) and dest_doc.isReadonly() is True)
+    except Exception as ro_exc:
+        if is_real_disposal(ro_exc):
+            raise
+        is_ro = False
+    if is_ro:
+        return {
+            "status": "error",
+            "code": "DOCUMENT_READONLY",
+            "message": "Presentation document is read-only.",
+        }
     src = None
     master_name = ""
     shape_count = 0
@@ -1061,10 +1267,14 @@ class ApplyDesign(ToolBase):
         "template, clone its master shapes and reimported graphics into this "
         "document, and assign that master to every slide. Does not use "
         "the system clipboard and does not open a new presentation. "
-        "One master is cloned and assigned to every slide; other layout masters in the .otp are not imported. "
-        "Solid fill, line, and character properties, geometry, and pictures are cloned. "
-        "Gradients, bitmap fills, and presentation style families are not (copying those families shares the hidden source pool and aborts LibreOffice). "
-        "The result may include clone_warnings when a property is rejected or a gradient, hatch, or bitmap fill was not reproduced. "
+        "The master matching the deck's aspect ratio and design name is cloned "
+        "and assigned to every slide; other layout masters in the .otp are not imported. "
+        "Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, "
+        "solid master backgrounds, line and character properties, and pictures are cloned. "
+        "Bitmap fills and presentation style families are not (copying those families shares "
+        "the hidden source pool and aborts LibreOffice). "
+        "The result may include clone_warnings when a property is rejected, an aspect ratio "
+        "mismatch occurs, or a bitmap fill was not reproduced. "
         "Existing placeholder text stays on its current styles. "
         "Applying the same design again replaces the previously imported master of that name. "
         "Call list_designs first. Draw documents return a not-Impress error."
@@ -1092,7 +1302,7 @@ class ApplyDesign(ToolBase):
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_real_disposal(e):
                 raise
             log.exception("current-doc apply_design failed for %s", entry.get("path"))
             return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")
