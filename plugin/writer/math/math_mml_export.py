@@ -350,6 +350,19 @@ def _portion_embedded(portion: Any) -> Any | None:
             obj = getattr(portion, key, None)
         if obj is not None and _is_math_embed(obj):
             return obj
+    # Writer exposes an as-character object only through the Frame portion's
+    # content enumeration; the portion has no TextEmbeddedObject property.
+    try:
+        enum = portion.createContentEnumeration("com.sun.star.text.TextContent")
+    except Exception:
+        return None
+    while enum is not None and enum.hasMoreElements() is True:
+        try:
+            obj = enum.nextElement()
+        except Exception:
+            break
+        if obj is not None and _is_math_embed(obj):
+            return obj
     return None
 
 
