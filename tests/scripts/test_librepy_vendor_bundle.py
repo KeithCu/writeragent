@@ -105,7 +105,9 @@ import mathml_to_latex
 import isodate
 import json_repair
 
-assert latex2mathml.__version__ == "3.81.0", f"Unexpected version: {latex2mathml.__version__}"
+# Check the bundled copy loaded, not the venv one (no exact version pin: CI may install a newer patch).
+for mod in (latex2mathml, mathml_to_latex, isodate, json_repair):
+    assert os.path.realpath(mod.__file__).startswith(os.path.realpath(lib_dir)), mod.__file__
 """
     proc = subprocess.run(
         [sys.executable, "-c", script, str(lib_dir)],
