@@ -866,3 +866,33 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
     fam.hasByName.return_value = True
     assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
+
+
+def test_styled_math_insert_styles_from_paragraph_before_insert():
+    """The math path moves the cursor past the content, so styling starts after the paragraph before it."""
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    before = MagicMock()
+    start = MagicMock()
+    with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
+         patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
+         patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
+         patch.object(html_import, "_apply_block_lo_styles") as apply, \
+         patch.object(html_import, "_cursor_goto_document_end"):
+        html_import._insert_mixed_or_plain_html(
+            MagicMock(), MagicMock(), cursor,
+            '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
+            apply_styles=True,
+        )
+    pb.assert_called_once()
+    pa.assert_called_once_with(cursor.getText.return_value, before)
+    assert apply.call_args.args[2] is start
+
+
+def test_paragraph_after_none_is_text_start():
+    from plugin.writer import html_import
+
+    text = MagicMock()
+    html_import._paragraph_after(text, None)
+    text.createTextCursorByRange.assert_called_once_with(text.getStart.return_value)

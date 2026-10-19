@@ -853,6 +853,22 @@ def _insert_mixed_html_and_math_at_cursor(
 
 
 
+def _paragraph_before(text_obj: Any, cursor: Any) -> Any:
+    """Cursor at the start of the paragraph before *cursor*'s, or None in the first one."""
+    cur = text_obj.createTextCursorByRange(cursor.getStart())
+    cur.gotoStartOfParagraph(False)
+    return cur if cur.gotoPreviousParagraph(False) else None
+
+
+def _paragraph_after(text_obj: Any, before_para: Any) -> Any:
+    """Start of the paragraph after *before_para* (the text start when it is None)."""
+    if before_para is None:
+        return text_obj.createTextCursorByRange(text_obj.getStart())
+    cur = text_obj.createTextCursorByRange(before_para.getStart())
+    cur.gotoNextParagraph(False)
+    return cur
+
+
 def _insert_mixed_or_plain_html(
     model: Any,
     ctx: Any,
@@ -883,6 +899,8 @@ def _insert_mixed_or_plain_html(
     ruby_skip = _prefix_char_count(text_obj, cursor) if not has_math else 0
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
+    # The math path moves *cursor* past each segment, so keep the paragraph before the insert.
+    before_para = _paragraph_before(text_obj, cursor) if styled and has_math else None
 
     if has_math:
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
@@ -901,7 +919,8 @@ def _insert_mixed_or_plain_html(
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
         # still looked like a finished insert.
-        _apply_block_lo_styles(model, text_obj, cursor, block_styles, end=imported_end)
+        start = _paragraph_after(text_obj, before_para) if has_math else cursor
+        _apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     if not has_math:
         _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
