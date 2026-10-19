@@ -365,7 +365,8 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     assert int(_control_tops(xdl_path)["audio__stt_provider"]) < int(_control_tops(xdl_path)["audio__stt_model"])
     assert int(_control_tops(xdl_path)["audio__stt_model"]) < int(_control_tops(xdl_path)["audio__stt_local_model"])
     assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
-    assert tips["doc__grammar_proofreader_recheck"].startswith("Clears cached grammar results")
+    recheck_tip = tips["doc__grammar_proofreader_recheck"]
+    assert recheck_tip is not None and recheck_tip.startswith("Clears cached grammar results")
     assert not tips.get("chatbot__max_tool_rounds")
     assert not tips.get("audio__test_voice")
 
@@ -521,5 +522,132 @@ def test_vision_helper_lines_fit_the_dialog(tmp_path: Path) -> None:
         assert left == 8
         assert width == dlg_width - 16
         assert left + width <= dlg_width
+
+
+_EXPECTED_NUMERIC_BOUNDS: dict[str, tuple[int, int]] = {
+    "doc__grammar_proofreader_batch_sentences": (1, 8),
+    "doc__grammar_proofreader_max_in_flight": (1, 8),
+    "calc__max_rows_display": (100, 100000),
+    "chatbot__max_tool_rounds": (1, 200),
+    "chatbot__web_cache_max_mb": (0, 500),
+    "chatbot__web_cache_validity_days": (1, 30),
+    "chatbot__audio_silence_stop_ms": (0, 15000),
+    "mcp__mcp_port": (1024, 65535),
+    "scripting__python_exec_timeout": (1, 600),
+    "scripting__python_max_data_cells": (1000, 2000000),
+}
+
+
+def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
+    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+    attrs = _control_attrs(xdl_path)
+
+    for ctrl_id, (min_v, max_v) in _EXPECTED_NUMERIC_BOUNDS.items():
+        assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
+        el = elements[ctrl_id]
+        assert el.get(f"{{{_DLG_NS}}}value-min") == str(min_v)
+        assert el.get(f"{{{_DLG_NS}}}value-max") == str(max_v)
+        assert el.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+        assert el.get(f"{{{_DLG_NS}}}spin") == "true"
+        assert el.get(f"{{{_DLG_NS}}}value-step") is None
+
+        # Verify geometry attributes remain intact.
+        assert ctrl_id in attrs
+        assert int(attrs[ctrl_id]["left"]) > 0
+        assert int(attrs[ctrl_id]["top"]) > 0
+        assert int(attrs[ctrl_id]["width"]) > 0
+        assert int(attrs[ctrl_id]["height"]) > 0
+
+
+def test_settings_numeric_field_step_and_float_accuracy(tmp_path: Path) -> None:
+    modules = [
+        {
+            "name": "doc",
+            "title": "Document",
+            "config": {
+                "stepped_int": {
+                    "type": "integer",
+                    "widget": "number",
+                    "label": "Stepped Int",
+                    "min": 2,
+                    "max": 10,
+                    "step": 2,
+                },
+                "float_val": {
+                    "type": "float",
+                    "widget": "number",
+                    "label": "Float Val",
+                    "min": 0.5,
+                    "max": 5.0,
+                },
+            },
+        }
+    ]
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog-synthetic.xdl"
+    generate_settings_dialog_tabs(modules, str(tpl), str(out))
+    root = ET.parse(out).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+
+    stepped = elements["doc__stepped_int"]
+    assert stepped.get(f"{{{_DLG_NS}}}value-min") == "2"
+    assert stepped.get(f"{{{_DLG_NS}}}value-max") == "10"
+    assert stepped.get(f"{{{_DLG_NS}}}value-step") == "2"
+    assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+
+    flt = elements["doc__float_val"]
+    assert flt.get(f"{{{_DLG_NS}}}value-min") == "0.5"
+    assert flt.get(f"{{{_DLG_NS}}}value-max") == "5.0"
+    assert flt.get(f"{{{_DLG_NS}}}decimal-accuracy") == "1"
+    assert flt.get(f"{{{_DLG_NS}}}value-step") is None
+
+
+def test_standalone_numeric_field_step_and_bounds(tmp_path: Path) -> None:
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    out = tmp_path / "VisionSettingsDialog.xdl"
+    out.write_text(generate_standalone_config_dialog(vision), encoding="utf-8")
+    root = ET.parse(out).getroot()
+    ns = {"dlg": _DLG_NS}
+    elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
+
+    scale = elements["images_scale"]
+    assert scale.get(f"{{{_DLG_NS}}}value-min") == "0.5"
+    assert scale.get(f"{{{_DLG_NS}}}value-max") == "3.0"
+    assert scale.get(f"{{{_DLG_NS}}}decimal-accuracy") == "1"
+    assert scale.get(f"{{{_DLG_NS}}}value-step") is None
+
+    synthetic = {
+        "name": "custom",
+        "title": "Custom",
+        "config_dialog": {"id": "CustomDialog", "width": 400, "height": 300},
+        "config": {
+            "stepped_param": {
+                "type": "integer",
+                "widget": "number",
+                "label": "Stepped Param",
+                "min": 1,
+                "max": 100,
+                "step": 5,
+            }
+        },
+    }
+    synth_out = tmp_path / "CustomDialog.xdl"
+    synth_out.write_text(generate_standalone_config_dialog(synthetic), encoding="utf-8")
+    synth_root = ET.parse(synth_out).getroot()
+    synth_elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in synth_root.findall(".//dlg:numericfield", ns)}
+
+    stepped = synth_elements["stepped_param"]
+    assert stepped.get(f"{{{_DLG_NS}}}value-min") == "1"
+    assert stepped.get(f"{{{_DLG_NS}}}value-max") == "100"
+    assert stepped.get(f"{{{_DLG_NS}}}value-step") == "5"
+    assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+
 
 
