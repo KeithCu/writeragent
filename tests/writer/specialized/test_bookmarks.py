@@ -270,17 +270,21 @@ class _HeadingDoc:
         self.paras = list(paras)
         self.bookmarks = dict(bookmarks)
         self.modified = False
+        self.enumeration_count = 0
+        self.element_names_count = 0
 
     def getText(self):
         return self
 
     def createEnumeration(self):
+        self.enumeration_count += 1
         return _Enum(self.paras)
 
     def getBookmarks(self):
         return self
 
     def getElementNames(self):
+        self.element_names_count += 1
         return list(self.bookmarks)
 
     def getByName(self, name):
@@ -336,6 +340,8 @@ def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
     assert "_mcp_old" not in doc.bookmarks
     assert "Mine" in doc.bookmarks
     assert doc.modified is False
+    assert doc.enumeration_count == 1
+    assert doc.element_names_count == 1
 
 
 def test_ensure_drops_unplaced_mcp_bookmark_instead_of_paragraph_zero(monkeypatch):
@@ -412,7 +418,7 @@ def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
     def raise_map(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
+    monkeypatch.setattr(svc, "_read_mcp_bookmark_map_and_names", raise_map)
     result = svc.ensure_heading_bookmarks(doc)
     assert result == {}
     assert "_mcp_existing" in doc.bookmarks
