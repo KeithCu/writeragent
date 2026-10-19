@@ -1290,22 +1290,3 @@ def test_read_helpers_reraise_disposal():
         _cell_hosted_table_names(disposed_cell)
 
 
-def test_table_get_cells_does_not_scan_other_tables_getCellNames():
-    """table_get_cells on one table must not call getCellNames() on other tables."""
-    from unittest.mock import MagicMock
-    from plugin.writer.specialized.tables import TableGetCells
-
-    t1 = FakeTable(2, 2, name="T1", anchor_text=SimpleNamespace(createTextCursor=MagicMock(), CellName=None))
-    t2 = FakeTable(2, 2, name="T2", anchor_text=SimpleNamespace(createTextCursor=MagicMock(), CellName=None))
-    t2_cell_names_mock = MagicMock(wraps=t2.getCellNames)
-    t2.getCellNames = t2_cell_names_mock
-
-    doc = FakeWriterDoc({"T1": t1, "T2": t2})
-    ctx = SimpleNamespace(doc=doc)
-
-    res = TableGetCells().execute(ctx, name="T1")
-    assert res["status"] == "ok"
-    assert res["table_name"] == "T1"
-    t2_cell_names_mock.assert_not_called()
-
-

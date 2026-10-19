@@ -425,59 +425,9 @@ def _writer_nesting(
 
 def _nesting_for(doc: Any, name: str) -> dict[str, Any]:
     """Direct-parent nesting dict for one table name (missing -> not nested)."""
-    text = None
-    try:
-        tables = _tables(doc)
-        if not tables.hasByName(name):
-            return _not_nested()
-        table = tables.getByName(name)
-        anchor = table.getAnchor()
-        if anchor is not None:
-            text = anchor.getText()
-    except Exception:
-        text = None
-
-    if text is None or not hasattr(text, "createTextCursor"):
-        nesting_by_name = _writer_nesting(doc)[0]
-        return nesting_by_name.get(name, _not_nested())
-
-    cell_name = None
-    try:
-        if hasattr(text, "CellName"):
-            cell_name = text.CellName
-        elif hasattr(text, "getPropertyValue"):
-            cell_name = text.getPropertyValue("CellName")
-    except Exception:
-        pass
-
-    if not cell_name:
-        return _not_nested()
-
-    parent_table_name = None
-    try:
-        cur = text.createTextCursor()
-        ptable = None
-        if hasattr(cur, "TextTable"):
-            ptable = cur.TextTable
-        elif hasattr(cur, "getPropertyValue"):
-            ptable = cur.getPropertyValue("TextTable")
-        if ptable is not None:
-            if hasattr(ptable, "getName"):
-                parent_table_name = ptable.getName()
-            elif hasattr(ptable, "Name"):
-                parent_table_name = ptable.Name
-            elif hasattr(ptable, "getPropertyValue"):
-                parent_table_name = ptable.getPropertyValue("Name")
-    except Exception:
-        pass
-
-    if parent_table_name and parent_table_name != name:
-        return {
-            "is_nested": True,
-            "parent_table": str(parent_table_name),
-            "parent_cell": str(cell_name),
-        }
-
+    # TODO: Optimize single-table nesting check via table.getAnchor().getText() (cell vs body)
+    # to avoid full-document _writer_nesting scan (O(all cells)). A native probe of
+    # anchor CellName / cursor TextTable failed in CI, so keep the scan until that is understood.
     nesting_by_name = _writer_nesting(doc)[0]
     return nesting_by_name.get(name, _not_nested())
 
