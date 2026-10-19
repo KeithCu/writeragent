@@ -11,7 +11,7 @@
 import unittest
 
 from plugin.testing_runner import native_test, show_window
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from tests.testing_utils import TestingFactory, with_native_doc
 
 
 def _execute(doc, ctx, name, args, domain="calc"):
@@ -276,4 +276,93 @@ def test_calc_multisheet_charts(ctx, doc):
     assert "Chart_0" in remaining_names
     assert "Chart_2" in remaining_names
     assert "Chart_1" not in remaining_names
+
+
+@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+@native_test
+@with_native_doc("impress", hidden=not show_window)
+def test_impress_grouped_and_multipage_chart(ctx, doc):
+    # 1. Create chart on first slide (Chart_0)
+    res0 = _execute(doc, ctx, "manage_charts", {
+        "action": "create",
+        "chart_type": "column",
+        "title": "Slide 1 Chart",
+    }, domain="draw")
+    assert res0.get("status") == "ok", f"Create 0 failed: {res0}"
+    assert res0.get("name") == "Chart_0"
+
+    # 2. Group Chart_0 with a rectangle shape
+    page0 = doc.getDrawPages().getByIndex(0)
+    rect = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    page0.add(rect)
+    from plugin.draw.shapes import _create_shape_collection
+
+    col = _create_shape_collection(ctx)
+    chart_shape = None
+    for i in range(page0.getCount()):
+        s = page0.getByIndex(i)
+        if getattr(s, "Name", None) == "Chart_0":
+            chart_shape = s
+            break
+    assert chart_shape is not None
+    col.add(chart_shape)
+    col.add(rect)
+    group = page0.group(col)
+    assert group is not None
+
+    # 3. Delete Chart_0 by name; verify Chart_0 is gone and group remains
+    del_res = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0"}, domain="draw")
+    assert del_res.get("status") == "ok", f"Delete grouped chart failed: {del_res}"
+    page_shapes = [page0.getByIndex(i) for i in range(page0.getCount())]
+    assert group in page_shapes
+    assert group.getCount() == 1
+
+    # 4. Create another chart on slide 0 (will be Chart_0 again since previous was deleted)
+    res_s0 = _execute(doc, ctx, "manage_charts", {
+        "action": "create",
+        "chart_type": "bar",
+        "title": "Page 0 Bar",
+    }, domain="draw")
+    assert res_s0.get("status") == "ok"
+    assert res_s0.get("name") == "Chart_0"
+
+    # 5. Insert slide 1 and set current page, then create chart on slide 1 (also Chart_0)
+    doc.getDrawPages().insertNewByIndex(1)
+    page1 = doc.getDrawPages().getByIndex(1)
+    controller = doc.getCurrentController()
+    if controller is not None and hasattr(controller, "setCurrentPage"):
+        controller.setCurrentPage(page1)
+
+    res_s1 = _execute(doc, ctx, "manage_charts", {
+        "action": "create",
+        "chart_type": "pie",
+        "title": "Page 1 Pie",
+    }, domain="draw")
+    assert res_s1.get("status") == "ok"
+    assert res_s1.get("name") == "Chart_0"
+
+    # 6. List charts: should show Chart_0 on both page 0 and page 1
+    list_res = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="draw")
+    assert list_res.get("status") == "ok"
+    charts = list_res.get("charts", [])
+    assert len(charts) == 2
+    pages_with_chart_0 = [c["page"] for c in charts if c["name"] == "Chart_0"]
+    assert 0 in pages_with_chart_0
+    assert 1 in pages_with_chart_0
+
+    # 7. Delete without page should error with CHART_AMBIGUOUS
+    del_ambig = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0"}, domain="draw")
+    assert del_ambig.get("status") == "error"
+    assert del_ambig.get("code") == "CHART_AMBIGUOUS"
+
+    # 8. Delete with page=1 removes only slide 1 chart
+    del_p1 = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0", "page": 1}, domain="draw")
+    assert del_p1.get("status") == "ok"
+
+    list_after = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="draw")
+    assert list_after.get("status") == "ok"
+    remaining = list_after.get("charts", [])
+    assert len(remaining) == 1
+    assert remaining[0]["page"] == 0
+    assert remaining[0]["name"] == "Chart_0"
 

@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.charts import (
+    ChartLookup,
+    ChartRef,
     GetChartInfo,
     ManageCharts,
     UpsertChart,
@@ -152,7 +154,7 @@ def test_manage_charts_error_handling():
     assert err_range == "Parameter 'data_range' is required when action is 'create' in Calc"
 
     uc = UpsertChart()
-    with patch("plugin.calc.charts.supportsService", return_value=True), patch("plugin.calc.charts._resolve_chart", return_value=None):
+    with patch("plugin.calc.charts.supportsService", return_value=True), patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup()):
         res_edit_nf = uc.execute(ctx, action="edit", name="NonExistentChart")
         assert res_edit_nf["status"] == "error"
         assert "not found" in res_edit_nf["message"]
@@ -340,7 +342,7 @@ def test_edit_legend_failure_does_not_remove_existing_chart():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=MagicMock()),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(MagicMock(), MagicMock(), "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()),
         patch("plugin.calc.charts._apply_chart_styling", side_effect=_UnoRuntimeException("legend")),
         patch("plugin.calc.charts._drop_failed_chart_insert", wraps=_drop_failed_chart_insert) as drop,
@@ -493,13 +495,13 @@ def test_get_chart_info_ranges_disposal_propagates():
     chart_obj = MagicMock()
     chart_obj.getRanges.side_effect = DisposedException("gone")
     ctx: Any = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.charts._resolve_chart", return_value=chart_obj):
+    with patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))):
         with pytest.raises(DisposedException):
             GetChartInfo().execute(ctx, name="Chart_1")
 
     chart_obj.getRanges.side_effect = RuntimeException("ranges gone")
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
         res = GetChartInfo().execute(ctx, name="Chart_1")
@@ -513,7 +515,7 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
     chart_doc.setDiagram.side_effect = DisposedException("gone")
     ctx: Any = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
         with pytest.raises(DisposedException):
@@ -521,7 +523,7 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
 
     chart_doc.setDiagram.side_effect = RuntimeException("edit error")
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
         res = UpsertChart().execute(ctx, action="edit", name="Chart_1", chart_type="bar")
@@ -738,7 +740,7 @@ def test_edit_data_apply_failure_returns_error_and_does_not_remove_chart():
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
     ctx: Any = SimpleNamespace(doc=doc)
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "writer_embed"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
     ):
@@ -772,12 +774,12 @@ def test_styling_logging_counts_not_payloads(caplog):
     chart_doc.getData.return_value = chart_data
 
     with caplog.at_level(logging.INFO, logger="writeragent.calc"):
-        _apply_chart_styling(chart_doc, headers=["Cat", "Val"], rows=[["SecretDistinctCellXYZ", 999.0]])
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["SecretDistinctCellXYZ", 999.0]])
     assert "SecretDistinctCellXYZ" not in caplog.text
 
     # At DEBUG, first row may be inspected
     with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
-        _apply_chart_styling(chart_doc, headers=["Cat", "Val"], rows=[["SecretDistinctCellXYZ", 999.0]])
+        _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["SecretDistinctCellXYZ", 999.0]])
     assert "SecretDistinctCellXYZ" in caplog.text
 
 
@@ -865,7 +867,7 @@ def test_calc_edit_updates_data_range_and_headers():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
@@ -899,7 +901,7 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
     ):
@@ -968,7 +970,7 @@ def test_calc_edit_position_warns_and_does_not_move():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._resolve_chart", return_value=(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
     ):
@@ -1001,6 +1003,9 @@ def test_unsupported_dim3d_yields_warning():
 
 
 def test_data_applied_before_series_colors():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    chart_obj = MagicMock()
     chart_doc = MagicMock()
     chart_data = MagicMock()
     chart_doc.getData.return_value = chart_data
@@ -1019,13 +1024,22 @@ def test_data_applied_before_series_colors():
     first_diag.getCoordinateSystems.return_value = [coord]
     chart_doc.getFirstDiagram.return_value = first_diag
 
-    _apply_chart_styling(
-        chart_doc,
-        headers=["Cat", "Val"],
-        rows=[["A", 10.0]],
-        colors=["#FF0000"],
-    )
+    ctx: Any = SimpleNamespace(doc=doc)
 
+    with (
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "writer_draw_page"))),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+    ):
+        res = UpsertChart().execute(
+            ctx,
+            action="edit",
+            name="Chart_0",
+            headers=["Cat", "Val"],
+            rows=[["A", 10.0]],
+            colors=["#FF0000"],
+        )
+
+    assert res["status"] == "ok"
     assert "setData" in call_order
     assert any("setPropertyValue" in c for c in call_order)
     assert call_order.index("setData") < next(i for i, c in enumerate(call_order) if "setPropertyValue" in c)
