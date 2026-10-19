@@ -131,6 +131,10 @@ def test_generator_script_runs_without_libreoffice(tmp_path):
     assert result.returncode == 0, result.stderr[-2000:]
     compile(result.stdout, "<generated>", "exec")
     assert "DOMAIN_TOOLS =" in result.stdout
+    api_path = os.path.join(repo, "plugin", "scripting", "writeragent_api.py")
+    with open(api_path, encoding="utf-8") as handle:
+        expected = handle.read()
+    assert result.stdout == expected
 
 
 def test_generate_module_escapes_python_keyword_method_names():
@@ -216,9 +220,9 @@ def test_method_docstring_includes_full_description_and_schema_args():
     assert "action (required):" in code
     assert "index (optional):" in code
     assert "-> dict[str, Any]:" in code
-    namespace: dict[str, object] = {}
+    namespace: dict[str, Any] = {}
     exec(code, namespace)
-    doc = namespace["shape"].upsert.__doc__  # type: ignore[attr-defined]
+    doc = namespace["shape"].upsert.__doc__
     assert doc is not None
     assert "get_draw_tree" in doc
     assert "Action to perform: 'create' a new shape" in doc
@@ -238,9 +242,9 @@ def test_method_docstring_escapes_backslashes_and_triple_quotes():
     )
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    namespace: dict[str, object] = {}
+    namespace: dict[str, Any] = {}
     exec(code, namespace)
-    doc = namespace["core"].weird_tool.__doc__  # type: ignore[attr-defined]
+    doc = namespace["core"].weird_tool.__doc__
     assert doc is not None
     assert 'C:\\temp' in doc
     assert '"""quotes"""' in doc
@@ -468,4 +472,184 @@ def test_tool_methods_and_all_in_generated_code():
     assert "shape" in ns["__all__"]
     # Builtins like range must not be in __all__
     assert "range" not in ns["__all__"]
+
+
+def test_import_generator_does_not_mutate_sys_modules_or_meta_path():
+    import subprocess
+
+    cmd = (
+        "import sys\n"
+        "meta_len = len(sys.meta_path)\n"
+        "has_uno = 'uno' in sys.modules\n"
+        "has_unohelper = 'unohelper' in sys.modules\n"
+        "import scripts.generate_tool_proxies\n"
+        "assert ('uno' in sys.modules) is False\n"
+        "assert ('unohelper' in sys.modules) is False\n"
+        "assert len(sys.meta_path) == meta_len\n"
+        "assert not any(type(f).__name__ == 'MockFinder' for f in sys.meta_path)\n"
+    )
+    res = subprocess.run([sys.executable, "-c", cmd], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+
+
+class _DummyRegistry:
+    def __init__(self, tools):
+        self._tools = tools
+
+    def get_tools(self, *args, **kwargs):
+        return self._tools
+
+
+def test_main_fails_closed_on_empty_registry(monkeypatch, tmp_path):
+    from scripts import generate_tool_proxies
+
+    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([]))
+    out_file = tmp_path / "writeragent_api.py"
+    with pytest.raises(SystemExit) as exc_info:
+        generate_tool_proxies.main(["--output", str(out_file)])
+    assert exc_info.value.code != 0
+    assert not out_file.exists()
+
+
+def test_main_fails_closed_when_core_missing_list_open_documents(monkeypatch, tmp_path):
+    from scripts import generate_tool_proxies
+
+    dummy_tool = _as_tool(MockTool("dummy_tool", "desc", {}, specialized_domain="footnotes"))
+    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([dummy_tool]))
+    out_file = tmp_path / "writeragent_api.py"
+    with pytest.raises(SystemExit) as exc_info:
+        generate_tool_proxies.main(["--output", str(out_file)])
+    assert exc_info.value.code != 0
+    assert not out_file.exists()
+
+
+def test_main_check_flag(tmp_path):
+    from scripts import generate_tool_proxies
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    committed_api = os.path.join(repo_root, "plugin", "scripting", "writeragent_api.py")
+
+    generate_tool_proxies.main(["--check", committed_api])
+
+    bad_file = tmp_path / "bad_api.py"
+    bad_file.write_text("# corrupted\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc_info:
+        generate_tool_proxies.main(["--check", str(bad_file)])
+    assert exc_info.value.code != 0
+
+
+def test_method_docstring_trailing_quote_compiles():
+    desc = 'Keep the trailing "quote"'
+    tool = MockTool("trailing_quote_tool", desc, {})
+    code = generate_module([_as_tool(tool)])
+    compile(code, "<generated>", "exec")
+    ns: dict[str, Any] = {}
+    exec(code, ns)
+    doc = ns["core"].trailing_quote_tool.__doc__
+    assert doc is not None
+    assert doc.strip() == desc
+
+
+@pytest.mark.parametrize("bad_key", ["self", "foo-bar", "1x"])
+def test_invalid_parameter_name_raises(bad_key):
+    tool = MockTool(
+        "bad_tool",
+        "desc",
+        {
+            "type": "object",
+            "properties": {bad_key: {"type": "string"}},
+            "required": [bad_key],
+        },
+    )
+    with pytest.raises(ValueError, match=rf"Invalid parameter name {bad_key!r} in tool 'bad_tool'"):
+        generate_module([_as_tool(tool)])
+
+
+def test_keyword_parameter_compiles_and_uses_splat():
+    tool = MockTool(
+        "keyword_tool",
+        "desc",
+        {
+            "type": "object",
+            "properties": {
+                "class": {"type": "string"},
+                "reg": {"type": "integer"},
+            },
+            "required": ["class"],
+        },
+    )
+    code = generate_module([_as_tool(tool)])
+    compile(code, "<generated>", "exec")
+    assert "def keyword_tool(self, class_: str, *, reg: int | None = None) -> dict[str, Any]:" in code
+    assert 'return _rpc_call("keyword_tool", **{"class": class_}, reg=reg)' in code
+
+
+def test_namespace_collision_raises():
+    tools = [
+        _as_tool(MockTool("query_folder_sql", "Run SQL.", {}, specialized_domain="python/sql")),
+        _as_tool(MockTool("query_other", "Run other.", {}, specialized_domain="python_sql")),
+    ]
+    with pytest.raises(ValueError, match=r"proxy namespace collision:.*python_sql"):
+        generate_module(tools)
+
+
+def test_default_none_emits_optional_annotation():
+    tool = MockTool(
+        "test_tool",
+        "desc",
+        {
+            "type": "object",
+            "properties": {
+                "val": {"type": "string", "default": None},
+            },
+        },
+    )
+    pos, kw = schema_to_signature(_as_tool(tool))
+    assert pos == []
+    assert kw == ["val: str | None = None"]
+    code = generate_module([_as_tool(tool)])
+    compile(code, "<generated>", "exec")
+    assert "def test_tool(self, *, val: str | None = None) -> dict[str, Any]:" in code
+
+
+def test_union_array_string_type_emits_union_annotation():
+    tool = MockTool(
+        "apply_document_content",
+        "desc",
+        {
+            "type": "object",
+            "properties": {
+                "content": {"type": ["array", "string"], "items": {"type": "string"}},
+            },
+            "required": ["content"],
+        },
+    )
+    pos, kw = schema_to_signature(_as_tool(tool))
+    assert pos == ["content: list[str] | str"]
+    code = generate_module([_as_tool(tool)])
+    compile(code, "<generated>", "exec")
+    assert "def apply_document_content(self, content: list[str] | str) -> dict[str, Any]:" in code
+
+
+def test_scripting_only_extra_in_signature_doc_and_rpc():
+    class ToolWithExtra(MockTool):
+        scripting_only_parameters = ("number_format",)
+
+    tool = ToolWithExtra(
+        "set_style",
+        "Set cell style.",
+        {
+            "type": "object",
+            "properties": {"range_name": {"type": "string"}},
+            "required": ["range_name"],
+        },
+    )
+    pos, kw = schema_to_signature(_as_tool(tool))
+    assert pos == ["range_name: str"]
+    assert kw == ["number_format: str | None = None"]
+    code = generate_module([_as_tool(tool)])
+    compile(code, "<generated>", "exec")
+    assert "def set_style(self, range_name: str, *, number_format: str | None = None) -> dict[str, Any]:" in code
+    assert "number_format (optional): Scripting-only parameter." in code
+    assert 'return _rpc_call("set_style", range_name=range_name, number_format=number_format)' in code
 

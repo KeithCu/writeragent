@@ -53,7 +53,6 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/json_utils.py",
     "plugin/framework/i18n.py",
     "plugin/framework/event_bus.py",
-    "plugin/framework/service.py",
     "plugin/framework/url_utils.py",
     "plugin/framework/thread_guard.py",
     # chatbot/__init__.py (WriterAgent, dual-install via plugin.extend_path) imports
@@ -138,7 +137,10 @@ def collect_libreharper_plugin_paths(base_dir: str) -> list[str]:
 def iter_libreharper_vendor_packages(vendor_dir: str) -> list[str]:
     """Return vendor/ top-level package directory names to copy into LibreHarper plugin/lib/."""
     if not os.path.isdir(vendor_dir):
-        return []
+        raise FileNotFoundError(
+            "LibreHarper vendor missing required packages under %s: %s (run: make vendor)"
+            % (vendor_dir, ", ".join(sorted(LIBREHARPER_VENDOR_PACKAGES)))
+        )
     found: list[str] = []
     for entry in sorted(os.listdir(vendor_dir)):
         if entry.endswith(".dist-info") or entry.startswith(("_", ".")):

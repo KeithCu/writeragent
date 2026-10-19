@@ -36,6 +36,14 @@ def test_pixel_size_vector_picture_gets_96_dpi_frame():
     assert image_mark.pixel_size(_graphic(px=(0, 0), hmm=(2540, 5080))) == (96, 192)
 
 
+def test_graphic_pixel_size():
+    from plugin.doc import visual_helpers
+
+    assert visual_helpers.graphic_pixel_size(_graphic()) == (2000, 1000)
+    assert visual_helpers.graphic_pixel_size(_graphic(px=(0, 0), hmm=(2540, 5080))) == (96, 192)
+    assert visual_helpers.graphic_pixel_size(None) == (None, None)
+
+
 def test_to_pixel_box_px_and_percent():
     assert image_mark.to_pixel_box([10, 20, 300, 40], "px", 2000, 1000) == (10, 20, 300, 40)
     assert image_mark.to_pixel_box([10, 20, 50, 5], "percent", 2000, 1000) == (200, 200, 1000, 50)

@@ -38,7 +38,7 @@ from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
-from plugin.notebook.cell_registry import _coerce_notebook_text, _prepare_display_text, cell_id_to_hex, load_registry
+from plugin.notebook.cell_registry import _coerce_notebook_text, cell_id_to_hex, load_registry
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -195,7 +195,7 @@ def _max_field_height_units(doc: Any | None) -> int:
     return _cap_from_style(style)
 
 
-def _line_display_cols(line: str) -> int:
+def _line_display_cols(line: str, *, max_cols: int | None = None) -> int:
     if line.endswith("\r"):
         line = line[:-1]
     line = line.expandtabs(4)
@@ -205,10 +205,18 @@ def _line_display_cols(line: str) -> int:
             cols += 2
         else:
             cols += 1
+        if max_cols is not None and cols >= max_cols:
+            return cols
     return cols
 
 
-def _raw_height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None) -> int:
+def _raw_height_for_text(
+    text: str,
+    doc: Any | None = None,
+    *,
+    field_w: int | None = None,
+    cap: int | None = None,
+) -> int:
     if field_w is None and doc is not None:
         field_w = _text_area_width_units(doc)
     if field_w is None:
@@ -217,16 +225,24 @@ def _raw_height_for_text(text: str, doc: Any | None = None, *, field_w: int | No
         char_width = int(_CODE_FONT_HEIGHT * 2540 * 0.6 / 72)
         cols = max(8, field_w // char_width)
     lines = 0
+    base_pad = _FIELD_HEIGHT_PAD + _WRAP_SLACK
+    # Stop line walk once height strictly passes cap so raw_h > cap remains true.
+    max_lines_needed = max(1, (cap - base_pad) // _LINE_HEIGHT + 1) if cap is not None else None
+
     for line in (text or "").split("\n"):
-        cols_count = _line_display_cols(line)
+        rem_lines = (max_lines_needed - lines) if max_lines_needed is not None else None
+        max_cols = (rem_lines * cols) if rem_lines is not None and rem_lines > 0 else None
+        cols_count = _line_display_cols(line, max_cols=max_cols)
         lines += max(1, (cols_count + cols - 1) // cols)
+        if max_lines_needed is not None and lines >= max_lines_needed:
+            break
     lines = max(1, lines)
-    return lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
+    return lines * _LINE_HEIGHT + base_pad
 
 
 def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
-    raw = _raw_height_for_text(text, doc, field_w=field_w)
+    raw = _raw_height_for_text(text, doc, field_w=field_w, cap=cap)
     if cap is None:
         cap = _max_field_height_units(doc)
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
@@ -322,7 +338,7 @@ def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) 
     model = doc.createInstance("com.sun.star.form.component.CommandButton")
     if model is None:
         raise RuntimeError("Failed to create form CommandButton")
-    model.Name = f"nb_run_{hex_id}"
+    model.Name = f"{_RUN_PREFIX}{hex_id}"
     model.Label = "\u25b6"
     if hasattr(model, "HelpText"):
         model.HelpText = _("Run code cell")
@@ -354,15 +370,15 @@ def _insert_code_input_in_flow(
     cap: int | None = None,
 ) -> None:
     """Editable code cell: form TextField anchored in document flow at body end."""
-    display, truncated = _prepare_display_text(_coerce_notebook_text(source))
-    raw_chars = len(source or "")
+    source_text = _coerce_notebook_text(source)
+    raw_chars = len(source_text)
 
     if field_w is None:
         field_w = _text_area_width_units(doc)
     if cap is None:
         cap = _max_field_height_units(doc)
 
-    raw_h = _raw_height_for_text(display, field_w=field_w)
+    raw_h = _raw_height_for_text(source_text, field_w=field_w, cap=cap)
     h = max(_MIN_FIELD_HEIGHT, min(cap, raw_h))
     vscroll = raw_h > cap
 
@@ -372,12 +388,14 @@ def _insert_code_input_in_flow(
         raise RuntimeError("Failed to create form TextField")
     model.Name = name
     if hasattr(model, "Label"):
-        model.Label = "Code"
+        model.Label = _("Code")
     _style_code_field_model(model, vscroll=vscroll)
     create_ms = _mono_ms(t0)
 
     t_text = time.monotonic()
-    model.Text = display
+    # Full source is the runnable program; display cap is for body text only.
+    # MaxTextLen defaults to 0 (unlimited); do not set it or non-zero caps at 32k.
+    model.Text = source_text
     text_ms = _mono_ms(t_text)
 
     t_shape = time.monotonic()
@@ -395,7 +413,7 @@ def _insert_code_input_in_flow(
     t_add = time.monotonic()
     text.insertTextContent(cursor, shape, False)
     add_ms = _mono_ms(t_add)
-    _log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=truncated, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
+    _log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=False, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -761,7 +779,7 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
             for j in range(elem_count):
                 elem = form.getByIndex(j)
                 name = getattr(elem, "Name", "")
-                if name and name.startswith("nb_run_"):
+                if name and name.startswith(_RUN_PREFIX):
                     has_nb = True
                     break
             if has_nb:

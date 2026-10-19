@@ -29,6 +29,7 @@ def test_nested_generatorexp_via_evaluate_generatorexp():
     """Inner loop variable must bind when multiple generators are nested."""
     state = {"data": [[1, 2, 3], [4, 5, 6]]}
     tree = ast.parse("(v for row in data for v in row)", mode="eval")
+    assert isinstance(tree.body, ast.GeneratorExp)
     gen = evaluate_generatorexp(
         tree.body,
         state,
@@ -261,13 +262,15 @@ def test_with_second_enter_failing_exits_first_manager():
         def __enter__(self):
             events.append("enter1")
             return self
+
         def __exit__(self, *args):
             events.append("exit1")
 
     class Second:
         def __enter__(self):
             events.append("enter2")
-            raise RuntimeError("fail enter2")
+            raise ValueError("fail enter2")
+
         def __exit__(self, *args):
             events.append("exit2")
 
@@ -277,6 +280,42 @@ def test_with_second_enter_failing_exits_first_manager():
         executor("with First(), Second():\n    pass")
     assert "fail enter2" in str(exc_info.value)
     assert events == ["enter1", "enter2", "exit1"]
+
+    # First.__exit__ returns true and suppresses; body does not run, exit2 absent
+    events.clear()
+    recorded_exc = []
+
+    class SuppressingFirst:
+        def __enter__(self):
+            events.append("enter1")
+            return self
+
+        def __exit__(self, exc_type, exc_val, tb):
+            events.append("exit1")
+            recorded_exc.append((exc_type, exc_val))
+            return True
+
+    executor.send_variables({"SuppressingFirst": SuppressingFirst, "Second": Second, "body_assigned": False})
+    executor("with SuppressingFirst(), Second():\n    body_assigned = True")
+    assert events == ["enter1", "enter2", "exit1"]
+    assert executor.state["body_assigned"] is False
+    assert len(recorded_exc) == 1
+    assert recorded_exc[0][0] is ValueError
+    assert "fail enter2" in str(recorded_exc[0][1])
+
+    # First.__exit__ raises RuntimeError; reported error is RuntimeError, not enter ValueError
+    class RaisingFirst:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, tb):
+            raise RuntimeError("exit error")
+
+    executor.send_variables({"RaisingFirst": RaisingFirst, "Second": Second})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("with RaisingFirst(), Second():\n    pass")
+    assert "exit error" in str(exc_info.value)
+    assert "fail enter2" not in str(exc_info.value)
 
 
 def test_with_target_unpacking():
@@ -414,6 +453,30 @@ def test_evaluate_call_attribute_dunder_rejected_at_runtime():
     assert "Forbidden" in str(exc_info.value)
 
 
+def test_evaluate_call_property_getter_evaluates_once():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    class Counter:
+        def __init__(self):
+            self.count = 0
+
+        @property
+        def method(self):
+            self.count += 1
+            return lambda: self.count
+
+    executor.send_variables({"Counter": Counter})
+    code = """
+c = Counter()
+res = c.method()
+n = c.count
+"""
+    executor(code)
+    assert executor.state["n"] == 1
+    assert executor.state["res"] == 1
+
+
 def test_print_hijack_method_and_user_def():
     executor = LocalPythonExecutor(additional_authorized_imports=[])
     executor.send_tools({})
@@ -534,6 +597,7 @@ def test_relative_import_rejected():
 
     # Calling evaluate_import on relative node raises InterpreterError, not AttributeError
     node = ast.parse("from . import x").body[0]
+    assert isinstance(node, (ast.Import, ast.ImportFrom))
     with pytest.raises(InterpreterError) as exc_info:
         evaluate_import(node, {}, [])
     assert "Relative imports are not allowed." in str(exc_info.value)
@@ -1143,6 +1207,25 @@ def test_slice9_timeout_validation_and_unwinding():
     elapsed = time.monotonic() - t0
     assert 1.5 <= elapsed <= 2.8
 
+    # 5. Non-main thread timeout stops pure-Python loop via _Ops deadline
+    from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor
+
+    def loop_worker():
+        executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+        executor.send_variables({"counter": 0})
+        code = "while True:\n    counter += 1"
+        with pytest.raises(ExecutionTimeoutError):
+            executor(code)
+        val = executor.state["counter"]
+        time.sleep(0.15)
+        return val, executor.state["counter"]
+
+    with TPE(max_workers=1) as pool:
+        future = pool.submit(loop_worker)
+        val_at_timeout, val_after_wait = future.result()
+    assert val_at_timeout > 0
+    assert val_at_timeout == val_after_wait
+
 
 def test_slice10_import_authorized_drift():
     from plugin.contrib.smolagents.local_python_executor import check_import_authorized
@@ -1275,6 +1358,43 @@ def test_operator_loader_and_spec_checks():
     with pytest.raises(InterpreterError) as exc_info:
         executor("import random\nx = random._os")
     assert "Forbidden access to module" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import operator, random\noperator.attrgetter('_os.listdir')(random)")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import operator, random\noperator.attrgetter('_os.remove')(random)")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import operator, collections\noperator.attrgetter('_collections_abc.sys._getframe')(collections)")
+    assert "Forbidden access to module" in str(exc_info.value)
+
+    import os
+    executor.send_variables({"f": os.listdir})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor('f(".")')
+    assert "Forbidden" in str(exc_info.value)
+
+    positive_code = """
+class Inner:
+    def __init__(self, val):
+        self.b = val
+
+class Outer:
+    def __init__(self):
+        self.a = Inner(10)
+        self.b = 20
+
+import operator
+obj = Outer()
+res_nested = operator.attrgetter('a.b')(obj)
+res_tuple = operator.attrgetter('a', 'b')(obj)
+"""
+    executor(positive_code)
+    assert executor.state["res_nested"] == 10
+    assert executor.state["res_tuple"] == (executor.state["obj"].a, 20)
 
 
 def test_string_based_attribute_dispatch_dunder_rejection():

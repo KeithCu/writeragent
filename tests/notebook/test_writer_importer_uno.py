@@ -1022,3 +1022,52 @@ def test_doc_body_nonempty_sees_in_flow_image_uno(ctx, doc):
     graphic_paras = [p for p in paras if p is not after_paras[0]]
     assert all("after image" not in p[1] for p in graphic_paras)
 
+
+@native_test
+@with_native_doc("writer")
+def test_import_large_code_cell_stores_full_source_uno(ctx, doc):
+    import json
+    import tempfile
+    from plugin.notebook.cell_registry import _MAX_IMPORT_TEXT_CHARS, load_registry
+    from plugin.notebook.form_lookup import read_code_from_field
+    from plugin.notebook.writer_importer import import_ipynb_to_writer
+
+    sentinel_last_line = "# UNIQUE_END_SENTINEL_12345"
+    lines = [f"line_{i} = {i}\n" for i in range((_MAX_IMPORT_TEXT_CHARS + 1000) // 12)]
+    lines.append(sentinel_last_line + "\n")
+    source_code = "".join(lines)
+    assert len(source_code) > _MAX_IMPORT_TEXT_CHARS
+
+    payload = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": source_code,
+            },
+        ],
+    }
+    handle = tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False, mode="w", encoding="utf-8")
+    with handle as fh:
+        json.dump(payload, fh)
+    ipynb_path = Path(handle.name)
+    try:
+        import_ipynb_to_writer(doc, str(ipynb_path), ctx=ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 1
+        cell = state.code_cells[0]
+        actual_code = read_code_from_field(doc, cell.code_field_name)
+        assert actual_code == source_code
+        assert sentinel_last_line in (actual_code or "")
+    finally:
+        try:
+            ipynb_path.unlink()
+        except OSError:
+            pass
+
+

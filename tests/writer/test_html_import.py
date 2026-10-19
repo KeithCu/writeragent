@@ -266,6 +266,90 @@ def test_replace_xtext_with_html_leaves_cleared_text_when_import_succeeds():
     assert [call.args for call in cursor.setString.call_args_list] == [("",)]
 
 
+def test_replace_xtext_with_html_undo_rollback_on_import_failure():
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    text = MagicMock()
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    model.getUndoManager.return_value = undo_mgr
+
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=RuntimeError("import failed"),
+    ):
+        with pytest.raises(RuntimeError, match="import failed"):
+            replace_xtext_with_html(text, "<p>New</p>", model=model)
+
+    undo_mgr.enterUndoContext.assert_called_once()
+    undo_mgr.leaveUndoContext.assert_called_once()
+    undo_mgr.undo.assert_called_once()
+    assert len(cursor.setString.call_args_list) == 1
+    assert cursor.setString.call_args_list[0].args == ("",)
+
+
+def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    text = MagicMock()
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    model.getUndoManager.return_value = undo_mgr
+
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
+         patch("plugin.writer.html_import._apply_ruby_spans"), \
+         patch("plugin.writer.html_import._restore_field_placeholders", side_effect=RuntimeError("field failed")):
+        with pytest.raises(RuntimeError, match="field failed"):
+            replace_xtext_with_html(text, "<p>New</p>", model=model)
+
+    undo_mgr.enterUndoContext.assert_called_once()
+    undo_mgr.leaveUndoContext.assert_called_once()
+    undo_mgr.undo.assert_called_once()
+
+
+def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    text = MagicMock()
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = True
+    model.getUndoManager.return_value = undo_mgr
+
+    with pytest.raises(ToolExecutionError, match="Could not enter undo context"):
+        replace_xtext_with_html(text, "<p>New</p>", model=model)
+
+    cursor.setString.assert_not_called()
+
+
 
 def test_insert_inline_at_cursor_plain_text_does_not_wrap_in_p():
     """Plain text wrapped in <p> split the host paragraph when inserted mid-paragraph."""
@@ -346,6 +430,60 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
     assert paint.call_args.kwargs["skip_chars"] == 7
 
 
+def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "_prefix_char_count") as count, \
+         patch.object(html_import, "insert_html_fragment_at_cursor"):
+        html_import._insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
+    count.assert_not_called()
+
+
+def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "_prefix_char_count") as count, \
+         patch.object(html_import, "_insert_starwriter_html_at_cursor"):
+        html_import._insert_mixed_or_plain_html(MagicMock(), MagicMock(), cursor, "<p>hi</p>")
+    count.assert_not_called()
+
+
+def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "_prefix_char_count") as count, \
+         patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
+         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+        html_import._insert_mixed_html_and_math_at_cursor(
+            MagicMock(), MagicMock(), cursor, "<p>text before</p> \\(x^2\\) <p>text after</p>"
+        )
+    count.assert_not_called()
+
+
+def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    calls = []
+    with patch.object(html_import, "_prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
+         patch.object(html_import, "_insert_starwriter_html_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
+         patch.object(html_import, "_apply_ruby_spans") as paint, \
+         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+        html_import._insert_mixed_html_and_math_at_cursor(
+            MagicMock(), MagicMock(), cursor, "<p><ruby>漢字<rt>かんじ</rt></ruby></p> \\(x^2\\)"
+        )
+    count.assert_called_once()
+    assert calls == ["count", "insert"]
+    assert paint.call_args.kwargs["skip_chars"] == 5
+
+
 def test_nested_blocks_share_one_style_slot():
     """<blockquote><p> and <li><p> are ONE Writer paragraph: two slots shifted every later style
     ("2. DO DIREITO" lost its heading) and the leftover ones hit old text (relatos #35/#40)."""
@@ -375,22 +513,81 @@ def test_block_styles_stop_at_the_end_of_the_import():
 
     from plugin.writer import html_import
 
-    paras = []
-    for idx in range(4):
-        para = MagicMock()
-        para.supportsService.return_value = True
-        para.getStart.return_value = idx
-        paras.append(para)
     text = MagicMock()
-    enum = text.createEnumeration.return_value
-    enum.hasMoreElements.side_effect = [True] * len(paras) + [False]
-    enum.nextElement.side_effect = paras
+    walk_cur = MagicMock()
+    starts = [0, 1, 2, 3]
+    pos = [0]
+
+    def get_start():
+        return starts[min(pos[0], len(starts) - 1)]
+
+    def goto_next(expand):
+        pos[0] += 1
+        return pos[0] < len(starts)
+
+    walk_cur.getStart.side_effect = get_start
+    walk_cur.gotoNextParagraph.side_effect = goto_next
+    text.createTextCursorByRange.return_value = walk_cur
+
     end = 2  # the parked cursor sits where paragraph 2 starts
     text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
+    start_cursor = MagicMock()
     from plugin.writer import format as format_mod
     with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
-        html_import._apply_block_lo_styles(MagicMock(), text, 0, ["Heading1", "Standard", "Standard", "Heading2"], end=end)
+        html_import._apply_block_lo_styles(
+            MagicMock(), text, start_cursor, ["Heading1", "Standard", "Standard", "Heading2"], end=end,
+        )
     assert apply.call_count == 2
+
+
+def test_apply_block_lo_styles_token_cache_reads_element_names_once():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1", "Standard"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.gotoNextParagraph.side_effect = [True, False]
+    text.createTextCursorByRange.return_value = walk_cur
+
+    from plugin.writer import format as format_mod
+    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+        html_import._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1", "Heading1"],
+        )
+    fam.getElementNames.assert_called_once()
+    assert apply.call_count == 2
+    assert apply.call_args_list[0].args[2] == "Heading 1"
+    assert apply.call_args_list[1].args[2] == "Heading 1"
+
+
+def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    fam = MagicMock()
+    # "Heading1" matches both literal "Heading1" and compact form of "Heading 1" -> ambiguous
+    fam.getElementNames.return_value = ["Heading1", "Heading 1", "Standard"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    from plugin.writer import format as format_mod
+    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+        html_import._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"],
+        )
+    assert apply.call_args.args[2] == "Standard"
 
 
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
@@ -866,3 +1063,33 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
     fam.hasByName.return_value = True
     assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
+
+
+def test_styled_math_insert_styles_from_paragraph_before_insert():
+    """The math path moves the cursor past the content, so styling starts after the paragraph before it."""
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    before = MagicMock()
+    start = MagicMock()
+    with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
+         patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
+         patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
+         patch.object(html_import, "_apply_block_lo_styles") as apply, \
+         patch.object(html_import, "_cursor_goto_document_end"):
+        html_import._insert_mixed_or_plain_html(
+            MagicMock(), MagicMock(), cursor,
+            '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
+            apply_styles=True,
+        )
+    pb.assert_called_once()
+    pa.assert_called_once_with(cursor.getText.return_value, before)
+    assert apply.call_args.args[2] is start
+
+
+def test_paragraph_after_none_is_text_start():
+    from plugin.writer import html_import
+
+    text = MagicMock()
+    html_import._paragraph_after(text, None)
+    text.createTextCursorByRange.assert_called_once_with(text.getStart.return_value)

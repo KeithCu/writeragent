@@ -679,37 +679,6 @@ def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, h
         return False
 
 
-def get_selected_image_pixel_size(model: Any) -> tuple[int | None, int | None]:
-    """Returns (width_px, height_px) of the currently selected graphic's native image data,
-    or (None, None) if none or if it's a vector graphic with no pixels.
-    """
-    obj, _unused = _get_selected_graphic_object(model)
-    if obj is None:
-        return None, None
-    graphic = _graphic_from_object(obj)
-    if graphic is None:
-        log.debug("get_selected_image_pixel_size: no SizePixel")
-        return None, None
-    px = graphic.getPropertyValue("SizePixel")
-    if px is None or px.Width <= 0 or px.Height <= 0:
-        log.debug("get_selected_image_pixel_size: no SizePixel")
-        return None, None
-    return int(px.Width), int(px.Height)
-
-
-def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None]:
-    """Returns (width_px, height_px) of the currently selected graphic, or (None, None) if none.
-
-    Uses 96 DPI: 1/100 mm -> px conversion (size * 96 / 2540).
-    The 64 px floor is a pixel estimate and must not be passed back through px_to_display_units.
-    """
-    obj, _unused = _get_selected_graphic_object(model)
-    if obj is None:
-        return None, None
-    size = visual_helpers.safe_get_property(obj, "Size")
-    if size is None:
-        size = obj.getSize()
-    return visual_helpers.units_to_px(size.Width, size.Height, minimum=64)
 
 
 def _graphic_from_object(obj: Any) -> Any | None:

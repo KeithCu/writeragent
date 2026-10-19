@@ -175,7 +175,8 @@ flowchart TB
 
 | Metric | Limit / Default |
 |--------|-----------------|
-| Text per block (source/output) | 50,000 chars (truncated with warning) |
+| Code-cell source | Full text stored in form field (height capped, VScroll enabled) |
+| Markdown, raw text, and output | 50,000 chars (truncated with warning marker) |
 | Max outputs per code cell | 200 outputs |
 | Max embedded image size | 8 MiB decoded (base64 is capped by decoded size, about 4/3 of the character length) |
 | Execution timeout | `scripting.python_exec_timeout` (default 10s) |

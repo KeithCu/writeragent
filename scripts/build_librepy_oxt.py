@@ -42,7 +42,7 @@ from scripts.librepy_bundle_paths import (  # noqa: E402
     collect_librepy_plugin_paths,
     slim_librepy_smolagents_init,
 )
-from scripts.manifest_registry import generate_update_xml, patch_description_xml  # noqa: E402
+from scripts.manifest_registry import patch_description_xml  # noqa: E402
 
 LIBREPY_BUNDLE_DIR = "build/bundle-librepy"
 LIBREPY_EXTENSION_ID = "org.extension.librepy"
@@ -205,7 +205,6 @@ def librepy_manifest_cmd(base_dir: str) -> list[str]:
         "--manifest-output",
         manifest_out,
         "--skip-writeragent-extension",
-        "--skip-addons",
     ]
 
 
@@ -315,7 +314,6 @@ def assemble_librepy_bundle(
     if not skip_manifest:
         _ensure_librepy_manifest(base_dir)
     patch_description_xml(os.path.join(base_dir, "extension-core"))
-    generate_update_xml(base_dir, "update-librepy.xml")
 
     rdb_path = os.path.join(base_dir, "extension-core", "XPythonFunction.rdb")
     if not os.path.isfile(rdb_path):

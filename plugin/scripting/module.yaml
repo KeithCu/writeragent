@@ -8,13 +8,7 @@ actions:
   edit_python_cell:
     title: "Edit Python in Cell..."
 
-shortcuts:
-  reset_python_session:
-    key: F9_SHIFT_MOD1_MOD2
-    context: [calc]
-  edit_python_cell:
-    key: P_SHIFT_MOD1_MOD2
-    context: [calc]
+# Calc Python keys live in extension/Accelerators.xcu and extension-core/Accelerators.xcu.
 
 config:
   python_venv_path:

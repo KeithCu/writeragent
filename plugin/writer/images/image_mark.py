@@ -52,11 +52,10 @@ def pixel_size(graphic: Any) -> tuple[int, int]:
 
     Vector pictures (SVG, WMF) report no pixels; they get a 96 DPI frame from their logical
     size, so pixel and percent boxes still have one meaning for them."""
-    px = graphic.getPropertyValue("SizePixel")
-    if px.Width > 0 and px.Height > 0:
-        return int(px.Width), int(px.Height)
-    hmm = graphic.getPropertyValue("Size100thMM")
-    return max(1, round(hmm.Width / _HMM_PER_PX_96DPI)), max(1, round(hmm.Height / _HMM_PER_PX_96DPI))
+    size = visual_helpers.graphic_pixel_size(graphic)
+    if size[0] is not None and size[1] is not None:
+        return size[0], size[1]
+    return 1, 1
 
 
 def to_pixel_box(box: Any, units: str, width_px: int, height_px: int) -> Box:

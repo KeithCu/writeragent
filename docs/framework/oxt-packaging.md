@@ -10,7 +10,7 @@ The build pipeline performs preflight checks to fail immediately if required art
 |---------------|-------------|---------|
 | `plugin/_manifest.py`, `plugin/main.py` | `make manifest` | Python manifest listing modules, tools, and actions |
 | `extension/META-INF/manifest.xml`, `extension/description.xml` | `make manifest` | Extension metadata and UNO component registrations |
-| `extension/Addons.xcu`, `extension/Accelerators.xcu`, `extension/Jobs.xcu`, `extension/ProtocolHandler.xcu` | `make manifest` (generated) / committed | UI menus, keyboard shortcuts, job hooks, and protocol dispatch |
+| `extension/Addons.xcu`, `extension/Accelerators.xcu`, `extension/Jobs.xcu`, `extension/ProtocolHandler.xcu` | hand-written, committed | UI menus, keyboard shortcuts, job hooks, and protocol dispatch |
 | `extension/XPythonFunction.rdb`, `extension/XPromptFunction.rdb` | Committed (`make rdb-core` for LibrePy) | UNO type libraries |
 | `build/generated/Dialogs/SettingsDialog.xdl` | `make manifest` | Generated settings dialog layout |
 | `locales/*/*.mo` | `make compile-translations` | Compiled gettext catalogs |
@@ -20,8 +20,8 @@ Missing inputs abort the build with a nonzero exit code naming the make target t
 
 ## Hand-Maintained XCU Rule
 
-- **`Addons.xcu`**: The hand-maintained `extension/Addons.xcu` contains the `OfficeToolBar` definition that generated XCUs do not emit. The generated `build/generated/Addons.xcu` is not packaged. In release builds (`--no-tests`), the Debug menu (`M17`) is stripped from `Addons.xcu`.
-- **`Accelerators.xcu`**: `extension/Accelerators.xcu` uses production `service:org.extension.writeragent.Main?...` URLs rather than `protocol:module.action` URLs and takes precedence over `build/generated/Accelerators.xcu`.
+- **`Addons.xcu`**: `extension/Addons.xcu` is hand-written (menus and the `OfficeToolBar`); nothing generates it. In release builds (`--no-tests`), the Debug menu (`M17`) is stripped from `Addons.xcu`.
+- **`Accelerators.xcu`**: `extension/Accelerators.xcu` is hand-written and uses production `service:org.extension.writeragent.Main?...` URLs rather than `protocol:module.action` URLs. module.yaml has no `shortcuts:`.
 
 If two source files remap to the same archive path with differing bytes, assembly halts with an archive collision error. Identical duplicates collapse to a single entry.
 

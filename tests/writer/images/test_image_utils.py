@@ -645,6 +645,17 @@ def test_resolve_generation_size_omitted_and_explicit():
     w, h, wire = resolve_generation_size(1024, "16:9", width=1000, height=200)
     assert (w, h, wire) == (1000, 200, None)
 
+    # Single-sided dimension scales the omitted side from canonical aspect without 64-multiple flooring
+    assert resolve_generation_size(1024, "square", width=512) == (512, 512, "1:1")
+    assert resolve_generation_size(1024, "square", height=512) == (512, 512, "1:1")
+    assert resolve_generation_size(1024, "16:9", width=512) == (512, 288, "16:9")
+    assert resolve_generation_size(1024, "16:9", height=288) == (512, 288, "16:9")
+
+    # Small base_size values floor at 64 px rather than 0 px
+    assert resolve_generation_size(10, "square") == (64, 64, "1:1")
+    assert resolve_generation_size(40, "16:9") == (64, 64, "1:1")
+    assert resolve_generation_size(64, "16:9") == (64, 64, "1:1")
+
 
 def test_write_temp_image_and_suffix():
     from plugin.writer.images.image_utils import suffix_for_image_bytes, write_temp_image

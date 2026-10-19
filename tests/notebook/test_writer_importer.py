@@ -12,6 +12,7 @@ import pytest
 
 from plugin.notebook.cell_registry import (
     _MAX_IMPORT_TEXT_CHARS,
+    _TRUNCATION_SUFFIX,
     _cell_heading,
     _coerce_notebook_text,
     _format_in_prompt,
@@ -566,6 +567,29 @@ def test_insert_code_input_vscroll_and_single_property_set_info():
     _insert_code_input_in_flow(doc, name="tall_cell", source=tall_source, controls_before=1, cap=5000)
     assert tall_model.props.get("VScroll") is True
     tall_model.getPropertySetInfo.assert_called_once()
+
+
+def test_insert_code_input_stores_full_source_without_truncation():
+    doc, _body_text, _cursor = _writer_doc_mock()
+    model = MagicMock()
+    props = {}
+    info = MagicMock()
+    info.hasPropertyByName.return_value = True
+    model.getPropertySetInfo.return_value = info
+    model.setPropertyValue.side_effect = lambda k, v: props.update({k: v})
+    shape = MagicMock()
+    doc.createInstance.side_effect = [model, shape]
+
+    long_source = "x = 1\n" * ((_MAX_IMPORT_TEXT_CHARS + 1000) // 6 + 1)
+    assert len(long_source) > _MAX_IMPORT_TEXT_CHARS + 1000
+    cap = 5000
+    _insert_code_input_in_flow(doc, name="long_cell", source=long_source, controls_before=0, cap=cap)
+
+    assert model.Text == long_source
+    assert _TRUNCATION_SUFFIX not in model.Text
+    assert props.get("VScroll") is True
+    shape.setSize.assert_called_once()
+    assert shape.setSize.call_args.args[0].Height == cap
 
 
 def test_page_style_width_throws_falls_back_to_default_width():

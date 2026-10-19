@@ -303,6 +303,43 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
     insert.assert_not_called()
 
 
+def test_image_generate_edit_scales_single_sided_dimension():
+    """Single-sided width or height scales proportionally from the selection geometry on edit."""
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/edited.png"], None)
+
+    target_obj = MagicMock()
+    graphic_model = MagicMock()
+    graphic_model.getPropertyValue.side_effect = (
+        lambda prop: SimpleNamespace(Width=1024, Height=768) if prop == "SizePixel" else None
+    )
+    frame_size = MagicMock(Width=6400, Height=4800)
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
+        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
+        patch("plugin.writer.images.images._object_size", return_value=frame_size),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+        patch("plugin.writer.images.images.insert_image"),
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="make it look like a wizard", width=512)
+
+    assert res["status"] == "ok"
+    assert svc.generate_image.call_args.kwargs.get("width") == 512
+    assert svc.generate_image.call_args.kwargs.get("height") == 384
+
+
 def test_image_generate_omitted_source_creates_when_no_selection():
     ctx = TestingFactory.create_context(doc_type="writer")
     svc = MagicMock()
@@ -392,9 +429,30 @@ def test_image_download_verifies_tls_by_default():
     import inspect
 
     assert inspect.signature(_download_image_to_cache).parameters["verify_ssl"].default is True
-    description = ImageDownload.parameters["properties"]["verify_ssl"]["description"]
-    assert "default: true" in description
-    assert "default: false" not in description
+    props = (ImageDownload.parameters.get("properties") if ImageDownload.parameters else {}) or {}
+    assert "verify_ssl" not in props
+    assert "verify_ssl" in ImageDownload.scripting_only_parameters
+
+
+def test_image_download_prepare_tool_call_hides_verify_ssl_from_chat():
+    from plugin.framework.tool import prepare_tool_call
+
+    tool = ImageDownload()
+
+    # Chat caller: verify_ssl is stripped from arguments
+    chat_ctx = TestingFactory.create_context(doc_type="writer")
+    chat_ctx.caller = "chat"
+    prep_chat = prepare_tool_call(tool, chat_ctx, "image_download", {"url": "https://example.com/a.png", "verify_ssl": False})
+    assert prep_chat.error is None
+    assert "verify_ssl" not in prep_chat.kwargs
+    assert prep_chat.kwargs == {"url": "https://example.com/a.png"}
+
+    # Script caller: verify_ssl is preserved
+    script_ctx = TestingFactory.create_context(doc_type="writer")
+    script_ctx.caller = "script"
+    prep_script = prepare_tool_call(tool, script_ctx, "image_download", {"url": "https://example.com/a.png", "verify_ssl": False})
+    assert prep_script.error is None
+    assert prep_script.kwargs.get("verify_ssl") is False
 
 
 def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
@@ -440,6 +498,49 @@ def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
         assert fh.read() == b"\x89PNG"
 
 
+def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
+    import time
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    old_partial = tmp_path / "img-old.partial"
+    old_partial.write_bytes(b"old")
+    young_partial = tmp_path / "img-young.partial"
+    young_partial.write_bytes(b"young")
+
+    now = time.time()
+    os.utime(str(old_partial), (now - 1000, now - 1000))
+    os.utime(str(young_partial), (now - 10, now - 10))
+
+    class _Resp:
+        def __init__(self) -> None:
+            self._chunks = [b"\x89PNG"]
+            self.headers = {}
+
+        def read(self, _size: int = -1) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda *args, **kwargs: _Resp())
+    monkeypatch.setattr(
+        "plugin.writer.images.images.get_config_int",
+        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+    )
+
+    path = _download_image_to_cache("https://example.com/logo.png")
+    assert not old_partial.exists()
+    assert young_partial.exists()
+    assert os.path.exists(path)
+
+
 def test_image_download_omitted_verify_ssl_requests_verification():
     ctx = TestingFactory.create_context(doc_type="writer")
     with patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png") as download:
@@ -468,9 +569,11 @@ def test_image_generate_marshals_insert_unscoped():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/fake.png"], None)
     scopes_passed: list[Any] = []
+    timeouts_passed: list[float] = []
 
     def _track_run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         scopes_passed.append(bound_scope)
+        timeouts_passed.append(timeout)
         return fn(*args, **kwargs)
 
     with (
@@ -486,6 +589,9 @@ def test_image_generate_marshals_insert_unscoped():
         result = ImageGenerate().execute(ctx, prompt="a red circle")
     assert result["status"] == "ok"
     assert None in scopes_passed
+    from plugin.writer.images.images import _DOCUMENT_MARSHAL_TIMEOUT_SEC
+
+    assert _DOCUMENT_MARSHAL_TIMEOUT_SEC in timeouts_passed
 
 
 
@@ -1136,6 +1242,83 @@ def test_image_crop_bake_failure_is_tool_execution_error():
     obj.setPropertyValue.assert_not_called()
 
 
+def test_image_crop_rejects_non_positive_width_mm():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    size_mock = MagicMock(Width=1000, Height=500)
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
+        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
+        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=True),
+        patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
+        patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
+        patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
+    ):
+        # 1. width_mm = 0 is rejected
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=0)
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("details", {}).get("parameter") == "width_mm"
+
+        # 2. width_mm = -5 is rejected
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=-5)
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("details", {}).get("parameter") == "width_mm"
+
+        # 3. width_mm = True (bool) is rejected
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=True)
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("details", {}).get("parameter") == "width_mm"
+
+        # 4. omitted width_mm keeps size.Width (1000 hundredths mm -> 10.0 mm)
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        assert res["status"] == "ok"
+        assert res.get("width_mm") == 10.0
+
+
+def test_image_crop_reports_frame_failures():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    size_mock = MagicMock(Width=1000, Height=500)
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
+        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
+        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
+        patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
+    ):
+        # GraphicCrop present, but safe_set_property returns False -> SET_CROP_FAILED
+        with (
+            patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
+            patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
+        ):
+            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+            assert res["status"] != "ok"
+            assert res.get("code") == "SET_CROP_FAILED"
+
+        # Size write fails (both safe_set_property and safe_try_method return False) -> SET_SIZE_FAILED
+        def _mock_set_prop(target, prop, val):
+            if prop == "GraphicCrop":
+                return True
+            return False
+
+        with (
+            patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
+            patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=_mock_set_prop),
+            patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=False),
+        ):
+            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+            assert res["status"] != "ok"
+            assert res.get("code") == "SET_SIZE_FAILED"
+
+
 def test_image_generate_invalid_source_image_parameter():
     ctx = TestingFactory.create_context(doc_type="writer")
     res = ImageGenerate().execute(ctx, prompt="test", source_image="https://example.com/pic.png")
@@ -1651,8 +1834,111 @@ def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
 
     with pytest.raises(_DownloadStopped):
         _download_image_to_cache("https://example.com/test.png", stop_checker=lambda: stopped[0])
-
     assert list(tmp_path.iterdir()) == []
+
+
+def test_image_insert_vector_proportional_fallback_from_100th_mm():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    inserted_sizes: list[tuple[Any, Any]] = []
+
+    def _mock_insert(context, doc, path, width_mm=None, height_mm=None, **kwargs):
+        inserted_sizes.append((width_mm, height_mm))
+        return MagicMock()
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    provider_graphic = MagicMock()
+    provider_graphic.getPropertyValue.side_effect = lambda prop: (
+        SimpleNamespace(Width=0, Height=0)
+        if prop == "SizePixel"
+        else SimpleNamespace(Width=2540, Height=5080)
+        if prop == "Size100thMM"
+        else None
+    )
+    gp_mock = MagicMock()
+    gp_mock.queryGraphic.return_value = provider_graphic
+    ctx.ctx.ServiceManager = MagicMock()
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value = gp_mock
+
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
+    ):
+        res = ImageInsert().execute(ctx, path="/tmp/vector.svg")
+        assert res["status"] == "ok"
+        # 2540x5080 1/100mm -> 96x192 px -> height 80mm, width 40mm
+        assert inserted_sizes == [(40.0, 80.0)]
+
+
+def test_image_tools_calc_sheet_index_and_ambiguity():
+    from plugin.doc.visual_helpers import AmbiguousGraphicNameError
+
+    ctx = TestingFactory.create_context(doc_type="calc")
+    ambig_err = AmbiguousGraphicNameError("Several shapes named 'Pic' found on sheets [0, 1]", sheet_indices=[0, 1])
+
+    # 1. ImageGetInfo returns AMBIGUOUS_NAME with sheet_indices
+    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+        res = ImageGetInfo().execute(ctx, name="Pic")
+        assert res["status"] != "ok"
+        assert res.get("code") == "AMBIGUOUS_NAME"
+        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+
+    # 2. ImageSetProperties returns AMBIGUOUS_NAME with sheet_indices
+    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+        res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20)
+        assert res["status"] != "ok"
+        assert res.get("code") == "AMBIGUOUS_NAME"
+        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+
+    # 3. ImageCropAndHighlight returns AMBIGUOUS_NAME with sheet_indices
+    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        assert res["status"] != "ok"
+        assert res.get("code") == "AMBIGUOUS_NAME"
+        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+
+    # 4. ImageDelete returns AMBIGUOUS_NAME with sheet_indices
+    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+        res = ImageDelete().execute(ctx, name="Pic")
+        assert res["status"] != "ok"
+        assert res.get("code") == "AMBIGUOUS_NAME"
+        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+
+    # 5. ImageReplace returns AMBIGUOUS_NAME with sheet_indices
+    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+        res = ImageReplace().execute(ctx, name="Pic", path="/tmp/pic.png")
+        assert res["status"] != "ok"
+        assert res.get("code") == "AMBIGUOUS_NAME"
+        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+
+    # 6. With sheet_index passed, _get_graphic_object receives sheet_index
+    calls = []
+
+    def _mock_get(context, doc, name, sheet_index=None):
+        calls.append((name, sheet_index))
+        return MagicMock()
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", side_effect=_mock_get),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=500)),
+        patch("plugin.doc.visual_helpers.safe_set_property", return_value=True),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, sheet_index=1)
+        assert res["status"] == "ok"
+        assert calls == [("Pic", 1)]
+
+
+def test_image_get_info_draw_skips_paragraph_lookup():
+    ctx = TestingFactory.create_context(doc_type="draw")
+    graphic = _graphic_for_info()
+    ctx.services.document = MagicMock()
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageGetInfo().execute(ctx, name="Pic")
+    assert res["status"] == "ok"
+    assert res["paragraph_index"] == -1
+    ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
 def test_download_for_tool_stop_returns_user_stopped():

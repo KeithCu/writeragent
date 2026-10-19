@@ -124,10 +124,9 @@ def _install_timeout_context_pool() -> None:
     sees the session ``run_sandboxed_code`` just set. The vendored file stays
     unchanged; it must keep using that module global.
 
-    That fallback thread cannot be killed. After a timeout,
-    ``_run_on_executor`` restores ``result`` and returns while the orphan
-    may still mutate the shared executor. Copying context does not close
-    that race; Python will not let us stop the thread.
+    That fallback thread cannot be killed. The _Ops deadline stops
+    pure-Python AST execution on timeout, but a blocked C call in the thread
+    still runs until it returns; host IPC kill remains the stop for a call that never returns.
     """
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
