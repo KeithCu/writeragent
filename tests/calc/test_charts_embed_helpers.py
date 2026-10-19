@@ -671,8 +671,32 @@ def test_writer_duplicate_name_embed_and_draw_page_deduped():
         # Delete removes from embeds container first
         del_res = DeleteChart().execute(ctx, name="Chart_0")
         assert del_res["status"] == "ok"
-        embeds.removeByName.assert_called_once_with("Chart_0")
+        doc.getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        embeds.removeByName.assert_not_called()
         page.remove.assert_not_called()
+
+
+def test_delete_writer_embed_does_not_call_remove_on_collection():
+    embed_obj = MagicMock()
+    embed_obj.CLSID = CHART_CLSID
+
+    embeds1 = MagicMock()
+    embeds1.hasByName.side_effect = lambda n: n == "Chart_0"
+    embeds1.getByName.return_value = embed_obj
+
+    embeds2 = MagicMock()
+    embeds2.hasByName.return_value = False
+
+    doc = MagicMock()
+    doc.getEmbeddedObjects.side_effect = [embeds1, embeds2]
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        del_res = DeleteChart().execute(ctx, name="Chart_0")
+        assert del_res["status"] == "ok"
+        doc.getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        embeds1.removeByName.assert_not_called()
+        embeds2.removeByName.assert_not_called()
 
 
 def test_predicate_disposal_propagates():
