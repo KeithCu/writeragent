@@ -215,7 +215,11 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
 # Ensure scripts/ is on path for manifest_xdl and manifest_registry
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
 
-from manifest_xdl import generate_standalone_config_dialogs, generate_xdl_files, update_dialog_xlb
+from manifest_xdl import (
+    generate_standalone_config_dialogs,
+    remove_stale_generated_xdls,
+    update_dialog_xlb,
+)
 from manifest_registry import (
     generate_addons_xcu,
     generate_accelerators_xcu,
@@ -275,11 +279,6 @@ def main():
 
     build_dir = os.path.join(PROJECT_ROOT, "build", "generated")
 
-    # Read Tools -> Options enable flag
-    enable_options = os.environ.get("WRITERAGENT_ENABLE_OPTIONS", "1") == "1"
-    if not enable_options:
-        print("  WRITERAGENT_ENABLE_OPTIONS is false. Skipping Tools -> Options generation.")
-
     # 1. Addons.xcu (menus) — run first to collect conditional menus
     if not args.skip_addons:
         addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
@@ -290,9 +289,7 @@ def main():
     manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path, librepy_flavor=librepy_flavor)
 
-    # 4. XDL dialog pages (single Dialogs/ tree — lowercase dialogs/ collides on Windows)
-    dialogs_dir = os.path.join(build_dir, "Dialogs")
-    generate_xdl_files(sorted_modules, dialogs_dir)
+    # 4. Standalone config dialogs and dialog.xlb
     standalone_dialog_ids = generate_standalone_config_dialogs(sorted_modules, build_dir)
     wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "Dialogs")
     wa_dialogs_gen = os.path.join(build_dir, "Dialogs")
@@ -320,6 +317,10 @@ def main():
     # 8. Patch version
     if not args.skip_writeragent_extension:
         patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
+
+    # 9. Clean stale generated XDLs
+    keep_basenames = {"SettingsDialog.xdl"} | {"%s.xdl" % dialog_id for dialog_id in standalone_dialog_ids}
+    remove_stale_generated_xdls(os.path.join(build_dir, "Dialogs"), keep_basenames)
 
     print("Done.")
     return 0

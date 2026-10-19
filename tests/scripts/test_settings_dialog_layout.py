@@ -365,7 +365,8 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     assert int(_control_tops(xdl_path)["audio__stt_provider"]) < int(_control_tops(xdl_path)["audio__stt_model"])
     assert int(_control_tops(xdl_path)["audio__stt_model"]) < int(_control_tops(xdl_path)["audio__stt_local_model"])
     assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
-    assert tips["doc__grammar_proofreader_recheck"].startswith("Clears cached grammar results")
+    doc_recheck_tip = tips["doc__grammar_proofreader_recheck"]
+    assert doc_recheck_tip is not None and doc_recheck_tip.startswith("Clears cached grammar results")
     assert not tips.get("chatbot__max_tool_rounds")
     assert not tips.get("audio__test_voice")
 
@@ -376,7 +377,7 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
         for field_name, schema in config.items():
             if not isinstance(schema, dict):
                 continue
-            if schema.get("internal") or schema.get("widget") in ("list_detail", "separator"):
+            if schema.get("internal") or schema.get("widget") == "separator":
                 continue
             ctrl_id = f"{prefix}__{field_name}"
             expected = _settings_hover_text(schema)
@@ -521,5 +522,103 @@ def test_vision_helper_lines_fit_the_dialog(tmp_path: Path) -> None:
         assert left == 8
         assert width == dlg_width - 16
         assert left + width <= dlg_width
+
+
+@pytest.mark.parametrize("bad_widget", ["list_detail", "nope"])
+def test_unknown_widget_rejected_by_settings_and_standalone(tmp_path: Path, bad_widget: str) -> None:
+    """Settings and standalone generators reject unsupported or unknown widgets."""
+    from manifest_xdl import generate_standalone_config_dialog
+
+    fake_module = {
+        "name": "sample",
+        "title": "Sample",
+        "config": {
+            "bad_field": {"widget": bad_widget},
+        },
+    }
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog.xdl"
+    with pytest.raises(ValueError, match="unknown widget"):
+        generate_settings_dialog_tabs([fake_module], str(tpl), str(out))
+
+    with pytest.raises(ValueError, match="unknown widget"):
+        generate_standalone_config_dialog(fake_module)
+
+
+def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
+    """Saved field specs for all Settings tab modules and inline children match XDL control IDs."""
+    from unittest.mock import patch
+    from plugin._manifest import MODULES
+    from plugin.chatbot.settings_fields import build_module_field_specs
+    from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
+
+    xdl_path, _ = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    xdl_ids: set[str] = {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
+    }
+
+    inline_map = _build_inline_maps(MODULES)[1]
+    tab_modules = []
+    for m in iter_settings_tab_modules(MODULES):
+        tab_modules.append(m)
+        if inline_map.get(m["name"]):
+            for child_m, _ in inline_map[m["name"]]:
+                tab_modules.append(child_m)
+
+    all_specs_names = set()
+    with patch("plugin.chatbot.settings_fields.get_config", return_value=""):
+        for m in tab_modules:
+            specs = build_module_field_specs(m["name"], control_ids="prefixed")
+            for spec in specs:
+                name = spec["name"]
+                all_specs_names.add(name)
+                assert name in xdl_ids, f"Field spec {name} missing from SettingsDialog.xdl"
+
+    for m in tab_modules:
+        prefix = m["name"].replace(".", "_")
+        cfg = m.get("config") or {}
+        for fname, schema in cfg.items():
+            if schema.get("settings_persist") is False and schema.get("widget") == "button":
+                btn_id = f"{prefix}__{fname}"
+                assert btn_id in xdl_ids, f"Button {btn_id} missing from SettingsDialog.xdl"
+                assert btn_id not in all_specs_names, f"Button {btn_id} should not be in field specs"
+
+
+def test_vision_standalone_dialog_fields_agreement() -> None:
+    """Vision standalone field specs match controls in VisionSettingsDialog.xdl."""
+    from unittest.mock import patch
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+    from plugin.chatbot.settings_fields import build_module_field_specs
+
+    vision_module = next(m for m in MODULES if m["name"] == "vision")
+    xml_str = generate_standalone_config_dialog(vision_module)
+    root = ET.fromstring(xml_str)
+    xdl_ids: set[str] = {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
+    }
+
+    with patch("plugin.chatbot.settings_fields.get_config", return_value=""):
+        specs = build_module_field_specs("vision", control_ids="flat")
+
+    spec_names = {s["name"] for s in specs}
+    for name in spec_names:
+        assert name in xdl_ids, f"Vision spec {name} missing from VisionSettingsDialog.xdl"
+
+    extras = xdl_ids - spec_names
+    for extra in extras:
+        is_known_extra = (
+            extra in ("VisionSettingsDialog", "__module__", "btn_apply", "btn_ok", "btn_close")
+            or extra.startswith("label_")
+            or extra.startswith("hlp_")
+            or extra.startswith("btn_tab_")
+        )
+        assert is_known_extra, f"Unexpected extra control {extra} in VisionSettingsDialog.xdl"
+
 
 

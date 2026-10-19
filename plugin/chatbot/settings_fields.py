@@ -118,7 +118,7 @@ def build_module_field_specs(
     for field_name, schema in m_config.items():
         if not isinstance(schema, dict):
             continue
-        if schema.get("internal") or schema.get("widget") in ("list_detail", "separator"):
+        if schema.get("internal") or schema.get("widget") == "separator":
             continue
         # Action-only controls (e.g. Test) exist in XDL but are not load/save fields.
         if schema.get("settings_persist") is False:

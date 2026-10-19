@@ -17,7 +17,12 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from manifest_xdl import _OOR_NS, _oor, generate_xdl_files  # noqa: E402  (needs scripts on sys.path)
+from manifest_xdl import (  # noqa: E402  (needs scripts on sys.path)
+    _OOR_NS,
+    _oor,
+    generate_standalone_config_dialogs,
+    remove_stale_generated_xdls,
+)
 
 _OOR_NAME = "{%s}name" % _OOR_NS
 
@@ -48,21 +53,36 @@ def test_generated_addons_xcu_is_well_formed_with_oor_names(tmp_path):
         assert _OOR_NAME in n.attrib, "a <node> is missing oor:name: %r" % (n.attrib,)
 
 
-def test_generate_xdl_files_preserves_settings_and_standalone(tmp_path):
-    """Module-page cleanup must not wipe SettingsDialog / config_dialog XDLs in Dialogs/."""
-    (tmp_path / "SettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
-    (tmp_path / "VisionSettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
-    (tmp_path / "old_gone.xdl").write_text("<x/>", encoding="utf-8")
+def test_generate_standalone_config_dialogs_preserves_siblings(tmp_path):
+    """generate_standalone_config_dialogs writes its dialog and leaves sibling XDLs untouched."""
+    dialogs_dir = tmp_path / "Dialogs"
+    dialogs_dir.mkdir()
+    (dialogs_dir / "SettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "old_gone.xdl").write_text("<x/>", encoding="utf-8")
     modules = [
-        {"name": "chatbot", "config": {"foo": {"type": "string", "default": ""}}},
         {"name": "vision", "config_dialog": {"id": "VisionSettingsDialog"}, "config": {}},
     ]
-    generate_xdl_files(modules, str(tmp_path))
-    names = {p.name for p in tmp_path.glob("*.xdl")}
-    assert "SettingsDialog.xdl" in names
+    ids = generate_standalone_config_dialogs(modules, str(tmp_path))
+    assert ids == ["VisionSettingsDialog"]
+    names = {p.name for p in dialogs_dir.glob("*.xdl")}
     assert "VisionSettingsDialog.xdl" in names
-    assert "chatbot.xdl" in names
-    assert "old_gone.xdl" not in names
+    assert "SettingsDialog.xdl" in names
+    assert "old_gone.xdl" in names
+
+
+def test_remove_stale_generated_xdls(tmp_path):
+    """remove_stale_generated_xdls removes unlisted XDLs and keeps listed ones."""
+    dialogs_dir = tmp_path / "Dialogs"
+    dialogs_dir.mkdir()
+    (dialogs_dir / "SettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "VisionSettingsDialog.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "chatbot.xdl").write_text("<x/>", encoding="utf-8")
+    (dialogs_dir / "audio.xdl").write_text("<x/>", encoding="utf-8")
+    keep = {"SettingsDialog.xdl", "VisionSettingsDialog.xdl"}
+    count = remove_stale_generated_xdls(str(dialogs_dir), keep)
+    assert count == 2
+    names = {p.name for p in dialogs_dir.glob("*.xdl")}
+    assert names == {"SettingsDialog.xdl", "VisionSettingsDialog.xdl"}
 
 
 def test_generate_update_xml_default_only_generates_writeragent(tmp_path):
