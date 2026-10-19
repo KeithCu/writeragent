@@ -57,8 +57,6 @@ _ENV_SNAPSHOT_LOGGED = False
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
-# History reload: batch hidden-Writer + copy cycles to avoid per-message UI repaint.
-HISTORY_RENDER_BATCH_CHARS = 16384
 # Very noisy live scroll tracing. Keep available for sidebar scroll investigations,
 # but do not emit it by default even when log_level is DEBUG.
 RICH_SCROLL_VERBOSE_DEBUG = False

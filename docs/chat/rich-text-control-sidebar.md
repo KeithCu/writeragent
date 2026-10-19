@@ -35,7 +35,7 @@ When the setting is off, behavior reverts to the legacy plain-text sidebar; mode
 
 During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `contains_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
 
-After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it truncates from `_assistant_stream_start_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
+After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it cuts from `_formatted_len` (`_assistant_stream_start_len` is only logged), then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
 
 Producer-side **250 ms batching** of stream chunks reduces UI stutter; see [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
 
@@ -226,11 +226,11 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `paint_message_items` | Replace the control with a paint of the message list (used for history reload) |
 | `fold_transcript_chunk` | Record a chunk or the Stop line on `session.messages` before that paint |
 | `append_formatted_row` | Single message formatted copy (not the transcript source of truth) |
-| `append_formatted_rows` | Turn-end tail formatted batch copy |
+| `append_formatted_rows` | Turn-end tail formatted copy |
 | `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
-The stream appends the new suffix of an open row without stripping the row again. A batch render isolates one bad message into plain text while keeping formatted rendering for the rest of the batch. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
+The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
 Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
@@ -244,7 +244,7 @@ Resize: stock `layoutWindow()` always `SetVisArea(Point())`, so every `setPosSiz
 
 Width at creation/sync uses `last_response_rect` (placeholder fill, inset only). Do not cap to the Clear button — that left a gutter when the panel grew.
 
-`_assistant_stream_start_len` is set when the **user** message insert completes (main chat). When `_record_assistant_start` marks the **final answer** (web research / librarian), it is re-set to the current control length so rerender replaces only that report tail and preserves internal search-step lines above it. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so caret reveal runs before the next queue item.
+The rerender cut is the widget’s `_formatted_len`; `stream_start_len` is only logged. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so caret reveal runs before the next queue item.
 
 ### Manual QA checklist
 
@@ -332,7 +332,7 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document 
 
 - **`rich_text.py`** — theme, typography, HTML import wrapper, list tightening, `finalize_sidebar_assistant_response`.
 - **`rich_text_control.py`** — `RichTextChatWidget`, lifecycle/layout, streaming, scroll.
-- **`rich_text_paste.py`** — hidden Writer import, direct copy, plain fallback, batched history.
+- **`rich_text_paste.py`** — hidden Writer import, direct copy, plain fallback.
 
 ### Shared hidden Writer factory
 
@@ -360,9 +360,9 @@ default-template letterhead (table or logo) is not pasted into the cell.
 
 ### Risks & verification
 
-**Must not regress:** streaming plain append + assistant color; post-`FINAL_DONE` HTML rerender of assistant tail only; batched history reload + scroll-to-bottom; focus stays on query field; resize fills the column with no gutter/H-scrollbar; light/dark role colors; Calc/Draw decks; no exit crashes.
+**Must not regress:** streaming plain append + assistant color; post-`FINAL_DONE` HTML rerender of assistant tail only; history reload + scroll-to-bottom; focus stays on query field; resize fills the column with no gutter/H-scrollbar; light/dark role colors; Calc/Draw decks; no exit crashes.
 
-Run `make test` and the manual QA checklist above after changes. Preserve history batching in `append_rich_messages_via_clipboard`.
+Run `make test` and the manual QA checklist above after changes.
 
 ### Scroll experiments (2026-08-27)
 

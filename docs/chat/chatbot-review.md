@@ -125,13 +125,7 @@ The image-model combo is editable (`dlg:dropdown="true"`) and only has an item l
 
 ### 11. One bad history element drops the whole batch
 
-A paragraph exception in `_copy_formatted_from_hidden_doc_to_control` sets `element_skipped` and fails the batch (`plugin/chatbot/rich_text_paste.py` around line 556). `append_rich_messages_via_clipboard` rolls the control back and writes nothing (around line 693). A live stream keeps the plain tail via `rerender_last_assistant_if_html`. History has no second copy. One bad element drops up to `HISTORY_RENDER_BATCH_CHARS` (16384) of messages. After that rollback, and in the `except` when `inserted` is still false, call the existing `_plain_append_messages` for the same batch.
-
-`finalize_sidebar_assistant_response` appends `stripper.finalize()` only when there is no rich widget (`plugin/chatbot/rich_text.py` around line 342). The default sidebar has the widget, so a split entity or an unclosed tag held by `StreamingHTMLStripper` is discarded on Stop and on error. A successful rerender does not need this tail. The session HTML replaces it. Append the leftover when this call did not replace the tail. The Error early-return also clears the stripper without `finalize()`.
-
-If the HTML filter throws, the handler logs at debug and `insertString`s the raw tags (`plugin/chatbot/rich_text.py` around line 290). `used_html_import` stays false, the hidden doc still has text, and the copy returns success. Rerender then does not put the stripped stream back, so the sidebar shows tags. Release logs are WARN, so the debug line does not show up. Do not insert the raw string. Signal failure and plain-append `_plain_fallback_text`. Sanitizing full documents belongs in that same call: `_wrap_html_fragment` in `plugin/writer/html_import.py` passes a fragment through unchanged when it already contains `<html>` and `<body>`.
-
-`get_control_text_length` returns `None` on exception or missing model (`plugin/chatbot/rich_text_control.py`). Both paste paths skip rollback when the length is unknown (`None`).
+get_control_text_length returns `None` on exception or missing model (`plugin/chatbot/rich_text_control.py`). Unknown length skips the formatted copy and plain-appends once.
 
 `_plain_append_messages` writes bold `You:` / `Assistant:` prefixes, theme-appropriate role colors, and blank-line gaps between turns.
 

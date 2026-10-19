@@ -119,3 +119,60 @@ def test_rich_text_control_cell_link_duplicate_labels_and_sheet_refs(ctx):
         except Exception:
             pass
 
+
+@native_test
+def test_rich_text_control_role_color_during_paint(ctx):
+    """Automatic portion CharColor follows the matching role during paint_message_items."""
+    assert ctx is not None
+
+    from plugin.chatbot.rich_text import ChatTheme
+    from plugin.chatbot.rich_text_paste import paint_message_items
+
+    dlg, control = _create_test_dialog_with_rich_control(ctx)
+    try:
+        items = [("user", "<p>hello</p>"), ("assistant", "<p>hi</p>")]
+        ok = paint_message_items(ctx, control, items, style_window=dlg)
+        assert ok is True
+        model = control.getModel()
+        theme = ChatTheme.resolve(style_window=dlg)
+        hello_color = _format_at(model, "hello", "CharColor")
+        assert hello_color == theme.user_color, "hello should match theme user color, got %s" % hello_color
+        hi_color = _format_at(model, "hi", "CharColor")
+        assert hi_color == theme.assistant_color, "hi should match theme assistant color, got %s" % hi_color
+    finally:
+        try:
+            dlg.setVisible(False)
+            dlg.dispose()
+        except Exception:
+            pass
+
+
+@native_test
+def test_rich_text_control_cell_link_emoji_offset(ctx):
+    """Cell link offsets with emoji before anchor match UTF-16 units and model.Text index."""
+    assert ctx is not None
+
+    from plugin.calc.navigation import cell_link_registry
+    from plugin.chatbot.rich_text_paste import _utf16_units, append_formatted_row
+
+    dlg, control = _create_test_dialog_with_rich_control(ctx)
+    try:
+        html = '<p>🚀 Hello <a href="cell://Sheet1.A1">Sheet1.A1</a></p>'
+        append_formatted_row(ctx, control, html, role="assistant", style_window=dlg, auto_scroll=False)
+        spans = cell_link_registry._spans.get(id(control), [])
+        assert len(spans) == 1
+        start, end, addr = spans[0]
+        assert addr == "Sheet1.A1"
+        assert end - start == _utf16_units("Sheet1.A1")
+        model = control.getModel()
+        full_len = len((model.Text or "").encode("utf-16-le")) // 2
+        assert end <= full_len
+    finally:
+        cell_link_registry.clear(control)
+        try:
+            dlg.setVisible(False)
+            dlg.dispose()
+        except Exception:
+            pass
+
+
