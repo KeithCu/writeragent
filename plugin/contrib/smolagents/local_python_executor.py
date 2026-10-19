@@ -37,7 +37,7 @@ from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
-from functools import partial, wraps
+from functools import wraps
 from importlib import import_module
 from types import BuiltinFunctionType, FunctionType, ModuleType
 from typing import Any
