@@ -541,18 +541,6 @@
         "ci_integration": true,
         "notes": "Regular check-all 2026-08-27: FQNs NOT_CONFIRMED, errors=0. Nested unique-length ensure is inverse_ensure under CrossHair."
       },
-      "mcp_state.py": {
-        "status": "partial",
-        "tool": "crosshair+deal+pytest+hypothesis",
-        "functions_contracted": [
-          "next_state"
-        ],
-        "crosshair_target": "plugin.mcp.mcp_state.next_state",
-        "crosshair_last_run": "2026-08-05",
-        "crosshair_result": "no_counterexamples",
-        "notes": "Missing tool_name \u2192 SendErrorEffect; TOOL_COMPLETED \u2192 StreamResponseEffect; REQUEST_ERROR sets is_error; Hypothesis in test_mcp_state_verification (deep via make vhs)",
-        "ci_integration": true
-      },
       "tunnel_state.py": {
         "status": "verified",
         "priority": "high",

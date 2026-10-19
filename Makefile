@@ -870,7 +870,6 @@ vhs:
 	$(_VHS_EXTENSIVE) "$(PYTHON)" -m pytest \
 		tests/scripting/test_serialization_ab.py \
 		tests/chatbot/test_fsm_verification.py \
-		tests/mcp/test_mcp_state_verification.py \
 		tests/calc/python/test_formula_edit_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/writer/test_writer_diff_and_html_verification.py \

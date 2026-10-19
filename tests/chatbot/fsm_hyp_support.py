@@ -28,8 +28,6 @@ from plugin.chatbot.state_machine import (
 )
 from plugin.chatbot.tool_loop_state import EventKind as ToolEventKind
 from plugin.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState
-from plugin.mcp.mcp_state import EventKind as MCPEventKind
-from plugin.mcp.mcp_state import MCPEvent, MCPState, MCPStateStr
 from tests.harness.vhs_budget import vhs_extensive
 
 _FSM_HYP_LIGHT = {
@@ -37,7 +35,6 @@ _FSM_HYP_LIGHT = {
     "audio": 60,
     "tool_loop": 60,
     "send_handler": 60,
-    "mcp": 80,
     "sequences": 40,
 }
 _FSM_HYP_EXTENSIVE = {
@@ -45,7 +42,6 @@ _FSM_HYP_EXTENSIVE = {
     "audio": 600,
     "tool_loop": 600,
     "send_handler": 600,
-    "mcp": 800,
     "sequences": 400,
 }
 
@@ -199,29 +195,3 @@ def send_handler_events(draw):
             doc_type_str=draw(st.sampled_from(("writer", "calc", ""))),
         )
     return ErrorEvent(error=RuntimeError("boom"), context="hypothesis")
-
-
-@st.composite
-def mcp_states(draw):
-    return MCPState(
-        status=draw(st.sampled_from(list(MCPStateStr))),
-        tool_name=draw(st.sampled_from((None, "ping", "read"))),
-        arguments={},
-        is_error=draw(st.booleans()),
-    )
-
-
-@st.composite
-def mcp_events(draw):
-    kind = draw(st.sampled_from(list(MCPEventKind)))
-    if kind == MCPEventKind.REQUEST_RECEIVED:
-        tool = draw(st.sampled_from((None, "", "ping", "echo")))
-        data: dict = {"arguments": {}, "is_long_running": draw(st.booleans())}
-        if tool is not None:
-            data["tool_name"] = tool
-        return MCPEvent(kind=kind, data=data)
-    if kind == MCPEventKind.TOOL_COMPLETED:
-        return MCPEvent(kind=kind, data={"result": draw(st.sampled_from(({"ok": True}, {"status": "error"})))})
-    if kind == MCPEventKind.REQUEST_ERROR:
-        return MCPEvent(kind=kind, data={"message": "fail", "code": draw(st.sampled_from(("X", "INTERNAL_ERROR")))})
-    return MCPEvent(kind=kind, data={})

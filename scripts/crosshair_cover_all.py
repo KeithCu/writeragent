@@ -102,7 +102,6 @@ CROSSHAIR_COVER_ALL_SKIP: frozenset[str] = frozenset()
 # and inserted here.
 COVER_ALL_SCHEDULE_ORDER: tuple[str, ...] = (
     "plugin/calc/python/formula_edit.py",  # 711.6s
-    "plugin/mcp/mcp_state.py",  # 478.5s
     "plugin/framework/client/stream_normalizer.py",  # 433.8s
     "plugin/chatbot/send_state.py",  # 275.5s
     "plugin/writer/word_diff_split.py",  # 216.7s
@@ -347,7 +346,7 @@ def _cover_one_module(
     )
 
 
-def emit_cover_module_result(out: TextIO, result: CoverModuleResult, *, completed: int) -> None:
+def emit_cover_module_result(out: TextIO | _TeeTextIO, result: CoverModuleResult, *, completed: int) -> None:
     """Write one finished module block; stamp [completed/total] over the progress sentinel."""
     progress = f"[{completed}/{result.total}]"
     out.write(result.formatted.replace(PROGRESS_SENTINEL, progress))
@@ -386,7 +385,7 @@ def build_timings_payload(
 
 
 def _write_cover_all_summary(
-    tee: TextIO,
+    tee: TextIO | _TeeTextIO,
     *,
     modules: int,
     skipped: list[str],

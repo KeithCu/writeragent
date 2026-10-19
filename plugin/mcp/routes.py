@@ -32,14 +32,13 @@ log = logging.getLogger("writeragent.framework.http_routes")
 class Route(NamedTuple):
     handler: Callable[..., Any]
     raw: bool
-    main_thread: bool
 
 
 class HttpRouteRegistry:
     """Registry of HTTP route handlers.
 
     HTTP worker threads read this table while MCP toggle registers and
-    unregisters routes. ``_lock`` covers every read and write. ``GET /``
+    unregister routes. ``_lock`` covers every read and write. ``GET /``
     copies the keys under that lock: without it, ``list(self._routes)``
     raises ``RuntimeError`` (dict changed size during iteration).
 
@@ -55,9 +54,6 @@ class HttpRouteRegistry:
 
         # Raw handler — receives the BaseHTTPRequestHandler, writes directly
         routes.add("POST", "/mcp", mcp_handler, raw=True)
-
-        # Main-thread handler — wrapped in QueueExecutor.execute()
-        routes.add("GET", "/doc-info", doc_handler, main_thread=True)
     """
 
     _lock: threading.RLock
@@ -70,7 +66,7 @@ class HttpRouteRegistry:
         """Lock held across several add/remove calls (reentrant)."""
         return self._lock
 
-    def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False, main_thread: bool = False) -> None:
+    def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False) -> None:
         """Register a route handler.
 
         Args:
@@ -79,14 +75,13 @@ class HttpRouteRegistry:
             handler:     Callable. See ``raw`` for signature.
             raw:         If False (default): fn(body, headers, query) -> (status, dict).
                          If True: fn(http_handler) -> None (writes directly).
-            main_thread: If True, handler is wrapped in QueueExecutor.execute().
         """
         key = (method.upper(), path)
         with self._lock:
             if key in self._routes:
                 log.warning("Route %s %s already registered — overwriting", method, path)
-            self._routes[key] = Route(handler=handler, raw=raw, main_thread=main_thread)
-        log.debug("Route registered: %s %s (raw=%s, main_thread=%s)", method, path, raw, main_thread)
+            self._routes[key] = Route(handler=handler, raw=raw)
+        log.debug("Route registered: %s %s (raw=%s)", method, path, raw)
 
     def remove(self, method: str, path: str) -> bool:
         """Unregister a route."""
@@ -98,7 +93,7 @@ class HttpRouteRegistry:
         return removed is not None
 
     def match(self, method: str, path: str) -> Route | None:
-        """Return Route(handler, raw, main_thread) or None."""
+        """Return Route(handler, raw) or None."""
         with self._lock:
             return self._routes.get((method.upper(), path))
 

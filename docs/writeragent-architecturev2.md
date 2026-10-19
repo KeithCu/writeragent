@@ -38,7 +38,6 @@ This pattern is applied to the hardest orchestration paths, each with its own ty
 | Tool loop | `plugin/chatbot/tool_loop_state.py` | `ToolLoopState` (`round_num`, `pending_tools`, `is_stopped`, `max_rounds`), `EventKind` (`STOP_REQUESTED`, `STREAM_DONE`, `NEXT_TOOL`, `TOOL_RESULT`, `FINAL_DONE`, `ERROR`) |
 | Send button | `plugin/chatbot/send_state.py` | `SendButtonState` (`is_busy`, `is_recording`, `has_text`, `has_audio`), events for text/record/send/stop lifecycle |
 | Send handler | `plugin/chatbot/state_machine.py` | Chat-send orchestration |
-| MCP | `plugin/mcp/mcp_state.py` | Tool-call routing, error and response effects |
 | Audio recorder | `plugin/chatbot/audio_recorder_state.py` | Record/stop/auto-stop lifecycle |
 | MCP tunnel | `plugin/mcp/tunnel_state.py` | Reconnection with explicit `StartProcessEffect`/`ScheduleRetryTimerEffect`/`NotifyUrlAcquiredEffect` |
 
