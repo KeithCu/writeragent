@@ -1094,13 +1094,9 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
 
         controller = uno_read(lambda: model.getCurrentController(), None)
 
-        def _first_selected() -> Any:
-            sel = controller.getSelection() if controller else None
-            if sel and hasattr(sel, "getCount") and int(sel.getCount()) > 0:
-                return sel.getByIndex(0)
-            return None
+        from plugin.doc.text_helpers import selected_text_range
 
-        rng = uno_read(_first_selected, None)
+        rng = selected_text_range(controller)
 
         if rng is not None and _selection_is_draw_shape(rng):
             log.debug(

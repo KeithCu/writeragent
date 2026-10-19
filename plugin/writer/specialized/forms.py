@@ -374,10 +374,10 @@ class FormCreateControl(ToolWriterFormBase):
             else:
                 # Anchor 'As Character' so it flows with text
                 shape.setPropertyValue("AnchorType", AS_CHARACTER)
-                selection = doc.getCurrentController().getSelection()
-                if selection and hasattr(selection, "getCount") and selection.getCount() > 0:
-                    anchor = selection.getByIndex(0)
-                else:
+                from plugin.doc.text_helpers import selected_text_range
+
+                anchor = selected_text_range(doc.getCurrentController())
+                if anchor is None:
                     anchor = doc.getCurrentController().getViewCursor()
                 # Why-comment: the anchor’s XText owns that range.
                 host = anchor.getText()

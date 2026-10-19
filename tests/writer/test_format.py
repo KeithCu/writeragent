@@ -187,6 +187,47 @@ def test_insert_content_at_position_text_selection_clears_range():
     text_rng.setString.assert_called_once_with("")
 
 
+def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.writer.format import insert_content_at_position
+
+    rng0 = MagicMock()
+    rng0.getStart.return_value = MagicMock()
+    rng0.getEnd.return_value = MagicMock()
+    rng0.getText.return_value.compareRegionStarts.return_value = 0
+    rng0.supportsService.return_value = False
+
+    rng1 = MagicMock()
+    rng1.getStart.return_value = MagicMock()
+    rng1.getEnd.return_value = MagicMock()
+    rng1.getText.return_value.compareRegionStarts.return_value = -1
+    rng1.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    rng1.supportsService.return_value = False
+
+    sel = MagicMock()
+    sel.getCount.return_value = 2
+    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = MagicMock()
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ), patch(
+        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+    ):
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    rng0.setString.assert_not_called()
+    rng1.setString.assert_called_once_with("")
+
+
 def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     """After shape.upsert, controller selects the Draw shape — HTML insert must not use it."""
     from unittest.mock import MagicMock, patch
