@@ -221,7 +221,7 @@ dispatch repeats over what is left of the group while each pass makes progress; 
 only when exactly the group is gone. Multi-dispatch resolves (overlapping groups and mixed resolve-all
 loops) are wrapped in a compound undo context so undo restores all resolved edits together in one step.
 
-In bulk resolve (`resolve_all_agent_changes`), changes are attempted paragraph-wide first so clean paragraphs clear sibling agent changes in one dispatch. When a user redline in the paragraph triggers `REFUSED_FOREIGN`, bulk resolve retries with exact bounds. Overlapping user redlines still refuse. If an exact dispatch proves to be a no-op, further exact retries are disabled for the remainder of that run.
+In bulk resolve (`resolve_all_agent_changes`), changes are attempted paragraph-wide first so clean paragraphs clear sibling agent changes in one dispatch. When a user redline in the paragraph triggers `REFUSED_FOREIGN`, bulk resolve retries with exact bounds. Overlapping user redlines -- including any user redline with only whitespace between it and the agent span -- still refuse; a gap containing any other character still resolves on the exact retry. If an exact dispatch proves to be a no-op, further exact retries are disabled for the remainder of that run.
 
 On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
 paragraph-wide selection (which resolves every redline in range) and refuses when foreign or

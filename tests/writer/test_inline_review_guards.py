@@ -325,6 +325,64 @@ def test_foreign_touching_edge_stays_inclusive():
     assert has_foreign is True
 
 
+class _GapRange(FakeRange):
+    def getStart(self):
+        return _GapRange(self.s, self.s, text=self.text)
+
+    def getEnd(self):
+        return _GapRange(self.e, self.e, text=self.text)
+
+    def getString(self):
+        if self.text is not None and hasattr(self.text, "body"):
+            return self.text.body[self.s:self.e]
+        return ""
+
+
+class _GapText(FakeText):
+    def __init__(self, body: str):
+        super().__init__()
+        self.body = body
+
+    def createTextCursorByRange(self, r):
+        return _GapRange(r.s, r.e, text=self)
+
+
+def test_foreign_whitespace_gap_is_conflict():
+    body = "Bravo2Bravo two."
+    text = _GapText(body)
+    span = _GapRange(0, 11, text=text)
+    model = FakeModel(FakeRedlines([FakeRedline("", 12, 15)]))
+    has_foreign, _ = _classify_span_conflicts(
+        scan_redline_view(model), text, span, None, strict_sibling_edges=True
+    )
+    assert has_foreign is True
+
+
+def test_foreign_word_gap_is_not_conflict():
+    body = "The quick brown fox"
+    text = _GapText(body)
+    span = _GapRange(16, 19, text=text)
+    model = FakeModel(FakeRedlines([FakeRedline("", 4, 9)]))
+    has_foreign, _ = _classify_span_conflicts(
+        scan_redline_view(model), text, span, None, strict_sibling_edges=True
+    )
+    assert has_foreign is False
+
+
+def test_sibling_whitespace_gap_stays_non_overlap_when_strict():
+    body = "Bravo2Bravo two."
+    text = _GapText(body)
+    target = TOKEN_PREFIX + "s:1"
+    sibling = TOKEN_PREFIX + "s:2"
+    span = _GapRange(0, 11, text=text)
+    model = FakeModel(FakeRedlines([FakeRedline(sibling, 12, 15)]))
+    has_foreign, has_sibling = _classify_span_conflicts(
+        scan_redline_view(model), text, span, target, strict_sibling_edges=True
+    )
+    assert has_foreign is False
+    assert has_sibling is False
+
+
 def test_other_agent_same_token_not_flagged():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"

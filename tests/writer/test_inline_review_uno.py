@@ -456,6 +456,31 @@ def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ct
     assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
+@native_test
+@with_native_doc("writer")
+def test_resolve_all_whitespace_adjacent_user_redline_skipped_uno(ctx, doc):
+    """A user redline separated from an agent change by only whitespace blocks resolve-all
+    for that change while clean paragraphs still resolve."""
+    _body(doc, ctx, "Alpha one.", "Bravo two.", "Charlie three.")
+    _agent_edit(
+        doc,
+        ctx,
+        ("Alpha", "Alpha1"),
+        ("Bravo", "Bravo2"),
+        ("Charlie", "Charlie3"),
+    )
+    _tracked_replace(doc, "two", "UserEdit")
+    n, msg = resolve_all_with_feedback(doc, ctx, True)
+    assert n == 2, "two clean paragraphs resolve, got %d" % n
+    assert "overlap" in msg or "Manage" in msg, "skipped change must mention overlap/Manage: %r" % msg
+    remaining = agent_changes(doc)
+    assert len(remaining) == 1 and "Bravo" in (remaining[0]["old"] + remaining[0]["new"]), (
+        "middle agent edit must stay pending: %r" % remaining
+    )
+    assert _find(doc, "UserEdit") is not None, "the user's 'UserEdit' redline remains"
+    assert _redline_count(doc) >= 1, "at least one redline remains"
+
+
 # --- fast-travel: count + next/previous navigation -------------------------------------
 
 def _three_changes(doc, ctx):

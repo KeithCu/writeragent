@@ -575,6 +575,33 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
     return True
 
 
+def _user_redline_whitespace_adjacent(text: Any, span: Any, rl_span: Any) -> bool:
+    """Return True if span and user redline span are separated only by whitespace.
+
+    Fix: exact retry treated a one-space foreign neighbor as safe.
+    What was wrong: #1943 retried exact bounds after paragraph REFUSED_FOREIGN, but
+    point containment across a one-space gap evaluates to false, allowing resolve-all
+    to mistakenly accept the neighboring edit.
+    Why this fixes it: when the character gap between the agent span and a user
+    redline consists entirely of whitespace, we treat them as overlapping to refuse
+    the exact retry. Gaps with any other characters (words) remain eligible for retry.
+    """
+    try:
+        if text.compareRegionStarts(span.getEnd(), rl_span.getStart()) == 1:
+            cursor = text.createTextCursorByRange(span.getEnd())
+            cursor.gotoRange(rl_span.getStart(), True)
+            gap = cursor.getString()
+            return "\n" not in gap and "\r" not in gap and not gap.strip()
+        if text.compareRegionStarts(rl_span.getEnd(), span.getStart()) == 1:
+            cursor = text.createTextCursorByRange(rl_span.getEnd())
+            cursor.gotoRange(span.getStart(), True)
+            gap = cursor.getString()
+            return "\n" not in gap and "\r" not in gap and not gap.strip()
+        return False
+    except Exception:
+        return False
+
+
 def _classify_span_conflicts(
     rows: tuple[RedlineRow, ...] | RedlineView,
     text: Any,
@@ -632,6 +659,9 @@ def _classify_span_conflicts(
             else:
                 return True, False
             continue
+
+        if not overlaps and not is_sibling:
+            overlaps = _user_redline_whitespace_adjacent(text, span, rl_span)
 
         if overlaps:
             if is_sibling:

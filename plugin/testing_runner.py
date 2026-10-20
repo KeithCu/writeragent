@@ -574,10 +574,10 @@ def _test_function_filters(filters: Sequence[str]) -> list[str]:
     for token in filters:
         if "/" in token or "\\" in token or token.endswith(".py"):
             continue
-        if token.endswith("_uno"):
-            continue
         if token.startswith("test_"):
             names.append(token)
+        elif token.endswith("_uno"):
+            continue
         elif len(token) == 1 and token.isalpha():
             names.append(token)
         elif _is_case_id(token.lower()):
@@ -618,9 +618,10 @@ def _module_matches_filters(full_path: str, filename: str, filters: Sequence[str
     """True if this UNO file should load given CLI filters (path or test selector)."""
     if not filters:
         return True
-    if any(token in full_path or token in filename for token in filters):
-        return True
     func_filters = _test_function_filters(filters)
+    path_filters = [f for f in filters if f not in func_filters]
+    if any(token in full_path or token in filename for token in path_filters):
+        return True
     if not func_filters:
         return False
     try:
