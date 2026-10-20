@@ -51,8 +51,8 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter eval-1 board (2026-09-28 board, 2026-10-19 reruns of infra-error and tool-round-limit rows at 50 rounds; Mercury 3 replaces Mercury 2.5; "
-    "org_chart_gen hand-scored visual overrides — 5/26 hard PASS). "
+    "Source: OpenRouter eval-1 board (infra-error and tool-round-limit rows retried with max_tool_rounds=50; "
+    "org_chart_gen hand-scored visual overrides). "
     "All plotted models have python_shapes_flag + org_chart_gen (n_examples=19). "
     "Each point is labeled with model name and average correctness."
 )
@@ -248,7 +248,7 @@ def write_pareto_fronts_svg(summaries: list[dict[str, Any]], out_path: Path) -> 
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 cost–quality Pareto fronts (2026-09-28 complete 26×19)",
+        title="WriterAgent eval-1 cost–quality Pareto fronts (29 models × 19 tasks)",
     )
     ax.legend(frameon=False, loc="lower right", title="Front")
     fig.text(0.01, 0.01, FOOTNOTE, fontsize=7, color="#5f6368")
@@ -308,7 +308,7 @@ def write_pareto_distance_svg(summaries: list[dict[str, Any]], out_path: Path) -
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 distance to F1 frontier (2026-09-28 complete 26×19)",
+        title="WriterAgent eval-1 distance to F1 frontier (29 models × 19 tasks)",
     )
     cbar = fig.colorbar(scatter, ax=ax, pad=0.02)
     cbar.set_label("Distance to F1 (normalized log-cost × correctness)")
@@ -357,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-all",
         action="store_true",
-        help="Do not exclude previously failed models (e.g. after re-running them).",
+        help="Do not exclude any models.",
     )
     parser.add_argument(
         "--exclude",

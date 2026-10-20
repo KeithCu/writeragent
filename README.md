@@ -110,7 +110,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **29×19 dual-lane** board (2026-09-28, updated 2026-10-19 with reruns of infra-error/round-limit rows and Mercury 3 replacing Mercury 2.5 Preview; flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **29×19 dual-lane** board (infra-error and tool-round-limit rows retried with `max_tool_rounds=50`; flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 

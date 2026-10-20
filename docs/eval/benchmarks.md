@@ -14,15 +14,15 @@ Tasks 18–19 (`python_shapes_flag`, `org_chart_gen`) **need native** headless L
 
 How to run: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [eval-dev-plan.md](eval-dev-plan.md). String-world upgrade history: [string-harness-upgrade.md](string-harness-upgrade.md).
 
-## Snapshot ranking (2026-09-28 complete 29×19 dual-lane, updated 2026-10-19)
+## Snapshot ranking (29×19 dual-lane)
 
-**2026-10-19 update:** infra-error and tool-round-limit rows rerun at 50 rounds; `inception/mercury-3` replaces `inception/mercury-2.5-preview`. Full changelog and per-rank movement: [HF dataset KeithCu/writeragent-eval-1](https://huggingface.co/datasets/KeithCu/writeragent-eval-1).
+Infra-error and tool-round-limit rows were retried with `max_tool_rounds=50`. Full per-task data: [HF dataset KeithCu/writeragent-eval-1](https://huggingface.co/datasets/KeithCu/writeragent-eval-1).
 
-> **Org-chart scoring needs work:** the code oracle for `org_chart_gen` is too loose (many false PASSes vs gallery PNGs). This snapshot uses **hand visual overrides** ([org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md)); a vision/scoring model may replace or augment the oracle later — not implemented in this refresh.
+> **Org-chart scoring needs work:** the code oracle for `org_chart_gen` is too loose (many false PASSes vs gallery PNGs). This snapshot uses **hand visual overrides** ([org-chart hand scores](org-chart-hand-scores-2026-09-28.md)); a vision/scoring model may replace or augment the oracle later.
 
-**Complete 29×19 dual-lane board** after #943 org_chart splice + **2026-09-28 hand-scored gallery overrides** ([org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md)): prior 26×18 flag-18 board + `org_chart_gen` for every catalog model (`n_examples=19`). Eval-1 backends: `string` = in-memory; `lo` = native headless UNO; `auto` = dual-lane mix. Tasks 18–19 **need native**; headed eval-2 is separate — native is not eval-2-only.
+**Complete 29×19 dual-lane board** with **hand-scored gallery overrides** ([org-chart hand scores](org-chart-hand-scores-2026-09-28.md)): flag-18 tasks + `org_chart_gen` for every catalog model (`n_examples=19`). Eval-1 backends: `string` = in-memory; `lo` = native headless UNO; `auto` = dual-lane mix. Tasks 18–19 **need native**; headed eval-2 is separate — native is not eval-2-only.
 
-**Catalog (unchanged from flag-18 refresh):** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b` aboard; no `openai/gpt-5.6-luna` / `deepseek/deepseek-v4-flash-0731`. MiMos omitted (aborted string runs). **Org-chart hard PASS (hand-scored visual): 5/26** — catalog oracle PASS overridden by gallery grades; soft/borderline also FAIL. Ternary Bonsai hang → hard=0 kept. See [org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md).
+**Catalog:** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b` aboard; no `openai/gpt-5.6-luna` / `deepseek/deepseek-v4-flash-0731`. MiMos omitted (aborted string runs). **Org-chart hard PASS (hand-scored visual): 5/26** — catalog oracle PASS overridden by gallery grades; soft/borderline also FAIL. Ternary Bonsai hang → hard=0 kept. See [org-chart hand scores](org-chart-hand-scores-2026-09-28.md).
 
 `--backend string` still skips `python_shapes_flag` and `org_chart_gen`. Do not average a pure-string 17-pack with a mixed `--backend auto` 19-pack without saying so.
 
@@ -64,12 +64,12 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 
 ## Key insights
 
-1. **Org-chart-19 + hand visual grades:** All 26 catalog models have `python_shapes_flag` + `org_chart_gen` (`n_examples=19`). Catalog oracle had 19 PASS / 7 FAIL; **hand gallery overrides** leave **5 visual HARD PASS**: `meta/muse-spark-1.3-contributor`, `qwen/qwen3.8-flash`, `qwen/qwen3.8-27b`, `z-ai/glm-5.3-flash`, `openai/gpt-6-luna`. Soft/borderline (Grok 4.6, Muse Glimmer, Laguna S) and the other former oracle PASSes flip to board org hard=0. Catalog FAILs unchanged (gpt-oss-120b, Nemotron 3.5 Lightning, Mistral Small 2603, Granite 4.2, DeepSeek V4.1F, Nemotron Ultra, Ternary Bonsai hang → 0). Grades: [org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md).
-2. **Catalog unchanged** from flag-18 refresh; MiMos still omitted.
+1. **Org-chart-19 + hand visual grades:** All 26 catalog models have `python_shapes_flag` + `org_chart_gen` (`n_examples=19`). Catalog oracle had 19 PASS / 7 FAIL; **hand gallery overrides** leave **5 visual HARD PASS**: `meta/muse-spark-1.3-contributor`, `qwen/qwen3.8-flash`, `qwen/qwen3.8-27b`, `z-ai/glm-5.3-flash`, `openai/gpt-6-luna`. Soft/borderline (Grok 4.6, Muse Glimmer, Laguna S) and other oracle false PASSes score org hard=0. Catalog FAILs (gpt-oss-120b, Nemotron 3.5 Lightning, Mistral Small 2603, Granite 4.2, DeepSeek V4.1F, Nemotron Ultra, Ternary Bonsai hang → 0). Grades: [org-chart hand scores](org-chart-hand-scores-2026-09-28.md).
+2. **Catalog:** MiMos omitted.
 3. **Perfect hard pass (n=19):** only `meta/muse-spark-1.3-contributor` remains at 1.000. `openai/gpt-oss-120b` stays 0.947 (catalog org fail). Muse Glimmer / Grok drop to 0.895 after visual org FAIL.
 4. **C²/$:** `openai/gpt-oss-120b` still leads Value (correctness² ÷ $/task). Costs for spliced averages use catalog rates × recorded `total_tokens` (85% prompt / 15% completion when the split is unknown).
 5. **Pareto plots** regenerate from this JSON (`plot_pareto.py`); MiniMax remains on the board (one known stream-normalizer contract bug on a non-Calc task — see [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md)).
-6. **Org-chart oracle gap:** structural box/connector floors still admit false PASSes (blobs, stacks, overlaps). Hand grades override for this board; tighten code scoring or add a vision judge later — see [org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md).
+6. **Org-chart oracle gap:** structural box/connector floors still admit false PASSes (blobs, stacks, overlaps). Hand grades override for this board; tighten code scoring or add a vision judge later — see [org-chart hand scores](org-chart-hand-scores-2026-09-28.md).
 
 ## Scoring approach
 
