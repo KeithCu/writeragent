@@ -51,9 +51,9 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter eval-1 board (2026-09-28 complete 26×19 dual-lane; "
+    "Source: OpenRouter eval-1 board (2026-09-28 board, 2026-10-19 reruns of infra-error and tool-round-limit rows at 50 rounds; Mercury 3 replaces Mercury 2.5; "
     "org_chart_gen hand-scored visual overrides — 5/26 hard PASS). "
-    "All 26 catalog models have python_shapes_flag + org_chart_gen (n_examples=19). "
+    "All plotted models have python_shapes_flag + org_chart_gen (n_examples=19). "
     "Each point is labeled with model name and average correctness."
 )
 
@@ -99,6 +99,7 @@ SHORT_NAMES: dict[str, str] = {
     "z-ai/glm-5.3": "GLM 5.3",
     "x-ai/grok-4.6": "Grok 4.6",
     "inception/mercury-2.5-preview": "Mercury 2.5",
+    "inception/mercury-3": "Mercury 3",
     "inception/mercury-2": "Mercury 2",
     "qwen/qwen3.8-27b": "Qwen 3.8 27B",
     "qwen/qwen3.8-flash": "Qwen 3.8F",
@@ -158,6 +159,7 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "bytedance-seed/seed-2.0-mini": (10, 10, "left", "bottom"),
     "ibm-granite/granite-4.2-8b": (6, -8, "left", "top"),
     "inception/mercury-2.5-preview": (6, 6, "left", "bottom"),
+    "inception/mercury-3": (6, 6, "left", "bottom"),
     "minimax/minimax-m3": (0, 7, "center", "bottom"),
     "nvidia/nemotron-3.5-lightning": (6, 5, "left", "bottom"),
     "nvidia/nemotron-3-ultra-550b-a55b": (6, -10, "left", "top"),

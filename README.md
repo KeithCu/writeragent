@@ -110,7 +110,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **2026-09-28 complete 29×19 dual-lane** board (flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides — 5 visual hard PASS). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **29×19 dual-lane** board (2026-09-28, updated 2026-10-19 with reruns of infra-error/round-limit rows and Mercury 3 replacing Mercury 2.5 Preview; flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
@@ -125,28 +125,28 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | google/gemma-4-31b-it | 0.861 | 330 |
 | google/gemma-4-26b-a4b-it | 0.701 | 216 |
 | bytedance-seed/seed-2.0-mini | 0.861 | 179 |
-| poolside/laguna-s-2.1 | 0.732 | 160 |
+| poolside/laguna-s-2.1 | 0.777 | 175 |
 | meta/muse-spark-1.3-contributor | 0.981 | 147 |
 | openai/gpt-6-luna | 0.873 | 139 |
+| inception/mercury-3 | 0.906 | 136 |
+| prism-ml/ternary-bonsai-2-27b | 0.843 | 129 |
 | z-ai/glm-5.3-flash | 0.856 | 87 |
-| nvidia/nemotron-3.5-super-vl | 0.932 | 82 |
-| liquid/lfm-2.5-24b-a2b | 0.589 | 82 |
-| prism-ml/ternary-bonsai-2-27b | 0.543 | 78 |
-| deepseek/deepseek-v4.1-flash | 0.883 | 77 |
-| qwen/qwen3.8-flash | 0.792 | 65 |
+| deepseek/deepseek-v4.1-flash | 0.921 | 83 |
+| nvidia/nemotron-3.5-super-vl | 0.932 | 79 |
+| ibm-granite/granite-4.2-8b | 0.757 | 77 |
+| liquid/lfm-2.5-24b-a2b | 0.589 | 69 |
+| qwen/qwen3.8-flash | 0.865 | 67 |
 | mistralai/mistral-small-2603 | 0.583 | 64 |
 | meta/muse-glimmer-30b | 0.923 | 60 |
-| inception/mercury-2.5-preview | 0.817 | 56 |
-| ibm-granite/granite-4.2-8b | 0.810 | 55 |
 | google/gemini-3.5-flash-lite | 0.708 | 49 |
+| nvidia/nemotron-3-super-120b-a12b | 0.861 | 47 |
 | nvidia/nemotron-3.5-lightning | 0.395 | 46 |
-| nvidia/nemotron-3-super-120b-a12b | 0.854 | 38 |
-| reflection/beam-1.0-501b-a23b | 0.879 | 18 |
-| cohere/command-a-plus | 0.641 | 13 |
-| minimax/minimax-m3 | 0.780 | 11 |
-| x-ai/grok-4.6 | 0.918 | 9 |
+| cohere/command-a-plus | 0.694 | 17 |
+| reflection/beam-1.0-501b-a23b | 0.879 | 14 |
+| minimax/minimax-m3 | 0.738 | 10 |
 | qwen/qwen3.8-27b | 0.917 | 9 |
-| nvidia/nemotron-3-ultra-550b-a55b | 0.787 | 4 |
+| x-ai/grok-4.6 | 0.918 | 9 |
+| nvidia/nemotron-3-ultra-550b-a55b | 0.840 | 4 |
 
 ---
 
