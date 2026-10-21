@@ -92,14 +92,12 @@ def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[st
     if num_rows > 1 and num_cols > 1:
         raise CalcError(_TWOD_FORMULA_MSG.format(rows=num_rows, cols=num_cols))
     adjust = should_adjust_formula_fill(formula)
-    out: list[str] = []
-    for row in range(num_rows):
-        for col in range(num_cols):
-            if adjust and (col or row):
-                out.append(adjust_a1_formula(formula, col, row))
-            else:
-                out.append(formula)
-    return out
+    count = num_rows if num_rows > 1 else num_cols
+    if not adjust or count == 1:
+        return [formula] * count
+    if num_rows > 1:
+        return [formula] + [adjust_a1_formula(formula, 0, r) for r in range(1, num_rows)]
+    return [formula] + [adjust_a1_formula(formula, c, 0) for c in range(1, num_cols)]
 
 
 def should_adjust_formula_fill(formula: str) -> bool:
@@ -377,15 +375,11 @@ def _format_part(part: _Part) -> str:
 
 def _format_shifted_ref(ref: _Ref, dcol: int, drow: int) -> str:
     left = _shift_part(ref.start, dcol, drow)
-    right = _shift_part(ref.end, dcol, drow) if ref.end is not None else None
-    if left is None or (ref.end is not None and right is None):
+    if left is None:
         return "#REF!"
-    left_txt = _format_part(left)
-    if not left_txt:
+    if ref.end is None:
+        return f"{ref.sheet1}{_format_part(left)}"
+    right = _shift_part(ref.end, dcol, drow)
+    if right is None:
         return "#REF!"
-    if ref.end is None or right is None:
-        return f"{ref.sheet1}{left_txt}"
-    right_txt = _format_part(right)
-    if not right_txt:
-        return "#REF!"
-    return f"{ref.sheet1}{left_txt}:{ref.sheet2}{right_txt}"
+    return f"{ref.sheet1}{_format_part(left)}:{ref.sheet2}{_format_part(right)}"

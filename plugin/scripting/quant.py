@@ -15,11 +15,8 @@ from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     make_template_api,
 )
-
-QUANT_HEADER_PREFIX = header_prefix("quant")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     # Runner templates embed params in a Python literal, so "data" was the ticker symbol
@@ -38,15 +35,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "efficient_frontier": "Optimize weights from a returns sheet via PyPortfolioOpt",
 }
 
-_QUANT_VENV_EXPORTS = frozenset(
-    {
-        "efficient_frontier",
-        "fetch_historical_data",
-        "portfolio_tearsheet",
-        "run_quant",
-        "technical_analysis",
-    }
-)
+_QUANT_VENV_EXPORTS = HELPER_NAMES | {"run_quant"}
 
 install_lazy_exports(globals(), "quant", _QUANT_VENV_EXPORTS)
 
@@ -61,8 +50,6 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.quant",
         run_name="run_quant",
-        style="run_import",
-        data_expr="data",
         invoke="runner",
     )
 )

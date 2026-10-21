@@ -22,13 +22,14 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
-log = logging.getLogger("writeragent.calc.duckdb")
+log = logging.getLogger(__name__)
 
 ODS_CACHE_DIRNAME = "writeragent_ods_cache"
 CACHE_FORMAT_VERSION = 1
-CACHEABLE_EXTENSIONS = frozenset({".xlsx", ".xls"})
+EXCEL_EXTENSIONS = (".xlsx", ".xls")
+CACHEABLE_EXTENSIONS = frozenset(EXCEL_EXTENSIONS)
 # Schema key lives on the calc module (module.yaml). Plan name was duckdb.ods_cache_enabled.
 ODS_CACHE_ENABLED_KEY = "calc.ods_cache_enabled"
 
@@ -47,7 +48,7 @@ def source_stat(source_path: str) -> tuple[str, int, int]:
     """Return ``(abs_path, mtime_ns, size)`` for the cache key."""
     abs_path = normalize_source_path(source_path)
     st = os.stat(abs_path)
-    mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+    mtime_ns = int(st.st_mtime_ns)
     return abs_path, mtime_ns, int(st.st_size)
 
 
@@ -57,23 +58,28 @@ def cache_key(abs_path: str, mtime_ns: int, size: int) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def ods_cache_dir(source_path: str, *, create: bool = False) -> Path:
+def ods_cache_dir(source_path: str) -> Path:
     """``writeragent_ods_cache/`` beside the scoped folder that holds *source_path*."""
-    root = Path(normalize_source_path(source_path)).parent / ODS_CACHE_DIRNAME
-    if create:
-        root.mkdir(parents=True, exist_ok=True)
-    return root
+    return Path(normalize_source_path(source_path)).parent / ODS_CACHE_DIRNAME
 
 
-def cache_entry_paths(source_path: str) -> tuple[Path, Path] | None:
-    """``(cached.ods, sidecar.meta.json)`` for the current source stat, or None."""
+class OdsCacheEntry(NamedTuple):
+    ods: Path
+    meta: Path
+    abs_path: str
+    mtime_ns: int
+    size: int
+
+
+def cache_entry(source_path: str) -> OdsCacheEntry | None:
+    """OdsCacheEntry for the current source stat, or None."""
     try:
         abs_path, mtime_ns, size = source_stat(source_path)
     except OSError:
         return None
     key = cache_key(abs_path, mtime_ns, size)
-    folder = ods_cache_dir(source_path, create=False)
-    return folder / f"{key}.ods", folder / f"{key}.meta.json"
+    folder = ods_cache_dir(source_path)
+    return OdsCacheEntry(folder / f"{key}.ods", folder / f"{key}.meta.json", abs_path, mtime_ns, size)
 
 
 def read_sidecar_meta(meta_path: Path) -> dict[str, Any] | None:
@@ -111,22 +117,17 @@ def lookup_cached_ods(source_path: str) -> Path | None:
     """
     if not is_cacheable_office_source(source_path):
         return None
-    paths = cache_entry_paths(source_path)
-    if paths is None:
+    entry = cache_entry(source_path)
+    if entry is None:
         return None
-    ods_path, meta_path = paths
-    if not ods_path.is_file() or not meta_path.is_file():
+    if not entry.ods.is_file() or not entry.meta.is_file():
         return None
-    meta = read_sidecar_meta(meta_path)
+    meta = read_sidecar_meta(entry.meta)
     if meta is None:
         return None
-    try:
-        abs_path, mtime_ns, size = source_stat(source_path)
-    except OSError:
+    if not meta_matches_source(meta, entry.abs_path, entry.mtime_ns, entry.size):
         return None
-    if not meta_matches_source(meta, abs_path, mtime_ns, size):
-        return None
-    return ods_path
+    return entry.ods
 
 
 def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int) -> None:

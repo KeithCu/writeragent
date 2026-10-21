@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.prompt_function import _format_empty_prompt_diagnostic, execute_prompt_addin
+from plugin.calc.prompt_function import (
+    _EMPTY_DIAGNOSTIC_MAX_LEN,
+    _format_empty_prompt_diagnostic,
+    execute_prompt_addin,
+)
 from plugin.calc.prompt_function import CALC_PROMPT_CELL_SYSTEM_PROMPT
 from plugin.framework.prompts import CALC_PYTHON_FORMULA_LLM_HINT
 
@@ -77,10 +81,10 @@ def test_prompt_formula_system_arg_overrides_default(mock_get_config_int, mock_a
 @patch("plugin.calc.prompt_function.get_api_config")
 @patch("plugin.calc.prompt_function.get_config_str", return_value="")
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-@patch("plugin.calc.prompt_function.get_text_model", return_value="mercury-2")
 def test_prompt_empty_response_returns_diagnostic(
-    mock_model, mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run
+    mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run
 ):
+    mock_api.return_value = {"model": "mercury-2"}
     mock_run.return_value = {
         "content": None,
         "finish_reason": "length",
@@ -106,5 +110,5 @@ def test_format_empty_prompt_diagnostic_truncates():
         {"finish_reason": "stop", "usage": {}, "reasoning_content": long_reason},
         model="m",
     )
-    assert len(msg) <= 500
+    assert len(msg) <= _EMPTY_DIAGNOSTIC_MAX_LEN
     assert msg.startswith("Error: model returned no text.")

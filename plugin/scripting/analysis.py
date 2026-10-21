@@ -14,7 +14,6 @@ from typing import Any
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     make_template_api,
 )
 
@@ -23,8 +22,6 @@ from plugin.scripting.helper_domain import (
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_HELPER_NAMES as HELPER_NAMES,
 )
-
-ANALYSIS_HEADER_PREFIX = header_prefix("analysis")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "describe_data": {},
@@ -104,7 +101,6 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.analysis",
         run_name="run_analysis",
-        data_expr="data",
         leading_data=True,
     )
 )

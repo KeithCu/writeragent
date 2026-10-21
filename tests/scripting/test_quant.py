@@ -15,9 +15,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.scripting.helper_domain import header_prefix
 from plugin.scripting.quant import (
     HELPER_NAMES,
-    QUANT_HEADER_PREFIX,
     get_quant_template,
 )
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
@@ -28,7 +28,7 @@ def test_quant_template_is_executable():
     assert code is not None
     assert "from writeragent.scripting.quant import run_quant" in code
     assert "fetch_historical_data" in code
-    assert QUANT_HEADER_PREFIX not in code.splitlines()[0]
+    assert header_prefix("quant") not in code.splitlines()[0]
     assert "'tickers': 'AAPL'" in code
     assert "'tickers': 'data'" not in code
 

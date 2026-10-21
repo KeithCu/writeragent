@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.calc.duckdb")
 
-OFFICE_EXTS = (".xlsx", ".xls", ".ods")
+from plugin.calc.ods_cache import EXCEL_EXTENSIONS
+
+OFFICE_EXTS = EXCEL_EXTENSIONS + (".ods",)
 
 
 class QueryFolderSqlTool(ToolCalcPythonSqlBase):
@@ -548,23 +550,18 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import cache_key, is_cacheable_office_source, ods_cache_enabled, ods_cache_dir, write_sidecar_meta, source_stat
+    from plugin.calc.ods_cache import cache_entry, is_cacheable_office_source, ods_cache_enabled, write_sidecar_meta
 
     if cache_hit or not opened_flag:
         return
     if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
         return
-    try:
-        abs_path, mtime_ns, size = source_stat(full_path)
-    except OSError:
+    entry = cache_entry(full_path)
+    if entry is None:
         return
-    key = cache_key(abs_path, mtime_ns, size)
-    folder = ods_cache_dir(full_path, create=False)
-    ods_path = folder / f"{key}.ods"
-    meta_path = folder / f"{key}.meta.json"
     try:
-        _export_model_to_cached_ods(model, ods_path)
-        write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
+        _export_model_to_cached_ods(model, entry.ods)
+        write_sidecar_meta(entry.meta, entry.abs_path, entry.mtime_ns, entry.size)
     except Exception:
         log.exception("Failed to write ODS cache for %s", full_path)
 

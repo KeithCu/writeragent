@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
@@ -70,6 +70,7 @@ from plugin.calc.navigation import (
     portion_cell_href,
     portion_looks_like_cell_link,
     register_cell_link_span,
+    render_calc_cell_refs,
 )
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
@@ -81,6 +82,14 @@ log = logging.getLogger(__name__)
 # (default log_level=WARN) capture direct-copy failures and clipboard fallbacks.
 
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
+
+
+def _cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
+    links: list[tuple[str, str]] = []
+    for _role, content in rows:
+        rendered = render_calc_cell_refs(content) if content else content
+        links.extend(extract_cell_links_from_html(rendered or ""))
+    return links
 
 
 def create_hidden_html_writer(ctx: Any) -> Any | None:
@@ -586,12 +595,7 @@ def paint_message_items(
             log.warning("paint_message_items: hidden doc still has tags; plain paint")
             _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
             return True
-        from plugin.calc.navigation import render_calc_cell_refs
-
-        links: list[tuple[str, str]] = []
-        for _role, content in rows:
-            rendered = render_calc_cell_refs(content) if content else content
-            links.extend(extract_cell_links_from_html(rendered or ""))
+        links = _cell_links_for_rows(rows)
         # Replace, do not append. A previous splice is not part of this paint.
         clear_control(control)
         res = _copy_formatted_from_hidden_doc_to_control(
@@ -992,12 +996,7 @@ def append_formatted_rows(
                 _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             return
         configure_hidden_writer_for_chat(doc)
-        batch_links: list[tuple[str, str]] = []
-        for _role, content in rows:
-            from plugin.calc.navigation import extract_cell_links_from_html, render_calc_cell_refs
-
-            rendered = render_calc_cell_refs(content) if content else content
-            batch_links.extend(extract_cell_links_from_html(rendered or ""))
+        batch_links = _cell_links_for_rows(rows)
 
         render_messages_to_hidden_doc(doc, rows, style_window=style_window)
         log.debug(
@@ -1118,8 +1117,6 @@ def append_formatted_row(
         return False
     if role == "assistant":
         text = strip_legacy_ai_label(text)
-    from plugin.calc.navigation import render_calc_cell_refs
-
     text = render_calc_cell_refs(text)
     cell_link_targets = extract_cell_links_from_html(text)
 

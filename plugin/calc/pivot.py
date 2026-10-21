@@ -10,20 +10,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-# -----------------------------------------------------------------------------
-# Reference (behavior / schema only; implementation is LibreOffice UNO DataPilot):
-#   OnlyOffice Document Builder-style pivot flow is described in
-#   onlyofficeai/scripts/helpers/helpers.js (insertPivotTable / ~6621–7040 in many
-#   forks). That code uses Api.InsertPivotNewWorksheet — not portable here.
-#   Crosswalk: onlyoffice_calc_impressplan.md (Part A.2, Part B §1).
-#
-# Future work (not implemented here; duplicated in AGENTS.md §5):
-#   - Pivot charts (chart bound to an existing DataPilot table).
-#   - Natural-language-only pivot setup without explicit header names (would need
-#     an LLM step to map text to field names, similar to OO’s parsed.rowIndices).
-#   - Sheet standard filter: see docs/calc/sheet-filter.md and sheet_filter.py.
-# -----------------------------------------------------------------------------
-"""Calc DataPilot (pivot table) tools — specialized tier."""
+"""Calc DataPilot (pivot table) tools — specialized tier.
+
+Field names are the source header row, unlisted fields stay hidden, pivot
+names are unique in the document, and refresh materializes the output.
+"""
 
 from __future__ import annotations
 

@@ -17,14 +17,11 @@ from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     is_status_helper_result,
     make_template_api,
 )
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
-
-UNITS_HEADER_PREFIX = header_prefix("units")
 
 _SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
 
@@ -41,15 +38,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "check_dimensionality": "Check whether two quantities or units are dimensionally compatible.",
 }
 
-_UNITS_VENV_EXPORTS = frozenset(
-    {
-        "check_dimensionality",
-        "convert_quantity",
-        "format_quantity",
-        "parse_quantity",
-        "run_units",
-    }
-)
+_UNITS_VENV_EXPORTS = HELPER_NAMES | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 
@@ -69,7 +58,6 @@ _API = make_template_api(
         import_module="writeragent.scripting.units",
         run_name="run_units",
         shipped_templates=_SHIPPED_TEMPLATES,
-        data_expr="data",
         # convert_quantity takes value, from_unit, to_unit positionally (``from``
         # is not a keyword argument). parse/check are keyword-only.
         positional_args={

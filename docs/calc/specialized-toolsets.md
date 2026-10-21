@@ -117,7 +117,7 @@ WriterAgent's `write_formula_range` tool takes a different design approach than 
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
 | **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../../plugin/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](conditional-formatting.md) | Specialized tier |
 | **Analysis** | Hidden from chat | [`analysis.py`](../../plugin/calc/analysis.py) etc. | LLM tools are `ToolBaseDummy`. Calc chat compute is `=PY()` (live formula into empty cells). Helpers remain for Run Python Script / tests. |
-| **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData, ListPivotTables | Specialized tier |
+| **Pivot Tables** | ✅ Implemented | `pivot.py`: create_pivot_table, refresh_pivot_table, list_pivot_tables | Specialized tier |
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |
 | **Comments** | ✅ Implemented | `comments.py`: ListCellComments, AddCellComment, DeleteCellComment | Specialized tier. `list_cell_comments` returns the formatted string from `XSheetAnnotation.getDate()`; a DateTime struct is still formatted if a bridge returns one. |

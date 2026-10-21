@@ -6,10 +6,8 @@
 
 from __future__ import annotations
 
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+from plugin.scripting.helper_domain import HelperScriptMeta, parse_helper_script_header
 from plugin.vision.vision_common import HELPER_NAMES, IMPLEMENTED_HELPERS
-
-VISION_HEADER_PREFIX = header_prefix("vision")
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {"extract_text": "OCR selected image(s) to formatted HTML (Docling default, Paddle fallback).", "extract_structure": "Layout and tables as formatted HTML with cell spans — Docling default, Paddle fallback."}
 

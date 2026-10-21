@@ -15,7 +15,6 @@ from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.client import run_forecast as client_run_forecast
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     is_status_helper_result,
     make_template_api,
     run_trusted_calc_data_helper,
@@ -24,8 +23,6 @@ from plugin.scripting.helper_domain import (
 from plugin.scripting.calc_functions_common import (
     FORECAST_HELPER_NAMES as HELPER_NAMES,
 )
-
-FORECAST_HEADER_PREFIX = header_prefix("forecast")
 
 HELPER_PARAM_HELP: dict[str, str] = {
     "forecast_time_series": "periods (int, default 12, minimum 1, capped at 10000), model (auto, holt_winters, arima, or moving_average; default auto), date_col (default Date) and value_col (default Value) must be different columns, seasonal_periods (optional int). Date cells may be ISO strings, Calc serial numbers, or calendar years 1900-2200. model=auto uses Holt-Winters when at least two seasonal cycles are present, otherwise ARIMA(1,1,1), otherwise a flat moving average. seasonal_periods applies to auto and holt_winters. Explicit arima and moving_average ignore it and add a flag.",
@@ -62,14 +59,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "anomaly_detection_time_series": "Flag temporal outliers via STL residuals and robust z-scores",
 }
 
-_FORECAST_VENV_EXPORTS = frozenset(
-    {
-        "anomaly_detection_time_series",
-        "decompose_time_series",
-        "forecast_time_series",
-        "run_forecast",
-    }
-)
+_FORECAST_VENV_EXPORTS = HELPER_NAMES | {"run_forecast"}
 
 install_lazy_exports(globals(), "forecast", _FORECAST_VENV_EXPORTS)
 
@@ -84,8 +74,6 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.forecast",
         run_name="run_forecast",
-        style="run_import",
-        data_expr="data",
         leading_data=True,
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )

@@ -18,7 +18,7 @@ from plugin.calc.duckdb_tools import (
     parse_table_source_spec,
     read_model_table_grid,
 )
-from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, lookup_cached_ods
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, lookup_cached_ods
 from plugin.framework.errors import ToolExecutionError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -314,9 +314,9 @@ def test_sibling_xlsx_writes_ods_cache_and_reuses_it(ctx, doc):
         cached = lookup_cached_ods(xlsx_path)
         assert cached is not None, "first XLSX read must write writeragent_ods_cache/"
         assert cached.is_file()
-        paths = cache_entry_paths(xlsx_path)
-        assert paths is not None
-        assert paths[1].is_file()
+        entry = cache_entry(xlsx_path)
+        assert entry is not None
+        assert entry.meta.is_file()
         assert os.path.isdir(os.path.join(temp_dir, ODS_CACHE_DIRNAME))
 
         _tbl2, grid_from_cache = _read_sibling_office_file_as_grid(

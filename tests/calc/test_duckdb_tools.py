@@ -20,7 +20,7 @@ from plugin.calc.duckdb_tools import (
     parse_table_source_spec,
     resolve_table_source_a1,
 )
-from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta, source_stat
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -772,9 +772,9 @@ def test_xlsx_cache_miss_then_hit_mtime_invalidates(
     _tbl, grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
     assert grid1[0] == ["Region", "Sales"]
     assert opened[0] == os.path.normpath(str(xlsx))
-    paths = cache_entry_paths(str(xlsx))
-    assert paths is not None
-    cached_ods, meta_path = paths
+    entry = cache_entry(str(xlsx))
+    assert entry is not None
+    cached_ods, meta_path = entry.ods, entry.meta
     assert cached_ods.is_file()
     assert meta_path.is_file()
 
@@ -872,9 +872,9 @@ def test_sql_path_uses_cache_on_second_query(
     mock_open.side_effect = _open
 
     # Seed a valid cache entry so the SQL open is a hit.
-    paths = cache_entry_paths(str(xlsx))
-    assert paths is not None
-    cached_ods, meta_path = paths
+    entry = cache_entry(str(xlsx))
+    assert entry is not None
+    cached_ods, meta_path = entry.ods, entry.meta
     cached_ods.parent.mkdir(parents=True, exist_ok=True)
     cached_ods.write_bytes(b"PK\x03\x04cached-ods")
     abs_path, mtime_ns, size = source_stat(str(xlsx))

@@ -14,7 +14,6 @@ from typing import Any
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     is_status_helper_result,
     make_template_api,
     run_trusted_calc_data_helper,
@@ -23,8 +22,6 @@ from plugin.scripting.helper_domain import (
 from plugin.scripting.calc_functions_common import (
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
-
-OPTIMIZE_HEADER_PREFIX = header_prefix("optimize")
 
 HELPER_PARAM_HELP: dict[str, str] = {
     "optimize_portfolio": "Long-only minimum-variance weights. Each weight is between 0 and 1 and the weights sum to 1. returns_col is a column name or a list; when omitted, every numeric column is used except date-named columns and monotonic unique integer columns such as ids, and each skipped column is listed in flags. target_return, when set, is a per-period mean constraint. risk_free_rate (default 0) is used only in the reported Sharpe and does not change the weights. Return and volatility are per period, not annualized. There is no short selling and no max-Sharpe mode.",
@@ -44,14 +41,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "solve_scheduling_problem": "Assignment problem solver (e.g., workers to tasks)",
 }
 
-_OPTIMIZE_VENV_EXPORTS = frozenset(
-    {
-        "linear_programming",
-        "optimize_portfolio",
-        "run_optimize",
-        "solve_scheduling_problem",
-    }
-)
+_OPTIMIZE_VENV_EXPORTS = HELPER_NAMES | {"run_optimize"}
 
 install_lazy_exports(globals(), "optimize", _OPTIMIZE_VENV_EXPORTS)
 
@@ -66,8 +56,6 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.optimize",
         run_name="run_optimize",
-        style="run_import",
-        data_expr="data",
         leading_data=True,
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )

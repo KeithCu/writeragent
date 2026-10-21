@@ -46,16 +46,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "differentiate": "Differentiate an expression with respect to a variable (default x).",
 }
 
-_SYMBOLIC_VENV_EXPORTS = frozenset(
-    {
-        "differentiate",
-        "integrate",
-        "latex_to_math_object",
-        "run_symbolic",
-        "solve_equation",
-        "symbolic_simplify",
-    }
-)
+_SYMBOLIC_VENV_EXPORTS = HELPER_NAMES | {"run_symbolic"}
 
 install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
 

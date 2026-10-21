@@ -13,7 +13,7 @@ from pathlib import Path
 from plugin.calc.ods_cache import (
     CACHE_FORMAT_VERSION,
     ODS_CACHE_DIRNAME,
-    cache_entry_paths,
+    cache_entry,
     cache_key,
     is_cacheable_office_source,
     lookup_cached_ods,
@@ -31,14 +31,13 @@ def _write_xlsx(path: Path, payload: bytes = b"PK\x03\x04xlsx") -> Path:
 
 
 def _seed_cache(xlsx: Path, *, ods_bytes: bytes = b"PK\x03\x04cached-ods") -> tuple[Path, Path]:
-    paths = cache_entry_paths(str(xlsx))
-    assert paths is not None
-    ods_path, meta_path = paths
-    ods_path.parent.mkdir(parents=True, exist_ok=True)
-    ods_path.write_bytes(ods_bytes)
+    entry = cache_entry(str(xlsx))
+    assert entry is not None
+    entry.ods.parent.mkdir(parents=True, exist_ok=True)
+    entry.ods.write_bytes(ods_bytes)
     abs_path, mtime_ns, size = source_stat(str(xlsx))
-    write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
-    return ods_path, meta_path
+    write_sidecar_meta(entry.meta, abs_path, mtime_ns, size)
+    return entry.ods, entry.meta
 
 
 def test_is_cacheable_office_source_xlsx_only():
