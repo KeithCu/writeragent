@@ -479,7 +479,7 @@ Smells worth remembering, with **designs we are not doing**. Smaller follow-ups 
 | Smell | Do not do | Smaller if ever |
 |---|---|---|
 | `ConfigService._config_path` ifs in get/set/remove | `ConfigBackingStore` interface | **done:** the ifs are gone; `get` / `set` / `remove` / `get_dict` call the config module; tests patch `_config_path`; do not add `ConfigBackingStore` |
-| `MODULES is _DEFAULT_MODULES` dual dotted-key paths | delete the loop path without a dedicated test pass | rebuild dicts only in `set_manifest_modules` later |
+| `MODULES is _DEFAULT_MODULES` dual dotted-key paths | delete the loop path without a dedicated test pass | **done:** loop path is gone; schema lookup reads the rebuilt dicts and `set_manifest_modules` is the only mutator |
 | `ToolBaseDummy` copies `get_collection` / `get_item` | mixin / second ABC | **done:** Dummy no longer copies those helpers (`_tool_error` stays) |
 | `SafeLogger` vs `safe_log_exception` vs `log_exception` | do not merge into one wrapper | `SafeLogger` and `safe_log_exception` are removed (they had no production callers); production paths are `log.exception` and `log_exception` |
 | `to_mcp_schema` name switches | `postprocess_mcp_schema` on every tool | move only `write_formula_range`/`values`; keep generic `range` string\|array in the converter |

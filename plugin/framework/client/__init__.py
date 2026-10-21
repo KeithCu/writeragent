@@ -24,7 +24,9 @@ from .requests import sync_request
 if TYPE_CHECKING:
     from plugin.scripting.client import run_analysis as run_trusted_analysis
 
-    from .llm_client import LlmClient, OPENROUTER_CHAT_EXTRA_BLOCKLIST, merge_openrouter_chat_extra, strip_leaked_chat_template_control_tokens
+    from .base_provider_shim import OPENROUTER_CHAT_EXTRA_BLOCKLIST, merge_openrouter_chat_extra
+    from .llm_client import LlmClient
+    from .response_normalizers import strip_leaked_chat_template_control_tokens
     from .stream_normalizer import iterate_sse
 
 __all__ = [
@@ -47,8 +49,8 @@ __all__ = [
 # name -> (module, attr). Relative names load against this package.
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "LlmClient": (".llm_client", "LlmClient"),
-    "OPENROUTER_CHAT_EXTRA_BLOCKLIST": (".llm_client", "OPENROUTER_CHAT_EXTRA_BLOCKLIST"),
-    "merge_openrouter_chat_extra": (".llm_client", "merge_openrouter_chat_extra"),
+    "OPENROUTER_CHAT_EXTRA_BLOCKLIST": (".base_provider_shim", "OPENROUTER_CHAT_EXTRA_BLOCKLIST"),
+    "merge_openrouter_chat_extra": (".base_provider_shim", "merge_openrouter_chat_extra"),
     "strip_leaked_chat_template_control_tokens": (".response_normalizers", "strip_leaked_chat_template_control_tokens"),
     "iterate_sse": (".stream_normalizer", "iterate_sse"),
     "run_trusted_analysis": ("plugin.scripting.client", "run_analysis"),

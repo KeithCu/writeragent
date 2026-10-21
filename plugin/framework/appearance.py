@@ -27,46 +27,55 @@ log = logging.getLogger(__name__)
 _FALLBACK_BG = 0xE0E1E2
 _FALLBACK_USER = 0x2A6099
 _FALLBACK_ASSISTANT = 0x1E293B
+_DARK_USER = 0x60A5FA
+_DARK_ASSISTANT = 0xE2E8F0
+
+
+def _container_window(frame: Any) -> Any | None:
+    if frame is None:
+        return None
+    return getattr(frame, "getContainerWindow", lambda: None)()
+
+
+def _window_from_doc(doc: Any) -> Any | None:
+    if UNDER_CROSSHAIR or doc is None:
+        return None
+    try:
+        controller = doc.getCurrentController()
+        if controller:
+            return _container_window(controller.getFrame())
+    except Exception as e:
+        log.debug("get_style_window: doc frame lookup failed: %s", e)
+    return None
+
+
+def _window_from_desktop(ctx: Any) -> Any | None:
+    if UNDER_CROSSHAIR or ctx is None:
+        return None
+    try:
+        desktop = get_desktop(ctx)
+        win = _container_window(desktop.getCurrentFrame())
+        if win is None:
+            comp = desktop.getCurrentComponent()
+            if comp is not None and hasattr(comp, "getCurrentController"):
+                ctrl = comp.getCurrentController()
+                if ctrl:
+                    win = _container_window(getattr(ctrl, "getFrame", lambda: None)())
+        return win
+    except Exception as e:
+        log.debug("get_style_window: ctx/desktop lookup failed: %s", e)
+    return None
 
 
 def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None) -> Any | None:
-    """Return a window object that exposes .StyleSettings, or None.
+    """Return a VCL window likely to expose StyleSettings, or None.
 
     Preference order: explicit style_window, doc's frame container, current
     desktop frame's container (for cases with no doc like Run Python Script).
     """
-    win = style_window
-
-    if win is None and doc is not None and not UNDER_CROSSHAIR:
-        try:
-            controller = doc.getCurrentController()
-            if controller:
-                frame = controller.getFrame()
-                if frame:
-                    win = frame.getContainerWindow()
-        except Exception as e:
-            log.debug("get_style_window: doc frame lookup failed: %s", e)
-
-    if win is None and ctx is not None and not UNDER_CROSSHAIR:
-        try:
-            desktop = get_desktop(ctx)
-            # Try current frame first (active window)
-            frame = desktop.getCurrentFrame()
-            if frame:
-                win = frame.getContainerWindow()
-            if win is None:
-                # Fallback to current component's controller
-                comp = desktop.getCurrentComponent()
-                if comp is not None and hasattr(comp, "getCurrentController"):
-                    ctrl = comp.getCurrentController()
-                    if ctrl:
-                        f = getattr(ctrl, "getFrame", lambda: None)()
-                        if f:
-                            win = f.getContainerWindow()
-        except Exception as e:
-            log.debug("get_style_window: ctx/desktop lookup failed: %s", e)
-
-    return win
+    if style_window is not None:
+        return style_window
+    return _window_from_doc(doc) or _window_from_desktop(ctx)
 
 
 # CrossHair: two RGB samples. Pytest keeps 0.94 — light _resolve_style uses it.
@@ -121,6 +130,15 @@ def _resolve_style(win: Any) -> tuple[bool, int]:
     return False, _FALLBACK_BG
 
 
+def _resolve_theme(doc: Any = None, style_window: Any = None, ctx: Any = None, *, label: str = "") -> tuple[bool, int]:
+    win = get_style_window(doc=doc, style_window=style_window, ctx=ctx)
+    try:
+        return _resolve_style(win)
+    except Exception as e:
+        log.debug("%s: %s", label, e)
+        return False, _FALLBACK_BG
+
+
 def get_theme_colors(doc: Any = None, style_window: Any = None, ctx: Any = None) -> tuple[int, int, int]:
     """Retrieve theme-aware colors based on StyleSettings.
 
@@ -128,15 +146,15 @@ def get_theme_colors(doc: Any = None, style_window: Any = None, ctx: Any = None)
     Delegates to the same logic used for the Monaco editor's is_dark decision.
     Safe fallback is a soft light gray.
     """
-    win = get_style_window(doc=doc, style_window=style_window, ctx=ctx)
-    try:
-        is_dark, bg = _resolve_style(win)
-        if is_dark:
-            return bg, 0x60A5FA, 0xE2E8F0
-        return bg, 0x2A6099, 0x1E293B
-    except Exception as e:
-        log.debug("Failed to resolve theme colors from StyleSettings: %s", e)
-    return _FALLBACK_BG, _FALLBACK_USER, _FALLBACK_ASSISTANT
+    is_dark, bg = _resolve_theme(
+        doc=doc,
+        style_window=style_window,
+        ctx=ctx,
+        label="Failed to resolve theme colors from StyleSettings",
+    )
+    if is_dark:
+        return bg, _DARK_USER, _DARK_ASSISTANT
+    return bg, _FALLBACK_USER, _FALLBACK_ASSISTANT
 
 
 @deal.post(lambda result: isinstance(result, dict) and "monaco" in result and "is_dark" in result and "bg" in result)
@@ -152,14 +170,12 @@ def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = 
     """
     # UNO StyleSettings host; Any args have no finite domain.
     # crosshair: off
-    win = get_style_window(doc=doc, style_window=style_window, ctx=ctx)
-    is_dark = False
-    bg = _FALLBACK_BG
-    try:
-        is_dark, bg = _resolve_style(win)
-    except Exception as e:
-        log.debug("get_monaco_theme_info failed: %s", e)
-
+    is_dark, bg = _resolve_theme(
+        doc=doc,
+        style_window=style_window,
+        ctx=ctx,
+        label="get_monaco_theme_info failed",
+    )
     return {"monaco": "vs-dark" if is_dark else "vs", "is_dark": is_dark, "bg": bg}
 
 

@@ -293,17 +293,6 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         _services.register("main_thread", default_executor)
 
-        # Wire config service to events, then load module.yaml public flags.
-        # initialize() fills _manifest. set_events alone leaves it empty, so
-        # a cross-module read of a key marked public in module.yaml is denied
-        # as private. initialize() does not start a second service lifecycle.
-        config_svc = _services.get("config")
-        events_svc = _services.get("events")
-        if config_svc and events_svc:
-            config_svc.set_events(events_svc)
-        if config_svc is not None:
-            config_svc.initialize(ctx)
-
         # Initialize i18n
         from plugin.framework.i18n import init_i18n
 

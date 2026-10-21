@@ -29,12 +29,8 @@ from plugin.framework.model_lru import (
 def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
 
-    Catalog entries use :class:`ModelCapability` bitmasks; legacy configs may use
-    comma-separated labels (e.g. ``text``).
+    Catalog entries use :class:`ModelCapability` bitmasks.
     """
-    if isinstance(capability, str):
-        parts = [p.strip() for p in capability.split(",") if p.strip()]
-        return req_cap in parts
     try:
         cap = capability if isinstance(capability, ModelCapability) else ModelCapability(int(capability))
     except (TypeError, ValueError):

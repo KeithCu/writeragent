@@ -37,6 +37,8 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_URL,
     DEAL_MAX_XL_EXPR,
     UNDER_CROSSHAIR,
+    _CROSSHAIR_OVERRIDES,
+    _noop_contract,
     _profile,
     ascii_bounded,
     deal,
@@ -133,6 +135,21 @@ def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
     assert short.retry == 8
     assert short.backoff == 300.0
     assert short.backoff_factor == 10.0
+
+
+def test_crosshair_overrides_match_differing_fields() -> None:
+    wide = deal_maxima(crosshair=False)
+    short = deal_maxima(crosshair=True)
+    differing = {f for f in wide._fields if getattr(wide, f) != getattr(short, f)}
+    assert set(_CROSSHAIR_OVERRIDES.keys()) == differing
+
+
+def test_noop_contract() -> None:
+    def f() -> str:
+        return "ok"
+
+    assert _noop_contract()(f) is f
+    assert _noop_contract(lambda result: True)(f) is f
 
 
 def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:

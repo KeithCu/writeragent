@@ -97,7 +97,7 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     iso = getattr(char_locale, "Language", None)
     snowball = _ISO_TO_SNOWBALL.get(iso) if iso else None
     if lo_tag and snowball:
-        return lo_tag.replace("-", "_"), snowball
+        return lo_tag, snowball
     return None
 
 
@@ -193,6 +193,19 @@ def research_cache_key_mode(raw_key: str) -> str:
     if str(raw_key or "").startswith("deep|"):
         return "deep"
     return ""
+
+
+def _same_mode_and_lang(raw_key: str, *, mode: str, snowball_lang: str) -> str | None:
+    """Word key when raw_key is the same mode and Snowball language, else None.
+    Mode is checked before language. parse strips ``deep|``, so a deep row and
+    a shallow row for the same words share a language.
+    """
+    if research_cache_key_mode(raw_key) != mode:
+        return None
+    key_lang, word_key = parse_research_cache_key(raw_key)
+    if key_lang != snowball_lang:
+        return None
+    return word_key
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
@@ -403,14 +416,8 @@ def _research_cache_embedding_rows(
     if not isinstance(raw_rows, list):
         return out
     for raw_key, embedding_text, text_hash, dim, vector_json in raw_rows:
-        raw_key_str = str(raw_key)
-        # Mode before language. parse strips deep|, so a deep row and a shallow
-        # row for the same words share a snowball language. Filtering only by
-        # language returned a shallow report for a deep lookup (and the reverse).
-        if research_cache_key_mode(raw_key_str) != mode:
-            continue
-        key_lang, word_key = parse_research_cache_key(raw_key_str)
-        if key_lang != snowball_lang:
+        word_key = _same_mode_and_lang(str(raw_key), mode=mode, snowball_lang=snowball_lang)
+        if word_key is None:
             continue
         stored_text = str(embedding_text or "").strip() or word_key
         if text_hash != _embedding_text_hash(stored_text):
@@ -632,13 +639,8 @@ def find_fuzzy_research_match(
     best_score = 0.0
 
     for raw_key in stored_keys:
-        # Mode before language. After deep| is stripped, both modes parse as
-        # the same language, so a language-only compare fuzzy-matched a deep
-        # report onto an ordinary web_research query.
-        if research_cache_key_mode(raw_key) != mode:
-            continue
-        key_lang, word_key = parse_research_cache_key(raw_key)
-        if key_lang != snowball_lang:
+        word_key = _same_mode_and_lang(raw_key, mode=mode, snowball_lang=snowball_lang)
+        if word_key is None:
             continue
         stored_stems = stem_set_from_word_key(word_key, snowball_lang)
         if not stored_stems:

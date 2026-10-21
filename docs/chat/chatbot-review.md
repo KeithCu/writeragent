@@ -11,7 +11,7 @@ Coverage:
 - Settings: `dialog_views.py`, `settings_dialog.py`, `settings_fields.py`, `settings_tab_order.py`, `config_ui_helpers.py`, `module_config_dialog.py`, `quick_setup.py`, `eval_dashboard_ui.py`, `hamburger_menu.py`
 - Transcript: `rich_text.py`, `rich_text_control.py`, `rich_text_paste.py`, `slash_commands.py`, `slash_popup.py`, `selection.py`, `external_editor.py`
 - Research and history: `web_research.py`, `web_research_cache.py`, `web_research_chat.py`, `web_research_deep.py`, `research_cache_fluff.py`, `deep_research_session.py`, `compaction.py`, `history_db.py`
-- Modes and audio: `smol_agent.py`, `smol_examples.py`, `librarian.py`, `memory.py`, `brainstorming.py`, `writing.py`, `skills.py`, `agent_manual.py`, `ppt_master.py`, `todo.py`, `audio_recorder.py`, `audio_recorder_state.py`, `record_gesture.py`, `grammar_status.py`, `bug_report.py`, `extension_update_check.py`
+- Modes and audio: `smol_agent.py`, `smol_examples.py`, `librarian.py`, `memory.py`, `brainstorming.py`, `writing.py`, `skills.py`, `agent_manual.py`, `ppt_master.py`, `audio_recorder.py`, `audio_recorder_state.py`, `record_gesture.py`, `grammar_status.py`, `bug_report.py`, `extension_update_check.py`
 
 Constraints for any follow-up (from `plugin/chatbot/AGENTS.md` and the root `AGENTS.md`):
 
@@ -162,7 +162,6 @@ These remove a second copy of a fact. None of them need a new file.
 - `run_deep_research(..., depth=)` (`plugin/chatbot/web_research_deep.py`) is unused. Production rounds come from `chatbot.deep_research_max_rounds`. The parameter only applies when `max_rounds == 3`, so it is not a real alias of `chatbot.deep_research_depth`. Delete the parameter. Keep the config key.
 - `approval_required` in `plugin/chatbot/web_research_chat.py` is deleted and ignored. Only a test still passes it.
 - `_get_unique_words_key` and `_get_embedding_words_text` (`plugin/chatbot/web_research.py`) repeat the fluff filter. One ordered-unique list, then sort a copy for the storage key, keeps a single fluff rule. Storage keys are sorted and embedding text keeps order, on purpose (`docs/chat/search.md`).
-- `todo.py` is a docstring. Importing it registers no tool. Delete it when something next touches that area. Do not invent a todo sub-agent to match the filename.
 - `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposed_exception`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
 - `docs/chat/sidebar-implementation.md` still says the first mode follows an empty `USER.md`. The factory uses `librarian_default_mode` / `chatbot.librarian_invoked`, which matches `plugin/chatbot/AGENTS.md`. Update that sentence. Do not change the factory to match the doc.
 - A long traceback drops the bug-report environment. The cap is 7500 raw characters, applied before `urlencode` (`plugin/chatbot/bug_report.py` `_compose_issue_body`). When the exception fills the budget, version, OS, locale, Python, endpoint, and model are discarded. Reserve a short environment header and put the exception tail in what remains. Cap the encoded URL. A failed open logs the full URL. The template has no API-key field.

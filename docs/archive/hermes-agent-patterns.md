@@ -163,7 +163,6 @@ Librarian path also injects user memory ([`librarian.py`](../plugin/chatbot/libr
 
 - `get_chat_system_prompt_for_document` selects Writer, Calc, or Draw bases. Memory guidance and injection apply on the **Writer** path (and librarian onboarding).
 - `TOOL_USAGE_PATTERNS` (separate from memory/skills) documents document-tool conventions in the same Writer prompt bundle.
-- Commented todo guidance below `DEFAULT_CHAT_SYSTEM_PROMPT` describes Hermes-style planning with a `todo` tool — not in the live prompt unless enabled.
 
 ---
 
@@ -227,7 +226,6 @@ flowchart TB
 WriterAgent already mirrors several Hermes concepts:
 
 - **ACP backend** — Chat with Document can use `hermes acp` (or other ACP agents) instead of built-in `LlmClient` ([`acp_backend.py`](../plugin/acp/acp_backend.py), [`registry.py`](../plugin/acp/registry.py)).
-- **Todo / planning** — Adaptation of Hermes `todo_tool.py` ([`todo.py`](../plugin/chatbot/todo.py), [`todo_store.py`](../plugin/contrib/todo_store.py)).
 - **Parsers & robustness** — Hermes-format `<tool_call>` parser, `safe_json_loads` repair.
 - **Bidirectional bridges** — User skills in `~/.hermes/skills/` (`writeragent-extension-layers`, `libreoffice-mcp`) document architecture and call WriterAgent via MCP.
 - **Sandbox** — Vendored AST sandbox + warm venv worker with trusted `plugin/scripting/*` stubs (tailored to LO + numpy/pandas/scipy + vision vs. Hermes’s own execution environments).
@@ -332,7 +330,6 @@ Port the same way as humanizer: trim to a short office-tuned guidance block, amb
 **WriterAgent source:**
 
 - [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/chatbot/skills.py`](../plugin/chatbot/skills.py)
-- [`plugin/chatbot/todo.py`](../plugin/chatbot/todo.py), [`plugin/contrib/todo_store.py`](../plugin/contrib/todo_store.py)
 - [`plugin/contrib/tool_call_parsers/hermes_parser.py`](../plugin/contrib/tool_call_parsers/hermes_parser.py)
 
 **Local Hermes checkout (inspection points):**

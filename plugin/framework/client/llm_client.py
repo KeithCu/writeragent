@@ -54,12 +54,6 @@ if TYPE_CHECKING:
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
 
-# Defined in base_provider_shim so that module does not import this one.
-# The redundant alias is the re-export: callers and the lazy client package
-# attribute still import these names from llm_client. A plain import is
-# unused in this module and gets deleted.
-from .base_provider_shim import OPENROUTER_CHAT_EXTRA_BLOCKLIST as OPENROUTER_CHAT_EXTRA_BLOCKLIST
-from .base_provider_shim import merge_openrouter_chat_extra as merge_openrouter_chat_extra
 from .response_normalizers import prepare_chat_messages, strip_leaked_chat_template_control_tokens
 
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.

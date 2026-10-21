@@ -2,6 +2,7 @@ import gc
 import queue
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -132,22 +133,32 @@ def test_run_blocking_in_thread_pump_idle_uses_get_toolkit():
     get_tk.assert_called_once_with(ctx)
 
 
-def test_run_blocking_in_thread_pump_idle_true_toolkit_none_drains_marshal_queue():
-    """Missing toolkit when pump_idle=True must poll and call pump_main_thread_work_queue instead of hanging."""
+@pytest.mark.parametrize(
+    ("patch_kwargs", "expected_result", "hung_msg"),
+    [
+        ({"return_value": None}, "unblocked_result", "waiter thread hung with toolkit=None"),
+        ({"side_effect": RuntimeError("toolkit failed")}, "unblocked_from_raise", "waiter thread hung when get_toolkit raised"),
+    ],
+)
+def test_run_blocking_in_thread_pump_idle_true_toolkit_missing_or_raises_drains_marshal_queue(
+    patch_kwargs: dict[str, Any],
+    expected_result: str,
+    hung_msg: str,
+) -> None:
+    """Missing or failing toolkit when pump_idle=True must poll and call pump_main_thread_work_queue."""
     ctx = MagicMock()
     unblock_worker = threading.Event()
     result_holder: list[str] = []
 
     def worker_func() -> str:
-        # Simulate worker waiting for main thread marshal queue to be drained
         if not unblock_worker.wait(timeout=2):
             raise TimeoutError("worker timed out waiting for marshal queue pump")
-        return "unblocked_result"
+        return expected_result
 
     def fake_pump_main_thread_work_queue() -> None:
         unblock_worker.set()
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+    with patch("plugin.framework.uno_context.get_toolkit", **patch_kwargs):
         with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
             with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
                 def waiter() -> None:
@@ -157,40 +168,9 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_none_drains_marshal_queue
                 waiter_thread = threading.Thread(target=waiter, daemon=True)
                 waiter_thread.start()
                 waiter_thread.join(timeout=2)
-                assert not waiter_thread.is_alive(), "waiter thread hung with toolkit=None"
+                assert not waiter_thread.is_alive(), hung_msg
 
-    assert result_holder == ["unblocked_result"]
-    mock_pump_ui.assert_not_called()
-    mock_pump_marshal.assert_called()
-
-
-def test_run_blocking_in_thread_pump_idle_true_toolkit_raises_drains_marshal_queue():
-    """get_toolkit raising when pump_idle=True must poll and call pump_main_thread_work_queue instead of hanging."""
-    ctx = MagicMock()
-    unblock_worker = threading.Event()
-    result_holder: list[str] = []
-
-    def worker_func() -> str:
-        if not unblock_worker.wait(timeout=2):
-            raise TimeoutError("worker timed out waiting for marshal queue pump")
-        return "unblocked_from_raise"
-
-    def fake_pump_main_thread_work_queue() -> None:
-        unblock_worker.set()
-
-    with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("toolkit failed")):
-        with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
-            with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
-                def waiter() -> None:
-                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
-                    result_holder.append(res)
-
-                waiter_thread = threading.Thread(target=waiter, daemon=True)
-                waiter_thread.start()
-                waiter_thread.join(timeout=2)
-                assert not waiter_thread.is_alive(), "waiter thread hung when get_toolkit raised"
-
-    assert result_holder == ["unblocked_from_raise"]
+    assert result_holder == [expected_result]
     mock_pump_ui.assert_not_called()
     mock_pump_marshal.assert_called()
 

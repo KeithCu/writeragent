@@ -81,7 +81,7 @@ def test_config_schema_imports_only_modules_from_manifest() -> None:
         if isinstance(node, ast.ImportFrom) and node.module == "plugin._manifest":
             imported_from_manifest.update(alias.name for alias in node.names)
     assert imported_from_manifest == {"MODULES"}
-    assert "set_manifest_modules(_DEFAULT_MODULES)" in source
+    assert "set_manifest_modules(_imported_modules)" in source
 
 
 def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
@@ -96,7 +96,7 @@ def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
     assert _get_schema_default("doc.agent_edit_review_mode") == "off"
     assert _get_schema_default("chatbot.max_tool_rounds") == 15
     assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
-    assert schema.MODULES is schema._DEFAULT_MODULES
+    assert isinstance(schema.MODULES, list) and len(schema.MODULES) > 0
 
 
 def test_max_tool_rounds_schema_allows_200() -> None:

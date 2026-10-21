@@ -1,3 +1,4 @@
+import contextlib
 import pytest
 import json
 import logging
@@ -28,6 +29,22 @@ from plugin.framework.config import (
 )
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
+
+
+@contextlib.contextmanager
+def _patch_manifest(mock_modules):
+    from plugin.framework import config_schema
+    orig = (
+        config_schema.MODULES,
+        config_schema.CONFIG_DEFAULTS,
+        config_schema.CONFIG_SCHEMAS,
+        config_schema.DOTTED_FALLBACKS,
+    )
+    config_schema.set_manifest_modules(mock_modules)
+    try:
+        yield
+    finally:
+        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.constants import get_plugin_dir
 import sys
@@ -1238,7 +1255,7 @@ class TestConfigSyncFileIO:
                 }
             }
         }]
-        with patch("plugin.framework.config_schema.MODULES", mock_modules):
+        with _patch_manifest(mock_modules):
             reset_config_for_tests()
             # Because extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
             assert (get_config_int('extend_selection_max_tokens')) == (2000)
@@ -1408,7 +1425,7 @@ class TestRobustNumericParsing:
                 }
             }
         }]
-        with patch("plugin.framework.config_schema.MODULES", mock_modules):
+        with _patch_manifest(mock_modules):
             config_with_extra = WriterAgentConfig.from_dict({
                 "mcp.mcp_port": "8765,00",  # German locale format
             })
@@ -1456,7 +1473,7 @@ class TestRobustNumericParsing:
                 return "Translated Fast"
             return msg
 
-        with patch("plugin.framework.config_schema.MODULES", mock_modules), \
+        with _patch_manifest(mock_modules), \
              patch("plugin.framework.config_schema._", side_effect=fake_gettext):
             config.validate()
 

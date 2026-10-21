@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
+from .response_normalizers import _text_of
 
 log = logging.getLogger(__name__)
 
@@ -219,11 +220,6 @@ def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None)
     if not PRESERVE_REASONING_IN_SESSION or not response:
         return {}
     return extract_reasoning_replay_from_response(sync_message=response)
-
-
-def _text_of(value: object) -> str:
-    """Coerce value to str if it is a str instance, else empty string."""
-    return value if isinstance(value, str) else ""
 
 
 def iterate_sse(stream: Any) -> Iterator[str]:

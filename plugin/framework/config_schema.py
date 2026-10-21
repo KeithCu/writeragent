@@ -65,8 +65,7 @@ try:
 except ImportError:
     _imported_modules = []
 
-_DEFAULT_MODULES: list[dict[str, Any]] = _imported_modules  # type: ignore[assignment]
-MODULES: list[dict[str, Any]] = _DEFAULT_MODULES
+MODULES: list[dict[str, Any]] = []
 CONFIG_DEFAULTS: dict[str, Any] = {}
 CONFIG_SCHEMAS: dict[str, Any] = {}
 DOTTED_FALLBACKS: dict[str, list[str]] = {}
@@ -105,9 +104,8 @@ def get_manifest_modules() -> list[dict[str, Any]]:
 
 
 # Bind derived tables from MODULES at import so callers do not need
-# ``set_manifest_modules`` (almost nobody called it). Identity
-# ``MODULES is _DEFAULT_MODULES`` stays true for the generated list.
-set_manifest_modules(_DEFAULT_MODULES)
+# ``set_manifest_modules`` (almost nobody called it).
+set_manifest_modules(_imported_modules)  # type: ignore[arg-type]
 
 
 # Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").
@@ -620,34 +618,11 @@ def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
 
 
 def _module_schema_for_key(key: str) -> dict[str, Any] | None:
-    if MODULES is _DEFAULT_MODULES:
-        if key in CONFIG_SCHEMAS:
-            return dict(CONFIG_SCHEMAS[key])
-        for dotted in _dotted_fallback_keys(key):
-            if dotted in CONFIG_SCHEMAS:
-                return dict(CONFIG_SCHEMAS[dotted])
-        return None
-
-    if "." in key:
-        mod_name, field_name = key.split(".", 1)
-        for module in MODULES:
-            if not isinstance(module, dict) or module.get("name") != mod_name:
-                continue
-            config = module.get("config", {})
-            if isinstance(config, dict):
-                schema = config.get(field_name)
-                if isinstance(schema, dict):
-                    return dict(schema)
-        return None
-
-    for module in MODULES:
-        if not isinstance(module, dict):
-            continue
-        config = module.get("config", {})
-        if isinstance(config, dict):
-            schema = config.get(key)
-            if isinstance(schema, dict):
-                return dict(schema)
+    if key in CONFIG_SCHEMAS:
+        return dict(CONFIG_SCHEMAS[key])
+    for dotted in _dotted_fallback_keys(key):
+        if dotted in CONFIG_SCHEMAS:
+            return dict(CONFIG_SCHEMAS[dotted])
     return None
 
 
@@ -844,30 +819,11 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
 
 def _get_schema_default(key: str) -> Any:
     """Return default for key from manifest schema. Supports flat and dotted keys."""
-    if MODULES is _DEFAULT_MODULES:
-        if key in CONFIG_DEFAULTS:
-            return CONFIG_DEFAULTS[key]
-        for dotted in _dotted_fallback_keys(key):
-            if dotted in CONFIG_DEFAULTS:
-                return CONFIG_DEFAULTS[dotted]
-        return None
-
-    if "." in key:
-        mod_name, field_name = key.split(".", 1)
-        for m in MODULES:
-            if m.get("name") == mod_name:
-                config = m.get("config", {})
-                if isinstance(config, dict):
-                    for fname, schema in config.items():
-                        if fname == field_name and isinstance(schema, dict) and "default" in schema:
-                            return schema["default"]
-        return None
-    for m in MODULES:
-        config = m.get("config", {})
-        if isinstance(config, dict):
-            for fname, schema in config.items():
-                if fname == key and isinstance(schema, dict) and "default" in schema:
-                    return schema["default"]
+    if key in CONFIG_DEFAULTS:
+        return CONFIG_DEFAULTS[key]
+    for dotted in _dotted_fallback_keys(key):
+        if dotted in CONFIG_DEFAULTS:
+            return CONFIG_DEFAULTS[dotted]
     return None
 
 
@@ -875,17 +831,9 @@ def _dotted_fallback_keys(key: str) -> Iterator[str]:
     """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
     if "." in key:
         return
-    if MODULES is _DEFAULT_MODULES and key in DOTTED_FALLBACKS:
+    if key in DOTTED_FALLBACKS:
         for dotted in DOTTED_FALLBACKS[key]:
             yield dotted
-        return
-    for m in MODULES:
-        mod_name = m.get("name", "")
-        if not mod_name:
-            continue
-        config = m.get("config", {})
-        if isinstance(config, dict) and key in config:
-            yield f"{mod_name}.{key}"
 
 
 # --- Default resolution ---

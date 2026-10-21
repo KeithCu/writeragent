@@ -1,3 +1,4 @@
+import contextlib
 import pytest
 from gettext import NullTranslations
 from pathlib import Path
@@ -14,6 +15,22 @@ from plugin.framework.constants import get_locales_dir
 
 # PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
 PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
+
+
+@contextlib.contextmanager
+def _patch_manifest(mock_modules):
+    from plugin.framework import config_schema
+    orig = (
+        config_schema.MODULES,
+        config_schema.CONFIG_DEFAULTS,
+        config_schema.CONFIG_SCHEMAS,
+        config_schema.DOTTED_FALLBACKS,
+    )
+    config_schema.set_manifest_modules(mock_modules)
+    try:
+        yield
+    finally:
+        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig
 
 
 class TestI18n:
@@ -126,7 +143,7 @@ class TestI18n:
                 return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.framework.config_schema.MODULES", mock_modules):
+        with _patch_manifest(mock_modules):
             with patch("plugin.framework.config_schema._", side_effect=_fake):
                 cfg.validate()
         assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
@@ -153,7 +170,7 @@ class TestI18n:
                 return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.framework.config_schema.MODULES", mock_modules):
+        with _patch_manifest(mock_modules):
             with patch("plugin.framework.config_schema._", side_effect=_fake):
                 cfg.validate()
         assert (cfg._extra_config["backend_id"]) == ("hermes")
@@ -174,7 +191,7 @@ class TestI18n:
         cfg = WriterAgentConfig.from_dict(
             {"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "hermes"}
         )
-        with patch("plugin.framework.config_schema.MODULES", mock_modules):
+        with _patch_manifest(mock_modules):
             cfg.validate()
         assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
 

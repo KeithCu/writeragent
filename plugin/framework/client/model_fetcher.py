@@ -275,36 +275,38 @@ def _key_slot_base(endpoint: str) -> str:
     return normalize_endpoint_url(endpoint, is_openwebui=False)
 
 
-def _models_list_url(endpoint: str) -> str:
-    """Same URL ``fetch_available_models`` caches under."""
+def _v1_prefix(endpoint: str) -> str:
     http_base = _catalog_http_base(endpoint)
     if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
         return ""
-    return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}/models"
+    return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}"
+
+
+def _models_list_url(endpoint: str) -> str:
+    """Same URL ``fetch_available_models`` caches under."""
+    prefix = _v1_prefix(endpoint)
+    return f"{prefix}/models" if prefix else ""
 
 
 def _openrouter_image_models_url(endpoint: str) -> str:
     """OpenRouter image catalog. Not the architecture slice of ``/v1/models``."""
-    http_base = _catalog_http_base(endpoint)
-    if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
-        return ""
-    return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}/images/models"
+    prefix = _v1_prefix(endpoint)
+    return f"{prefix}/images/models" if prefix else ""
 
 
 def _openrouter_modality_models_url(endpoint: str, modality: str) -> str:
-    http_base = _catalog_http_base(endpoint)
-    if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
+    prefix = _v1_prefix(endpoint)
+    if not prefix:
         return ""
-    prefix = f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}/models"
     query = urllib.parse.urlencode({"output_modalities": modality})
-    return f"{prefix}?{query}"
+    return f"{prefix}/models?{query}"
 
 
 def _together_voices_url(endpoint: str, model_id: str = "") -> str:
-    http_base = _catalog_http_base(endpoint)
-    if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
+    prefix = _v1_prefix(endpoint)
+    if not prefix:
         return ""
-    root = f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}/voices"
+    root = f"{prefix}/voices"
     requested = str(model_id or "").strip()
     if not requested:
         return root

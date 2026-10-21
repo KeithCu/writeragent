@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from plugin.framework.client.llm_client import (
+from plugin.framework.client.base_provider_shim import (
     OPENROUTER_CHAT_EXTRA_BLOCKLIST,
     merge_openrouter_chat_extra,
 )

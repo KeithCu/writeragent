@@ -73,6 +73,53 @@ class DealMaxima(NamedTuple):
     html_chunk: int
 
 
+def _max_col_index(n: int) -> int:
+    return (26 ** (n + 1) - 51) // 25
+
+
+_PYTEST_MAXIMA = DealMaxima(
+    col_letters=3,
+    col_index=_max_col_index(3),  # 18277, A–ZZZ (not 26**3-1)
+    cell_ref=256,  # sheet-qualified ranges; was 32
+    row_index=1_048_575,  # Calc max 0-based row (1_048_576 rows)
+    argv=4096,  # wrap_command argv, including venv ``-c`` probes (~1–2k)
+    cmd_args=32,  # wrap_command list length
+    shape_dim=256,  # 100×100 pack tests fit; CrossHair uses 4
+    shape_rank=4,  # ndarray rank; grids are 2-D, pytest uses up to 4
+    placeholder_index=64,  # Excel %Pn% deps; f-string of the int
+    source=8192,  # real =PY() / Excel scripts; CrossHair stays 16
+    msgid=1024,  # gettext _(); longest shipped msgid is ~500 chars
+    path=256,  # filesystem paths (is_safe_workspace_path); not PATH_MAX
+    token=64,
+    xl_expr=64,  # DAG xl("%Pn%",headers=False); CrossHair uses 32
+    origin=256,  # CORS Origin; CrossHair uses 32
+    url=256,  # endpoint URLs; CrossHair uses 32
+    retry=8,
+    backoff=300.0,
+    backoff_factor=10.0,
+    html_chunk=4096,  # long tool-result HTML in debug; feed() / strip_html_tags slice to this (was 512)
+)
+
+_CROSSHAIR_OVERRIDES = {
+    "col_letters": 1,
+    "col_index": _max_col_index(1),  # 25, A–Z
+    "cell_ref": 4,
+    "row_index": 20,
+    "argv": 32,
+    "cmd_args": 4,
+    "shape_dim": 4,
+    "shape_rank": 2,
+    "placeholder_index": 4,
+    "source": 16,
+    "path": 32,
+    "token": 16,
+    "xl_expr": 32,
+    "origin": 32,
+    "url": 32,
+    "html_chunk": 16,
+}
+
+
 def deal_maxima(*, crosshair: bool) -> DealMaxima:
     """Return the pytest (wide) or CrossHair (tiny) ``DEAL_MAX_*`` table.
 
@@ -80,63 +127,14 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
     would explore both branches. Pair ``col_letters`` with ``col_index``
     (3 with 18277 / A–ZZZ, 1 with 25 / A–Z).
     """
-    # Shared: MCP backoff. No test-backed reason to shrink those.
-    retry = 8
-    backoff = 300.0
-    backoff_factor = 10.0
     if crosshair:
-        # Short table: CrossHair is testing our code, not Calc's grid. Speed
-        # comes from tiny domains, not from timeouts.
-        return DealMaxima(
-            col_letters=1,
-            col_index=25,  # A–Z; must pair with col_letters=1
-            cell_ref=4,
-            row_index=20,
-            argv=32,
-            cmd_args=4,
-            shape_dim=4,  # 100×100 pack tests are pytest-only
-            shape_rank=2,
-            placeholder_index=4,
-            source=16,
-            msgid=1024,  # import-time _() UI strings; do not shrink — off _() instead
-            path=32,
-            token=16,
-            xl_expr=32,  # xl("%Pn%",headers=False) is 24; TOKEN=16 is too small
-            origin=32,  # CORS Origin; pytest keeps 256
-            url=32,  # endpoint URLs; pytest keeps 256 (url_utils is module-off)
-            retry=retry,
-            backoff=backoff,
-            backoff_factor=backoff_factor,
-            html_chunk=16,  # char-by-char stripper; pytest/debug keeps 4096 (was 512); CrossHair stays 16
-        )
-    return DealMaxima(
-        col_letters=3,
-        col_index=26 + 26**2 + 26**3 - 1,  # 18277, A–ZZZ (not 26**3-1)
-        cell_ref=256,  # sheet-qualified ranges; was 32 (tripped live debug on long =PY / Sample Size Calculation.A1:K…)
-        row_index=1_048_575,  # Calc max 0-based row (1_048_576 rows)
-        argv=4096,  # wrap_command argv, including venv ``-c`` probes (~1–2k)
-        cmd_args=32,  # wrap_command list length
-        shape_dim=256,  # 100×100 pack tests fit; CrossHair uses 4
-        shape_rank=4,  # ndarray rank; grids are 2-D, pytest uses up to 4
-        placeholder_index=64,  # Excel %Pn% deps; f-string of the int
-        source=8192,  # real =PY() / Excel scripts; CrossHair stays 16
-        msgid=1024,  # gettext _(); longest shipped msgid is ~500 chars
-        path=256,  # filesystem paths (is_safe_workspace_path); not PATH_MAX
-        token=64,
-        xl_expr=64,  # DAG xl("%Pn%",headers=False); CrossHair uses 32
-        origin=256,  # CORS Origin; CrossHair uses 32
-        url=256,  # endpoint URLs; CrossHair uses 32
-        retry=retry,
-        backoff=backoff,
-        backoff_factor=backoff_factor,
-        html_chunk=4096,  # long tool-result HTML in debug; feed() / strip_html_tags slice to this (was 512)
-    )
+        return _PYTEST_MAXIMA._replace(**_CROSSHAIR_OVERRIDES)
+    return _PYTEST_MAXIMA
 
 
-_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 # Import-time only. Same as DEAL_MAX_* table; never sniff sys.modules["crosshair"].
-UNDER_CROSSHAIR = _CROSSHAIR
-_MAXIMA = deal_maxima(crosshair=_CROSSHAIR)
+UNDER_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
+_MAXIMA = deal_maxima(crosshair=UNDER_CROSSHAIR)
 DEAL_MAX_COL_LETTERS = _MAXIMA.col_letters
 DEAL_MAX_COL_INDEX = _MAXIMA.col_index
 DEAL_MAX_CELL_REF = _MAXIMA.cell_ref
@@ -177,6 +175,11 @@ def str_bounded(s: object, max_len: int, min_len: int = 0) -> bool:
     return isinstance(s, str) and min_len <= len(s) <= max_len
 
 
+def _noop_contract(*args: Any, **kwargs: Any) -> Any:
+    """No-op decorator for deal contracts when deal is not installed."""
+    return lambda f: f
+
+
 deal: Any
 
 try:
@@ -188,32 +191,10 @@ except ImportError:
     class _DealStub:
         """No-op stub for deal contract decorators when deal is not installed."""
 
-        def pre(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def post(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def inv(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def pure(self, f: Any = None, *args: Any, **kwargs: Any) -> Any:
-            return f if f is not None else (lambda fn: fn)
-
-        def chain(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def raises(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def example(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def ensure(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
-
-        def reason(self, *args: Any, **kwargs: Any) -> Any:
-            return lambda f: f
+        pre: Any = staticmethod(_noop_contract)
+        post: Any = staticmethod(_noop_contract)
+        ensure: Any = staticmethod(_noop_contract)
+        raises: Any = staticmethod(_noop_contract)
 
     deal = _DealStub()
 
@@ -251,4 +232,4 @@ def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -
 
 
 # format_address → parse_address and column_to_index → index_to_column.
-inverse_ensure = inverse_ensure_for(crosshair=_CROSSHAIR)
+inverse_ensure = inverse_ensure_for(crosshair=UNDER_CROSSHAIR)

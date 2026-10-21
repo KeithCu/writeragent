@@ -20,7 +20,7 @@ Speech-to-text transcription pumps the UI (``pump_idle=True``) so Stop and an
 in-flight stream stay alive, and does not return until transcription finishes.
 Notebook cells and ``=PROMPT()`` pass ``pump_idle=False``: the caller blocks,
 and this wait must not return to the VCL loop. This is not the chat stream
-drain. Re-exported from ``async_stream``.
+drain.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ import contextlib
 import gc
 import logging
 import queue
-from enum import Enum
-from typing import Any, Iterator, TypeAlias
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
@@ -38,14 +38,10 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 
-class BlockingPumpKind(str, Enum):
-    """Tags for :func:`run_blocking_in_thread` queue (not the stream drain protocol)."""
-
-    DONE = "done"
-    ERROR = "error"
-
-
-BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
+@dataclass(slots=True)
+class _WorkerResult:
+    value: Any = None
+    error: BaseException | None = None
 
 
 @contextlib.contextmanager
@@ -93,19 +89,16 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
 
     Never runs *func* on the caller thread: a missing Toolkit used to fall back
     to a synchronous call, which blocked recalc with no worker isolation.
-
-    The internal queue uses :class:`BlockingPumpKind` as the first tuple
-    element only (same contract as :class:`StreamQueueKind` for the stream drain).
     """
     # crosshair: off
-    q: "queue.Queue[BlockingPumpQueueItem]" = queue.Queue()
+    q: queue.Queue[_WorkerResult] = queue.Queue()
 
     def worker() -> None:
         try:
             result = func(*args, **kwargs)
-            q.put((BlockingPumpKind.DONE, result))
+            q.put(_WorkerResult(value=result))
         except BaseException as e:
-            q.put((BlockingPumpKind.ERROR, e))
+            q.put(_WorkerResult(error=e))
 
     toolkit = None
     if pump_idle:
@@ -117,17 +110,18 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
 
             toolkit = get_toolkit(ctx)
         except Exception as e:
-            log.warning("run_blocking_with_pump: Failed to create toolkit, waiting without pump. %s", e)
+            log.warning("run_blocking_in_thread: Failed to create toolkit, waiting without pump. %s", e)
             toolkit = None
 
     pump_vcl = pump_idle and toolkit is not None
+    pump = (lambda: pump_ui_idle(toolkit)) if pump_vcl else pump_main_thread_work_queue
     # GC off before the worker starts when this wait will not return to VCL.
     with (automatic_gc_suspended() if not pump_vcl else contextlib.nullcontext()):
         run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
-        return _wait_for_worker(q, toolkit, pump_vcl)
+        return _wait_for_worker(q, pump)
 
 
-def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump_vcl: bool) -> Any:
+def _wait_for_worker(q: queue.Queue[_WorkerResult], pump: Callable[[], Any]) -> Any:
     # crosshair: off
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
@@ -137,27 +131,16 @@ def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump
     # queue. That deadlocked when pump_idle was True and get_toolkit failed:
     # the worker sat in execute_on_main_thread waiting for this thread. Do not
     # add a flag that skips the poll in some cases; that flag caused the bug.
-    # On Empty, pump_vcl calls pump_ui_idle; otherwise
-    # pump_main_thread_work_queue (no processEventsToIdle).
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
         # must propagate: catching it here and calling get again with
         # timeout=None blocks forever, because that worker has already exited.
         try:
-            item = q.get(timeout=0.1)
+            result = q.get(timeout=0.1)
         except queue.Empty:
-            if pump_vcl:
-                pump_ui_idle(toolkit)
-            else:
-                pump_main_thread_work_queue()
+            pump()
             continue
-        kind, data = item
-        if not isinstance(kind, BlockingPumpKind):
-            ek = TypeError("blocking pump queue item kind must be BlockingPumpKind, got %s" % (type(kind).__name__,))
-            log.error("Invalid blocking pump tag: %s", ek)
-            raise ek
-        if kind == BlockingPumpKind.DONE:
-            return data
-        if kind == BlockingPumpKind.ERROR:
-            raise data
+        if result.error is not None:
+            raise result.error
+        return result.value
 
