@@ -44,7 +44,7 @@ _DATA_RANGE_SCHEMA = {
     "type": "string",
 }
 
-_IMPORT_NOTE_MARKER = "Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
+_IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 
 def _with_import_note(text: str) -> str:
@@ -133,9 +133,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
     name: str | None = "run_venv_python_script"
     specialized_cross_cutting: ClassVar[bool] = True
-    description: str = (
-        "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."
-    )
+    description: str = f"Run Python code in the configured venv. {_RESULT_NOTE}"
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"code": dict(_CODE_PROP)},
@@ -178,8 +176,8 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
         script_session_id = pin_script_document(ctx.doc)
 
-        stop_checker = getattr(ctx, "stop_checker", None)
-        cancellation_scope = getattr(ctx, "send_cancellation", None)
+        stop_checker = ctx.stop_checker
+        cancellation_scope = ctx.send_cancellation
 
         try:
             res = run_code_in_user_venv(

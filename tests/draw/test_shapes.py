@@ -684,3 +684,33 @@ def test_shape_upsert_within_page_has_no_warning():
     assert out["status"] == "ok"
     assert "warnings" not in out
 
+
+def test_shape_tool_service_lists_and_scoping():
+    """Draw, Calc, and Writer shape tools share uno_services and doc_types; bases supply core dependencies."""
+    from plugin.calc import shapes as calc_shapes
+    from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
+    from plugin.draw.base import ToolDrawShapeBase
+    from plugin.draw import shapes as draw_shapes
+    from plugin.writer.specialized import shapes as writer_shapes
+
+    expected_services = list(SHAPE_TOOL_UNO_SERVICES)
+    expected_doc_types = ["writer", "calc", "draw", "impress"]
+    tool_names = ["UpsertShape", "DeleteShape", "GetDrawSummary", "ConnectShapes", "GroupShapes"]
+
+    for mod in (draw_shapes, calc_shapes, writer_shapes):
+        for name in tool_names:
+            cls = getattr(mod, name)
+            assert cls.uno_services == expected_services
+            assert cls.doc_types == expected_doc_types
+
+    calc_core = frozenset({"get_sheet_summary", "read_cell_range"})
+    for name in tool_names:
+        assert getattr(calc_shapes, name).required_core_tools == calc_core
+
+    writer_core = frozenset({"get_document_content", "get_document_tree"})
+    for name in tool_names:
+        assert getattr(writer_shapes, name).required_core_tools == writer_core
+
+    assert draw_shapes.AlignShapes.uno_services == ToolDrawShapeBase.uno_services
+
+

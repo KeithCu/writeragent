@@ -19,7 +19,6 @@
 from typing import Any
 
 from ..specialized_base import ToolWriterShapeBase
-from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
 from plugin.draw.shapes import GetDrawSummary as DrawGetDrawSummary
@@ -27,43 +26,26 @@ from plugin.draw.shapes import ConnectShapes as DrawConnectShapes
 from plugin.draw.shapes import GroupShapes as DrawGroupShapes
 
 
-# 1. Inherit from the Draw tool implementation.
-# 2. Inherit from the specialized ToolWriterShapeBase to enforce Writer scoping.
-# 3. Union services: same names as Draw tools; include Draw/Impress so registration
-# order does not drop support for non-Writer documents.
-_WRITER_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
-
-
 class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
     name: str | None = "shape_upsert"
-    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     # Specialized for all document types (use delegate_to_specialized_*_toolset(domain=shapes)).
     tier: str = "specialized"
 
 
 class DeleteShape(DrawDeleteShape, ToolWriterShapeBase):
     name: str | None = "shape_delete"
-    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
     name: str | None = "shape_summary"
-    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class ConnectShapes(DrawConnectShapes, ToolWriterShapeBase):
     name: str | None = "shape_connect"
-    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class GroupShapes(DrawGroupShapes, ToolWriterShapeBase):
     name: str | None = "shape_group"
-    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:

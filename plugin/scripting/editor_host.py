@@ -1101,16 +1101,10 @@ class DirtyBufferError(RuntimeError):
     """Refused to replace a live Monaco buffer that still has unsaved edits."""
 
 
-@main_thread_only
-def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
+def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import get_desktop, product_display_name
+    from plugin.framework.uno_context import get_desktop
 
-    title = product_display_name(ctx)
-    where = label.strip() if label and label.strip() else _("this editor")
-    message = _(
-        "Save changes to {0}?\n\nYes saves them before switching. No discards them. Cancel keeps the current editor."
-    ).format(where)
     try:
         desktop = get_desktop(ctx)
         frame = desktop.getCurrentFrame() if desktop is not None else None
@@ -1127,8 +1121,21 @@ def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
             return "discard"
         return "cancel"
     except Exception:
-        log.exception("confirm_unsaved_monaco_edit failed")
+        log.exception("%s failed", log_label)
         return "cancel"
+
+
+@main_thread_only
+def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
+    """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
+    from plugin.framework.uno_context import product_display_name
+
+    title = product_display_name(ctx)
+    where = label.strip() if label and label.strip() else _("this editor")
+    message = _(
+        "Save changes to {0}?\n\nYes saves them before switching. No discards them. Cancel keeps the current editor."
+    ).format(where)
+    return ask_save_discard_cancel(ctx, title=title, message=message, log_label="confirm_unsaved_monaco_edit")
 
 
 def prepare_monaco_buffer_replace(

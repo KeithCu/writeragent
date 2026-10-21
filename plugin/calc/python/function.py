@@ -119,10 +119,10 @@ def _host_ndarray_as_list(value: Any) -> list[Any] | None:
     return None
 
 
-def result_to_calc_grid(result: Any, *, include_dataframe_header: bool = True) -> Any:
+def result_to_calc_grid(result: Any) -> Any:
     """Normalize worker results for Calc consumers.
 
-    DataFrame envelopes become a labeled 2D grid (header row + body) by default.
+    DataFrame envelopes become a labeled 2D grid (header row + body).
     Lists pass through. A leftover ndarray body is converted with ``tolist``.
     """
     if is_dataframe_payload(result):
@@ -131,38 +131,33 @@ def result_to_calc_grid(result: Any, *, include_dataframe_header: bool = True) -
         if not isinstance(data, list):
             listed = _host_ndarray_as_list(data)
             data = listed if listed is not None else []
-        return dataframe_to_labeled_grid(cols, data, include_header=include_dataframe_header)
+        return dataframe_to_labeled_grid(cols, data)
     listed = _host_ndarray_as_list(result)
     if listed is not None:
         return listed
     return result
 
 
-_ERR_NUM = 503
-_ERR_VALUE = 519
-_ERR_NULL = 521
-_ERR_REF = 524
-_ERR_NAME = 525
-_ERR_DIV0 = 532
-_ERR_NA = 0x7FFF
-
 _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
     "#VALUE!": 519,
     "#NUM!": 503,
     "#DIV/0!": 532,
-    "#N/A": 32767,
-    "#N/A N/A": 32767,
+    "#N/A": 0x7FFF,
+    "#N/A N/A": 0x7FFF,
     "#REF!": 524,
     "#NAME?": 525,
     "#NULL!": 521,
 }
 
+_ERR_VALUE = _CALC_ERROR_TOKEN_CODES["#VALUE!"]
+_ERR_NA = _CALC_ERROR_TOKEN_CODES["#N/A"]
+
 _WORKER_EXC_CODES: dict[str, int] = {
-    "ZeroDivisionError": 532,
-    "OverflowError": 503,
-    "FloatingPointError": 503,
-    "NameError": 525,
-    "UnboundLocalError": 525,
+    "ZeroDivisionError": _CALC_ERROR_TOKEN_CODES["#DIV/0!"],
+    "OverflowError": _CALC_ERROR_TOKEN_CODES["#NUM!"],
+    "FloatingPointError": _CALC_ERROR_TOKEN_CODES["#NUM!"],
+    "NameError": _CALC_ERROR_TOKEN_CODES["#NAME?"],
+    "UnboundLocalError": _CALC_ERROR_TOKEN_CODES["#NAME?"],
 }
 
 _DUE_TO_EXC_RE = re.compile(r" due to: ([A-Za-z_][A-Za-z0-9_]*): ")
@@ -1028,6 +1023,17 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
+def _time_day_fraction(value: datetime.time | datetime.datetime) -> float:
+    return (value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000.0) / 86400.0
+
+
+def _datetime_serial(dt: datetime.date | datetime.datetime, null_dt: datetime.date) -> float:
+    if isinstance(dt, datetime.datetime):
+        days = (dt.date() - null_dt).days
+        return float(days) + _time_day_fraction(dt)
+    return float((dt - null_dt).days)
+
+
 def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
     """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
 
@@ -1053,17 +1059,15 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
 
     if isinstance(val, datetime.datetime):
         dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
-        days = (dt.date() - null_dt).days
-        fraction = (dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1_000_000.0) / 86400.0
-        serial = float(days) + fraction
+        serial = _datetime_serial(dt, null_dt)
         return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.date):
-        serial = float((val - null_dt).days)
+        serial = _datetime_serial(val, null_dt)
         return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.time):
-        serial = (val.hour * 3600 + val.minute * 60 + val.second + val.microsecond / 1_000_000.0) / 86400.0
+        serial = _time_day_fraction(val)
         return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.timedelta):
@@ -1121,17 +1125,15 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             try:
                 if cat == "date":
                     d = datetime.date.fromisoformat(stripped)
-                    serial = float((d - null_dt).days)
+                    serial = _datetime_serial(d, null_dt)
                     return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
                 elif cat == "datetime":
                     dt = datetime.datetime.fromisoformat(stripped.replace(" ", "T"))
-                    days = (dt.date() - null_dt).days
-                    fraction = (dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1_000_000.0) / 86400.0
-                    serial = float(days) + fraction
+                    serial = _datetime_serial(dt, null_dt)
                     return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
                 elif cat == "time":
                     t = datetime.time.fromisoformat(stripped)
-                    serial = (t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1_000_000.0) / 86400.0
+                    serial = _time_day_fraction(t)
                     return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
             except Exception:
                 pass

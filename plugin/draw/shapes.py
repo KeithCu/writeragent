@@ -31,10 +31,19 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Verbose per-create Writer document logging (enumerates every paragraph).
-SHAPE_VERBOSE_DEBUG = False
-
 _DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
+
+
+class _AnyDocumentShapeTool(ToolDrawShapeBase):
+    """Writer and Calc as well as Draw and Impress.
+
+    ToolDrawShapeBase only lists Drawing and Presentation. Align, distribute,
+    and diagram stay on that base.
+    """
+
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+
 
 # LibreOffice interprets CustomShapeGeometry as EnhancedCustomShapeGeometry when this engine is set.
 _ENHANCED_CUSTOM_SHAPE_ENGINE = "com.sun.star.drawing.EnhancedCustomShapeEngine"
@@ -60,133 +69,9 @@ def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
             return
         from com.sun.star.text.TextContentAnchorType import AT_PAGE
 
-        has_anchor = False
-        try:
-            ps = shape.getPropertySetInfo()
-            has_anchor = ps is not None and ps.hasPropertyByName("AnchorType")
-        except Exception as ex:
-            log.debug("create_shape writer_anchor: PropertySetInfo failed: %s", ex)
-
         shape.setPropertyValue("AnchorType", AT_PAGE)
-        log.debug("create_shape writer_anchor: set AnchorType=AT_PAGE ok has_anchor_prop=%s", has_anchor)
-        try:
-            cur = shape.getPropertyValue("AnchorType")
-            log.debug("create_shape writer_anchor: readback AnchorType=%r", cur)
-        except Exception as ex:
-            log.debug("create_shape writer_anchor: readback AnchorType failed: %s", ex)
     except Exception as ex:
         log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
-
-
-def _log_shape_uno_snapshot(phase: str, shape: Any) -> None:
-    """Best-effort UNO snapshot for debugging visibility/geometry (Writer vs Draw)."""
-    # Ungated, this ran on every create, including each create_diagram node.
-    if not SHAPE_VERBOSE_DEBUG:
-        return
-    try:
-        parts: list[str] = []
-        try:
-            parts.append(f"uno_type={shape.getShapeType()!r}")
-        except Exception as ex:
-            parts.append(f"getShapeType_err={ex!r}")
-        try:
-            pos = shape.getPosition()
-            parts.append(f"pos=({pos.X},{pos.Y})")
-        except Exception as ex:
-            parts.append(f"pos_err={ex!r}")
-        try:
-            sz = shape.getSize()
-            parts.append(f"size=({sz.Width}x{sz.Height})")
-        except Exception as ex:
-            parts.append(f"size_err={ex!r}")
-        for name in ("AnchorType", "AnchorPageNo", "HoriOrient", "VertOrient", "HoriOrientPosition", "VertOrientPosition", "Visible", "Opaque", "FillStyle", "FillColor", "LineColor", "LineWidth", "CustomShapeEngine", "ZOrder", "TextWrap", "SurroundContour", "IsFollowingTextFlow"):
-            try:
-                v = shape.getPropertyValue(name)
-                parts.append(f"{name}={v!r}")
-            except Exception:
-                pass
-        log.debug("create_shape snapshot [%s]: %s", phase, " ".join(parts))
-    except Exception as ex:
-        log.debug("create_shape snapshot [%s]: failed: %s", phase, ex)
-
-
-def _log_custom_shape_geometry_dump(shape: Any, phase: str) -> None:
-    """Detailed ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
-    # Ungated, this ran on every create, including each create_diagram node.
-    if not SHAPE_VERBOSE_DEBUG:
-        return
-    try:
-        g = shape.getPropertyValue("CustomShapeGeometry")
-
-        details = []
-        if g is not None:
-            # `g` is typically a tuple of PropertyValue
-            for p in g:
-                val = p.Value
-                if isinstance(val, tuple):
-                    # might be nested property values like in Path
-                    nested = []
-                    for np in val:
-                        if hasattr(np, "Name") and hasattr(np, "Value"):
-                            nested.append(f"{np.Name}:{np.Value}")
-                        else:
-                            nested.append(repr(np))
-                    val = "{" + ", ".join(nested) + "}"
-                details.append(f"{p.Name}={val}")
-
-        log.debug("create_shape geometry_dump [%s] FULL: %s", phase, " | ".join(details))
-    except Exception as ex:
-        log.debug("create_shape geometry_dump [%s]: %s", phase, ex)
-
-
-def _log_shape_property_names_sample(shape: Any, phase: str, limit: int = 60) -> None:
-    """Sorted sample of ``PropertySetInfo`` names — diff rectangle vs CustomShape in Writer."""
-    # Ungated, this ran on every create, including each create_diagram node.
-    if not SHAPE_VERBOSE_DEBUG:
-        return
-    try:
-        ps = shape.getPropertySetInfo()
-        if ps is None:
-            log.debug("create_shape prop_names [%s]: no PropertySetInfo", phase)
-            return
-        names: list[str] = []
-        for p in ps.getProperties():
-            try:
-                names.append(p.Name)
-            except Exception:
-                pass
-        names.sort()
-        log.debug("create_shape prop_names [%s]: total=%s first_%s=%s", phase, len(names), limit, names[:limit])
-    except Exception as ex:
-        log.debug("create_shape prop_names [%s]: failed: %s", phase, ex)
-
-
-def _log_writer_document_shape_context(doc: Any) -> None:
-    """Writer-only: body enumeration count and URL (helps compare empty doc runs)."""
-    if not SHAPE_VERBOSE_DEBUG:
-        return
-    try:
-        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
-            return
-        url = ""
-        try:
-            if hasattr(doc, "getURL"):
-                url = doc.getURL() or ""
-        except Exception:
-            pass
-        n_para = -1
-        try:
-            text = doc.getText()
-            enum = text.createEnumeration()
-            n_para = 0
-            while enum.hasMoreElements():
-                enum.nextElement()
-                n_para += 1
-        except Exception as ex:
-            log.debug("create_shape writer_doc_ctx: enum failed: %s", ex)
-        log.debug("create_shape writer_doc_ctx: body_elements_enumerated=%s url=%r", n_para, url[:120] if url else "")
-    except Exception as ex:
-        log.debug("create_shape writer_doc_ctx: %s", ex)
 
 
 def _try_writer_at_page_shape_finalize(doc: Any, bridge: Any, page: Any, shape: Any) -> None:
@@ -247,41 +132,6 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
         log.debug("create_shape writer_invalidate: %s", ex)
 
 
-def _log_create_shape_page_context(doc: Any, bridge: Any, page: Any) -> None:
-    """How the target draw page was chosen (Writer vs Draw / controller vs first page)."""
-    # Ungated, this ran on every create, including each create_diagram node.
-    if not SHAPE_VERBOSE_DEBUG:
-        return
-    try:
-        is_writer = bool(doc and doc.supportsService("com.sun.star.text.TextDocument"))
-        pages = bridge.get_pages()
-        n_draw_pages = pages.getCount() if pages is not None else -1
-        n_on_page = page.getCount() if page is not None else -1
-        log.debug("create_shape page_context: is_writer=%s draw_pages=%s shapes_on_target_page=%s", is_writer, n_draw_pages, n_on_page)
-        ctrl = doc.getCurrentController() if doc else None
-        if ctrl is None:
-            log.debug("create_shape page_context: controller=None")
-            return
-        has_cur = hasattr(ctrl, "getCurrentPage")
-        log.debug("create_shape page_context: controller has getCurrentPage=%s", has_cur)
-        if not has_cur:
-            return
-        try:
-            cur = ctrl.getCurrentPage()
-        except Exception as ex:
-            log.debug("create_shape page_context: getCurrentPage raised %s: %s", type(ex).__name__, ex)
-            return
-        log.debug("create_shape page_context: getCurrentPage is_none=%s same_ref_as_target=%s", cur is None, (cur is page) if cur is not None and page is not None else None)
-        try:
-            if cur is not None and page is not None and cur is not page:
-                eq = cur == page
-                log.debug("create_shape page_context: target_page == controller_page (==) %s", eq)
-        except Exception as ex:
-            log.debug("create_shape page_context: page equality check failed: %s", ex)
-    except Exception as ex:
-        log.debug("create_shape page_context: failed: %s", ex)
-
-
 def _page_index_for(bridge: Any, page: Any) -> int:
     """Index of ``page`` in the document's draw pages collection.
 
@@ -320,13 +170,11 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         return False, f"{type(ex).__name__}: {ex}"
 
 
-class GetDrawSummary(ToolDrawShapeBase):
+class GetDrawSummary(_AnyDocumentShapeTool):
     name: str | None = "shape_summary"
     intent: str | None = "edit"
     description: str = "Returns a summary of shapes on the active or specified page."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -444,7 +292,6 @@ class DrawShapes:
             # getCount after a successful add does not fail on a live page.
             n_after = page.getCount()
             log.debug("create_shape safe_create: added uno=%s page_shape_count=%s", full_type, n_after)
-            _log_shape_uno_snapshot("after_page_add", shape)
 
             return shape, geometry_applied, geometry_error
 
@@ -624,7 +471,7 @@ def _outside_page(page: Any, shape: Any) -> bool:
     return pos.X < 0 or pos.Y < 0 or pos.X + size.Width > w or pos.Y + size.Height > h
 
 
-class UpsertShape(ToolDrawShapeBase):
+class UpsertShape(_AnyDocumentShapeTool):
     name: str | None = "shape_upsert"
     description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_draw_tree — draw-page index shifts when other shapes sit between fields."
     parameters: dict[str, Any] | None = {
@@ -651,8 +498,6 @@ class UpsertShape(ToolDrawShapeBase):
         },
         "required": ["action"],
     }
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
     def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
@@ -713,9 +558,6 @@ class UpsertShape(ToolDrawShapeBase):
             type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
             shape_type_raw = kwargs["shape_type"]
 
-            _log_create_shape_page_context(ctx.doc, bridge, page)
-            _log_writer_document_shape_context(ctx.doc)
-
             position = Point(kwargs["x"], kwargs["y"])
             size = Size(kwargs["width"], kwargs["height"])
 
@@ -742,8 +584,6 @@ class UpsertShape(ToolDrawShapeBase):
                 # page.add). Setting Type=octagon after add replaces the live SdrRectObj
                 # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
                 shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
-                if is_custom_shape and geometry_applied:
-                    _log_shape_uno_snapshot("after_custom_geometry", shape)
             except DrawError as e:
                 # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
                 # DRAW_INVALID_SIZE and DRAW_SHAPE_CREATION_ERROR were the
@@ -772,12 +612,6 @@ class UpsertShape(ToolDrawShapeBase):
                 except Exception:
                     pass
                 raise
-            # Do not select after create: selected Writer AT_PAGE CustomShapes often
-            # show handles-only / no fill on Arch and headed Universal Sample.
-            _log_shape_uno_snapshot("after_formatting", shape)
-            if is_custom_shape:
-                _log_custom_shape_geometry_dump(shape, "after_formatting")
-            _log_shape_property_names_sample(shape, "after_formatting")
 
             page_index = _page_index_for(bridge, page)
             shape_count_after = page.getCount()
@@ -850,7 +684,7 @@ def _mutation_page(ctx: ToolContext, page_index: Any) -> Any:
     return DrawBridge.get_slide_for_tool(ctx.doc, actual)
 
 
-class ConnectShapes(ToolDrawShapeBase):
+class ConnectShapes(_AnyDocumentShapeTool):
     """Connect two shapes with a connector."""
 
     name: str | None = "shape_connect"
@@ -867,8 +701,6 @@ class ConnectShapes(ToolDrawShapeBase):
         },
         "required": ["start", "end"],
     }
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -952,7 +784,7 @@ def _create_shape_collection(uno_ctx: Any) -> Any:
     return collection
 
 
-class GroupShapes(ToolDrawShapeBase):
+class GroupShapes(_AnyDocumentShapeTool):
     """Group multiple shapes together."""
 
     name: str | None = "shape_group"
@@ -965,8 +797,6 @@ class GroupShapes(ToolDrawShapeBase):
         "The result is one group shape you can move with shape_upsert (action edit)."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1049,7 +879,6 @@ class AlignShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "alignment"],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1089,7 +918,6 @@ class DistributeShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "axis"],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1145,7 +973,6 @@ class CreateDiagram(ToolDrawShapeBase):
         },
         "required": ["nodes"],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1246,13 +1073,11 @@ class CreateDiagram(ToolDrawShapeBase):
         return out
 
 
-class DeleteShape(ToolDrawShapeBase):
+class DeleteShape(_AnyDocumentShapeTool):
     name: str | None = "shape_delete"
     intent: str | None = "edit"
     description: str = "Deletes a shape by index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

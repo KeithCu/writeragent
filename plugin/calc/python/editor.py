@@ -80,11 +80,7 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
-
-        def _read(p: str = prop) -> Any:
-            return cell.getPropertyValue(p)
-
-        val = uno_probe(_read, None)
+        val = uno_probe(lambda: cell.getPropertyValue(prop), None)
         if val and str(val) not in out:
             out.append(str(val))
     if content is None:
@@ -163,36 +159,20 @@ def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> b
 def format_cell_a1(cell: Any) -> str:
     """Active-sheet A1 label (``A1``, ``AA100``)."""
     addr = cell.getCellAddress()
-    from plugin.calc.address_utils import index_to_column
+    from plugin.calc.address_utils import format_address
 
-    return f"{index_to_column(int(addr.Column))}{int(addr.Row) + 1}"
+    return format_address(int(addr.Column), int(addr.Row))
 
 
 @main_thread_only
 def confirm_unsaved_cell_edit(ctx: Any, cell_addr: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
+    from plugin.scripting.editor_host import ask_save_discard_cancel
+
     title = product_display_name(ctx)
     where = cell_addr or _("this cell")
     message = _("Save changes to {0}?\n\nYes saves. No discards and opens the new cell. Cancel keeps editing {0}.").format(where)
-    try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame() if desktop is not None else None
-        window = frame.getContainerWindow() if frame is not None else None
-        if window is None:
-            return "cancel"
-        smgr = ctx.getServiceManager()
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        # QUERYBOX=4, BUTTONS_YES_NO_CANCEL=4. Results: YES=2, NO=3, CANCEL=0.
-        box = toolkit.createMessageBox(window, 4, 4, title, message)
-        result = int(box.execute())
-        if result == 2:
-            return "save"
-        if result == 3:
-            return "discard"
-        return "cancel"
-    except Exception:
-        log.exception("confirm_unsaved_cell_edit failed")
-        return "cancel"
+    return ask_save_discard_cancel(ctx, title=title, message=message, log_label="confirm_unsaved_cell_edit")
 
 
 @main_thread_only
@@ -362,6 +342,10 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
     def on_closed() -> None:
         log.debug("Python cell editor closed")
 
+    label = format_cell_a1(display_cell)
+    from plugin.scripting.document_scripts import document_scripts_identity
+
+    doc_url = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")
     load_msg: dict[str, Any] = {
         "type": "load",
         "mode": "calc_cell",
@@ -375,12 +359,10 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "show_data_binding": True,
         "follow_code_ref": follow,
         "data_binding": data_binding,
-        "cell_address": format_cell_a1(display_cell),
-        "doc_url": "",
-        "resource": format_cell_a1(display_cell),
+        "cell_address": label,
+        "doc_url": doc_url,
+        "resource": label,
     }
-    from plugin.scripting.document_scripts import document_scripts_identity
-    load_msg["doc_url"] = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")
     # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
     # confirmed or flushed inside launch_monaco_editor before this load
     # replaces the window. A calc-only check here dropped the other modes.
