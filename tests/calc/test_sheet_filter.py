@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
 from plugin.calc.sheet_filter import (
     ApplySheetFilter,
     ClearSheetFilter,
@@ -78,7 +79,7 @@ def test_field_to_dict_disposal_propagates():
         def Operator(self):
             raise DisposedException("gone")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _field_to_dict(FieldObj(), 0, MagicMock())
 
 
@@ -117,8 +118,8 @@ def test_get_sheet_filter_contains_header_disposal_propagates():
             return ps
         return None
 
-    with patch("plugin.calc.sheet_filter._get_filterable_for_range", return_value=(xf, object())), \
+    with patch("plugin.calc.sheet_filter._get_filterable_for_range", return_value=xf), \
          patch("plugin.calc.sheet_filter._query_interface", side_effect=fake_query_interface):
         tool = GetSheetFilter()
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, range=["A1:B2"])

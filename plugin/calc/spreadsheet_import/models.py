@@ -41,7 +41,7 @@ class SheetModel:
     circular_groups: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"sheet_name": self.sheet_name, "used_range": self.used_range, "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()}, "formula_order": list(self.formula_order), "circular_groups": [list(group) for group in self.circular_groups]}
+        return asdict(self)
 
 
 @dataclass
@@ -112,11 +112,13 @@ class ConversionReport:
         return len(self.converted) / denom
 
     def to_dict(self) -> dict[str, Any]:
-        return {"converted": list(self.converted), "skipped": [item.to_dict() for item in self.skipped], "normalized_py": list(self.normalized_py), "pass_through": list(self.pass_through), "conversion_rate": self.conversion_rate()}
+        payload = asdict(self)
+        payload["conversion_rate"] = self.conversion_rate()
+        return payload
 
     def summary(self) -> str:
         total = len(self.converted) + len(self.skipped) + len(self.pass_through)
-        pct = 100.0 * self.conversion_rate(formula_denominator=total) if total else 0.0
+        pct = 100.0 * self.conversion_rate() if total else 0.0
         return f"Converted {len(self.converted)} / {total} formula cells ({pct:.1f}%)"
 
 
@@ -138,7 +140,7 @@ class VerifyResult:
     skipped: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"passed": list(self.passed), "failed": [item.to_dict() for item in self.failed], "skipped": list(self.skipped)}
+        return asdict(self)
 
 
 @dataclass
@@ -149,7 +151,6 @@ class OutputSheetModel:
     used_range: str
     cells: dict[str, OutputCell]
     py_extracts: list[PyCellExtract] = field(default_factory=list)
-    array_formulas: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"sheet_name": self.sheet_name, "used_range": self.used_range, "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()}, "py_extracts": [item.to_dict() for item in self.py_extracts], "array_formulas": dict(self.array_formulas)}
+        return asdict(self)

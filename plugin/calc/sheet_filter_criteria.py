@@ -6,20 +6,22 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Pure JSON → UNO-field parsing for Calc standard filter (``TableFilterField2``),
-# plus stable ``FilterOperator2`` code labels (no UNO import at module level).
-# Colocated with ``sheet_filter.py`` in this package.
+"""LibreOffice ``FilterOperator2`` labels and sheet-filter criterion parsing (no UNO import at top level).
 
-"""LibreOffice ``FilterOperator2`` labels and sheet-filter criterion parsing (no UNO import at top level)."""
+Pure JSON → UNO-field parsing for Calc standard filter (``TableFilterField2``),
+plus stable ``FilterOperator2`` code labels (no UNO import at module level).
+Colocated with ``sheet_filter.py`` in this package.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, _profile, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
-_FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
+# Stable tuple of all FilterOperator2 names (for tool JSON schemas).
+FILTER_OPERATOR2_LABELS: tuple[str, ...] = (
     "EMPTY",
     "NOT_EMPTY",
     "EQUAL",
@@ -40,10 +42,7 @@ _FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
     "DOES_NOT_END_WITH",
 )
 
-_NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(_FILTER_OPERATOR2_CODE_NAMES)}
-
-# Stable tuple of all FilterOperator2 names (for tool JSON schemas).
-FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
+_NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(FILTER_OPERATOR2_LABELS)}
 
 
 # Dual-profile: Closed FilterOperator2 labels under CrossHair. Open ascii_bounded
@@ -56,10 +55,10 @@ def _deal_filter_op_name_ok_pytest(name: object) -> bool:
 
 
 def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
-    return isinstance(name, str) and name in _FILTER_OPERATOR2_CODE_NAMES
+    return isinstance(name, str) and name in FILTER_OPERATOR2_LABELS
 
 
-_deal_filter_op_name_ok = _deal_filter_op_name_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_op_name_ok_pytest
+_deal_filter_op_name_ok = _profile(_deal_filter_op_name_ok_crosshair, _deal_filter_op_name_ok_pytest)
 
 
 def _deal_filter_connection_ok_pytest(name: object) -> bool:
@@ -71,7 +70,7 @@ def _deal_filter_connection_ok_crosshair(name: object) -> bool:
     return name is None or name in ("AND", "OR", "and", "or", "")
 
 
-_deal_filter_connection_ok = _deal_filter_connection_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_connection_ok_pytest
+_deal_filter_connection_ok = _profile(_deal_filter_connection_ok_crosshair, _deal_filter_connection_ok_pytest)
 
 
 def _deal_filter_code_ok_pytest(code: object) -> bool:
@@ -84,7 +83,7 @@ def _deal_filter_code_ok_crosshair(code: object) -> bool:
     return isinstance(code, int) and -8 <= code < 32
 
 
-_deal_filter_code_ok = _deal_filter_code_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_code_ok_pytest
+_deal_filter_code_ok = _profile(_deal_filter_code_ok_crosshair, _deal_filter_code_ok_pytest)
 
 
 @deal.pre(lambda code: _deal_filter_code_ok(code))
@@ -92,20 +91,29 @@ def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
     # crosshair: off
     # cover-all 33797534946 (~39m module, 18732 examples). Doable later: closed enum codes 0..17 only.
-    if 0 <= code < len(_FILTER_OPERATOR2_CODE_NAMES):
-        return _FILTER_OPERATOR2_CODE_NAMES[code]
+    if 0 <= code < len(FILTER_OPERATOR2_LABELS):
+        return FILTER_OPERATOR2_LABELS[code]
     return str(int(code))
+
+
+def _normalize_operator_name(name: str) -> str:
+    return name.strip().upper().replace("-", "_")
 
 
 @deal.pre(lambda name: _deal_filter_op_name_ok(name))
 def filter_operator2_name_to_code(name: str) -> int | None:
     """Resolve case-insensitive operator name to code, or ``None`` if unknown."""
-    key = name.strip().upper().replace("-", "_")
-    return _NAME_TO_CODE.get(key)
+    return _NAME_TO_CODE.get(_normalize_operator_name(name))
 
 
-_FILTER_OP_NUMERIC_ONLY = frozenset({"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"})
-_FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
+_OP_VALUE_KIND = {
+    "EMPTY": "none",
+    "NOT_EMPTY": "none",
+    "TOP_VALUES": "numeric",
+    "TOP_PERCENT": "numeric",
+    "BOTTOM_VALUES": "numeric",
+    "BOTTOM_PERCENT": "numeric",
+}
 
 
 @deal.pre(lambda name: _deal_filter_connection_ok(name))
@@ -113,9 +121,12 @@ _FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
 @deal.raises(UnoObjectError)
 def filter_connection_code(name: str | None) -> int:
     """Map ``AND`` / ``OR`` to UNO ``FilterConnection`` (0 / 1 per IDL)."""
-    if not name or name.upper() == "AND":
+    if not name:
         return 0
-    if name.upper() == "OR":
+    upper = name.upper()
+    if upper == "AND":
+        return 0
+    if upper == "OR":
         return 1
     raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
 
@@ -130,7 +141,7 @@ def resolve_filter_operator_code(operator: str) -> int:
         return code
     from com.sun.star.sheet import FilterOperator2 as FO2
 
-    op_u = operator.strip().upper().replace("-", "_")
+    op_u = _normalize_operator_name(operator)
     if hasattr(FO2, op_u):
         return int(getattr(FO2, op_u))
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
@@ -151,9 +162,7 @@ def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
     )
 
 
-_deal_filter_criterion_ok = (
-    _deal_filter_criterion_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_criterion_ok_pytest
-)
+_deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair, _deal_filter_criterion_ok_pytest)
 
 
 @deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))
@@ -186,10 +195,11 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     else:
         conn = filter_connection_code("AND")
 
-    if op_label in _FILTER_OP_NO_VALUE:
+    kind = _OP_VALUE_KIND.get(op_label, "text")
+    if kind == "none":
         return field, op_code, conn, False, 0.0, ""
 
-    if op_label in _FILTER_OP_NUMERIC_ONLY:
+    if kind == "numeric":
         v = raw.get("value")
         if v is None or str(v).strip() == "":
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")

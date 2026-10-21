@@ -139,11 +139,7 @@ def test_apply_output_to_sheet():
             "D1": OutputCell(address="D1", value=42.5, formula=None, number_format=5),
             "E1": OutputCell(address="E1", value="hello", formula=None, number_format=None),
         },
-        array_formulas={"A1:B1": "=SUM(A1:B1)"},
     )
-
-    range_mock = MagicMock()
-    sheet.getCellRangeByName.return_value = range_mock
 
     apply_output_to_sheet(sheet, output)
 
@@ -153,5 +149,4 @@ def test_apply_output_to_sheet():
     cells[(3, 0)].setValue.assert_called_once_with(42.5)
     cells[(3, 0)].setPropertyValue.assert_called_once_with("NumberFormat", 5)
     cells[(4, 0)].setString.assert_called_once_with("hello")
-    range_mock.setArrayFormula.assert_called_once_with("=SUM(A1:B1)")
 

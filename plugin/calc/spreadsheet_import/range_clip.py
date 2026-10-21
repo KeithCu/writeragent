@@ -30,23 +30,19 @@ def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *,
 
     quoted = _QUOTED_COL_ONLY_RE.match(normalized)
     if quoted:
-        quoted_sheet = quoted.group(1)
-        col = quoted.group(2)
-        if quoted_sheet is None or col is None:
-            return range_ref
+        quoted_sheet = str(quoted.group(1))
+        col = str(quoted.group(2))
         current_sheet_key = quoted_sheet.upper()
     else:
         sheet_col = _SHEET_COL_ONLY_RE.match(normalized)
         if sheet_col:
-            bare_sheet = sheet_col.group(1)
-            col = sheet_col.group(2)
-            if bare_sheet is None or col is None:
-                return range_ref
+            bare_sheet = str(sheet_col.group(1))
+            col = str(sheet_col.group(2))
             current_sheet_key = bare_sheet.upper()
         else:
             local = _LOCAL_COL_ONLY_RE.match(normalized)
             if local:
-                col = local.group(1)
+                col = str(local.group(1))
                 if current_sheet:
                     current_sheet_key = current_sheet.upper()
 

@@ -13,7 +13,7 @@ from typing import Any
 from plugin.framework.errors import best_effort
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
-from plugin.calc.spreadsheet_import.models import ConversionReport, OutputCell, OutputSheetModel, SheetModel, TodoCell
+from plugin.calc.spreadsheet_import.models import CellRecord, ConversionReport, OutputCell, OutputSheetModel, SheetModel, TodoCell
 from plugin.calc.spreadsheet_import.preserve import _output_cell_from_record
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
@@ -54,7 +54,6 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
 
     vector_groups = detect_vectorized_columns(model) if vectorize else {}
     vector_handled_cells: dict[str, str] = {}
-    array_formulas: dict[str, str] = {}
 
     for first_addr, group in vector_groups.items():
         first_record = model.cells[first_addr]
@@ -81,9 +80,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
                     code = re.sub(rf"(?<!np\.asarray\()\bdata\[{idx}\]\b", f"np.asarray(data[{idx}])", code)
 
             # Strip scalar coercion since array formulas return vectors, not scalars
-            if code.endswith("+0.0") and code.startswith("(") and code.count("(") == 1:
-                code = code[1:-5]
-            elif code.startswith("float(") and code.endswith(")"):
+            if code.startswith("float(") and code.endswith(")"):
                 code = code[6:-1]
 
             for idx, addr in enumerate(group):
@@ -92,6 +89,13 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
                 report.converted.append(addr)
 
     cells: dict[str, OutputCell] = {}
+
+    def _pass_through(addr: str, record: CellRecord, reason: str | None) -> None:
+        report.pass_through.append(addr)
+        if reason is not None:
+            report.skipped.append(TodoCell(address=addr, reason=reason))
+        cells[addr] = _output_cell_from_record(record, py_by_addr)
+
     for addr in sorted(model.cells):
         if addr in vector_handled_cells:
             cells[addr] = OutputCell(address=addr, value=None, formula=vector_handled_cells[addr], number_format=None)
@@ -109,19 +113,13 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             cells[addr] = _output_cell_from_record(record, py_by_addr)
             continue
         if record.type == "prompt":
-            report.pass_through.append(addr)
-            report.skipped.append(TodoCell(address=addr, reason="PROMPT"))
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            _pass_through(addr, record, "PROMPT")
             continue
         if record.type == "array_formula":
-            report.pass_through.append(addr)
-            report.skipped.append(TodoCell(address=addr, reason="ARRAY_FORMULA"))
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            _pass_through(addr, record, "ARRAY_FORMULA")
             continue
         if addr in circular:
-            report.pass_through.append(addr)
-            report.skipped.append(TodoCell(address=addr, reason="CIRCULAR_REF"))
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            _pass_through(addr, record, "CIRCULAR_REF")
             continue
         if record.type not in ("formula", "error") or not record.formula:
             cells[addr] = _output_cell_from_record(record, py_by_addr)
@@ -129,8 +127,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
 
         ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(record.formula)), "parse formula")
         if ast is not None and not _has_function_node(ast):
-            report.pass_through.append(addr)
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            _pass_through(addr, record, None)
             continue
 
         translation = translate_formula(record.formula, cell_addr=addr)
@@ -139,10 +136,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             cells[addr] = OutputCell(address=addr, value=None, formula=emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name), number_format=None)
             report.converted.append(addr)
         else:
-            reason = translation.reason or "UNSUPPORTED_FUNCTION"
-            report.pass_through.append(addr)
-            report.skipped.append(TodoCell(address=addr, reason=reason))
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
 
-    output = OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells, py_extracts=py_extracts, array_formulas=array_formulas)
+    output = OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells, py_extracts=py_extracts)
     return output, report

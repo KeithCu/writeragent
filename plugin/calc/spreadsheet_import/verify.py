@@ -64,14 +64,3 @@ def verify_converted_cells(source: SheetModel, output: OutputSheetModel, report:
             result.passed.append(addr)
     return result
 
-
-def verify_output_formulas_present(output: OutputSheetModel, report: ConversionReport) -> VerifyResult:
-    """Smoke-check converted cells have ``=PY()`` formulas in *output*."""
-    result = VerifyResult()
-    for addr in report.converted:
-        oc = output.cells.get(addr)
-        if oc is None or not oc.formula or not oc.formula.upper().startswith("=PY"):
-            result.failed.append(VerifyMismatch(address=addr, expected="=PY(...)", actual=oc.formula if oc else None, message="missing PY formula"))
-        else:
-            result.passed.append(addr)
-    return result

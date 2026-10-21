@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc spreadsheet → Python import: ingest, translate, emit, preserve."""
 
-from plugin.calc.spreadsheet_import.extract import canonicalize_py_formula_for_parse, extract_py_cells, is_py_formula_text, normalize_py_formula, py_formula_semantics
+from plugin.calc.python.cell_discovery import is_py_formula_text
+from plugin.calc.spreadsheet_import.extract import canonicalize_py_formula_for_parse, extract_py_cells, normalize_py_formula, py_formula_semantics
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
 from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, build_dependency_graph, extract_cell_refs, extract_range_refs, topological_formula_order
 from plugin.calc.spreadsheet_import.ingest import classify_cell, ingest_from_arrays, ingest_sheet

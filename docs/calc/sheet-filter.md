@@ -76,7 +76,7 @@ In practice (including in-LO UNO tests), **`apply_sheet_filter` with `"connectio
 Further single-condition examples:
 
 - Text contains `east` in column **B** of range `A1:D10` (header row):  
-  `criteria`: `[{"field": 1, "operator": "CONTAINS", "value": "east"}]`, `contains_header`: `true`.
+  `criteria`: `[{"field": 1, "operator": "CONTAINS", "value": "east"}]`, `has_header`: `true`.
 - Numeric greater than 100 in column **C**:  
   `{"field": 2, "operator": "GREATER", "value": "100", "is_numeric": true}`.
 
@@ -88,7 +88,7 @@ Future scope, pass-through ideas, and out-of-scope workflows are in **§5** belo
 
 | File | Purpose |
 |------|---------|
-| [`plugin/calc/sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py) | `FilterOperator2` labels + JSON → `TableFilterField2` field tuple parsing (covered by sheet-filter UNO tests in [`tests/calc/test_calc_uno.py`](../../tests/calc/test_calc_uno.py), e.g. `test_calc_sheet_filter_apply_get_clear`). |
+| [`plugin/calc/sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py) | `FilterOperator2` labels + JSON → `TableFilterField2` field tuple parsing (covered by sheet-filter UNO tests in [`tests/calc/test_sheet_filter_uno.py`](../../tests/calc/test_sheet_filter_uno.py), e.g. `test_calc_sheet_filter_apply_get_clear`). |
 | [`plugin/calc/sheet_filter.py`](../../plugin/calc/sheet_filter.py) | Tools + UNO helpers. |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Range resolution. |
 
@@ -121,7 +121,7 @@ Implementation split: criteria parsing + operator labels in [`plugin/calc/sheet_
 | `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py); unknown names fall back to `com.sun.star.sheet.FilterOperator2` enum if present. |
 | `FilterConnection` (AND/OR) | Mapped as JSON `connection` from the **second** criterion onward; first row always AND (ignored in JSON, matches LO convention). |
 | `IsNumeric` / `NumericValue` / `StringValue` | Via `is_numeric` + `value` heuristics and operator classes (e.g. TOP_*, EMPTY). |
-| `ContainsHeader` | `contains_header` on apply/clear. |
+| `ContainsHeader` | `has_header` on apply/clear. |
 | Round-trip for debugging | `get_sheet_filter` reads `getFilterFields2` and maps back to JSON-shaped dicts. |
 
 ### 5.3 UNO descriptor features not exposed (pass-through candidates)
@@ -166,7 +166,7 @@ LibreOffice also supports **Advanced Filter** / database-oriented APIs (`com.sun
 1. **IDL first:** Confirm property names and types on the LO version you ship against (`SheetFilterDescriptor`, `TableFilterField2`).
 2. **JSON schema:** Extend `parameters` on the tool class so models get accurate enums/descriptions.
 3. **Docs:** Update the contract sections in this document (**§§1–4**).
-4. **Tests:** Unit tests for pure parsing (`_parse_criterion`, operator resolution); UNO tests for apply/get/clear and any new descriptor field.
+4. **Tests:** Unit tests for pure parsing (`parse_sheet_filter_criterion`, operator resolution); UNO tests for apply/get/clear and any new descriptor field.
 5. **Failure modes:** Missing `XSheetFilterDescriptor2` on old builds is already a hard error—keep messages actionable.
 
 ---

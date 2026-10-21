@@ -45,6 +45,6 @@ def test_convert_spreadsheet_to_python_basic(ctx, doc):
     target_sheet = sheets.getByName("PythonImport")
 
     # Check that formulas became =PY(...)
-    from plugin.calc.spreadsheet_import.extract import is_py_formula_text
+    from plugin.calc.python.cell_discovery import is_py_formula_text
     assert is_py_formula_text(target_sheet.getCellByPosition(1, 0).getFormula())
     assert is_py_formula_text(target_sheet.getCellByPosition(1, 1).getFormula())

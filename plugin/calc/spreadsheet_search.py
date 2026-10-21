@@ -9,7 +9,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from plugin.calc.bridge import filter_agent_sheet_names
+from plugin.calc.calc_utils import resolve_sheet
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _cell_address_str(cell: Any) -> str:
@@ -19,30 +25,36 @@ def _cell_address_str(cell: Any) -> str:
     return format_address(addr.Column, addr.Row)
 
 
+def iter_target_sheets(doc: Any, *, all_sheets: bool, sheet_name: str | None = None) -> Iterator[tuple[Any, str]]:
+    """Yield ``(sheet, name)`` pairs respecting the agent-visible sheet filter."""
+    if all_sheets:
+        sheets_obj = doc.getSheets()
+        for n in filter_agent_sheet_names(sheets_obj.getElementNames()):
+            yield sheets_obj.getByName(n), n
+    else:
+        sheet = resolve_sheet(doc, sheet_name)
+        yield sheet, sheet.getName()
+
+
+def configure_search_descriptor(desc: Any, text: str, *, regex: bool = False, case_sensitive: bool = False) -> None:
+    """Set standard search parameters on a UNO SearchDescriptor or ReplaceDescriptor."""
+    desc.SearchString = text
+    desc.SearchRegularExpression = bool(regex)
+    desc.SearchCaseSensitive = bool(case_sensitive)
+
+
 def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, all_sheets: bool = True, sheet_name: str | None = None, stop_checker: Any = None) -> list[dict[str, Any]]:
     """Search a Calc document for *pattern*; return match dicts with sheet, cell, value."""
-    from plugin.calc.calc_utils import resolve_sheet
-    from plugin.calc.bridge import is_agent_visible_sheet
-
     if not pattern:
         return []
 
     matches: list[dict[str, Any]] = []
 
-    if all_sheets:
-        sheets_obj = doc.getSheets()
-        targets = [(sheets_obj.getByName(n), n) for n in sheets_obj.getElementNames() if is_agent_visible_sheet(n)]
-    else:
-        sheet = resolve_sheet(doc, sheet_name)
-        targets = [(sheet, sheet.getName())]
-
-    for sheet, sname in targets:
+    for sheet, sname in iter_target_sheets(doc, all_sheets=all_sheets, sheet_name=sheet_name):
         if stop_checker and stop_checker():
             break
         sd = sheet.createSearchDescriptor()
-        sd.SearchString = pattern
-        sd.SearchRegularExpression = bool(regex)
-        sd.SearchCaseSensitive = bool(case_sensitive)
+        configure_search_descriptor(sd, pattern, regex=regex, case_sensitive=case_sensitive)
 
         found = sheet.findAll(sd)
         if found is None:

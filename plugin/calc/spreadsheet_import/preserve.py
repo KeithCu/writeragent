@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.errors import best_effort
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
@@ -95,11 +94,6 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
 
     for col, row, fmt_id in format_cells:
         target_sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", fmt_id)
-
-    # Write array/vectorized formulas
-    if output.array_formulas:
-        for range_str, formula in output.array_formulas.items():
-            best_effort(lambda: target_sheet.getCellRangeByName(range_str).setArrayFormula(formula), f"set array formula {formula} on {range_str}")
 
 
 def preserve_sheet_to_new_sheet(doc: Any, source_sheet: Any, *, target_name: str = "PythonImport") -> OutputSheetModel:

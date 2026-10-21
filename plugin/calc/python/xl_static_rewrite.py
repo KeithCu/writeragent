@@ -13,7 +13,7 @@ import ast
 import re
 from dataclasses import dataclass
 
-from plugin.framework.ast_stmt_edit import ast_source_offset
+from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # Cell / range with optional $; optional sheet via Calc ``Sheet.`` or Excel ``Sheet!``.
@@ -38,6 +38,7 @@ class _XlLiteralCall:
     start: int
     end: int
     address: str
+    normalized_address: str
     header_mode: str  # "omit" | "true" | "false"
 
 
@@ -58,8 +59,6 @@ def _header_mode_from_call(node: ast.Call) -> str:
                 return "true"
             if isinstance(kw.value, ast.Constant) and kw.value.value is False:
                 return "false"
-            if isinstance(kw.value, ast.Name) and kw.value.id in ("True", "False"):
-                return "true" if kw.value.id == "True" else "false"
             return "bad"
     return "omit"
 
@@ -99,6 +98,28 @@ def _data_expr(index: int, header_mode: str, *, n_bindings: int) -> str:
     return base
 
 
+def _bare_data_load_spans(src: str, tree: ast.AST, line_starts: list[int]) -> list[tuple[int, int]]:
+    skip_names: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
+            skip_names.add(id(node.value))
+
+    hits: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Name) or node.id != "data":
+            continue
+        if not isinstance(node.ctx, ast.Load):
+            continue
+        if id(node) in skip_names:
+            continue
+        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
+        if start < 0 or end < 0 or end <= start:
+            continue
+        hits.append((start, end))
+    return hits
+
+
 def migrate_bare_data_to_index0(code: str) -> str:
     """When bindings grow to 2+, rewrite bare Load ``data`` → ``data[0]`` (AST-safe).
 
@@ -113,37 +134,20 @@ def migrate_bare_data_to_index0(code: str) -> str:
     except SyntaxError:
         return src
 
-    skip_names: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
-            skip_names.add(id(node.value))
-
-    hits: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Name) or node.id != "data":
-            continue
-        if not isinstance(node.ctx, ast.Load):
-            continue
-        if id(node) in skip_names:
-            continue
-        start = ast_source_offset(src, node.lineno, node.col_offset)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
-        if start < 0 or end < 0 or end <= start:
-            continue
-        hits.append((start, end))
-
+    line_starts = line_starts_exact(src)
+    hits = _bare_data_load_spans(src, tree, line_starts)
     new_code = src
     for start, end in sorted(hits, key=lambda h: h[0], reverse=True):
         new_code = new_code[:start] + "data[0]" + new_code[end:]
     return new_code
 
 
-def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]]:
+def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str], list[tuple[int, int]]]:
     """Locate direct ``xl("A1…")`` calls; report dynamic / invalid forms as issues."""
     issues: list[str] = []
     src = code or ""
     if not src.strip():
-        return [], issues
+        return [], issues, []
     try:
         tree = ast.parse(src)
     except SyntaxError as exc:
@@ -151,11 +155,14 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         if exc.offset is not None:
             loc = f"{loc}:{exc.offset}"
         issues.append(f"Python syntax error at {loc}: {exc.msg}")
-        return [], issues
+        return [], issues, []
     except (TypeError, ValueError) as exc:
         # NUL bytes: CPython ValueError. CrossHair symbolic str: TypeError from compile().
         issues.append(f"Python source is not parseable: {exc}")
-        return [], issues
+        return [], issues, []
+
+    line_starts = line_starts_exact(src)
+    bare_spans = _bare_data_load_spans(src, tree, line_starts)
 
     calls: list[_XlLiteralCall] = []
     for node in ast.walk(tree):
@@ -166,8 +173,8 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
             continue
         if getattr(node, "lineno", None) is None:
             continue
-        start = ast_source_offset(src, node.lineno, node.col_offset)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
             continue
@@ -181,7 +188,7 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
             issues.append("dynamic xl() reference (empty args)")
             continue
         arg0 = node.args[0]
-        if isinstance(arg0, (ast.JoinedStr,)):
+        if isinstance(arg0, ast.JoinedStr):
             issues.append("dynamic xl() reference (f-string)")
             continue
         if not isinstance(arg0, ast.Constant) or not isinstance(arg0.value, str):
@@ -194,9 +201,9 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         if not is_static_a1_literal(ref):
             issues.append(f"xl({ref!r}) is not a static A1/range address")
             continue
-        calls.append(_XlLiteralCall(start=start, end=end, address=ref, header_mode=header_mode))
+        calls.append(_XlLiteralCall(start=start, end=end, address=ref, normalized_address=normalize_range_address(ref), header_mode=header_mode))
     calls.sort(key=lambda c: c.start)
-    return calls, issues
+    return calls, issues, bare_spans
 
 
 @deal.pre(lambda code, existing_data_args=None: str_bounded(code, DEAL_MAX_SOURCE) and (existing_data_args is None or (isinstance(existing_data_args, list) and len(existing_data_args) <= DEAL_MAX_SHAPE_DIM and all(str_bounded(x, DEAL_MAX_SOURCE) for x in existing_data_args))))
@@ -211,9 +218,12 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     # ast.parse + A1 regex hang under deep check even at DEAL_MAX_SOURCE.
     # crosshair: off
     existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
-    calls, issues = _find_static_xl_literals(code)
+    calls, issues, bare_spans = _find_static_xl_literals(code)
     if issues:
         return XlStaticRewriteResult(code=code, data_args=list(existing), issues=issues, changed=False)
+
+    if not calls:
+        return XlStaticRewriteResult(code=code, data_args=list(existing), issues=[], changed=False)
 
     # Preserve explicit Data: order; append newly seen addresses from xl() calls.
     data_args: list[str] = list(existing)
@@ -222,25 +232,28 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
         key_to_index[normalize_range_address(addr)] = i
 
     for call in calls:
-        key = normalize_range_address(call.address)
+        key = call.normalized_address
         if key not in key_to_index:
             key_to_index[key] = len(data_args)
             data_args.append(call.address.strip())
 
-    if not calls:
-        return XlStaticRewriteResult(code=code, data_args=list(existing), issues=[], changed=False)
-
     n_bindings = len(data_args)
-    new_code = code
-    for call in sorted(calls, key=lambda c: c.start, reverse=True):
-        idx = key_to_index[normalize_range_address(call.address)]
+    replacements: list[tuple[int, int, str]] = []
+    for call in calls:
+        idx = key_to_index[call.normalized_address]
         repl = _data_expr(idx, call.header_mode, n_bindings=n_bindings)
-        new_code = new_code[: call.start] + repl + new_code[call.end :]
+        replacements.append((call.start, call.end, repl))
 
     # Growing 1→N: prior sugar left bare ``data`` / ``data.to_pandas()``; migrate.
     # Only when this save lifted at least one xl() into a multi-binding formula.
     if n_bindings >= 2:
-        new_code = migrate_bare_data_to_index0(new_code)
+        for span_start, span_end in bare_spans:
+            if not any(max(span_start, c.start) < min(span_end, c.end) for c in calls):
+                replacements.append((span_start, span_end, "data[0]"))
+
+    new_code = code
+    for start, end, repl in sorted(replacements, key=lambda r: r[0], reverse=True):
+        new_code = new_code[:start] + repl + new_code[end:]
 
     changed = new_code != code or data_args != existing
     return XlStaticRewriteResult(code=new_code, data_args=data_args, issues=[], changed=changed)

@@ -28,25 +28,41 @@ def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
 _deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
 
 
-@deal.pre(lambda s: _deal_lo_formula_ok(s))
-@deal.post(lambda result: isinstance(result, bool))
-def _no_unquoted_semicolon(s: str) -> bool:
-    """True when every ``;`` in *s* sits inside a Calc double-quoted string (or none exist)."""
-    in_quote = False
+def _scan_quotes(s: str, replace_semi: str | None) -> str | None:
+    out: list[str] | None = None if replace_semi is None else []
     i = 0
+    in_quote = False
     while i < len(s):
         ch = s[i]
         if ch == '"':
             if in_quote and i + 1 < len(s) and s[i + 1] == '"':
+                if out is not None:
+                    out.append('""')
                 i += 2
                 continue
             in_quote = not in_quote
+            if out is not None:
+                out.append(ch)
             i += 1
             continue
         if ch == ";" and not in_quote:
-            return False
+            if replace_semi is None:
+                return None
+            if out is not None:
+                out.append(replace_semi)
+            i += 1
+            continue
+        if out is not None:
+            out.append(ch)
         i += 1
-    return True
+    return s if out is None else "".join(out)
+
+
+@deal.pre(lambda s: _deal_lo_formula_ok(s))
+@deal.post(lambda result: isinstance(result, bool))
+def _no_unquoted_semicolon(s: str) -> bool:
+    """True when every ``;`` in *s* sits inside a Calc double-quoted string (or none exist)."""
+    return _scan_quotes(s, None) is not None
 
 
 # Deep check-all run 32840960268: two nested ensures (curly-quote scan +
@@ -65,25 +81,5 @@ def normalize_lo_formula_for_parse(formula: str) -> str:
     raw = normalize_formula_string(formula)
     if not raw:
         return raw
-
-    out: list[str] = []
-    i = 0
-    in_quote = False
-    while i < len(raw):
-        ch = raw[i]
-        if ch == '"':
-            if in_quote and i + 1 < len(raw) and raw[i + 1] == '"':
-                out.append('""')
-                i += 2
-                continue
-            in_quote = not in_quote
-            out.append(ch)
-            i += 1
-            continue
-        if ch == ";" and not in_quote:
-            out.append(",")
-            i += 1
-            continue
-        out.append(ch)
-        i += 1
-    return "".join(out)
+    res = _scan_quotes(raw, ",")
+    return res if res is not None else raw

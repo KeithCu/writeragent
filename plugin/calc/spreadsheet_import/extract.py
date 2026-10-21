@@ -20,20 +20,19 @@ def py_formula_semantics(formula: str) -> tuple[str, list[str]] | None:
     return parts.code, data_args
 
 
-def is_py_formula_text(formula: str) -> bool:
-    """True when *formula* is PY/PYTHON, including LO fully qualified add-in form."""
-    from plugin.calc.python.formula_edit import cell_looks_python_like
-
-    return cell_looks_python_like(canonicalize_py_formula_for_parse(formula))
-
-
-def normalize_py_formula(formula: str) -> str | None:
-    """Rebuild *formula* as canonical ``=PY("…"; ranges…)`` with semicolon separators."""
+def _normalized_py(formula: str) -> tuple[str, str, list[str]] | None:
     semantics = py_formula_semantics(formula)
     if semantics is None:
         return None
     code, data_args = semantics
-    return rebuild_python_formula_with_data(code, data_args, parts=None)
+    normalized = rebuild_python_formula_with_data(code, data_args, parts=None)
+    return normalized, code, data_args
+
+
+def normalize_py_formula(formula: str) -> str | None:
+    """Rebuild *formula* as canonical ``=PY("…"; ranges…)`` with semicolon separators."""
+    norm = _normalized_py(formula)
+    return norm[0] if norm is not None else None
 
 
 def extract_py_cells(model: SheetModel) -> list[PyCellExtract]:
@@ -43,11 +42,9 @@ def extract_py_cells(model: SheetModel) -> list[PyCellExtract]:
         cell = model.cells[addr]
         if cell.type != "py_formula" or not cell.formula:
             continue
-        normalized = normalize_py_formula(cell.formula)
-        if normalized is None:
+        norm = _normalized_py(cell.formula)
+        if norm is None:
             continue
-        semantics = py_formula_semantics(normalized)
-        assert semantics is not None
-        code, data_args = semantics
+        normalized, code, data_args = norm
         extracts.append(PyCellExtract(address=addr, original_formula=cell.formula, normalized_formula=normalized, code=code, data_args=data_args, changed=cell.formula != normalized))
     return extracts

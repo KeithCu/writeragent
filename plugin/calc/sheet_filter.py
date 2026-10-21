@@ -32,7 +32,7 @@ from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
-from plugin.framework.errors import UnoObjectError, is_real_disposal
+from plugin.framework.errors import UnoObjectError, reraise_if_disposed, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -42,26 +42,17 @@ log = logging.getLogger("writeragent.calc")
 
 def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
-    try:
-        op = int(ff.Operator)
+    op = uno_read(lambda: int(ff.Operator), None)
+    if op is not None:
         out["operator"] = filter_operator2_code_to_name(op)
         out["operator_code"] = op
-    except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from a filter field, and this
-        # except turned that into a partial filter read.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing error path.
-        if is_real_disposal(exc):
-            raise
-        pass
-    try:
-        out["field"] = int(ff.Field)
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        pass
-    try:
-        cv = ff.Connection
+
+    field = uno_read(lambda: int(ff.Field), None)
+    if field is not None:
+        out["field"] = field
+
+    cv = uno_read(lambda: ff.Connection, None)
+    if cv is not None:
         try:
             if cv == uno_mod.getConstantByName("com.sun.star.sheet.FilterConnection.OR"):
                 out["connection"] = "OR"
@@ -70,24 +61,22 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
             else:
                 out["connection"] = "OR" if int(cv) == 1 else "AND"
         except Exception as exc:
-            if is_real_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             out["connection"] = "OR" if int(cv) == 1 else "AND"
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
+    else:
         out["connection"] = "AND"
-    try:
-        if ff.IsNumeric:
-            out["is_numeric"] = True
-            out["value"] = ff.NumericValue
-        else:
-            out["is_numeric"] = False
-            out["value"] = ff.StringValue
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        pass
+
+    is_num = uno_read(lambda: bool(ff.IsNumeric), None)
+    if is_num is True:
+        out["is_numeric"] = True
+        num_val = uno_read(lambda: ff.NumericValue, None)
+        if num_val is not None:
+            out["value"] = num_val
+    elif is_num is False:
+        out["is_numeric"] = False
+        str_val = uno_read(lambda: ff.StringValue, None)
+        if str_val is not None:
+            out["value"] = str_val
     return out
 
 
@@ -113,13 +102,40 @@ def _build_filter_fields2(uno: Any, criteria: list[dict[str, Any]]) -> tuple[Any
     return tuple(fields)
 
 
-def _get_filterable_for_range(ctx: Any, range_name: str) -> tuple[Any, Any]:
+def _first_range_name(kwargs: dict[str, Any]) -> str:
+    range_arg = kwargs.get("range")
+    if not range_arg or not isinstance(range_arg, list):
+        raise UnoObjectError("range parameter must be a non-empty list.")
+    return range_arg[0]
+
+
+def _get_filterable_for_range(ctx: Any, range_name: str) -> Any:
     bridge = CalcBridge(ctx.doc)
     cell_range = bridge.resolve_range_or_address(range_name)
     xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
     if xf is None:
         raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
-    return xf, cell_range
+    return xf
+
+
+def _filter_descriptor(
+    ctx: Any,
+    range_name: str,
+    *,
+    empty: bool,
+    has_header: bool | None,
+    missing_msg: str,
+) -> tuple[Any, Any, Any]:
+    xf = _get_filterable_for_range(ctx, range_name)
+    fd = xf.createFilterDescriptor(empty)
+    if has_header is not None:
+        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        if ps is not None:
+            ps.setPropertyValue("ContainsHeader", has_header)
+    fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+    if fd2 is None:
+        raise UnoObjectError(missing_msg)
+    return xf, fd, fd2
 
 
 _CRITERIA_ARRAY_DESCRIPTION = (
@@ -162,26 +178,20 @@ class ApplySheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_arg = kwargs.get("range")
-        if not range_arg or not isinstance(range_arg, list):
-            raise UnoObjectError("range parameter must be a non-empty list.")
-        range_name = range_arg[0]
+        range_name = _first_range_name(kwargs)
         criteria = kwargs.get("criteria")
         if not isinstance(criteria, list) or not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
         has_header = bool(kwargs.get("has_header", True))
 
-        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
-        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-        fd = xf.createFilterDescriptor(True)
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is not None:
-            ps.setPropertyValue("ContainsHeader", has_header)
-
-        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-        if fd2 is None:
-            raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
+        xf, fd, fd2 = _filter_descriptor(
+            ctx,
+            range_name,
+            empty=True,
+            has_header=has_header,
+            missing_msg="XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).",
+        )
         fields = _build_filter_fields2(uno, criteria)
         fd2.setFilterFields2(fields)
         xf.filter(fd)
@@ -204,22 +214,16 @@ class ClearSheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_arg = kwargs.get("range")
-        if not range_arg or not isinstance(range_arg, list):
-            raise UnoObjectError("range parameter must be a non-empty list.")
-        range_name = range_arg[0]
+        range_name = _first_range_name(kwargs)
         has_header = bool(kwargs.get("has_header", True))
 
-        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
-        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-        fd = xf.createFilterDescriptor(True)
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is not None:
-            ps.setPropertyValue("ContainsHeader", has_header)
-
-        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-        if fd2 is None:
-            raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
+        xf, fd, fd2 = _filter_descriptor(
+            ctx,
+            range_name,
+            empty=True,
+            has_header=has_header,
+            missing_msg="XSheetFilterDescriptor2 is not available.",
+        )
         fd2.setFilterFields2(())
         xf.filter(fd)
 
@@ -236,17 +240,15 @@ class GetSheetFilter(ToolCalcSheetBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_arg = kwargs.get("range")
-        if not range_arg or not isinstance(range_arg, list):
-            raise UnoObjectError("range parameter must be a non-empty list.")
-        range_name = range_arg[0]
+        range_name = _first_range_name(kwargs)
 
-        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
-        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-        fd = xf.createFilterDescriptor(False)
-        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-        if fd2 is None:
-            raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
+        _xf, fd, fd2 = _filter_descriptor(
+            ctx,
+            range_name,
+            empty=False,
+            has_header=None,
+            missing_msg="XSheetFilterDescriptor2 is not available.",
+        )
 
         fields_seq = fd2.getFilterFields2()
         crit: list[dict[str, Any]] = []
@@ -255,14 +257,7 @@ class GetSheetFilter(ToolCalcSheetBase):
             for i in range(n):
                 crit.append(_field_to_dict(fields_seq[i], i, uno))
 
-        ch = None
         ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is not None:
-            try:
-                ch = bool(ps.getPropertyValue("ContainsHeader"))
-            except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
-                pass
+        ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
 
         return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}

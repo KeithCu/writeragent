@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 from plugin.calc.address_utils import format_address, format_range
+from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.calc.spreadsheet_import.extract import is_py_formula_text
 from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, extract_cell_refs, filter_refs_to_scope, is_calc_error_display
 from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetModel
 

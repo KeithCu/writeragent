@@ -7,19 +7,25 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSearchBase
-from plugin.calc.calc_utils import resolve_sheet
-from plugin.calc.spreadsheet_search import search_spreadsheet_cells
-from plugin.writer.search import validate_regex_pattern, invalid_regex_tool_message
-from plugin.calc.bridge import is_agent_visible_sheet
+from plugin.calc.spreadsheet_search import (
+    configure_search_descriptor,
+    iter_target_sheets,
+    search_spreadsheet_cells,
+)
+from plugin.writer.search import invalid_regex_tool_message, validate_regex_pattern
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+
+def _validate_regex(tool: ToolCalcSearchBase, pattern: str) -> dict[str, Any] | None:
+    err = validate_regex_pattern(pattern)
+    if err:
+        return tool._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
+    return None
 
 
 class SearchInSpreadsheet(ToolCalcSearchBase):
@@ -48,9 +54,9 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = validate_regex_pattern(pattern)
+            err = _validate_regex(self, pattern)
             if err:
-                return self._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
+                return err
         case_sensitive = kwargs.get("case_sensitive", False)
         max_results = kwargs.get("max_results", 50)
         all_sheets = kwargs.get("all_sheets", False)
@@ -88,27 +94,17 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = validate_regex_pattern(search)
+            err = _validate_regex(self, search)
             if err:
-                return self._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
+                return err
         case_sensitive = kwargs.get("case_sensitive", False)
         all_sheets = kwargs.get("all_sheets", False)
 
-        doc = ctx.doc
         total = 0
-
-        if all_sheets:
-            sheets_obj = doc.getSheets()
-            targets = [sheets_obj.getByName(n) for n in sheets_obj.getElementNames() if is_agent_visible_sheet(n)]
-        else:
-            targets = [resolve_sheet(doc, kwargs.get("sheet"))]
-
-        for sheet in targets:
+        for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=all_sheets, sheet_name=kwargs.get("sheet")):
             rd = sheet.createReplaceDescriptor()
-            rd.SearchString = search
+            configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=case_sensitive)
             rd.ReplaceString = replace
-            rd.SearchRegularExpression = bool(use_regex)
-            rd.SearchCaseSensitive = bool(case_sensitive)
             total += sheet.replaceAll(rd)
 
         return {"status": "ok", "replacements": total, "search": search, "replace": replace}

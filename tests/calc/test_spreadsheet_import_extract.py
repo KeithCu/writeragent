@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
+from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.spreadsheet_import.extract import (
     canonicalize_py_formula_for_parse,
     extract_py_cells,
-    is_py_formula_text,
     normalize_py_formula,
     py_formula_semantics,
 )
