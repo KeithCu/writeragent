@@ -574,10 +574,10 @@ def _test_function_filters(filters: Sequence[str]) -> list[str]:
     for token in filters:
         if "/" in token or "\\" in token or token.endswith(".py"):
             continue
+        if token.endswith("_uno"):
+            continue
         if token.startswith("test_"):
             names.append(token)
-        elif token.endswith("_uno"):
-            continue
         elif len(token) == 1 and token.isalpha():
             names.append(token)
         elif _is_case_id(token.lower()):
