@@ -18,6 +18,7 @@ from plugin.scripting.helper_domain import (
     prepend_run_import_document_bindings,
     rps_insert_failed_outcome,
     script_uses_run_import,
+    supports_calc_or_writer_manual,
 )
 import pytest
 
@@ -463,4 +464,21 @@ def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
         client_mock.assert_called_once()
         _, kwargs2 = client_mock.call_args
         assert kwargs2.get("context") is None
+
+
+def test_supports_calc_or_writer_manual():
+    assert supports_calc_or_writer_manual(None) is False
+
+    doc_writer = MagicMock()
+    doc_writer.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    assert supports_calc_or_writer_manual(doc_writer) is True
+
+    doc_calc = MagicMock()
+    doc_calc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    assert supports_calc_or_writer_manual(doc_calc) is True
+
+    doc_other = MagicMock()
+    doc_other.supportsService.return_value = False
+    assert supports_calc_or_writer_manual(doc_other) is False
+
 

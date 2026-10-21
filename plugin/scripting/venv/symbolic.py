@@ -217,6 +217,9 @@ def _public_signature(func: Callable[..., Any]) -> inspect.Signature:
     return raw.replace(parameters=params)
 
 
+_HELPERS: dict[str, Callable[..., dict[str, Any]]] = {}
+
+
 def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
     """Resolve sympy once and turn helper failures into result dicts.
 
@@ -244,6 +247,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
     # inspect.signature follows __wrapped__ unless this is set, and would
     # then require `sp`. Run Python Script templates bind the public kwargs.
     setattr(wrapper, "__signature__", public_sig)
+    _HELPERS[func.__name__] = wrapper
     return wrapper
 
 
@@ -385,15 +389,6 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
         expr = _parse_expression(sp, trimmed)
         trimmed = _to_latex(sp, expr)
     return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
-
-
-_HELPERS: dict[str, Callable[..., dict[str, Any]]] = {
-    "symbolic_simplify": symbolic_simplify,
-    "differentiate": differentiate,
-    "integrate": integrate,
-    "solve_equation": solve_equation,
-    "latex_to_math_object": latex_to_math_object,
-}
 
 
 def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:

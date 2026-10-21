@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from plugin.calc.spreadsheet_import.models import SheetModel
 
 _A1_REF_RE = re.compile(r"(?<![A-Z0-9_])(\$?)([A-Z]+)(\$?)([0-9]+)(?!\()", re.IGNORECASE)
+_R1C1_REF_RE = re.compile(r"R(?:(\d+)|\[(-?\d+)\])?C(?:(\d+)|\[(-?\d+)\])?")
 
 
 def to_r1c1(formula: str, cell_addr: str) -> str:
@@ -105,8 +106,7 @@ def r1c1_to_a1(r1c1_formula: str, cell_addr: str) -> str:
         row_str = str(target_row + 1)
         return f"{col_prefix}{col_str}{row_prefix}{row_str}"
 
-    pattern = r"R(?:(\d+)|\[(-?\d+)\])?C(?:(\d+)|\[(-?\d+)\])?"
-    return re.sub(pattern, replace_r1c1, r1c1_formula)
+    return _R1C1_REF_RE.sub(replace_r1c1, r1c1_formula)
 
 
 def is_cross_sheet_range(range_addr: str) -> bool:
@@ -130,42 +130,29 @@ def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
     Returns a dict mapping the first cell address of a vectorized sequence
     to a list of cell addresses in that sequence (including the first one).
     """
-    # Group cells by column
-    col_cells: dict[int, list[str]] = {}
+    col_cells: dict[int, list[tuple[int, str, str]]] = {}
     for addr, record in model.cells.items():
         if record.type in ("formula", "error") and record.formula:
-            col, _unused = parse_address(addr)
-            col_cells.setdefault(col, []).append(addr)
+            col, row = parse_address(addr)
+            col_cells.setdefault(col, []).append((row, addr, record.formula))
 
     vector_groups: dict[str, list[str]] = {}
 
-    for col, addrs in col_cells.items():
-        # Sort addresses by row
-        def get_row(a: str) -> int:
-            _unused, r = parse_address(a)
-            return r
+    for col, cells in col_cells.items():
+        sorted_cells = sorted(cells, key=lambda item: item[0])
 
-        sorted_addrs = sorted(addrs, key=get_row)
-        if not sorted_addrs:
-            continue
-
-        # Find contiguous ranges with identical R1C1 representation
         current_group: list[str] = []
         current_r1c1: str | None = None
-        last_row: int | None = None
+        last_row: int = 0
 
-        for addr in sorted_addrs:
-            record = model.cells[addr]
-            if not record.formula:
-                continue
-            r1c1 = to_r1c1(record.formula, addr)
-            _unused, row = parse_address(addr)
+        for row, addr, formula in sorted_cells:
+            r1c1 = to_r1c1(formula, addr)
 
             if current_r1c1 is None:
                 current_group = [addr]
                 current_r1c1 = r1c1
                 last_row = row
-            elif r1c1 == current_r1c1 and last_row is not None and row == last_row + 1:
+            elif r1c1 == current_r1c1 and row == last_row + 1:
                 current_group.append(addr)
                 last_row = row
             else:

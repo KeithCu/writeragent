@@ -105,7 +105,7 @@ def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | 
     return None
 
 
-def _require_matplotlib(helper: str) -> Any | None:
+def _require_matplotlib() -> Any | None:
     try:
         import matplotlib.pyplot as plt
 
@@ -132,7 +132,7 @@ def quick_plot(
     if isinstance(y_col, (list, tuple)):
         return _error_result("INVALID_PARAMS", "y_col must be one column name", helper="quick_plot")
 
-    plt = _require_matplotlib("quick_plot")
+    plt = _require_matplotlib()
     if plt is None:
         return _missing_package_error("quick_plot", "matplotlib")
 
@@ -177,6 +177,25 @@ def quick_plot(
         return _ok_viz("quick_plot", fig, chart_type=chart_type, title=ax.get_title())
 
 
+_CHART_TYPES = frozenset({"line", "scatter", "histogram", "bar"})
+
+
+def _parse_chart_type(raw: Any) -> str | dict[str, Any]:
+    if raw is None or raw == "":
+        return "line"
+    if isinstance(raw, str):
+        stripped = raw.strip().lower()
+        if not stripped:
+            return "line"
+        if stripped in _CHART_TYPES:
+            return stripped
+    return _error_result(
+        "INVALID_PARAMS",
+        "chart_type must be line, scatter, histogram, or bar",
+        helper="plot_data",
+    )
+
+
 def plot_data(
     data: Any,
     *,
@@ -187,29 +206,11 @@ def plot_data(
 ) -> dict[str, Any]:
     """Plot from numeric grid using a small chart spec dict."""
     spec = dict(spec or {})
-    raw_chart_type = spec.get("chart_type")
-    if raw_chart_type is None or raw_chart_type == "":
-        chart_type = "line"
-    elif isinstance(raw_chart_type, str):
-        stripped = raw_chart_type.strip().lower()
-        if not stripped:
-            chart_type = "line"
-        elif stripped in ("line", "scatter", "histogram", "bar"):
-            chart_type = stripped
-        else:
-            return _error_result(
-                "INVALID_PARAMS",
-                "chart_type must be line, scatter, histogram, or bar",
-                helper="plot_data",
-            )
-    else:
-        return _error_result(
-            "INVALID_PARAMS",
-            "chart_type must be line, scatter, histogram, or bar",
-            helper="plot_data",
-        )
+    chart_type = _parse_chart_type(spec.get("chart_type"))
+    if isinstance(chart_type, dict):
+        return chart_type
 
-    plt = _require_matplotlib("plot_data")
+    plt = _require_matplotlib()
     if plt is None:
         return _missing_package_error("plot_data", "matplotlib")
 
@@ -295,7 +296,7 @@ def correlation_heatmap(
             helper="correlation_heatmap",
         )
 
-    plt = _require_matplotlib("correlation_heatmap")
+    plt = _require_matplotlib()
     if plt is None:
         return _missing_package_error("correlation_heatmap", "matplotlib")
 
@@ -350,7 +351,7 @@ def time_series_plot(
 
     historical_value_col, when set, must name a column.
     """
-    plt = _require_matplotlib("time_series_plot")
+    plt = _require_matplotlib()
     if plt is None:
         return _missing_package_error("time_series_plot", "matplotlib")
 

@@ -74,12 +74,6 @@ parse_viz_script_header = _API.parse_header
 
 # --- Runner ---
 
-def supports_viz_manual(doc: Any) -> bool:
-    """True when Run Python Script should expose Viz Helpers for *doc*."""
-    if doc is None:
-        return False
-    return is_writer(doc) or is_calc(doc)
-
 
 def run_trusted_viz(
     uno_ctx: Any,

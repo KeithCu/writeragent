@@ -563,14 +563,14 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_MATH,
         display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
         title=N_("Math Helpers"),
-        supports="plugin.scripting.symbolic:supports_symbolic_manual",
+        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates="plugin.scripting.symbolic:get_math_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_UNITS,
         display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Units Helpers"),
-        supports="plugin.scripting.units:supports_units_manual",
+        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates="plugin.scripting.units:get_units_script_templates",
     ),
     PickerWiring(
@@ -591,7 +591,7 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_VIZ,
         display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
         title=N_("Viz Helpers"),
-        supports="plugin.scripting.viz:supports_viz_manual",
+        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates="plugin.scripting.viz:get_viz_script_templates",
     ),
     PickerWiring(

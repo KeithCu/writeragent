@@ -21,16 +21,13 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
     make_template_api,
-    supports_calc_or_writer_manual,
 )
 
 # The menu scripts are solve, simplify, integrate, and differentiate.
 # latex_to_math_object only normalizes a string for Writer Math insert.
 # It stays callable from symbolic_math and run_symbolic and is not a
 # Math Helpers template.
-_SHIPPED_TEMPLATES = frozenset(
-    {"solve_equation", "symbolic_simplify", "integrate", "differentiate"}
-)
+_SHIPPED_TEMPLATES = HELPER_NAMES - {"latex_to_math_object"}
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "solve_equation": {"equation": "x**2 - 4", "variable": "x"},
@@ -70,8 +67,6 @@ get_math_script_templates = _API.get_templates
 
 
 # --- Runner ---
-
-supports_symbolic_manual = supports_calc_or_writer_manual
 
 
 def run_trusted_symbolic(

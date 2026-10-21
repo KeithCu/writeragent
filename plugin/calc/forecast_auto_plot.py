@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.viz_auto_plot import helper_should_auto_plot
-from plugin.scripting.viz import HELPER_NAMES
 
 AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})
 
@@ -143,8 +142,6 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
     if request is None:
         return None
     viz_helper, viz_params = request
-    if viz_helper not in HELPER_NAMES:
-        return None
 
     from plugin.calc.calc_addin_data import _resolve_python_data
     from plugin.framework.queue_executor import execute_on_main_thread

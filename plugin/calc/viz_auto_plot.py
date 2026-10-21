@@ -9,8 +9,6 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from plugin.scripting.viz import HELPER_NAMES
-
 AUTO_PLOT_ANALYSIS_HELPERS = frozenset({"run_regression", "cluster_numeric", "monte_carlo", "correlation_matrix"})
 
 _VIZ_HINT_RE = re.compile(r"\b(chart|plot|visual|graph|distribution|histogram|heatmap)\b", re.I)
@@ -95,8 +93,6 @@ def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str
     if request is None:
         return None
     viz_helper, viz_params = request
-    if viz_helper not in HELPER_NAMES:
-        return None
     from plugin.scripting.viz import run_trusted_viz
 
     return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)
