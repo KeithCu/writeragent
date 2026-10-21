@@ -3,8 +3,11 @@ import types
 from unittest.mock import MagicMock
 
 # Mock UNO modules before any plugin imports
-sys.modules["uno"] = MagicMock()
-sys.modules["unohelper"] = MagicMock()
+sys.modules.setdefault("uno", MagicMock())
+if "unohelper" not in sys.modules or not hasattr(sys.modules["unohelper"], "Base") or isinstance(sys.modules["unohelper"].Base, MagicMock):
+    uh = types.ModuleType("unohelper")
+    uh.Base = type("MockUnohelperBase", (object,), {})
+    sys.modules["unohelper"] = uh
 
 # Mock com.sun.star hierarchy
 star = types.ModuleType("com.sun.star")

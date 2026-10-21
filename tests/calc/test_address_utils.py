@@ -133,17 +133,37 @@ def test_quote_sheet_name_and_qualify_a1():
     from plugin.calc.address_utils import qualify_a1, quote_sheet_name
 
     assert quote_sheet_name("Sheet1") == "Sheet1"
-    assert quote_sheet_name("2024") == "'2024'"
+    assert quote_sheet_name("2024") == "2024"
+    assert quote_sheet_name("Q1-Sales") == "Q1-Sales"
     assert quote_sheet_name("O'Brien") == "'O''Brien'"
     assert quote_sheet_name("Q1.Sales") == "'Q1.Sales'"
     assert quote_sheet_name("Foo!Bar") == "'Foo!Bar'"
+    assert quote_sheet_name("Data Sheet") == "'Data Sheet'"
 
     assert qualify_a1("Sheet1", "A1") == "Sheet1.A1"
-    assert qualify_a1("2024", "B2") == "'2024'.B2"
-    assert qualify_a1("O'Brien", "C3") == "'O''Brien'.C3"
-    assert qualify_a1("Q1.Sales", "D4") == "'Q1.Sales'.D4"
-    assert qualify_a1("Foo!Bar", "E5") == "'Foo!Bar'.E5"
+    assert qualify_a1("2024", "B2") == "2024.B2"
+    assert qualify_a1("Q1-Sales", "C3") == "Q1-Sales.C3"
+    assert qualify_a1("O'Brien", "D4") == "'O''Brien'.D4"
+    assert qualify_a1("Q1.Sales", "E5") == "'Q1.Sales'.E5"
+    assert qualify_a1("Foo!Bar", "F6") == "'Foo!Bar'.F6"
     assert qualify_a1("Sheet1", "A1", sep="!") == "Sheet1!A1"
+
+
+def test_quote_sheet_name_only_when_libreoffice_needs_it():
+    """Sheet names with digits or hyphens stay bare; spaces, dots, apostrophes, and bangs are quoted."""
+    from plugin.calc.address_utils import quote_sheet_name
+
+    # Bare names in LibreOffice Calc
+    assert quote_sheet_name("2024") == "2024"
+    assert quote_sheet_name("Q1-Sales") == "Q1-Sales"
+    assert quote_sheet_name("Plan_B") == "Plan_B"
+    assert quote_sheet_name("Summary") == "Summary"
+
+    # Names requiring quotes in LibreOffice Calc
+    assert quote_sheet_name("2024 Budget") == "'2024 Budget'"
+    assert quote_sheet_name("v1.2") == "'v1.2'"
+    assert quote_sheet_name("User's Data") == "'User''s Data'"
+    assert quote_sheet_name("Important!") == "'Important!'"
 
 
 def test_format_range_and_format_range_address():

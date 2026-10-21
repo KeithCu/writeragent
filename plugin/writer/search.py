@@ -160,10 +160,25 @@ def document_has_tracked_deletions(doc: Any) -> bool:
     return bool(found)
 
 
-def parse_non_negative_int(raw: Any, *, name: str = "occurrence") -> tuple[int | None, str | None]:
-    """Validate a non-negative integer parameter."""
+def parse_non_negative_int(
+    raw: Any, *, name: str = "occurrence", coerce: bool = False
+) -> tuple[int | None, str | None]:
+    """Validate a non-negative integer parameter, optionally coercing via int()."""
+    # What was wrong: comments, footnotes, and page break tools rejected string numbers
+    # (e.g. "2"), floats (1.0), and empty strings that previously coerced via int().
+    # How it happened: parse_non_negative_int strictly checked type(raw) is int without
+    # an option for callers that need int() coercion.
+    # Why this change: support coerce=True so comments/footnotes/page tools can coerce.
     if raw is None:
         return None, None
+    if coerce:
+        try:
+            val = int(raw or 0)
+        except (TypeError, ValueError):
+            return None, f"{name} must be a non-negative integer."
+        if val < 0:
+            return None, f"{name} must be a non-negative integer."
+        return val, None
     if type(raw) is not int or raw < 0:
         return None, f"{name} must be a non-negative integer."
     return raw, None

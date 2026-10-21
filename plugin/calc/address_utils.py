@@ -137,10 +137,15 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
 
 
 def quote_sheet_name(name: str) -> str:
-    """Bare iff ``name.isidentifier()``; otherwise ``'name'`` with `'` doubled."""
-    if name.isidentifier():
-        return name
-    return "'" + name.replace("'", "''") + "'"
+    """Bare unless LibreOffice requires quotes (spaces, dots, apostrophes, or bangs)."""
+    # What was wrong: str.isidentifier() quoted sheet names like '2024' or 'Q1-Sales'
+    # that LibreOffice Calc accepts bare without quotes.
+    # How it happened: isidentifier() was carried over during cleanup.
+    # Why this change: only quote when the name contains characters that require
+    # escaping in Calc/Excel references (' ', '.', ''', '!').
+    if any(ch in name for ch in " .!'"):
+        return "'" + name.replace("'", "''") + "'"
+    return name
 
 
 def qualify_a1(sheet_name: str, a1: str, *, sep: str = ".") -> str:

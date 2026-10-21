@@ -825,14 +825,11 @@ def run_trusted_calc_data_helper(
     empty_data_message: str,
     client_run: Callable[..., dict[str, Any]],
     require_calc_or_writer: bool = False,
+    force_queue: bool = False,
 ) -> dict[str, Any]:
     """Fetch Calc data and run one trusted sheet helper. Forecast and optimize share this."""
     from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.doc.doc_type import is_calc, is_writer
     from plugin.framework.errors import ToolExecutionError
-
-    if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
-        raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
     name = str(helper or "").strip()
     if not name:
@@ -846,7 +843,17 @@ def run_trusted_calc_data_helper(
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
+        from plugin.doc.doc_type import is_calc, is_writer
         from plugin.framework.errors import reraise_if_disposed
+
+        # What was wrong: require_calc_or_writer checked is_calc(doc) and is_writer(doc)
+        # on the calling worker thread before hopping to the main thread.
+        # How it happened: both helpers call get_document_type which calls supportsService,
+        # marked @main_thread_only, violating thread guard off the main thread.
+        # Why this change: move the doc type validation inside _read_sheet so it executes
+        # after the main-thread hop.
+        if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
+            raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
         py_data, err = _resolve_python_data(doc, data_range=dr, data=data)
         context: dict[str, Any] = {}
@@ -875,7 +882,13 @@ def run_trusted_calc_data_helper(
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
 
-    if on_main_thread():
+    # What was wrong: untagged PyUNO Dummy-N threads ran the sheet read inline
+    # because on_main_thread() returned True.
+    # How it happened: analysis_runner was unified with run_trusted_calc_data_helper,
+    # which bypassed execute_on_main_thread when on_main_thread() was True.
+    # Why this change: force_queue forces the sheet read through execute_on_main_thread,
+    # enqueuing work on Dummy-N threads while still running inline on the true main thread.
+    if not force_queue and on_main_thread():
         py_data, err, context = _read_sheet()
     else:
         py_data, err, context = execute_on_main_thread(_read_sheet)

@@ -88,3 +88,17 @@ def test_extract_member_capped_and_safe_paths(tmp_path: Path):
         assert out is not None
         assert Path(out).read_bytes() == b"normal_pic"
         assert Path(out).parent == dest_dir
+
+
+def test_extract_member_read_member_exception_returns_none(tmp_path: Path):
+    from unittest.mock import patch
+
+    otp = tmp_path / "test_err.otp"
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("bad.bin", b"data")
+
+    with zipfile.ZipFile(otp) as zf:
+        with patch("plugin.draw.otp_zip.read_member", side_effect=RuntimeError("Encrypted or unsupported compression")):
+            assert extract_member(zf, "bad.bin", str(dest_dir)) is None

@@ -170,6 +170,19 @@ class TestAccessorsAndCollector:
         # fallback_attr=True falls back to getattr on failed getPropertyValue
         assert _get_bool(shape, "IsFixed", fallback_attr=True) is True
 
+    def test_shape_accessors_swallow_hasattr_exception(self):
+        class ExplodingShape:
+            def __getattr__(self, name):
+                raise RuntimeError(f"PyUNO UnknownPropertyException for {name}")
+
+        exploding = ExplodingShape()
+        from plugin.draw.headers_footers import _get_text, _set_text, _set_visible, _get_bool
+
+        assert _get_text(exploding) == ""
+        assert _set_text(exploding, "hello") is False
+        assert _set_visible(exploding, True) is False
+        assert _get_bool(exploding, "Visible") is False
+
     def test_collect_hf_shapes_strict_beats_supported_names(self):
         from plugin.draw.headers_footers import _SVC_HEADER, _collect_hf_shapes
 

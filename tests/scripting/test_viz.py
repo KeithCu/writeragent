@@ -262,6 +262,46 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
     mock_client.assert_called_once()
 
 
+def test_run_trusted_viz_doc_type_check_runs_inside_main_thread_hop():
+    inside = {"flag": False}
+
+    def exec_main(fn, *args, **kwargs):
+        inside["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside["flag"] = False
+
+    def check_is_calc(_doc):
+        assert inside["flag"], "is_calc must only be called inside the main-thread hop"
+        return False
+
+    def check_is_writer(_doc):
+        assert inside["flag"], "is_writer must only be called inside the main-thread hop"
+        return False
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main) as mock_main,
+        patch("plugin.doc.doc_type.is_calc", side_effect=check_is_calc),
+        patch("plugin.doc.doc_type.is_writer", side_effect=check_is_writer),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.scripting.viz.client_run_viz", return_value={"status": "ok", "helper": "time_series_plot"}),
+    ):
+        from plugin.framework.errors import ToolExecutionError
+        from plugin.scripting.viz import run_trusted_viz
+
+        with pytest.raises(ToolExecutionError, match="Viz helpers require a Writer or Calc document."):
+            run_trusted_viz(
+                MagicMock(),
+                MagicMock(),
+                helper="time_series_plot",
+                data=[["date", "Value"], ["2024-01-01", 1.0]],
+            )
+
+    mock_main.assert_called_once()
+
+
 def test_insert_viz_result_into_doc() -> None:
     from plugin.scripting.viz import insert_viz_result_into_doc
 

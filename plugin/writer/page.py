@@ -1794,7 +1794,10 @@ class PageInsertBreak(ToolWriterPageBase):
 
         if before_text or after_text:
             anchor = str(before_text or after_text)
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
+            # What was wrong: numeric strings, floats, and empty string were rejected.
+            # How it happened: parse_non_negative_int without coerce=True rejected non-ints.
+            # Why this change: restore int() coercion via coerce=True.
+            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
             if occ_err:
                 return self._tool_error(occ_err)
             occurrence = 0 if occ_val is None else occ_val

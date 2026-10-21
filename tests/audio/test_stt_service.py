@@ -131,10 +131,29 @@ def test_endpoint_transcribe_calls_client_not_venv(monkeypatch: pytest.MonkeyPat
 def test_local_transcribe_does_not_call_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stt_service, "uses_local_stt", lambda: True)
     monkeypatch.setattr(stt_service, "get_stt_local_model", lambda: "small")
-    monkeypatch.setattr(stt_service, "_transcribe_local", lambda wav, model, on_spawn=None: f"{model}:{wav}")
+    monkeypatch.setattr(stt_service, "_transcribe_local", lambda wav, model, on_status=None, on_spawn=None: f"{model}:{wav}")
     client = MagicMock()
     assert stt_service.transcribe("/tmp/a.wav", client=client, model="whisper-1") == "small:/tmp/a.wav"
     client.transcribe_audio.assert_not_called()
+
+
+def test_local_transcribe_emits_on_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    stt_service.clear_faster_whisper_probe_cache()
+    py_exe = "/opt/venv/bin/python"
+    statuses: list[str] = []
+
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del timeout, kwargs
+        if "import faster_whisper" in cmd:
+            return _completed_process(cmd, 0)
+        return _completed_process(cmd, 0, '{"status":"ok","text":"hi"}\n')
+
+    monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
+    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
+    assert stt_service._transcribe_local("/tmp/a.wav", "tiny", statuses.append) == "hi"
+    assert statuses == ["Transcribing with local Whisper (tiny)… The first run downloads the model."]
+    stt_service.clear_faster_whisper_probe_cache()
 
 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:

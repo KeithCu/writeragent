@@ -697,3 +697,28 @@ def test_find_first_range_sensitive_then_insensitive_fallback():
     res = find_first_range(doc, "LOWER")
     assert res is hit
 
+
+def test_parse_non_negative_int():
+    from plugin.writer.search import parse_non_negative_int
+
+    # None returns None, None
+    assert parse_non_negative_int(None) == (None, None)
+
+    # Without coerce: only strict non-negative int
+    assert parse_non_negative_int(0) == (0, None)
+    assert parse_non_negative_int(2) == (2, None)
+    assert parse_non_negative_int(-1) == (None, "occurrence must be a non-negative integer.")
+    assert parse_non_negative_int("2") == (None, "occurrence must be a non-negative integer.")
+    assert parse_non_negative_int(1.0) == (None, "occurrence must be a non-negative integer.")
+    assert parse_non_negative_int("") == (None, "occurrence must be a non-negative integer.")
+
+    # With coerce=True: int() coercion allowed for comments, footnotes, page style
+    assert parse_non_negative_int("2", coerce=True) == (2, None)
+    assert parse_non_negative_int(1.0, coerce=True) == (1, None)
+    assert parse_non_negative_int("", coerce=True) == (0, None)
+    assert parse_non_negative_int(0, coerce=True) == (0, None)
+    assert parse_non_negative_int(5, coerce=True) == (5, None)
+    assert parse_non_negative_int(-1, coerce=True) == (None, "occurrence must be a non-negative integer.")
+    assert parse_non_negative_int("-2", coerce=True) == (None, "occurrence must be a non-negative integer.")
+    assert parse_non_negative_int("abc", coerce=True) == (None, "occurrence must be a non-negative integer.")
+

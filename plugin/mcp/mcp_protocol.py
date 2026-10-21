@@ -448,6 +448,16 @@ def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
 
 
+class _DebugHandlerAdapter:
+    """Adapter presenting a handler-like interface from GET /debug arguments."""
+
+    def __init__(self, body: Any, headers: Any):
+        self.body: Any = body
+        self.headers: Any = headers or {}
+        addr = getattr(headers, "_client_address", None) or getattr(headers, "client_address", None)
+        self.client_address: Any = addr if addr is not None else ("127.0.0.1", 0)
+
+
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -693,16 +703,23 @@ class MCPProtocolHandler:
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
-    def handle_debug_info(self, handler: Any) -> None:
+    def handle_debug_info(self, body_or_handler: Any, headers: Any = None, query: Any = None) -> tuple[int, dict[str, Any]]:
         """GET /debug — show available debug actions."""
+        # What was wrong: GET /debug was registered as raw=True, sending protocol headers
+        # and writing JSON itself rather than using the server's non-raw JSON handler.
+        # How it happened: MCP_ROUTE_TABLE table consolidation mistakenly marked it raw=True.
+        # Why this change: return (status, dict) so HttpServer formats and sends the response.
+        if headers is None and hasattr(body_or_handler, "headers"):
+            handler = body_or_handler
+        else:
+            handler = _DebugHandlerAdapter(body_or_handler, headers)
+
         forbidden = self._debug_forbidden(handler)
         if forbidden:
-            self._send_json(handler, 403, {"error": forbidden})
-            return
+            return (403, {"error": forbidden})
 
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
-        self._send_json(
-            handler,
+        return (
             200,
             {
                 "debug": True,

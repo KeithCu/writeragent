@@ -96,7 +96,14 @@ def extract_member(
     base = os.path.basename(actual_name.replace("\\", "/"))
     if not base or base in (".", ".."):
         return None
-    data = read_member(zf, actual_name, limit)
+    # What was wrong: read_member could raise RuntimeError/NotImplementedError, breaking caller loops.
+    # How it happened: read_member only caught BadZipFile, EOFError, and zlib.error.
+    # Why this change: catch any Exception around read_member and return None so failed members are skipped.
+    try:
+        data = read_member(zf, actual_name, limit)
+    except Exception:
+        log.debug("read member failed name=%s", name, exc_info=True)
+        return None
     if data is None:
         return None
     filename = prefix + base

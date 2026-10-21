@@ -171,9 +171,14 @@ def _collect_hf_shapes(page: Any) -> dict[str, Any]:
 
 
 def _get_text(shape: Any) -> str:
-    if shape is None or not hasattr(shape, "getString"):
+    # What was wrong: hasattr(shape, "getString") outside try raised UnknownPropertyException on PyUNO objects.
+    # How it happened: hasattr was lifted before the try block during cleanup.
+    # Why this change: put hasattr inside try; re-raise disposal and return "" on other exceptions.
+    if shape is None:
         return ""
     try:
+        if not hasattr(shape, "getString"):
+            return ""
         return str(shape.getString() or "")
     except Exception as e:
         if is_disposed_exception(e):
@@ -193,28 +198,51 @@ def _write(fn: Any, what: str) -> bool:
 
 
 def _set_text(shape: Any, text: str) -> bool:
-    if shape is None or not hasattr(shape, "setString"):
+    # What was wrong: hasattr(shape, "setString") outside try raised UnknownPropertyException on PyUNO objects.
+    # How it happened: hasattr was lifted before the try block during cleanup.
+    # Why this change: put hasattr inside try; re-raise disposal and return False on other exceptions.
+    if shape is None:
         return False
-    return _write(lambda: shape.setString(text), "setString on header/footer shape")
+    try:
+        if not hasattr(shape, "setString"):
+            return False
+        return _write(lambda: shape.setString(text), "setString on header/footer shape")
+    except Exception as e:
+        if is_disposed_exception(e):
+            raise
+        return False
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    if shape is None or not hasattr(shape, "setPropertyValue"):
+    # What was wrong: hasattr(shape, "setPropertyValue") outside try raised UnknownPropertyException on PyUNO objects.
+    # How it happened: hasattr was lifted before the try block during cleanup.
+    # Why this change: put hasattr inside try; re-raise disposal and return False on other exceptions.
+    if shape is None:
         return False
-    return _write(lambda: shape.setPropertyValue("Visible", vis), "set Visible on header/footer shape")
+    try:
+        if not hasattr(shape, "setPropertyValue"):
+            return False
+        return _write(lambda: shape.setPropertyValue("Visible", vis), "set Visible on header/footer shape")
+    except Exception as e:
+        if is_disposed_exception(e):
+            raise
+        return False
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
+    # What was wrong: hasattr(shape, "getPropertyValue") outside try raised UnknownPropertyException on PyUNO objects.
+    # How it happened: hasattr was lifted before the try block during cleanup.
+    # Why this change: put hasattr inside try; re-raise disposal and fall back/return False on other exceptions.
     if shape is None:
         return False
-    if hasattr(shape, "getPropertyValue"):
-        try:
+    try:
+        if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue(name))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            if not fallback_attr:
-                return False
+    except Exception as e:
+        if is_disposed_exception(e):
+            raise
+        if not fallback_attr:
+            return False
     try:
         return bool(getattr(shape, name, False))
     except Exception as e:

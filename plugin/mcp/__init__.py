@@ -65,7 +65,7 @@ MCP_ROUTE_TABLE: tuple[tuple[str, str, str, bool], ...] = (
     ("POST", "/sse", "handle_sse_post", True),
     ("POST", "/messages", "handle_sse_post", True),
     ("GET", "/sse", "handle_sse_stream", True),
-    ("GET", "/debug", "handle_debug_info", True),
+    ("GET", "/debug", "handle_debug_info", False),
     ("POST", "/debug", "handle_debug_post", True),
 )
 

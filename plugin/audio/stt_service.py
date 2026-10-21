@@ -413,9 +413,20 @@ def _local_timeout_message(cached: bool) -> str:
     )
 
 
+def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
+    log.info("%s", message)
+    if on_status is None:
+        return
+    try:
+        on_status(message)
+    except Exception as e:
+        log.debug("on_status callback failed: %s", e)
+
+
 def _transcribe_local(
     wav_path: str,
     model_name: str,
+    on_status: Callable[[str], None] | None = None,
     *,
     on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
@@ -437,6 +448,11 @@ def _transcribe_local(
             ).format(_FASTER_WHISPER_PIP_INSTALL)
         )
 
+    # What was wrong: local Whisper status updates were dropped, so weight download
+    # was not surfaced to the sidebar while waiting for transcription.
+    # How it happened: on_status callback and _emit helper were removed during cleanup.
+    # Why this change: emit _local_whisper_status so the user knows weights are downloading.
+    _emit(on_status, _local_whisper_status(model_name))
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
     if completed is None:
@@ -458,6 +474,7 @@ def transcribe(
     *,
     client: Any = None,
     model: str | None = None,
+    on_status: Callable[[str], None] | None = None,
     on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     """Transcribe ``wav_path`` with the configured STT provider.
@@ -467,10 +484,12 @@ def transcribe(
     ``client.transcribe_audio`` and does not spawn the venv.
     """
     if uses_local_stt():
-        return _transcribe_local(wav_path, get_stt_local_model(), on_spawn=on_spawn)
-    if client is None or not hasattr(client, "transcribe_audio"):
-        raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
-    return str(client.transcribe_audio(wav_path, model=model) or "")
+        return _transcribe_local(
+            wav_path,
+            get_stt_local_model(),
+            on_status,
+            on_spawn=on_spawn,
+        )
     if client is None or not hasattr(client, "transcribe_audio"):
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
     return str(client.transcribe_audio(wav_path, model=model) or "")
