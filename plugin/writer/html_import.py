@@ -786,8 +786,8 @@ def insert_html_fragment_at_cursor(
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if model is not None else None
     from . import format as format_mod
-    with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):
-        filter_name, _unused = format_mod._get_format_props(config_svc)
+    with format_mod._with_temp_buffer(prepared) as (_path, file_url):
+        filter_name = format_mod.HTML_FILTER
         filter_props = (format_mod.create_property_value("FilterName", filter_name),)
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
@@ -1904,6 +1904,13 @@ def content_has_markup(content: str | None) -> bool:
     if text_has_real_html_tag(content):
         return True
     return "$$" in content or r"\(" in content or r"\[" in content or "<math" in content.lower()
+
+
+def plain_text_if_markup(text: str, uno_ctx: Any, config_svc: Any) -> str:
+    """Return plain search text if text contains markup, else text unchanged."""
+    if content_has_markup(text):
+        return html_to_plain_text(text, uno_ctx, config_svc)
+    return text
 
 
 

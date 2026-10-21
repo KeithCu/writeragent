@@ -30,6 +30,11 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import new_blank_writer, uno_same
+from plugin.writer.math.math_mml_export import (
+    _OBJECT_REPLACEMENT,
+    portion_math_embed,
+    read_starmath,
+)
 from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
@@ -59,7 +64,6 @@ class _RubySpan:
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
-_OBJECT_REPLACEMENT = "\ufffc"
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -329,6 +333,12 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
     return inject_ruby_into_html(content, spans)
 
 
+def _record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, display_block: bool) -> str:
+    ph = chr(0xE000 + len(records))
+    records.append((ph, read_starmath(emb), display_block))
+    return ph
+
+
 def _substitute_math_placeholders(
     content: str,
     math_records: list[tuple[str, str, bool]],
@@ -395,7 +405,7 @@ def _truncate_html(content: str, max_chars: int) -> str:
 def _export_xhtml(doc: Any, config_svc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     from . import format as format_mod
-    with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.XHTML_EXTENSION) as (path, file_url):
+    with format_mod._with_temp_buffer(ext=format_mod.XHTML_EXTENSION) as (path, file_url):
         props = (format_mod.create_property_value("FilterName", format_mod.XHTML_FILTER),)
         doc.storeToURL(file_url, props)
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -420,7 +430,7 @@ def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str
     onto the temp document first (see _paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
         from . import format as format_mod
-        with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.FODT_EXTENSION) as (path, file_url):
+        with format_mod._with_temp_buffer(ext=format_mod.FODT_EXTENSION) as (path, file_url):
             props = (format_mod.create_property_value("FilterName", format_mod.FLAT_ODF_FILTER),)
             doc.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -787,7 +797,6 @@ def _range_to_content_via_temp_doc(
             # paint offsets match the helper string. Still walk here (not just the
             # helper) because we need the portion objects to copy Char* properties.
             portions = list(_visible_portions(el, truncated_out=walk_warnings))
-            from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
 
             has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
             para_text = "".join(chunk for _unused, chunk in portions)
@@ -854,9 +863,7 @@ def _range_to_content_via_temp_doc(
                     elif run_end <= trim_start or run_start >= trim_end:
                         continue
                     if emb is not None:
-                        ph = chr(0xE000 + len(math_records))
-                        starmath = read_starmath(emb)
-                        math_records.append((ph, starmath, display_block))
+                        ph = _record_math_placeholder(math_records, emb, display_block=display_block)
                         slice_text = ph
                     else:
                         s_start = max(0, trim_start - run_start)
@@ -893,8 +900,8 @@ def _range_to_content_via_temp_doc(
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             from . import format as format_mod
-            filter_name, _unused = format_mod._get_format_props(config_svc)
-            with format_mod._with_temp_buffer(None, config_svc) as (path, file_url):
+            filter_name = format_mod.HTML_FILTER
+            with format_mod._with_temp_buffer() as (path, file_url):
                 props = (format_mod.create_property_value("FilterName", filter_name),)
                 temp_doc.storeToURL(file_url, props)
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -903,7 +910,6 @@ def _range_to_content_via_temp_doc(
         content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
         content = _substitute_math_placeholders(content, math_records, ctx)
-        content = _inject_exported_math_tex(temp_doc, ctx, content)
         content = inject_ruby_into_html(content, copied_ruby)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
@@ -1040,8 +1046,8 @@ def document_to_content(
     try:
         t_phase = time.perf_counter()
         from . import format as format_mod
-        filter_name, _unused = format_mod._get_format_props(config_svc)
-        with format_mod._with_temp_buffer(None, config_svc) as (path, file_url):
+        filter_name = format_mod.HTML_FILTER
+        with format_mod._with_temp_buffer() as (path, file_url):
             props = (format_mod.create_property_value("FilterName", filter_name),)
             model.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -1188,16 +1194,11 @@ def _copy_cell_xtext(
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             else:
                 if math_records is not None:
-                    from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
-
                     emb = portion_math_embed(portion)
                     if emb is not None:
-                        ph = chr(0xE000 + len(math_records))
-                        starmath = read_starmath(emb)
                         raw = para.getString() if hasattr(para, "getString") else ""
                         stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-                        display_block = stripped == ""
-                        math_records.append((ph, starmath, display_block))
+                        ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
                         dest_text.insertString(dest_cursor, ph, False)
                         continue
                 chunk = uno_read(lambda: portion.getString(), "")
@@ -1395,16 +1396,11 @@ def _copy_xtext_by_portions(
                 dest_cursor.gotoRange(run.getEnd(), False)
             else:
                 if math_records is not None:
-                    from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
-
                     emb = portion_math_embed(portion)
                     if emb is not None:
-                        ph = chr(0xE000 + len(math_records))
-                        starmath = read_starmath(emb)
                         raw = el.getString() if hasattr(el, "getString") else ""
                         stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-                        display_block = stripped == ""
-                        math_records.append((ph, starmath, display_block))
+                        ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
                         dest_text.insertString(dest_cursor, ph, False)
                         continue
                 chunk = uno_read(lambda: portion.getString(), "")

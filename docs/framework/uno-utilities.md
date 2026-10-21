@@ -470,7 +470,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown â
 
 - Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
 - `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
-- `create_property_value` (`writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
+- `create_property_value` (`uno_context.py`, re-exported by `writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
 **Notebook markdown images**
 

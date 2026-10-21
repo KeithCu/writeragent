@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 from enum import IntFlag
-
 import os
+from typing import Any
 
 APP_REFERER = "https://github.com/KeithCu/writeragent"
 APP_TITLE = "WriterAgent"
@@ -48,6 +48,17 @@ PLUGIN_DIR = get_plugin_dir()
 
 # Max characters of Writer document text embedded in chat system context (excerpt, not model window).
 CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
+CHAT_DOCUMENT_TRUNCATED_MARKER = "\n\n[... document truncated ...]"
+
+
+def truncate_chat_context(text: str, limit: Any) -> str:
+    """Truncate text to limit with standard chat document truncation marker."""
+    lim = limit if isinstance(limit, int) and not isinstance(limit, bool) else 0
+    if lim < 0:
+        lim = 0
+    if len(text) > lim:
+        return text[:lim] + CHAT_DOCUMENT_TRUNCATED_MARKER
+    return text
 
 # Canonical comment workflow task prefixes for reviewer/agent tasks.
 WORKFLOW_TASK_PREFIXES: tuple[str, ...] = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")

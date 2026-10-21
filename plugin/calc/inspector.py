@@ -27,19 +27,9 @@ from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
-from plugin.calc.calc_utils import _formula_cell_result
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
 from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
-
-try:
-    from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-
-    UNO_AVAILABLE = True
-except ImportError:
-    from typing import Any, cast
-
-    EMPTY, VALUE, TEXT, FORMULA = cast("Any", 0), cast("Any", 1), cast("Any", 2), cast("Any", 3)
-    UNO_AVAILABLE = False
 
 log = logging.getLogger("writeragent.calc")
 
@@ -252,26 +242,11 @@ class CellInspector:
                     raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
                 if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
                     cell = cell.getCellByPosition(0, 0)
-            cell_type = cell.getType()
 
-            if cell_type == EMPTY:
-                value = None
-            elif cell_type == VALUE:
-                value = cell.getValue()
-            elif cell_type == TEXT:
-                value = cell.getString()
-            elif cell_type == FORMULA:
-                err = cell.getError()
-                if err != 0:
-                    value = cell.getString()
-                else:
-                    value = _formula_cell_result(cell)
-            else:
-                value = cell.getString()
+            value, type_name = cell_value_and_type(cell)
+            formula = cell.getFormula() if type_name == "formula" else None
 
-            formula = cell.getFormula() if cell_type == FORMULA else None
-
-            info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": self._cell_type_name(cell_type)}
+            info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": type_name}
             if include_format_info:
                 try:
                     self._enrich_cell_format(info, cell)
@@ -308,29 +283,15 @@ class CellInspector:
                     raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
                 if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
                     cell = cell.getCellByPosition(0, 0)
-            cell_type = cell.getType()
 
-            if cell_type == EMPTY:
-                value = None
-            elif cell_type == VALUE:
-                value = cell.getValue()
-            elif cell_type == TEXT:
-                value = cell.getString()
-            elif cell_type == FORMULA:
-                err = cell.getError()
-                if err != 0:
-                    value = cell.getString()
-                else:
-                    value = _formula_cell_result(cell)
-            else:
-                value = cell.getString()
+            value, type_name = cell_value_and_type(cell)
 
             return {
                 "address": bare_address.upper(),
                 "value": value,
                 "formula": cell.getFormula(),
                 "formula_local": self._safe_prop(cell, "FormulaLocal"),
-                "type": self._cell_type_name(cell_type),
+                "type": type_name,
                 "background_color": self._safe_prop(cell, "CellBackColor"),
                 "number_format": self._safe_prop(cell, "NumberFormat"),
                 "font_color": self._safe_prop(cell, "CharColor"),
@@ -488,11 +449,7 @@ class CellInspector:
                         cell_address = f"{col_letter}{cell_addr.Row + 1}"
 
                         formula = cell.getFormula()
-                        err = cell.getError()
-                        if err != 0:
-                            value = cell.getString()
-                        else:
-                            value = _formula_cell_result(cell)
+                        value, _type = cell_value_and_type(cell)
 
                         refs = _FORMULA_REF_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})

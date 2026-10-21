@@ -480,8 +480,8 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         req = MockHandler({})
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
-            assert status == 403
+            handler.handle_debug_info(req)
+            assert 403 in req.sent_responses
         else:
             with patch.object(handler, "_read_body", return_value={}):
                 handler.handle_debug_post(req)
@@ -497,8 +497,8 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         })
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
-            assert status == 200
+            handler.handle_debug_info(req)
+            assert 200 in req.sent_responses
         else:
             with patch.object(handler, "_read_body", return_value={}):
                 handler.handle_debug_post(req)
@@ -508,8 +508,8 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         req = MockHandler({"X-WriterAgent-Debug-Token": "secret-token-123"})
         req.client_address = ("192.168.1.50", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
-            assert status == 403
+            handler.handle_debug_info(req)
+            assert 403 in req.sent_responses
         else:
             with patch.object(handler, "_read_body", return_value={}):
                 handler.handle_debug_post(req)
@@ -522,8 +522,8 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         })
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
-            assert status == 403
+            handler.handle_debug_info(req)
+            assert 403 in req.sent_responses
         else:
             with patch.object(handler, "_read_body", return_value={}):
                 handler.handle_debug_post(req)

@@ -10,9 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.address_utils import format_address
-from plugin.calc.calc_utils import formula_cell_result, query_interface
+from plugin.calc.calc_utils import cell_value_and_type, query_interface
 from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
-from plugin.calc.inspector import CellInspector
 from plugin.framework.errors import best_effort, safe_json_loads
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
@@ -59,23 +58,15 @@ def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
 
 def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
-    from com.sun.star.table import CellContentType
-
-    ctype = cell.getType()
-    type_name = CellInspector._cell_type_name(ctype)
+    val, type_name = cell_value_and_type(cell, empty_as_none=False)
     addr = _address_on_sheet(sheet, col, row)
-    snapshot: dict[str, Any] = {"address": addr, "type": type_name}
+    snapshot: dict[str, Any] = {"address": addr, "type": type_name, "value": val}
 
     err = cell.getError()
     if err:
         snapshot["error_code"] = err
-    if ctype == CellContentType.FORMULA:
+    if type_name == "formula":
         snapshot["formula"] = cell.getFormula()
-        snapshot["value"] = cell.getString() if err else formula_cell_result(cell)
-    elif ctype == CellContentType.VALUE:
-        snapshot["value"] = cell.getValue()
-    else:
-        snapshot["value"] = cell.getString()
     return snapshot
 
 

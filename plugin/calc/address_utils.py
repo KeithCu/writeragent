@@ -239,6 +239,26 @@ def format_address(col: int, row: int) -> str:
     return f"{index_to_column(col)}{row + 1}"
 
 
+def format_range(start_col: int, start_row: int, end_col: int, end_row: int, *, collapse_single: bool = False) -> str:
+    """Create cell range string from column and row indices.
+
+    Args:
+        start_col: 0-based start column index.
+        start_row: 0-based start row index.
+        end_col: 0-based end column index.
+        end_row: 0-based end row index.
+        collapse_single: When True and start == end, return "A1" instead of "A1:A1".
+
+    Returns:
+        Range string (e.g. "A1:B3" or "A1:A1" / "A1").
+    """
+    start = format_address(start_col, start_row)
+    end = format_address(end_col, end_row)
+    if collapse_single and start == end:
+        return start
+    return f"{start}:{end}"
+
+
 def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
     """Sheet name (if any), column, and row where a generated report should start.
 

@@ -14,6 +14,7 @@ import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import iter_heading_nodes
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
@@ -249,12 +250,11 @@ def _get_writer_sections(doc: Any) -> list[str]:
 
 def _flatten_headings(node: dict[str, Any] | "HeadingTreeNode") -> list[dict[str, Any]]:
     """Utility: flatten heading tree to {para_index: text} for grouping."""
-    out: list[dict[str, Any]] = []
-    for ch in node.get("children", []):
-        if ch.get("text"):
-            out.append({"para_index": ch.get("para_index"), "text": ch.get("text")})
-        out.extend(_flatten_headings(ch))
-    return out
+    return [
+        {"para_index": ch.get("para_index"), "text": ch.get("text")}
+        for ch in iter_heading_nodes(node)
+        if ch.get("text")
+    ]
 
 
 def get_doc_language(doc: Any) -> str | None:

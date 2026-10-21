@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections import deque
 import logging
 import os
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 if TYPE_CHECKING:
     import uno
@@ -48,7 +48,7 @@ from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
-from .format import CLEARABLE_PARA_PROPERTIES, apply_paragraph_style_preserving_direct_char
+from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
 from .specialized_base import ToolWriterStyleBase
 from .target_resolver import resolve_target_cursor
@@ -248,13 +248,6 @@ def _style_color_to_uno(val: Any) -> int | None:
     return parse_color_to_uno_int(val)
 
 
-_FONT_SLANT_TO_INT = {
-    "none": 0,
-    "oblique": 1,
-    "italic": 2,
-}
-
-
 def _font_slant_to_int(raw: Any) -> Any:
     # com.sun.star.awt.FontSlant: NONE=0, OBLIQUE=1, ITALIC=2.
     # Return an integer so style_get_info round-trips cleanly through json.dumps.
@@ -265,12 +258,12 @@ def _font_slant_to_int(raw: Any) -> Any:
     name = getattr(raw, "value", None)
     if isinstance(name, str):
         low = name.strip().lower()
-        if low in _FONT_SLANT_TO_INT:
-            return _FONT_SLANT_TO_INT[low]
+        if low in FONT_SLANT_TO_INT:
+            return FONT_SLANT_TO_INT[low]
     if isinstance(raw, str):
         low = raw.strip().lower()
-        if low in _FONT_SLANT_TO_INT:
-            return _FONT_SLANT_TO_INT[low]
+        if low in FONT_SLANT_TO_INT:
+            return FONT_SLANT_TO_INT[low]
     return raw
 
 
@@ -923,7 +916,15 @@ class ApplyStyle(FrameworkToolBase):
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
-    def _apply_one(self, ctx: ToolContext, family: str, uno_prop: str, uno_value: str, cursor: Any, clear_direct: str = "style_props") -> dict[str, Any] | None:
+    def _apply_one(
+        self,
+        ctx: ToolContext,
+        family: str,
+        uno_prop: str,
+        uno_value: str,
+        cursor: Any,
+        clear_direct: Literal["none", "style_props", "all"] = "style_props",
+    ) -> ParagraphStyleApplyReport | None:
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
             return apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value, clear_direct)
@@ -999,9 +1000,10 @@ class ApplyStyle(FrameworkToolBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
-        clear_direct = self._resolve_clear_direct(family, kwargs.get("clear_direct"))
-        if clear_direct not in ("none", "style_props", "all"):
+        clear_direct_raw = self._resolve_clear_direct(family, kwargs.get("clear_direct"))
+        if clear_direct_raw not in ("none", "style_props", "all"):
             return self._tool_error("clear_direct must be one of: none, style_props, all.")
+        clear_direct = cast("Literal['none', 'style_props', 'all']", clear_direct_raw)
         if clear_direct != "none":
             if family != "ParagraphStyles":
                 return self._tool_error("clear_direct only applies to family='ParagraphStyles'.")
@@ -1021,13 +1023,12 @@ class ApplyStyle(FrameworkToolBase):
         occ_raw = kwargs.get("occurrence")
         if target == "search" and (all_matches or occ_raw is not None):
             from plugin.writer.search import find_all_ranges, normalize_search_string_for_find
-            from plugin.writer.format import content_has_markup, html_to_plain_text
+            from plugin.writer.format import plain_text_if_markup
 
             s = str(old_content).strip() if old_content is not None else ""
             if not s:
                 return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            if content_has_markup(s):
-                s = html_to_plain_text(s, ctx.ctx, ctx.services.get("config"))
+            s = plain_text_if_markup(s, ctx.ctx, ctx.services.get("config"))
             s = normalize_search_string_for_find(s)
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:

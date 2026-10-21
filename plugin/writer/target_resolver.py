@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import reraise_if_disposed
 from plugin.writer import search as search_mod
-from .format import content_has_markup, html_to_plain_text
+from .format import plain_text_if_markup
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -86,8 +86,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     # target == "search"
 
     search_string = str(old_content).strip() if old_content is not None else ""
-    if content_has_markup(search_string):
-        search_string = html_to_plain_text(search_string, ctx.ctx, config_svc)
+    search_string = plain_text_if_markup(search_string, ctx.ctx, config_svc)
 
     search_string = search_mod.normalize_search_string_for_find(search_string)
     if not search_string:
@@ -98,10 +97,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     if found is None:
         shape_name = search_mod.drawing_shape_containing(doc, search_string)
         if shape_name:
-            raise ValueError(
-                "old_content is only inside a drawing shape / floating text box ('%s'). "
-                "Edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
-                % shape_name)
+            raise ValueError(search_mod.shape_only_search_message("old_content", shape_name))
         raise ValueError("old_content not found in document. Try a shorter, unique substring.")
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell

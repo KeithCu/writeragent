@@ -427,11 +427,9 @@ class ApplyDocumentContent(ToolBase):
             return None, None
         if target != "search":
             return None, "occurrence only applies to target='search'."
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-            return None, "occurrence must be a non-negative integer."
         if kwargs.get("all_matches", False):
             return None, "occurrence cannot be combined with all_matches=true."
-        return raw, None
+        return search_mod.parse_non_negative_int(raw, name="occurrence")
 
     @staticmethod
     def _parse_hyperlink_url(kwargs: Any) -> tuple[str | None, str | None]:
@@ -453,7 +451,7 @@ class ApplyDocumentContent(ToolBase):
             content = "\n".join(str(part) for part in content)
         text = "" if content is None else str(content)
         if format_support.content_has_markup(text):
-            return format_support.html_to_plain_text(text, ctx.ctx, ctx.services.get("config"))
+            return format_support.plain_text_if_markup(text, ctx.ctx, ctx.services.get("config"))
         return text.replace("\\n", "\n").replace("\\t", "\t")
 
     def _outline_override_error(self) -> dict[str, Any]:
@@ -606,12 +604,11 @@ class ApplyDocumentContent(ToolBase):
         if shape is not None:
             shape_name = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
             if track_reviewable:
-                return {"status": "error",
-                        "message": ("old_content is only inside a drawing shape / floating text box "
-                                    f"('{shape_name}'). In review mode it cannot be edited as a tracked "
-                                    "change; edit it via the shapes toolset "
-                                    "(delegate_to_specialized_writer_toolset domain='shapes')."),
-                        "replaced_count": 0}, session
+                return {
+                    "status": "error",
+                    "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
+                    "replaced_count": 0,
+                }, session
             undo_title = next_agent_edit_undo_title()
             try:
                 undo = doc.getUndoManager()
@@ -848,9 +845,7 @@ class ApplyDocumentContent(ToolBase):
         from . import format as format_support
 
         old_stripped = str(old_content).strip()
-        s = old_stripped
-        if format_support.content_has_markup(s):
-            s = format_support.html_to_plain_text(s, ctx.ctx, ctx.services.get("config"))
+        s = format_support.plain_text_if_markup(old_stripped, ctx.ctx, ctx.services.get("config"))
         s = search_mod.normalize_search_string_for_find(s)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
@@ -1192,12 +1187,10 @@ class ApplyDocumentContent(ToolBase):
             s = str(value)
             if use_preserve:
                 return s
-            if format_support.content_has_markup(s):
-                try:
-                    return format_support.html_to_plain_text(s, ctx.ctx, config_svc)
-                except Exception:
-                    return s
-            return s
+            try:
+                return format_support.plain_text_if_markup(s, ctx.ctx, config_svc)
+            except Exception:
+                return s
 
         content_to_insert = content
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
@@ -1272,9 +1265,7 @@ class ApplyDocumentContent(ToolBase):
         # Whole-document replace: target='full_document' (no search, no old_content).
         old_stripped = str(old_content).strip()
 
-        search_string = old_stripped
-        if format_support.content_has_markup(search_string):
-            search_string = format_support.html_to_plain_text(search_string, ctx.ctx, config_svc)
+        search_string = format_support.plain_text_if_markup(old_stripped, ctx.ctx, config_svc)
         # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
         search_string = search_mod.normalize_search_string_for_find(search_string)
         if not search_string:

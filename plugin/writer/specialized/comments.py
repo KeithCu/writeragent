@@ -133,13 +133,14 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        occurrence = int(kwargs.get("occurrence", 0) or 0)
-        if occurrence < 0:
-            return self._tool_error("occurrence must be non-negative.")
+        from ..search import find_occurrence_range, parse_non_negative_int
+
+        occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
+        if occ_err:
+            return self._tool_error(occ_err)
+        occurrence = 0 if occ_val is None else occ_val
 
         doc = ctx.doc
-
-        from ..search import find_occurrence_range
 
         try:
             found = find_occurrence_range(

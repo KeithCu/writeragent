@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for Calc formula evaluation messages (no soffice)."""
 
+from plugin.calc.error_detector import ERROR_TYPES
 from plugin.calc.formulas import FORMULA, VALUE, EvaluateFormula, formula_evaluation_error_message
 from plugin.framework.tool import ToolContext
 
@@ -33,6 +34,13 @@ def test_other_formula_error_codes_keep_their_labels():
     msg_539 = formula_evaluation_error_message(539)
     assert "#VALUE!" in msg_539 and "Unsupported inline array content" in msg_539
     assert formula_evaluation_error_message(9999) == "Formula evaluation error: code 9999"
+
+
+def test_all_error_types_contain_code():
+    for code in ERROR_TYPES:
+        msg = formula_evaluation_error_message(code)
+        assert msg
+        assert f"code {code}" in msg
 
 
 class _EvalCell:

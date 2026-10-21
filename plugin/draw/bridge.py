@@ -22,6 +22,7 @@ import logging
 from typing import Any
 
 from plugin.doc import text_helpers as _text_helpers
+from plugin.framework.constants import truncate_chat_context
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call, uno_probe
 from plugin.framework.thread_guard import main_thread_only
 
@@ -1044,14 +1045,9 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # max_chars / max_context, but the body returned the whole active-page
         # summary, so a shape-heavy slide or long speaker notes exceeded
         # CHAT_DOCUMENT_CONTEXT_MAX_CHARS on every prompt. The prefix matches
-        # Writer's full-text cap. A negative limit is forced to 0 so the slice
-        # cannot keep the tail.
-        limit = max_context if isinstance(max_context, int) and not isinstance(max_context, bool) else 0
-        if limit < 0:
-            limit = 0
-        if len(ctx_str) > limit:
-            ctx_str = ctx_str[:limit] + "\n\n[... document truncated ...]"
-        return ctx_str
+        # Writer's full-text cap. truncate_chat_context forces negative limit to 0
+        # so the slice cannot keep the tail.
+        return truncate_chat_context(ctx_str, max_context)
     except DocumentDisposedError:
         raise
     except Exception:

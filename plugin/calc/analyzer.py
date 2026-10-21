@@ -22,10 +22,11 @@ Ported from core/calc_sheet_analyzer.py for the plugin framework.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, Sequence
 
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS, truncate_chat_context
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
@@ -36,28 +37,17 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
-from plugin.calc.address_utils import index_to_column
-from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
+from plugin.calc.address_utils import format_range
+from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 
 log = logging.getLogger("writeragent.calc")
 
-_TRUNCATED_MARKER = "\n\n[... document truncated ...]"
 _MAX_CONTEXT_HEADERS = 100
 
 
-def _truncate(text: str, limit: Any) -> str:
-    """Truncate text to limit, matching Draw's truncation rule."""
-    lim = limit if isinstance(limit, int) and not isinstance(limit, bool) else 0
-    if lim < 0:
-        lim = 0
-    if len(text) > lim:
-        return text[:lim] + _TRUNCATED_MARKER
-    return text
-
-
-def _format_columns(headers: list[Any]) -> str:
+def _format_columns(headers: Sequence[str | None]) -> str:
     """Format non-blank headers, capping at _MAX_CONTEXT_HEADERS."""
-    non_blank = [str(h) for h in headers if h is not None]
+    non_blank = [h for h in headers if h is not None]
     if len(non_blank) > _MAX_CONTEXT_HEADERS:
         remaining = len(non_blank) - _MAX_CONTEXT_HEADERS
         return f"{', '.join(non_blank[:_MAX_CONTEXT_HEADERS])} (+{remaining} more columns)"
@@ -73,15 +63,35 @@ def _header_text(val: Any) -> str | None:
     return str(val)
 
 
-def _chat_sheet_target(bridge: Any, model: Any) -> tuple[str | None, bool]:
-    """Return (sheet_name, active_is_visible) for chat context summary."""
+@dataclass(frozen=True)
+class _VisibleSheet:
+    names: list[str]
+    target: str | None
+    summary: dict[str, Any] | None
+    active_is_visible: bool
+    bridge: CalcBridge
+
+
+def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
+    bridge = CalcBridge(model)
+    names = filter_agent_sheet_names(model.getSheets().getElementNames())
     active_name = bridge.get_active_sheet().getName()
-    visible = filter_agent_sheet_names(model.getSheets().getElementNames())
     if is_agent_visible_sheet(active_name):
-        return active_name, True
-    if visible:
-        return visible[0], False
-    return None, False
+        target = active_name
+        active_is_visible = True
+    elif names:
+        target = names[0]
+        active_is_visible = False
+    else:
+        target = None
+        active_is_visible = False
+
+    summary = (
+        SheetAnalyzer(bridge).get_sheet_summary(sheet_name=target, include_extras=False)
+        if target is not None
+        else None
+    )
+    return _VisibleSheet(names, target, summary, active_is_visible, bridge)
 
 
 
@@ -129,19 +139,12 @@ class SheetAnalyzer:
             row_count = end_row - start_row + 1
             col_count = end_col - start_col + 1
 
-            start_col_str = index_to_column(start_col)
-            end_col_str = index_to_column(end_col)
-            used_range = f"{start_col_str}{start_row + 1}:{end_col_str}{end_row + 1}"
+            used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
 
             header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
             header_data = header_range.getDataArray()
 
-            headers = []
-            if header_data:
-                for val in header_data[0]:
-                    # getDataArray returns floats for numbers and strings for text.
-                    # Empty strings and None become None; whole floats become integer strings.
-                    headers.append(_header_text(val))
+            headers = [_header_text(val) for val in header_data[0]] if header_data else []
 
             result: dict[str, Any] = {
                 "sheet_name": sheet.getName(),
@@ -184,29 +187,22 @@ def get_calc_context_for_chat(
     if ctx is None:
         raise ValueError("ctx is required for get_calc_context_for_chat")
     try:
-        from plugin.calc.bridge import CalcBridge
-
         check_disposed(model, "Document Model")
-        bridge = CalcBridge(model)
-        analyzer = SheetAnalyzer(bridge)
+        vs = _resolve_visible_sheet(model)
 
         ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
-        sheets = model.getSheets()
-        # Omit LO internals (leading '_', e.g. __Anonymous_Sheet_DB__0) from chat.
-        sheet_names = filter_agent_sheet_names(sheets.getElementNames())
-        ctx_str += f"Sheets: {sheet_names}\n"
+        ctx_str += f"Sheets: {vs.names}\n"
 
-        target, active_visible = _chat_sheet_target(bridge, model)
-        if target is None:
-            return _truncate(ctx_str + "No user-visible sheets.\n", max_context)
+        if vs.target is None or vs.summary is None:
+            return truncate_chat_context(ctx_str + "No user-visible sheets.\n", max_context)
 
-        summary = analyzer.get_sheet_summary(sheet_name=target, include_extras=False)
+        summary = vs.summary
         ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
         ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
         ctx_str += f"Columns: {_format_columns(summary['headers'])}\n"
 
         # Add selection context if available
-        if active_visible:
+        if vs.active_is_visible:
             try:
                 controller = safe_call(model.getCurrentController, "Get current controller")
                 selection = safe_call(controller.getSelection, "Get selection") if controller is not None else None
@@ -214,14 +210,14 @@ def get_calc_context_for_chat(
                     if hasattr(selection, "getRangeAddress"):
                         addr = safe_call(selection.getRangeAddress, "Get range address")
                         if addr is not None:
-                            sel_range = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
+                            sel_range = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=False)
                             ctx_str += f"Current Selection: {sel_range}\n"
 
                             # Check for selected values if small
                             if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
                                 from plugin.calc.inspector import CellInspector
 
-                                inspector = CellInspector(bridge)
+                                inspector = CellInspector(vs.bridge)
                                 # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
                                 cells = inspector.read_range(sel_range, include_format_info=True)
                                 ctx_str += "Selection Content (CSV-like):\n"
@@ -236,7 +232,7 @@ def get_calc_context_for_chat(
         else:
             ctx_str += "Selection omitted: active tab is an internal sheet.\n"
 
-        return _truncate(ctx_str, max_context)
+        return truncate_chat_context(ctx_str, max_context)
     except DocumentDisposedError:
         raise
     except Exception as exc:
@@ -255,15 +251,11 @@ def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CH
     this prefix cap.
     """
     check_disposed(model, "Document Model")
-    from plugin.calc.bridge import CalcBridge
-
-    bridge = CalcBridge(model)
-    analyzer = SheetAnalyzer(bridge)
-    target, _active_visible = _chat_sheet_target(bridge, model)
-    if target is None:
-        return _truncate("No user-visible sheets.\n", max_chars)
-    summary = analyzer.get_sheet_summary(sheet_name=target, include_extras=False)
+    vs = _resolve_visible_sheet(model)
+    if vs.target is None or vs.summary is None:
+        return truncate_chat_context("No user-visible sheets.\n", max_chars)
+    summary = vs.summary
     text = f"Sheet: {summary['sheet_name']}\nUsed Range: {summary['used_range']}\n"
     text += f"Columns: {_format_columns(summary['headers'])}\n"
-    return _truncate(text, max_chars)
+    return truncate_chat_context(text, max_chars)
 

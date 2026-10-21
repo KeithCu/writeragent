@@ -122,7 +122,7 @@ def _selection_ctx():
     doc = MagicMock()
     controller = MagicMock()
     doc.getCurrentController.return_value = controller
-    ctx = SimpleNamespace(doc=doc)
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={})
     return ctx, doc, controller
 
 
@@ -227,7 +227,7 @@ def test_set_selection_char_range_start_past_end_no_select():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.return_value = ""
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, False)):
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
         res = SetSelection().execute(ctx, char_start=100, char_end=110)
     assert res["status"] == "error"
     controller.select.assert_not_called()
@@ -237,7 +237,7 @@ def test_set_selection_char_range_truncated_end_omits_char_end_and_sets_warning(
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.return_value = "truncated"
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, False)):
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
         res = SetSelection().execute(ctx, char_start=10, char_end=50)
     assert res["status"] == "ok"
     assert res["char_start"] == 10
@@ -251,7 +251,7 @@ def test_set_selection_by_char_offsets_happy_path():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.return_value = "faixa"
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, True)):
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, True)):
         res = SetSelection().execute(ctx, char_start=10, char_end=15)
     assert res["status"] == "ok" and res["selected_text"] == "faixa"
     assert res["char_start"] == 10 and res["char_end"] == 15
@@ -265,7 +265,7 @@ def test_set_selection_getString_disposed_is_document_disposed():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.side_effect = DocumentDisposedError("gone")
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range_reached", return_value=(rng, True)):
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, True)):
         res = SetSelection().execute_safe(ctx, char_start=10, char_end=15)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
@@ -344,5 +344,25 @@ def test_set_selection_disposal_is_document_disposed():
     res = SetSelection().execute_safe(ctx, search_text="test")
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_set_selection_markup_search_miss_shows_stripped_string():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
+        res = SetSelection().execute(ctx, search_text="<b>missing_word</b>")
+    assert res["status"] == "error"
+    assert "missing_word" in res["message"]
+    assert "<b>" not in res["message"]
+
+
+def test_set_selection_non_int_occurrence_does_not_touch_controller():
+    ctx, doc, controller = _selection_ctx()
+    res = SetSelection().execute(ctx, search_text="hello", occurrence="first")
+    assert res["status"] == "error"
+    assert res["message"] == "occurrence must be a non-negative integer."
+    controller.select.assert_not_called()
+    doc.getCurrentController.assert_not_called()
+
 
 

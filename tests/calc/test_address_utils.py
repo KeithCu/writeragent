@@ -14,6 +14,7 @@ def test_address_utils():
     from plugin.calc.address_utils import (
         column_to_index,
         format_address,
+        format_range,
         index_to_column,
         parse_address,
         parse_range_string,
@@ -30,6 +31,11 @@ def test_address_utils():
     assert parse_address("B10") == (1, 9)
     assert format_address(0, 0) == "A1"
     assert format_address(18277, 0) == "ZZZ1"
+
+    # format_range
+    assert format_range(0, 0, 1, 2) == "A1:B3"
+    assert format_range(0, 0, 0, 0, collapse_single=False) == "A1:A1"
+    assert format_range(0, 0, 0, 0, collapse_single=True) == "A1"
 
     # Round-trip
     for addr in ("A1", "B10", "Z1", "AA100", "ZZZ1"):

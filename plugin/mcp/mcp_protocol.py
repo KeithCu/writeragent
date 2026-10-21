@@ -448,16 +448,6 @@ def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
 
 
-class _DebugHandlerAdapter:
-    """Adapter presenting a handler-like interface from GET /debug arguments."""
-
-    def __init__(self, body: Any, headers: Any):
-        self.body: Any = body
-        self.headers: Any = headers or {}
-        addr = getattr(headers, "_client_address", None) or getattr(headers, "client_address", None)
-        self.client_address: Any = addr if addr is not None else ("127.0.0.1", 0)
-
-
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -524,15 +514,25 @@ class MCPProtocolHandler:
         # tracking and shutdown.
         self._handle_mcp(body, handler, document_url=document_url)
 
-    def handle_mcp_sse(self, handler: Any) -> None:
-        """GET /mcp — SSE notification stream (keepalive)."""
-        log_mcp_transport_entry(handler, "mcp-sse")
+    def _open_sse_stream(
+        self,
+        handler: Any,
+        *,
+        transport: str | None = None,
+        check_accept: bool = False,
+        extra_headers: tuple[tuple[str, str], ...] = (),
+        open_log: bool = False,
+        disconnect_log: bool = False,
+    ) -> None:
+        if transport:
+            log_mcp_transport_entry(handler, transport)
         if _reject_stale_session(handler):
             return
-        accept = handler.headers.get("Accept", "")
-        if "text/event-stream" not in accept:
-            self._send_json(handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"})
-            return
+        if check_accept:
+            accept = handler.headers.get("Accept", "")
+            if "text/event-stream" not in accept:
+                self._send_json(handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"})
+                return
         tcp_server = getattr(handler, "server", None)
         sock = getattr(handler, "connection", None)
         stop_event = try_reserve_sse(tcp_server, sock)
@@ -548,13 +548,23 @@ class MCPProtocolHandler:
             handler.send_response(200)
             handler.send_header("Content-Type", "text/event-stream")
             handler.send_header("Cache-Control", "no-cache")
+            for name, value in extra_headers:
+                handler.send_header(name, value)
             _send_mcp_response_headers(handler)
             handler.end_headers()
+            if open_log:
+                log.info("[SSE] GET stream opened")
             reserved = False
             self._run_sse_keepalive_loop(handler, stop_event=stop_event)
         except (BrokenPipeError, ConnectionResetError, OSError):
+            if disconnect_log:
+                log.info("[SSE] GET stream disconnected")
             if reserved:
                 forget_sse_keepalive(tcp_server, sock)
+
+    def handle_mcp_sse(self, handler: Any) -> None:
+        """GET /mcp — SSE notification stream (keepalive)."""
+        self._open_sse_stream(handler, transport="mcp-sse", check_accept=True)
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
@@ -574,34 +584,12 @@ class MCPProtocolHandler:
 
     def handle_sse_stream(self, handler: Any) -> None:
         """GET /sse — legacy SSE transport (keepalive only)."""
-        if _reject_stale_session(handler):
-            return
-        tcp_server = getattr(handler, "server", None)
-        sock = getattr(handler, "connection", None)
-        stop_event = try_reserve_sse(tcp_server, sock)
-        if stop_event is None:
-            def _headers(h: Any) -> None:
-                _send_mcp_response_headers(h)
-                h.send_header("Allow", "POST, DELETE, OPTIONS")
-
-            write_http_empty(handler, 405, extra_headers=_headers)
-            return
-        reserved = True
-        try:
-            handler.send_response(200)
-            handler.send_header("Content-Type", "text/event-stream")
-            handler.send_header("Cache-Control", "no-cache")
-            handler.send_header("Connection", "keep-alive")
-            handler.send_header("X-Accel-Buffering", "no")
-            _send_mcp_response_headers(handler)
-            handler.end_headers()
-            log.info("[SSE] GET stream opened")
-            reserved = False
-            self._run_sse_keepalive_loop(handler, stop_event=stop_event)
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            log.info("[SSE] GET stream disconnected")
-            if reserved:
-                forget_sse_keepalive(tcp_server, sock)
+        self._open_sse_stream(
+            handler,
+            extra_headers=(("Connection", "keep-alive"), ("X-Accel-Buffering", "no")),
+            open_log=True,
+            disconnect_log=True,
+        )
 
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15, stop_event: threading.Event | None = None) -> None:
         """Keep an SSE stream alive until the client drops or the HTTP server stops.
@@ -705,19 +693,16 @@ class MCPProtocolHandler:
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
-    def handle_debug_info(self, body_or_handler: Any, headers: Any = None, query: Any = None) -> tuple[int, dict[str, Any]]:
+    def handle_debug_info(self, handler: Any) -> None:
         """GET /debug — show available debug actions."""
-        if headers is None and hasattr(body_or_handler, "headers"):
-            handler = body_or_handler
-        else:
-            handler = _DebugHandlerAdapter(body_or_handler, headers)
-
         forbidden = self._debug_forbidden(handler)
         if forbidden:
-            return (403, {"error": forbidden})
+            self._send_json(handler, 403, {"error": forbidden})
+            return
 
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
-        return (
+        self._send_json(
+            handler,
             200,
             {
                 "debug": True,

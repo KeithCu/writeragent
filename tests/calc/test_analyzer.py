@@ -54,7 +54,7 @@ def test_get_full_calc_text_uses_sheet_summary():
     analyzer = MagicMock()
     analyzer.get_sheet_summary.return_value = summary
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=MagicMock()),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
     ):
         text = get_full_calc_text(MagicMock(), max_chars=100)
@@ -84,7 +84,7 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     controller.getSelection.return_value = None
     model.getCurrentController.return_value = controller
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=MagicMock()),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.check_disposed"),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
@@ -108,7 +108,7 @@ def test_get_full_calc_text_skips_internal_active_sheet():
     bridge = MagicMock()
     bridge.get_active_sheet.return_value.getName.return_value = "__Anonymous_Sheet_DB__0"
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
     ):
         text = get_full_calc_text(model, max_chars=100)
@@ -173,7 +173,7 @@ def test_get_calc_context_for_chat_caps_columns_at_100():
     controller.getSelection.return_value = None
     model.getCurrentController.return_value = controller
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
@@ -204,7 +204,7 @@ def test_get_calc_context_for_chat_truncation():
     model.getCurrentController.return_value = controller
 
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
@@ -228,7 +228,7 @@ def test_get_full_calc_text_truncation():
     model = MagicMock()
     model.getSheets.return_value.getElementNames.return_value = ("Sheet1",)
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
     ):
         out = get_full_calc_text(model, max_chars=20)
@@ -262,7 +262,7 @@ def test_get_calc_context_for_chat_long_selection_truncation():
     inspector.read_range.return_value = [[{"value": "V" * 200}, {"value": "W" * 200}]]
 
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
@@ -297,7 +297,7 @@ def test_get_calc_context_for_chat_hidden_active_sheet_omits_selection():
     model.getCurrentController.return_value = controller
 
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
@@ -343,7 +343,7 @@ def test_get_calc_context_for_chat_selection_failure_preserves_summary(scenario)
     inspector.read_range.side_effect = RuntimeError("range read error")
 
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
@@ -383,7 +383,7 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
     inspector.read_range.side_effect = DisposedException("object disposed")
 
     with (
-        patch("plugin.calc.bridge.CalcBridge", return_value=bridge),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
         patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),

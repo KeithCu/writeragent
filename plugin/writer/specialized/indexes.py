@@ -29,6 +29,7 @@ import logging
 from typing import Any, Callable, cast
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.uno_context import create_property_value
 
 from ..specialized_base import ToolWriterIndexBase
 from ..target_resolver import resolve_target_cursor
@@ -295,15 +296,6 @@ def is_bibliography_text_field(field: Any) -> bool:
     return False
 
 
-def _create_property_value(name: str, value: Any) -> Any:
-    import uno
-
-    prop = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-    prop.Name = name
-    prop.Value = value
-    return prop
-
-
 def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> None:
     """Write Fields as a typed UNO sequence.
 
@@ -315,7 +307,7 @@ def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> N
     import uno
 
     uno_any = getattr(uno, "Any")
-    seq = tuple(_create_property_value(name, value) for name, value in pairs)
+    seq = tuple(create_property_value(name, value) for name, value in pairs)
     typed = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", seq))
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 

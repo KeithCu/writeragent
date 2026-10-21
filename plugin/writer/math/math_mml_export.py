@@ -14,22 +14,19 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import tempfile
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-
+from plugin.framework.errors import uno_read
 from plugin.framework.uno_context import get_desktop, uno_same
-from plugin.writer.math.math_mml_convert import MATH_CLSID, file_url, math_root
-
-
-def _exception_message(exc: Exception) -> str:
-    # UNO exceptions often have an empty str() and the text on .Message.
-    name = type(exc).__name__
-    raw = getattr(exc, "Message", None) or str(exc)
-    text = raw.strip() if isinstance(raw, str) else ""
-    return f"{name}: {text}" if text else name
+from plugin.writer.math.math_mml_convert import (
+    MATH_CLSID,
+    _exception_message,
+    file_url,
+    iter_math_roots,
+    math_root,
+)
 
 log = logging.getLogger("writeragent.writer")
 
@@ -38,7 +35,7 @@ MATHML_EXPORT_FILTER = "MathML XML (Math)"
 _MATH_FACTORY_URL = "private:factory/smath"
 
 _OBJECT_REPLACEMENT = "\ufffc"
-_MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
+_MATH_CLSID_NORM = MATH_CLSID.lower()
 
 
 @dataclass(frozen=True)
@@ -179,7 +176,7 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     """
     if not html or not isinstance(html, str):
         return html
-    math_matches = list(_MATH_ROOT_RE.finditer(html))
+    math_matches = list(iter_math_roots(html))
     if not math_matches:
         return html
 
@@ -338,10 +335,11 @@ def _is_math_embed(obj: Any) -> bool:
         clsid = str(getattr(obj, "CLSID", "") or "")
     except Exception:
         return False
-    return clsid.lower() == MATH_CLSID.lower()
+    return clsid.lower() == _MATH_CLSID_NORM
 
 
-def _portion_embedded(portion: Any) -> Any | None:
+def portion_math_embed(portion: Any) -> Any | None:
+    """Return the Math TextEmbeddedObject from a text portion, or None."""
     # A false _is_math_embed result is the CLSID check. Repeating it cannot succeed.
     for key in ("TextEmbeddedObject", "EmbeddedObject", "TextContent"):
         try:
@@ -369,17 +367,8 @@ def _portion_embedded(portion: Any) -> Any | None:
     return None
 
 
-def portion_math_embed(portion: Any) -> Any | None:
-    """Return the Math TextEmbeddedObject from a text portion, or None."""
-    return _portion_embedded(portion)
-
-
 def read_starmath(embed: Any) -> str:
     """Read the StarMath formula string from a Math embedded object."""
-    return _read_starmath(embed)
-
-
-def _read_starmath(embed: Any) -> str:
     try:
         inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
         formula = inner.Formula if inner is not None else ""
@@ -389,13 +378,6 @@ def _read_starmath(embed: Any) -> str:
             return str(embed.Formula or "").strip()
         except Exception:
             return ""
-
-
-def _supports_service(obj: Any, service_name: str) -> bool:
-    try:
-        return bool(obj.supportsService(service_name))
-    except Exception:
-        return False
 
 
 def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
@@ -409,7 +391,7 @@ def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
             el = enum.nextElement()
         except Exception:
             break
-        if _supports_service(el, "com.sun.star.text.TextTable"):
+        if uno_read(lambda: bool(el.supportsService("com.sun.star.text.TextTable")), False):
             try:
                 names = el.getCellNames() or ()
             except Exception:
@@ -498,7 +480,7 @@ def _build_hit(
     ctx: Any | None,
     batch: _MathExportBatch | None = None,
 ) -> WriterMathHit:
-    starmath = _read_starmath(embed)
+    starmath = read_starmath(embed)
     latex = None
     mathml = None
     err = None

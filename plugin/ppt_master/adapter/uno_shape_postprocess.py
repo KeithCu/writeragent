@@ -15,9 +15,10 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from typing import Any, cast
+from typing import Any
 
 from plugin.framework.errors import best_effort
+from plugin.framework.uno_context import create_property_value
 
 log = logging.getLogger(__name__)
 
@@ -105,17 +106,6 @@ def _shape_graphic(source_shape: Any) -> Any | None:
     return best_effort(lambda: source_shape.getPropertyValue("Graphic"), "read shape Graphic")
 
 
-def _graphic_load_prop(name: str, value: Any) -> Any:
-    import uno
-
-    # createUnoStruct is typed as a struct whose Name/Value are not str/Any.
-    # Cast before assignment, same as writer.format.create_property_value.
-    prop = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-    prop.Name = name
-    prop.Value = value
-    return prop
-
-
 def _assign_graphic(dest_shape: Any, graphic: Any) -> bool:
     try:
         dest_shape.setPropertyValue("Graphic", graphic)
@@ -162,8 +152,8 @@ def _reimport_shape_graphic(uno_ctx: Any | None, source_shape: Any, dest_shape: 
         try:
             os.close(fd)
             url = path_to_file_url(path)
-            provider.storeGraphic(graphic, (_graphic_load_prop("URL", url), _graphic_load_prop("MimeType", mime)))
-            new_graphic = provider.queryGraphic((_graphic_load_prop("URL", url),))
+            provider.storeGraphic(graphic, (create_property_value("URL", url), create_property_value("MimeType", mime)))
+            new_graphic = provider.queryGraphic((create_property_value("URL", url),))
             # queryGraphic must be a new object. Assigning the same Graphic
             # we just read would still alias the hidden pool.
             if new_graphic is None or new_graphic is graphic:

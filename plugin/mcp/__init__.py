@@ -58,6 +58,17 @@ def is_mcp_server_running() -> bool:
 
 _DEBUG_TOKEN_FILENAME = "writeragent_mcp_debug_token"
 
+MCP_ROUTE_TABLE: tuple[tuple[str, str, str, bool], ...] = (
+    ("POST", "/mcp", "handle_mcp_post", True),
+    ("GET", "/mcp", "handle_mcp_sse", True),
+    ("DELETE", "/mcp", "handle_mcp_delete", True),
+    ("POST", "/sse", "handle_sse_post", True),
+    ("POST", "/messages", "handle_sse_post", True),
+    ("GET", "/sse", "handle_sse_stream", True),
+    ("GET", "/debug", "handle_debug_info", True),
+    ("POST", "/debug", "handle_debug_post", True),
+)
+
 
 def _debug_token_path() -> str | None:
     try:
@@ -427,27 +438,14 @@ class McpModule(ModuleBase):
         # lock, so a toggle cannot expose a half-registered table or raise
         # RuntimeError while iterating it.
         with self._registry.batch():
-            # MCP streamable-http (raw — JSON-RPC + custom headers + SSE)
-            self._registry.add("POST", "/mcp", p.handle_mcp_post, raw=True)
-            self._registry.add("GET", "/mcp", p.handle_mcp_sse, raw=True)
-            self._registry.add("DELETE", "/mcp", p.handle_mcp_delete, raw=True)
-
-            # Legacy SSE transport (raw — streaming)
-            self._registry.add("POST", "/sse", p.handle_sse_post, raw=True)
-            self._registry.add("POST", "/messages", p.handle_sse_post, raw=True)
-            self._registry.add("GET", "/sse", p.handle_sse_stream, raw=True)
-
-            # Debug (simple — returns dict, server handles JSON)
-            self._registry.add("GET", "/debug", p.handle_debug_info)
-            # Debug POST (raw — complex response handling)
-            self._registry.add("POST", "/debug", p.handle_debug_post, raw=True)
-
+            for method, path, handler_name, raw in MCP_ROUTE_TABLE:
+                self._registry.add(method, path, getattr(p, handler_name), raw=raw)
             self._mcp_routes_registered = True
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self, services: Any) -> None:
         with self._registry.batch():
-            for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
+            for method, path, _handler_name, _raw in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
             self._mcp_routes_registered = False
             self._mcp_protocol = None

@@ -15,6 +15,7 @@ from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_desktop
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.calc.address_utils import parse_range_string, parse_address
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet
@@ -40,11 +41,6 @@ def get_checkbox_state(ctrl: Any) -> bool:
 
 
 def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
-    try:
-        from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-    except ImportError:
-        EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3  # type: ignore
-
     actual_values: dict[str, Any] = {}
     for addr in addresses:
         col, row = parse_address(addr)

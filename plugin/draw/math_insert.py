@@ -10,10 +10,9 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.draw.base import ToolDrawSpecialBase
+from plugin.writer.math.math_mml_convert import MATH_CLSID
 
 log = logging.getLogger("writeragent.draw")
-
-MATH_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
 
 # Fallback when UNO does not report a usable visual size (100ths of mm).
 _FALLBACK_WIDTH_HMM = 5000

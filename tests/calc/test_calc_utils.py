@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.calc.calc_utils import (
+    cell_value_and_type,
     get_cell_geometry,
     get_cell_geometry_target,
     query_interface,
@@ -175,4 +176,65 @@ class TestSheetAndCellResolution:
         doc = MagicMock()
         with pytest.raises(UnoObjectError, match="Cannot resolve cell address"):
             resolve_cell_address(doc, "BadRef")
+
+
+class TestCellValueAndType:
+    def test_empty_returns_none(self):
+        cell = MagicMock()
+        cell.getType.return_value = 0  # EMPTY
+        val, type_name = cell_value_and_type(cell)
+        assert val is None
+        assert type_name == "empty"
+
+    def test_empty_not_as_none_returns_get_string(self):
+        cell = MagicMock()
+        cell.getType.return_value = 0  # EMPTY
+        cell.getString.return_value = ""
+        val, type_name = cell_value_and_type(cell, empty_as_none=False)
+        assert val == ""
+        assert type_name == "empty"
+        cell.getString.assert_called_once()
+
+    def test_value_returns_get_value(self):
+        cell = MagicMock()
+        cell.getType.return_value = 1  # VALUE
+        cell.getValue.return_value = 42.5
+        val, type_name = cell_value_and_type(cell)
+        assert val == 42.5
+        assert type_name == "value"
+
+    def test_text_returns_get_string(self):
+        cell = MagicMock()
+        cell.getType.return_value = 2  # TEXT
+        cell.getString.return_value = "hello"
+        val, type_name = cell_value_and_type(cell)
+        assert val == "hello"
+        assert type_name == "text"
+
+    def test_formula_with_zero_error_uses_formula_cell_result(self):
+        cell = MagicMock()
+        cell.getType.return_value = 3  # FORMULA
+        cell.getError.return_value = 0
+        cell.getValue.return_value = 100.0
+        val, type_name = cell_value_and_type(cell)
+        assert val == 100.0
+        assert type_name == "formula"
+
+    def test_formula_with_nonzero_error_returns_get_string(self):
+        cell = MagicMock()
+        cell.getType.return_value = 3  # FORMULA
+        cell.getError.return_value = 502
+        cell.getString.return_value = "#VALUE!"
+        val, type_name = cell_value_and_type(cell)
+        assert val == "#VALUE!"
+        assert type_name == "formula"
+
+    def test_formula_error_as_string_false_does_not_touch_get_error(self):
+        cell = MagicMock()
+        cell.getType.return_value = 3  # FORMULA
+        cell.getValue.return_value = 12.0
+        val, type_name = cell_value_and_type(cell, formula_error_as_string=False)
+        assert val == 12.0
+        assert type_name == "formula"
+        cell.getError.assert_not_called()
 

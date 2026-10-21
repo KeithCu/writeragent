@@ -595,7 +595,7 @@ def test_all_matches_hoists_plain_text_conversion():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "html_to_plain_text", return_value="hi") as mock_html_plain, \
+         patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
          patch.object(format_support, "replace_single_range_with_content"):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
@@ -604,7 +604,9 @@ def test_all_matches_hoists_plain_text_conversion():
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 2
-    mock_html_plain.assert_called_once()
+    # plain_text_if_markup is called once for old_content and hoisted once for content (not per-match)
+    assert mock_html_plain.call_count == 2
+    assert mock_html_plain.call_args_list[1][0][0] == "<b>hi</b>"
 
 
 def test_edge_spaces_with_use_preserve():

@@ -739,3 +739,13 @@ def get_document_from_frame(frame: Any) -> Any:
         if model is not None:
             return _guard_returned_uno(model)
     return None
+
+
+def create_property_value(name: str, value: Any) -> Any:
+    """Create a ``com.sun.star.beans.PropertyValue``."""
+    import uno
+
+    p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
+    p.Name = name
+    p.Value = value
+    return p

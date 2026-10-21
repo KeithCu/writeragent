@@ -19,6 +19,7 @@ from typing import Any
 
 from ..specialized_base import ToolWriterFootnoteBase
 from plugin.framework.errors import ToolExecutionError
+from plugin.writer.search import parse_non_negative_int
 
 
 def _cursor_after_nth_match(doc: Any, search: str, occurrence: int, case_sensitive: bool) -> Any:
@@ -116,13 +117,10 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         doc = ctx.doc
 
         if use_anchor:
-            occ_raw = kwargs.get("occurrence", 0)
-            try:
-                occurrence = int(occ_raw)
-            except (TypeError, ValueError):
-                return self._tool_error("occurrence must be an integer.")
-            if occurrence < 0:
-                return self._tool_error("occurrence must be non-negative.")
+            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
+            if occ_err:
+                return self._tool_error(occ_err)
+            occurrence = 0 if occ_val is None else occ_val
 
             case_sensitive = bool(kwargs.get("case_sensitive", True))
 

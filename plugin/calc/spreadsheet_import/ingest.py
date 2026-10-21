@@ -12,21 +12,13 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from plugin.calc.address_utils import format_address
+from plugin.calc.address_utils import format_address, format_range
 from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.calc.spreadsheet_import.extract import is_py_formula_text
 from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, extract_cell_refs, filter_refs_to_scope, is_calc_error_display
 from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetModel
 
 _PROMPT_HEAD_RE = re.compile(r"^=\s*PROMPT\s*\(", re.IGNORECASE)
-
-
-def _format_used_range(start_col: int, start_row: int, end_col: int, end_row: int) -> str:
-    start = format_address(start_col, start_row)
-    end = format_address(end_col, end_row)
-    if start == end:
-        return start
-    return f"{start}:{end}"
 
 
 def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | None, str | None]:
@@ -81,7 +73,7 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
         return attach_graph_to_model(model)
 
     end_col = start_col + max(row_widths) - 1
-    used_range = _format_used_range(start_col, start_row, end_col, end_row)
+    used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=True)
     cells: dict[str, CellRecord] = {}
 
     for row_idx, (data_row, formula_row) in enumerate(zip(data_array, formula_array, strict=True)):
@@ -128,4 +120,4 @@ def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
 
 def used_range_string_from_address(addr: Any) -> str:
     """Format a UNO ``RangeAddress`` as an A1 range string."""
-    return _format_used_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+    return format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=True)

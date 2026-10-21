@@ -160,6 +160,29 @@ def document_has_tracked_deletions(doc: Any) -> bool:
     return bool(found)
 
 
+def parse_non_negative_int(raw: Any, *, name: str = "occurrence") -> tuple[int | None, str | None]:
+    """Validate a non-negative integer parameter."""
+    if raw is None:
+        return None, None
+    if type(raw) is not int or raw < 0:
+        return None, f"{name} must be a non-negative integer."
+    return raw, None
+
+
+def shape_only_search_message(subject: str, shape_name: str, *, review: bool = False) -> str:
+    """Format the message when content is only found inside a drawing shape."""
+    if review:
+        return (
+            f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
+            "In review mode it cannot be edited as a tracked change; "
+            "edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
+        )
+    return (
+        f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
+        "Edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
+    )
+
+
 def build_search_not_found_response(
     all_matches: bool = False,
     shape_name: str | None = None,
@@ -169,10 +192,7 @@ def build_search_not_found_response(
     if shape_name:
         return {
             "status": "error",
-            "message": (
-                f"old_content is only inside a drawing shape / floating text box ('{shape_name}'). "
-                "Edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
-            ),
+            "message": shape_only_search_message("old_content", shape_name),
             "replaced_count": 0,
         }
     hint = _TRACKED_DELETION_HINT if tracked_deletions else ""

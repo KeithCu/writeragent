@@ -27,6 +27,12 @@ def _handler(body, headers, query):
     return (200, {})
 
 
+def test_mcp_routes_match_production_table() -> None:
+    from plugin.mcp import MCP_ROUTE_TABLE
+
+    assert tuple((m, p) for m, p, _h, _r in MCP_ROUTE_TABLE) == _MCP_ROUTES
+
+
 def test_list_routes_snapshot_ignores_later_adds() -> None:
     registry = HttpRouteRegistry()
     registry.add("GET", "/health", _handler)

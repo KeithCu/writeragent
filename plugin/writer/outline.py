@@ -34,7 +34,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions, iter_heading_nodes
 
 log = logging.getLogger("writeragent.writer")
 
@@ -92,13 +92,9 @@ from .navigation import NavHeadingChildren as NavHeadingChildren  # noqa: F401
 
 
 
-def _count_headings(nodes: Any) -> int:
-    """Recursively count heading nodes in a nested list."""
-    count = 0
-    for node in nodes:
-        count += 1
-        count += _count_headings(node.get("children", []))
-    return count
+def _count_headings(tree: Any) -> int:
+    """Recursively count heading nodes in a tree."""
+    return sum(1 for _unused in iter_heading_nodes(tree))
 
 
 def collect_document_stats(
@@ -141,10 +137,10 @@ def collect_document_stats(
         )
 
     if heading_tree is not None:
-        heading_count = _count_headings(heading_tree.get("children", []))
+        heading_count = _count_headings(heading_tree)
     else:
         heading_count = uno_read(
-            lambda: _count_headings(build_heading_tree(doc).get("children", [])),
+            lambda: _count_headings(build_heading_tree(doc)),
             0,
             object_type="Document",
         )

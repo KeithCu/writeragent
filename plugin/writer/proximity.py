@@ -30,7 +30,7 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint
+from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint, heading_ref
 
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
@@ -134,13 +134,13 @@ class ProximityService(ServiceBase):
         entry = flat[ctx_idx] if ctx_idx is not None else None
         while entry is not None:
             node = entry["node"]
-            chain.append({"level": node["level"], "text": node["text"], "para_index": node["para_index"], "bookmark": bookmark_map.get(node["para_index"])})
+            chain.append(heading_ref(node, bookmark_map))
             entry = entry["parent"]
         chain.reverse()
         return chain
 
     def _build_heading_result(self, node: dict[str, Any], bookmark_map: dict[Any, Any]) -> dict[str, Any]:
-        return {"level": node["level"], "text": node["text"], "para_index": node["para_index"], "bookmark": bookmark_map.get(node["para_index"]), "body_paragraphs": node.get("body_paragraphs", 0), "children_count": len(node.get("children", []))}
+        return heading_ref(node, bookmark_map, include_body=True, include_children_count=True, body_default=True)
 
     # ==================================================================
     # navigate_heading

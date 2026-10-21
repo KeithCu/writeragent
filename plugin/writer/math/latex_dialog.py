@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any, Callable, NamedTuple, cast
 import uno
 import unohelper
 from com.sun.star.awt import XActionListener
@@ -28,9 +28,35 @@ from plugin.writer.math.math_mml_convert import (
     insert_writer_math_formula,
     replace_writer_math_formula,
 )
+from plugin.writer.math.math_mml_export import (
+    convert_starmath_to_latex,
+    lookup_math_embed,
+    resolve_math_embed_name,
+    selected_math_embeds,
+)
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 
 log = logging.getLogger("writeragent.writer")
+
+
+class _ClickListener(unohelper.Base, XActionListener):
+    _callback: Callable[[], None]
+
+    def __init__(self, callback: Callable[[], None]) -> None:
+        self._callback = callback
+
+    def actionPerformed(self, rEvent: Any) -> None:
+        self._callback()
+
+    def disposing(self, Source: Any) -> None:
+        pass
+
+
+class _SelectionLatexPrefill(NamedTuple):
+    name: str | None
+    latex: str
+    display: bool
+    abort: bool
 
 
 def show_latex_input_dialog(
@@ -66,33 +92,23 @@ def show_latex_input_dialog(
             except Exception:
                 pass
 
-        _outcome: list[tuple[str, bool] | None] | None = None
+        outcome: tuple[str, bool] | None = None
 
-        class _InsertListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: Any) -> None:
-                nonlocal _outcome
-                t = get_control_text(dlg.getControl("LatexEdit")).strip()
-                db = get_checkbox_state(dlg.getControl("DisplayBlockCheck")) == 1
-                _outcome = [(t, db)]
-                dlg.endDialog(1)
+        def on_insert() -> None:
+            nonlocal outcome
+            t = get_control_text(dlg.getControl("LatexEdit")).strip()
+            db = get_checkbox_state(dlg.getControl("DisplayBlockCheck")) == 1
+            outcome = (t, db)
+            dlg.endDialog(1)
 
-            def disposing(self, Source: Any) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: Any) -> None:
-                nonlocal _outcome
-                _outcome = [None]
-                dlg.endDialog(0)
-
-            def disposing(self, Source: Any) -> None:
-                pass
+        def on_cancel() -> None:
+            dlg.endDialog(0)
 
         btn_insert = dlg.getControl("BtnInsert")
         btn_insert.getModel().Label = _("Update") if update else _("Insert")
-        btn_insert.addActionListener(_InsertListener())
+        btn_insert.addActionListener(_ClickListener(on_insert))
         btn_cancel = dlg.getControl("BtnCancel")
-        btn_cancel.addActionListener(_CancelListener())
+        btn_cancel.addActionListener(_ClickListener(on_cancel))
 
         # Set focus to the edit control
         edit.setFocus()
@@ -100,9 +116,7 @@ def show_latex_input_dialog(
         dlg.execute()
         dlg.dispose()
 
-        if _outcome is None:
-            return None
-        return _outcome[0]
+        return outcome
     except Exception:
         log.exception("show_latex_input_dialog failed")
         return None
@@ -110,17 +124,11 @@ def show_latex_input_dialog(
 
 def _selection_latex_prefill(
     ctx: Any, doc: Any, last_latex: str, last_display: bool
-) -> tuple[str | None, str, bool, bool]:
+) -> _SelectionLatexPrefill:
     """Inspect selection: abort on multiple Math objects; prefill TeX for one.
 
     Returns ``(embed_name_or_none, latex, display, abort)``.
     """
-    from plugin.writer.math.math_mml_export import (
-        convert_starmath_to_latex,
-        resolve_math_embed_name,
-        selected_math_embeds,
-    )
-
     hits = selected_math_embeds(doc)
 
     if len(hits) > 1:
@@ -129,10 +137,10 @@ def _selection_latex_prefill(
             _("Edit LaTeX Math"),
             _("Select a single formula to update. Multiple formulas are selected."),
         )
-        return None, last_latex, last_display, True
+        return _SelectionLatexPrefill(None, last_latex, last_display, True)
 
     if len(hits) != 1:
-        return None, last_latex, last_display, False
+        return _SelectionLatexPrefill(None, last_latex, last_display, False)
 
     embed = hits[0]
     name = resolve_math_embed_name(doc, embed)
@@ -142,14 +150,14 @@ def _selection_latex_prefill(
             _("Edit LaTeX Math"),
             _("Could not identify the selected formula. Click in the text, then insert a new formula."),
         )
-        return None, last_latex, last_display, True
+        return _SelectionLatexPrefill(None, last_latex, last_display, True)
     try:
         inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
         starmath = str(getattr(inner, "Formula", "") or "").strip()
         if starmath:
             exported = convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
-                return name, exported.latex, last_display, False
+                return _SelectionLatexPrefill(name, exported.latex, last_display, False)
     except Exception:
         log.debug("latex dialog: selection Math → LaTeX prefill failed", exc_info=True)
     msgbox(
@@ -157,7 +165,7 @@ def _selection_latex_prefill(
         _("Edit LaTeX Math"),
         _("Could not convert formula to LaTeX. Enter formula manually."),
     )
-    return name, "", last_display, False
+    return _SelectionLatexPrefill(name, "", last_display, False)
 
 
 def _apply_latex_to_writer(
@@ -172,8 +180,6 @@ def _apply_latex_to_writer(
     starmath = conv_res.starmath or ""
 
     if target_name:
-        from plugin.writer.math.math_mml_export import lookup_math_embed
-
         embed = lookup_math_embed(doc, target_name)
         if embed is None:
             return False, _("The selected formula is no longer in the document.")

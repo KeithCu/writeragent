@@ -20,9 +20,10 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import UnoObjectError
+from plugin.framework.uno_context import create_property_value
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
@@ -192,16 +193,10 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
             cell_range = bridge.resolve_range_or_address(range_str)
 
-            def _create_pv(name: str, val: Any) -> Any:
-                pv = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-                pv.Name = name
-                pv.Value = val
-                return pv
-
-            props = [_create_pv("Operator", op_val), _create_pv("Formula1", formula1)]
+            props = [create_property_value("Operator", op_val), create_property_value("Formula1", formula1)]
             if formula2:
-                props.append(_create_pv("Formula2", formula2))
-            props.append(_create_pv("StyleName", style_name))
+                props.append(create_property_value("Formula2", formula2))
+            props.append(create_property_value("StyleName", style_name))
 
             formats = _ensure_table_conditional_format(ctx, cell_range)
             formats.addNew(tuple(props))

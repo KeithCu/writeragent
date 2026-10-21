@@ -11,7 +11,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 import uno
 
@@ -28,6 +28,10 @@ _PARAGRAPH_BREAK = 0
 
 # com.sun.star.text.TextContentAnchorType.AS_CHARACTER (inline / in-flow)
 _ANCHOR_AS_CHARACTER = 1
+
+# com.sun.star.style.ParagraphAdjust (CENTER=3, LEFT=0)
+_PARA_CENTER = 3
+_PARA_LEFT = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,13 @@ def math_root(fragment: str) -> str | None:
     text = fragment.strip()
     m = _MATH_ROOT_RE.search(text)
     return m.group(0) if m else None
+
+
+def iter_math_roots(html: str) -> Iterator[re.Match[str]]:
+    """Yield every <math>...</math> root element match from MathML markup."""
+    if not html or not isinstance(html, str):
+        return
+    yield from _MATH_ROOT_RE.finditer(html)
 
 
 def _exception_message(exc: Exception) -> str:
@@ -85,15 +96,6 @@ def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
     return s
 
 
-def _debug_newline_stats(prefix: str, s: str, *, max_repr: int = 400) -> None:
-    """Emit one debug line: newline counts and a short repr (for diagnosis)."""
-    if not log.isEnabledFor(logging.DEBUG):
-        return
-    head = s[:max_repr]
-    tail = " …[truncated]" if len(s) > max_repr else ""
-    log.debug("%s len=%d nl=%d cr=%d crlf=%d tab=%d repr_head=%s%s", prefix, len(s), s.count("\n"), s.count("\r"), len(re.findall(r"\r\n", s)), s.count("\t"), repr(head), tail)
-
-
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
     """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
     if not latex:
@@ -128,13 +130,10 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     if not root:
         return MathConversionResult(False, None, "not_math_root")
 
-    _debug_newline_stats("convert_mathml_to_starmath: input MathML fragment", root)
-
     fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-", text=False)
     os.close(fd)
     try:
         payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
-        _debug_newline_stats("convert_mathml_to_starmath: .mml payload written to temp file", payload)
         with open(path, "w", encoding="utf-8") as f:
             f.write(payload)
 
@@ -150,7 +149,6 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             if not formula.strip():
                 return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
             _formula_stripped = formula.strip()
-            _debug_newline_stats("convert_mathml_to_starmath: Formula from LO (before return.strip)", formula, max_repr=500)
             _for_writer = collapse_starmath_newline_tokens_for_writer_embed(_formula_stripped)
             if _for_writer != _formula_stripped:
                 log.debug("convert_mathml_to_starmath: collapsed newline operators for Writer embed (len %d -> %d)", len(_formula_stripped), len(_for_writer))
@@ -188,7 +186,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     # "AAA" / "[F]" / "BBB".
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", 3)  # 3 = Center alignment
+        cursor.setPropertyValue("ParaAdjust", _PARA_CENTER)
 
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
     embed.CLSID = MATH_CLSID
@@ -200,7 +198,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
 
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", 0)  # 0 = Left / Standard alignment
+        cursor.setPropertyValue("ParaAdjust", _PARA_LEFT)
 
 
 def replace_writer_math_formula(embed: Any, starmath: str) -> None:

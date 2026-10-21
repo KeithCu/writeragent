@@ -9,7 +9,6 @@ from plugin.writer.math.html_math_segment import (
     html_fragment_contains_mathml,
     html_fragment_contains_mixed_math,
     html_fragment_contains_tex_math,
-    segment_html_with_mathml,
     segment_html_with_mixed_math,
 )
 
@@ -22,14 +21,14 @@ class TestHtmlMathSegment:
         assert (html_fragment_contains_mathml("<MATH xmlns=...>"))
 
     def test_plain_html_single_segment(self):
-        segs = segment_html_with_mathml("<p>hi</p>")
+        segs = segment_html_with_mixed_math("<p>hi</p>")
         assert (len(segs)) == (1)
         assert (segs[0].kind) == ("html")
         assert (segs[0].text) == ("<p>hi</p>")
 
     def test_order_mixed_inline(self):
         html = '<p>Before <math><mi>a</mi></math> after.</p>'
-        segs = segment_html_with_mathml(html)
+        segs = segment_html_with_mixed_math(html)
         assert ([s.kind for s in segs]) == (["html", "math", "html"])
         assert (segs[0].text) == ("<p>Before ")
         assert (segs[1].text.lower().startswith("<math"))
@@ -39,14 +38,14 @@ class TestHtmlMathSegment:
 
     def test_display_block_attribute(self):
         m = '<math display="block"><mi>x</mi></math>'
-        segs = segment_html_with_mathml(m)
+        segs = segment_html_with_mixed_math(m)
         assert (len(segs)) == (1)
         assert (segs[0].kind) == ("math")
         assert (segs[0].display_block)
 
     def test_mode_display_legacy(self):
         m = '<math mode="display"><mi>x</mi></math>'
-        segs = segment_html_with_mathml(m)
+        segs = segment_html_with_mixed_math(m)
         assert (segs[0].display_block)
 
     def test_katex_wrapper_preserved(self):
@@ -55,19 +54,19 @@ class TestHtmlMathSegment:
             '<math><semantics><mi>x</mi></semantics></math>'
             "</span>"
         )
-        segs = segment_html_with_mathml(wrapped)
+        segs = segment_html_with_mixed_math(wrapped)
         kinds = [s.kind for s in segs]
         assert (kinds) == (["html", "math", "html"])
         assert ("semantics") in (segs[1].text)
 
     def test_unclosed_math_becomes_html_tail(self):
-        segs = segment_html_with_mathml("<p>a<math><mi>x</mi>")
+        segs = segment_html_with_mixed_math("<p>a<math><mi>x</mi>")
         assert ([s.kind for s in segs]) == (["html", "html"])
         assert ("<math") in (segs[1].text)
 
     def test_multiple_formulas(self):
         h = "<p><math><mi>a</mi></math>+<math><mi>b</mi></math></p>"
-        segs = segment_html_with_mathml(h)
+        segs = segment_html_with_mixed_math(h)
         assert (segs[0].kind) == ("html")
         assert (segs[1].kind) == ("math")
         assert (segs[2].kind) == ("html")

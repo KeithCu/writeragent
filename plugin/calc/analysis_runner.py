@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_range
 from plugin.calc.bridge import CalcBridge
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.client import run_analysis
@@ -43,9 +43,7 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         bridge = CalcBridge(doc)
         sheet = bridge.get_active_sheet()
         sheet_name = str(sheet.getName())
-        start = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
-        end = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
-        cell_part = start if start == end else f"{start}:{end}"
+        cell_part = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=True)
         if " " in sheet_name or "." in sheet_name or "'" in sheet_name:
             escaped_name = sheet_name.replace("'", "''")
             return f"'{escaped_name}'.{cell_part}"

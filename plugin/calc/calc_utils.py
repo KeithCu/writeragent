@@ -22,7 +22,21 @@ from __future__ import annotations
 from typing import Any, Tuple, cast
 import uno
 
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.framework.errors import UnoObjectError, uno_read
+
+try:
+    from com.sun.star.table import CellContentType
+
+    EMPTY = CellContentType.EMPTY
+    VALUE = CellContentType.VALUE
+    TEXT = CellContentType.TEXT
+    FORMULA = CellContentType.FORMULA
+except ImportError:
+    EMPTY = cast("Any", 0)
+    VALUE = cast("Any", 1)
+    TEXT = cast("Any", 2)
+    FORMULA = cast("Any", 3)
 
 
 def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
@@ -49,8 +63,6 @@ def query_interface(obj: Any, typename: str) -> Any:
 
 def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | None:
     """Resolve *address* (e.g. 'A1' or 'Sheet1.B2') to ``(sheet, col, row)`` for an open Calc document."""
-    from plugin.calc.address_utils import parse_address, split_sheet_prefix
-
     text = (address or "").strip()
     if not text or doc is None:
         return None
@@ -185,6 +197,24 @@ def formula_cell_result(cell: Any) -> Any:
         return as_float
     text = cell.getString()
     return text
+
+
+def cell_value_and_type(cell: Any, *, empty_as_none: bool = True, formula_error_as_string: bool = True) -> tuple[Any, str]:
+    kind = cell.getType()
+    if kind == EMPTY:
+        val = None if empty_as_none else cell.getString()
+        return val, "empty"
+    if kind == VALUE:
+        return cell.getValue(), "value"
+    if kind == TEXT:
+        return cell.getString(), "text"
+    if kind == FORMULA:
+        if formula_error_as_string and cell.getError() != 0:
+            val = cell.getString()
+        else:
+            val = formula_cell_result(cell)
+        return val, "formula"
+    return cell.getString(), "unknown"
 
 
 _formula_cell_result = formula_cell_result

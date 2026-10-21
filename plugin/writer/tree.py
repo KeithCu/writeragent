@@ -22,7 +22,7 @@ Ported from mcp-libre services/writer/tree.py.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
@@ -32,6 +32,7 @@ from plugin.doc.text_helpers import (
     build_heading_tree,
     find_heading_by_chapter_number,
     get_string_without_tracked_deletions,
+    iter_heading_nodes,
     with_view_cursor_left_body_locked,
 )
 
@@ -65,12 +66,52 @@ def _heading_tree_fingerprint(doc: Any) -> int | None:
 
 def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Collect all heading paragraph indices in document order."""
-    indices: list[int] = []
+    indices = [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
     if node.get("para_index", -1) >= 0:
         indices.append(node["para_index"])
-    for child in node.get("children", []):
-        indices.extend(_collect_heading_indices(child))
     return sorted(indices)
+
+
+def _preview_text(text: str, max_chars: int = 100) -> str:
+    """Return text truncated with ellipsis when longer than max_chars."""
+    if len(text) > max_chars:
+        return text[:max_chars] + "..."
+    return text
+
+
+def heading_ref(
+    node: dict[str, Any],
+    bookmark_map: dict[Any, Any] | None = None,
+    *,
+    include_type: bool = False,
+    include_body: bool = False,
+    include_children_count: bool = False,
+    include_chapter: bool = False,
+    body_default: bool = False,
+) -> dict[str, Any]:
+    para_index = node["para_index"]
+    ref: dict[str, Any] = {}
+    if include_type:
+        ref["type"] = "heading"
+    ref["level"] = node["level"]
+    ref["text"] = node["text"]
+    ref["para_index"] = para_index
+    ref["bookmark"] = (bookmark_map or {}).get(para_index)
+    if include_children_count:
+        ref["children_count"] = len(node.get("children") or [])
+    if include_body:
+        ref["body_paragraphs"] = node.get("body_paragraphs", 0) if body_default else node["body_paragraphs"]
+    if include_chapter and node.get("chapter_number"):
+        ref["chapter_number"] = node["chapter_number"]
+    return ref
+
+
+class _TreeContext(NamedTuple):
+    para_ranges: list[Any]
+    tree: dict[str, Any]
+    heading_indices: list[int]
+    next_heading_map: dict[int, int]
+    bookmark_map: dict[int, str]
 
 
 class TreeService(ServiceBase):
@@ -167,9 +208,7 @@ class TreeService(ServiceBase):
                 if current_len >= max_chars:
                     break
         full_preview = " ".join(preview_parts)
-        if len(full_preview) > max_chars:
-            full_preview = full_preview[:max_chars] + "..."
-        return full_preview
+        return _preview_text(full_preview, max_chars)
 
     def _get_full_body_text_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
         parts = []
@@ -179,107 +218,50 @@ class TreeService(ServiceBase):
             parts.append(get_string_without_tracked_deletions(element))
         return "\n".join(parts)
 
-    def _get_body_preview(self, doc: Any, heading_para_index: int, max_chars: int = 100) -> str:
-        text = doc.getText()
-        enum = text.createEnumeration()
-        idx = 0
-        preview_parts = []
-        current_len = 0
-        found_heading = heading_para_index == -1
-
-        while enum.hasMoreElements():
-            element = enum.nextElement()
-            is_para = element.supportsService("com.sun.star.text.Paragraph")
-            if idx == heading_para_index:
-                found_heading = True
-                idx += 1
-                continue
-            if found_heading and is_para:
-                outline_level = element.getPropertyValue("OutlineLevel")
-                if outline_level > 0:
-                    break
-                para_text = get_string_without_tracked_deletions(element).strip()
-                if para_text:
-                    preview_parts.append(para_text)
-                    current_len += len(para_text)
-                    if current_len >= max_chars:
-                        break
-            idx += 1
-
-        full_preview = " ".join(preview_parts)
-        if len(full_preview) > max_chars:
-            full_preview = full_preview[:max_chars] + "..."
-        return full_preview
-
-    def _get_full_body_text(self, doc: Any, heading_para_index: int) -> str:
-        text = doc.getText()
-        enum = text.createEnumeration()
-        idx = 0
-        parts = []
-        found_heading = heading_para_index == -1
-
-        while enum.hasMoreElements():
-            element = enum.nextElement()
-            is_para = element.supportsService("com.sun.star.text.Paragraph")
-            if idx == heading_para_index:
-                found_heading = True
-                idx += 1
-                continue
-            if found_heading and is_para:
-                outline_level = element.getPropertyValue("OutlineLevel")
-                if outline_level > 0:
-                    break
-                parts.append(get_string_without_tracked_deletions(element))
-            idx += 1
-
-        return "\n".join(parts)
-
     def _apply_content_strategy(
         self,
         node: dict[str, Any],
-        doc: Any,
         strategy: str,
         max_chars: int = 100,
-        para_ranges: list[Any] | None = None,
-        next_heading_map: dict[int, int] | None = None,
+        *,
+        para_ranges: list[Any],
+        next_heading_map: dict[int, int],
     ) -> None:
         para_idx = node.get("para_index", -1)
         if strategy in ("none", "heading_only"):
             pass
         elif strategy == "first_lines":
-            if para_ranges is not None and next_heading_map is not None:
-                next_idx = next_heading_map.get(para_idx, len(para_ranges))
-                node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx, max_chars)
-            else:
-                node["body_preview"] = self._get_body_preview(doc, para_idx, max_chars)
+            next_idx = next_heading_map.get(para_idx, len(para_ranges))
+            node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx, max_chars)
         elif strategy == "full":
-            if para_ranges is not None and next_heading_map is not None:
-                next_idx = next_heading_map.get(para_idx, len(para_ranges))
-                node["body_text"] = self._get_full_body_text_from_ranges(para_ranges, para_idx + 1, next_idx)
-            else:
-                node["body_text"] = self._get_full_body_text(doc, para_idx)
+            next_idx = next_heading_map.get(para_idx, len(para_ranges))
+            node["body_text"] = self._get_full_body_text_from_ranges(para_ranges, para_idx + 1, next_idx)
 
     def _serialize_tree_node(
         self,
         child: dict[str, Any],
-        doc: Any,
         content_strategy: str,
         depth: int,
         current_depth: int = 1,
         bookmark_map: dict[Any, Any] | None = None,
-        para_ranges: list[Any] | None = None,
-        next_heading_map: dict[int, int] | None = None,
+        *,
+        para_ranges: list[Any],
+        next_heading_map: dict[int, int],
     ) -> dict[str, Any]:
-        node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": len(child.get("children") or []), "body_paragraphs": child["body_paragraphs"]}
-        if child.get("chapter_number"):
-            node["chapter_number"] = child["chapter_number"]
-        self._apply_content_strategy(node, doc, content_strategy, para_ranges=para_ranges, next_heading_map=next_heading_map)
+        node = heading_ref(
+            child,
+            bookmark_map,
+            include_type=True,
+            include_body=True,
+            include_children_count=True,
+            include_chapter=True,
+        )
+        self._apply_content_strategy(node, content_strategy, para_ranges=para_ranges, next_heading_map=next_heading_map)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
                 node["children"] = [
                     self._serialize_tree_node(
                         sub,
-                        doc,
                         content_strategy,
                         depth,
                         current_depth + 1,
@@ -293,33 +275,34 @@ class TreeService(ServiceBase):
 
     # ── Public tree API ────────────────────────────────────────────
 
-    def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
-        """Get serialized document tree with content strategies."""
+    def _load_tree_context(self, doc: Any) -> _TreeContext:
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc, elements=para_ranges)
         heading_indices = _collect_heading_indices(tree)
         total = len(para_ranges)
-
-        next_heading_map = {}
-        for i, h_idx in enumerate(heading_indices):
-            next_idx = heading_indices[i + 1] if i + 1 < len(heading_indices) else total
-            next_heading_map[h_idx] = next_idx
-
+        next_heading_map = {
+            h_idx: (heading_indices[i + 1] if i + 1 < len(heading_indices) else total)
+            for i, h_idx in enumerate(heading_indices)
+        }
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=heading_indices, para_ranges=para_ranges
         )
+        return _TreeContext(para_ranges, tree, heading_indices, next_heading_map, bookmark_map)
+
+    def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
+        """Get serialized document tree with content strategies."""
+        ctx = self._load_tree_context(doc)
 
         children = [
             self._serialize_tree_node(
                 child,
-                doc,
                 content_strategy,
                 depth,
-                bookmark_map=bookmark_map,
-                para_ranges=para_ranges,
-                next_heading_map=next_heading_map,
+                bookmark_map=ctx.bookmark_map,
+                para_ranges=ctx.para_ranges,
+                next_heading_map=ctx.next_heading_map,
             )
-            for child in tree["children"]
+            for child in ctx.tree["children"]
         ]
 
         page_count = self._doc_svc.get_page_count(doc)
@@ -329,8 +312,8 @@ class TreeService(ServiceBase):
             "content_strategy": content_strategy,
             "depth": depth,
             "children": children,
-            "body_before_first_heading": tree["body_paragraphs"],
-            "total_paragraphs": total,
+            "body_before_first_heading": ctx.tree["body_paragraphs"],
+            "total_paragraphs": len(ctx.para_ranges),
             "page_count": page_count,
         }
 
@@ -349,28 +332,17 @@ class TreeService(ServiceBase):
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
 
-        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-        tree = self.build_heading_tree(doc, elements=para_ranges)
-        heading_indices = _collect_heading_indices(tree)
-        total = len(para_ranges)
-
-        next_heading_map = {}
-        for i, h_idx in enumerate(heading_indices):
-            next_idx = heading_indices[i + 1] if i + 1 < len(heading_indices) else total
-            next_heading_map[h_idx] = next_idx
-
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
-            doc, heading_para_indices=heading_indices, para_ranges=para_ranges
-        )
-        target = self.find_heading_by_para_index(tree, heading_para_index)
+        ctx = self._load_tree_context(doc)
+        target = self.find_heading_by_para_index(ctx.tree, heading_para_index)
         if target is None:
             raise ToolExecutionError("Heading at paragraph %d not found" % heading_para_index)
 
         children = []
-        next_heading_para_index = next_heading_map.get(heading_para_index, total)
+        total = len(ctx.para_ranges)
+        next_heading_para_index = ctx.next_heading_map.get(heading_para_index, total)
 
         for idx in range(heading_para_index + 1, next_heading_para_index):
-            element = para_ranges[idx]
+            element = ctx.para_ranges[idx]
             if not element.supportsService("com.sun.star.text.Paragraph"):
                 continue
             if content_strategy in ("none", "heading_only"):
@@ -380,24 +352,20 @@ class TreeService(ServiceBase):
                 children.append({"type": "body", "para_index": idx, "text": para_text})
             else:
                 para_text = get_string_without_tracked_deletions(element)
-                preview = para_text[:100] + "..." if len(para_text) > 100 else para_text
-                children.append({"type": "body", "para_index": idx, "preview": preview})
+                children.append({"type": "body", "para_index": idx, "preview": _preview_text(para_text, 100)})
 
         for child in target["children"]:
             node = self._serialize_tree_node(
                 child,
-                doc,
                 content_strategy,
                 depth,
-                bookmark_map=bookmark_map,
-                para_ranges=para_ranges,
-                next_heading_map=next_heading_map,
+                bookmark_map=ctx.bookmark_map,
+                para_ranges=ctx.para_ranges,
+                next_heading_map=ctx.next_heading_map,
             )
             children.append(node)
 
-        parent = {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])}
-        if target.get("chapter_number"):
-            parent["chapter_number"] = target["chapter_number"]
+        parent = heading_ref(target, ctx.bookmark_map, include_chapter=True)
         return {"status": "ok", "parent": parent, "content_strategy": content_strategy, "depth": depth, "children": children}
 
     # ── Locator resolution (called by document.resolve_locator) ────
@@ -596,10 +564,9 @@ class TreeService(ServiceBase):
 
     def _flatten_headings(self, node: dict[str, Any]) -> list[dict[str, Any]]:
         result = []
-        for child in node.get("children", []):
+        for child in iter_heading_nodes(node):
             flat = {"text": child["text"], "para_index": child["para_index"], "level": child["level"]}
             if child.get("chapter_number"):
                 flat["chapter_number"] = child["chapter_number"]
             result.append(flat)
-            result.extend(self._flatten_headings(child))
         return result

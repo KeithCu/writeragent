@@ -29,6 +29,7 @@ from plugin.framework.errors import is_disposed_exception, is_real_disposal, mak
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
+from .search import parse_non_negative_int
 from .specialized_base import ToolWriterPageBase
 
 log = logging.getLogger("writeragent.writer")
@@ -1793,10 +1794,10 @@ class PageInsertBreak(ToolWriterPageBase):
 
         if before_text or after_text:
             anchor = str(before_text or after_text)
-            # type/enum checks are done by the tool schema in ToolRegistry
-            occurrence = kwargs.get("occurrence", 0)
-            if occurrence < 0:
-                return self._tool_error("occurrence must be non-negative.")
+            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
+            if occ_err:
+                return self._tool_error(occ_err)
+            occurrence = 0 if occ_val is None else occ_val
             sd = doc.createSearchDescriptor()
             sd.SearchString = anchor
             sd.SearchRegularExpression = False

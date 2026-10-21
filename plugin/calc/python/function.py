@@ -23,6 +23,7 @@ import unohelper
 from com.sun.star.util import XModifyListener
 
 from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
+from plugin.calc.calc_utils import EMPTY
 from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.inspector import _format_category_from_type
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
@@ -1473,11 +1474,6 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     prev_spill_set = set(previous_spills)
 
     log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
-
-    try:
-        from com.sun.star.table.CellContentType import EMPTY
-    except ImportError:
-        EMPTY = cast("Any", 0)
 
     max_cols = int(sheet.getColumns().getCount())
     max_rows = int(sheet.getRows().getCount())

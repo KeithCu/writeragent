@@ -74,6 +74,39 @@ ERROR_TYPES = {
 # Cell error text patterns
 ERROR_PATTERNS = ["#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532"]
 
+_EVAL_ERROR_LABELS = {
+    503: "#NUM! (Invalid numeric value, code 503)",
+    532: "#DIV/0! (Division by zero, code 532)",
+    508: "Pair missing bracket (code 508)",
+    509: "Operator missing (code 509)",
+    510: "Variable missing (code 510)",
+    511: "Parameter missing (code 511)",
+    524: "#REF! (Invalid reference, code 524)",
+    525: "#NAME? (Invalid name, code 525)",
+}
+
+
+def formula_evaluation_error_message(error_code: int) -> str:
+    """Human-readable evaluate_formula message for a Calc error code."""
+    if error_code in _EVAL_ERROR_LABELS:
+        label = _EVAL_ERROR_LABELS[error_code]
+    elif error_code in ERROR_TYPES:
+        info = ERROR_TYPES[error_code]
+        symbol = info.get("code", "")
+        name = info.get("name", "")
+        if symbol.startswith("#") and symbol != "#NULL!":
+            if name and name != symbol:
+                label = f"{symbol} ({name}, code {error_code})"
+            else:
+                label = f"{symbol} (code {error_code})"
+        elif name:
+            label = f"{name} (code {error_code})"
+        else:
+            label = f"code {error_code}"
+    else:
+        label = f"code {error_code}"
+    return f"Formula evaluation error: {label}"
+
 
 def get_calc_error_name(error_code: int) -> str:
     """Return a human-readable name for a Calc error code."""

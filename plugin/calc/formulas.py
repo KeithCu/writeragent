@@ -32,10 +32,18 @@ from __future__ import annotations
 
 from plugin.framework.constants import now_aware
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
-from plugin.calc.error_detector import ERROR_TYPES
+from plugin.calc.calc_utils import (
+    EMPTY as EMPTY,
+    FORMULA as FORMULA,
+    TEXT as TEXT,
+    VALUE as VALUE,
+    cell_value_and_type,
+    resolve_sheet,
+)
+from plugin.calc.error_detector import formula_evaluation_error_message as formula_evaluation_error_message
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBase
 
@@ -44,18 +52,6 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.calc.base import ToolCalcErrorBase
-
-try:
-    from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-except ImportError:
-    from typing import cast
-
-    EMPTY, VALUE, TEXT, FORMULA = cast("Any", 0), cast("Any", 1), cast("Any", 2), cast("Any", 3)
-
-from plugin.calc.calc_utils import (
-    _formula_cell_result,
-    resolve_sheet,
-)
 
 log = logging.getLogger("writeragent.calc")
 
@@ -72,44 +68,6 @@ def _context_position(cell_address: str) -> tuple[int, int]:
     """
     _prefix, local = split_sheet_prefix((cell_address or "").strip())
     return parse_address(local.replace("$", ""))
-
-
-def formula_evaluation_error_message(error_code: int) -> str:
-    """Human-readable ``evaluate_formula`` message for a Calc error code.
-
-    503 and 532 used to share one ``#DIV/0!`` string that always cited code
-    532, so a numeric overflow was described as division by zero. LibreOffice
-    maps 503 to ``#NUM!`` (invalid floating-point operation) and 532 to
-    ``#DIV/0!`` (``error_detector.ERROR_TYPES``; help ``scalc/05/02140000``).
-    ``#VALUE!`` is 519, not 503.
-    """
-    if error_code == 503:
-        return "Formula evaluation error: #NUM! (Invalid numeric value, code 503)"
-    if error_code == 532:
-        return "Formula evaluation error: #DIV/0! (Division by zero, code 532)"
-    if error_code == 508:
-        return "Formula evaluation error: Pair missing bracket (code 508)"
-    if error_code == 509:
-        return "Formula evaluation error: Operator missing (code 509)"
-    if error_code == 510:
-        return "Formula evaluation error: Variable missing (code 510)"
-    if error_code == 511:
-        return "Formula evaluation error: Parameter missing (code 511)"
-    if error_code == 524:
-        return "Formula evaluation error: #REF! (Invalid reference, code 524)"
-    if error_code == 525:
-        return "Formula evaluation error: #NAME? (Invalid name, code 525)"
-    if error_code in ERROR_TYPES:
-        info = ERROR_TYPES[error_code]
-        symbol = info.get("code", "")
-        name = info.get("name", "")
-        if symbol.startswith("#") and symbol != "#NULL!":
-            if name and name != symbol:
-                return f"Formula evaluation error: {symbol} ({name}, code {error_code})"
-            return f"Formula evaluation error: {symbol} (code {error_code})"
-        if name:
-            return f"Formula evaluation error: {name} (code {error_code})"
-    return f"Formula evaluation error: code {error_code}"
 
 
 def _quiet_cleanup(action: Callable[[], None], what: str) -> None:
@@ -184,14 +142,9 @@ class ListCalcFunctions(ToolBase):
         filter_str = (kwargs.get("filter") or "").strip().upper()
         uno_ctx = ctx.ctx
         if not uno_ctx:
-            from plugin.framework.uno_context import get_ctx
-
-            uno_ctx = get_ctx()
-
-        if not uno_ctx:
             raise ToolExecutionError("UNO context not available.")
 
-        smgr = cast("Any", uno_ctx).getServiceManager()
+        smgr = uno_ctx.getServiceManager()
         func_descr_service = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionDescriptions", uno_ctx)
         if not func_descr_service:
             raise ToolExecutionError("FunctionDescriptions service not available.")
@@ -207,11 +160,12 @@ class ListCalcFunctions(ToolBase):
                 continue
 
             arguments = func_data.get("Arguments") or ()
-            arg_list = []
-            for a in arguments:
-                arg_list.append({"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)})
+            arg_list = [
+                {"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)}
+                for a in arguments
+            ]
 
-            matched_functions.append({"name": name, "description": func_data.get("Description", ""), "category_id": func_data.get("Category", 0), "arguments": arg_list})
+            matched_functions.append({"name": name, "description": desc, "category_id": func_data.get("Category", 0), "arguments": arg_list})
         log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
         return {"status": "ok", "functions": matched_functions}
 
@@ -299,26 +253,9 @@ class EvaluateFormula(ToolCalcErrorBase):
                     eval_result = {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
                     return eval_result
 
-                result_type = cell.getType()
-                if result_type == VALUE:
-                    result = cell.getValue()
-                elif result_type == TEXT:
-                    result = cell.getString()
-                elif result_type == FORMULA:
-                    result = _formula_cell_result(cell)
-                else:
-                    result = cell.getString()
-
-                if result_type == EMPTY:
-                    result_type_str = "empty"
-                elif result_type == VALUE:
-                    result_type_str = "value"
-                elif result_type == TEXT:
-                    result_type_str = "text"
-                elif result_type == FORMULA:
-                    result_type_str = "formula"
-                else:
-                    result_type_str = "unknown"
+                result, result_type_str = cell_value_and_type(
+                    cell, formula_error_as_string=False, empty_as_none=False
+                )
 
                 eval_result = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
                 return eval_result

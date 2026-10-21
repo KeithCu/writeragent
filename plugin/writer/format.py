@@ -24,21 +24,26 @@ import os
 import re
 import sys
 import tempfile
-from typing import Any, Iterator, cast
+from typing import Any, Iterable, Iterator, Literal, TypedDict
 
 import uno
 from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.uno_context import create_property_value as create_property_value
 from plugin.framework.url_utils import path_to_file_url
 from .math.html_math_segment import html_fragment_contains_mixed_math  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from .math.math_mml_convert import convert_latex_to_starmath as convert_latex_to_starmath  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from .math.math_mml_convert import convert_mathml_to_starmath as convert_mathml_to_starmath  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from .math.math_mml_convert import insert_writer_math_formula as insert_writer_math_formula  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from . import xhtml_style_postprocess as xhtml_post  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 log = logging.getLogger("writeragent.writer")
 
+__all__ = [
+    "_deletion_author",
+    "_resolve_style_name",
+    "_with_temp_buffer",
+    "_strip_html_boilerplate",
+]
 
-def _deletion_author() -> Any:  # pyright: ignore[reportUnusedFunction]
+
+def _deletion_author() -> Any:
     """WriterAgent split-author coloring; no-op when ``review_authors`` is omitted (LibrePy)."""
     try:
         from .review_authors import deletion_author
@@ -48,7 +53,7 @@ def _deletion_author() -> Any:  # pyright: ignore[reportUnusedFunction]
         return contextlib.nullcontext()
 
 
-def _resolve_style_name(model: Any, style_name: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def _resolve_style_name(model: Any, style_name: str) -> str:
     """Resolve a style name case-insensitively against document ParagraphStyles."""
     families = model.getStyleFamilies()
     para_styles = families.getByName("ParagraphStyles")
@@ -123,26 +128,8 @@ def _resolve_temp_dir() -> str:
 TEMP_DIR = _resolve_temp_dir()
 
 
-def _get_format_props(config_svc: Any = None) -> tuple[str, str]:
-    """Return ``(filter_name, file_extension)`` for HTML format."""
-    return HTML_FILTER, HTML_EXTENSION
-
-
-# ---------------------------------------------------------------------------
-# UNO helpers (import inside functions to avoid import-time dependency)
-# ---------------------------------------------------------------------------
-
-
-def create_property_value(name: str, value: Any) -> Any:
-    """Create a ``com.sun.star.beans.PropertyValue``."""
-    p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-    p.Name = name
-    p.Value = value
-    return p
-
-
 @contextlib.contextmanager
-def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | None = None) -> Iterator[tuple[str, str]]:  # pyright: ignore[reportUnusedFunction]
+def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Iterator[tuple[str, str]]:
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 
@@ -151,12 +138,10 @@ def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | No
     The file is deleted on exit.
     """
     if ext is None:
-        _unused, ext = _get_format_props(config_svc)
+        ext = HTML_EXTENSION
     fd, path = tempfile.mkstemp(suffix=ext, dir=TEMP_DIR)
     try:
         if content is not None:
-            if isinstance(content, list):
-                content = "\n".join(str(x) for x in content)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
         else:
@@ -174,7 +159,7 @@ def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | No
 # ---------------------------------------------------------------------------
 
 
-def _strip_html_boilerplate(html_string: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def _strip_html_boilerplate(html_string: str) -> str:
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
         return html_string
@@ -182,42 +167,6 @@ def _strip_html_boilerplate(html_string: str) -> str:  # pyright: ignore[reportU
     if match:
         return match.group(1).strip()
     return html_string
-
-
-# XHTML export embeds graphics as data:image/...;base64,... — strip payload only, keep external src URLs.
-
-
-# ---------------------------------------------------------------------------
-# Semantic style model (read path): XHTML filter -> semantic data-lo-style HTML.
-# Pure string/CSS pipeline: xhtml_style_postprocess (no UNO). This module owns UNO export
-# (XHTML + optional flat ODF for Pn->parent autostyle recovery). v1 cost: two storeToURL per
-# full read; v1 gaps (partial-edit style apply, table cells, whole-para overrides): see
-# docs/writer/html-style-model-plan.md#v1-limitations-shipped.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Semantic style model (write path): honor data-lo-style on incoming HTML.
-# Named styles on replace_full_document and on beginning/end inserts (after absorb prep).
-# selection/search still strip without applying — see docs/writer/html-style-model-plan.md.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Document -> content
-# ---------------------------------------------------------------------------
-
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-
-
-# ---------------------------------------------------------------------------
-# Content -> Document
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Paragraph style apply (preserve direct Char* formatting)
-# ---------------------------------------------------------------------------
 
 
 # Other code paths that set ParaStyleName and may need apply_paragraph_style_preserving_direct_char
@@ -299,14 +248,14 @@ def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str]
 
 _STYLE_PROP_FAILED = object()
 _CHAR_PROPS_KEY = "__writable_char_props__"
-_FONT_SLANT_TO_INT: dict[str, int] = {
+FONT_SLANT_TO_INT: dict[str, int] = {
     "none": 0,
     "oblique": 1,
     "italic": 2,
 }
 
 
-def _reset_properties_to_default(cursor: Any, names: Any) -> list[str]:
+def _reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style.
 
     This is Format > Clear Direct Formatting, narrowed to the names the caller asks for. It is the
@@ -349,20 +298,31 @@ def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
                         val = inner
                 if name == "CharPosture" and isinstance(val, str):
                     low = val.strip().lower()
-                    if low in _FONT_SLANT_TO_INT:
-                        val = _FONT_SLANT_TO_INT[low]
+                    if low in FONT_SLANT_TO_INT:
+                        val = FONT_SLANT_TO_INT[low]
                 if isinstance(val, (str, int, float, bool)):
                     summary[name] = val
     return summary
+
+
+class ParagraphStyleApplyReport(TypedDict, total=False):
+    direct_formatting: str
+    clear_direct: str
+    preserved_char_overrides: dict[str, Any]
+    removed_char_overrides: dict[str, Any]
+    cleared_char_properties: list[str]
+    cleared_paragraph_properties: list[str]
+    warning: str
+    capture_incomplete: bool
 
 
 def apply_paragraph_style_preserving_direct_char(
     doc: Any,
     cursor: Any,
     style_name: str,
-    clear_direct: str = "none",
+    clear_direct: Literal["none", "style_props", "all"] = "none",
     style_cache: dict[Any, Any] | None = None,
-) -> dict[str, Any]:
+) -> ParagraphStyleApplyReport:
     """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
 
     Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
@@ -574,7 +534,7 @@ def apply_paragraph_style_preserving_direct_char(
                     reraise_if_disposed(exc)
                     capture_failures += 1
 
-    report: dict[str, Any] = {
+    report: ParagraphStyleApplyReport = {
         "direct_formatting": "preserved" if clear_direct == "none" else "cleared",
         "clear_direct": clear_direct,
     }
@@ -662,6 +622,7 @@ from .html_import import (
     _insert_starwriter_html_at_cursor as _insert_starwriter_html_at_cursor,
     content_has_markup as content_has_markup,
     html_to_plain_text as html_to_plain_text,
+    plain_text_if_markup as plain_text_if_markup,
     insert_content_at_position as insert_content_at_position,
     insert_html_at_cursor as insert_html_at_cursor,
     insert_html_fragment_at_cursor as insert_html_fragment_at_cursor,

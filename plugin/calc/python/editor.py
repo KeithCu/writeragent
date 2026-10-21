@@ -52,11 +52,11 @@ def _cell_formula_content(cell: Any) -> bool | None:
     kind = cell.getType()
     if kind == 3:
         return True
-    from com.sun.star.table import CellContentType
+    from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 
-    if kind == CellContentType.FORMULA:
+    if kind == FORMULA:
         return True
-    if kind in (CellContentType.EMPTY, CellContentType.VALUE, CellContentType.TEXT):
+    if kind in (EMPTY, VALUE, TEXT):
         return False
     if isinstance(kind, int):
         return False

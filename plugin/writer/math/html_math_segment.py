@@ -279,8 +279,3 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
         pos = t_end
 
     return out
-
-
-def segment_html_with_mathml(fragment: str) -> list[MathSegment]:
-    """Split *fragment* into segments; same as :func:`segment_html_with_mixed_math`."""
-    return segment_html_with_mixed_math(fragment)

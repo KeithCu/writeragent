@@ -22,7 +22,7 @@ from plugin.writer.html_import import (
 @contextmanager
 def _capture_temp_buffer(content_holder):
     @contextmanager
-    def fake_with_temp_buffer(content, config_svc=None):
+    def fake_with_temp_buffer(content=None, ext=None):
         content_holder["content"] = content
         yield ("/tmp/fake.html", "file:///tmp/fake.html")
 
@@ -113,7 +113,7 @@ def test_filter_name_starwriter():
     filter_holder = {}
 
     @contextmanager
-    def fake_with_temp_buffer(content, config_svc=None):
+    def fake_with_temp_buffer(content=None, ext=None):
         yield ("/tmp/fake.html", "file:///tmp/fake.html")
 
     def capture_insert(url, props):
