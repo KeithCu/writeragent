@@ -12,8 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any, ClassVar
 
-from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
-from plugin.chatbot.smol_examples import get_examples_block
+from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.queue_executor import run_on_main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
@@ -28,24 +27,28 @@ READ_TOOLS_BY_DOC_TYPE: dict[str, frozenset[str]] = {
 
 
 def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: str, task: str) -> dict[str, Any] | str:
-    """Run a focused read-only smol agent on *opened_model*; not a delegate gateway recurse."""
+    """Run a focused read-only smol agent on *opened_model*; not a delegate gateway recurse.
+
+    The child context clears active_page_index, active_domain, approval_callback,
+    chat_append_callback, set_active_domain_callback, and python_tool_domain because
+    the opened file is not the parent document, and Draw read tools treat
+    active_page_index as the page.
+    """
     registry = parent_ctx.services.get("tools")
     allowlist = READ_TOOLS_BY_DOC_TYPE.get(doc_type)
     if not allowlist:
         return {"status": "error", "message": f"No read tools configured for doc_type {doc_type!r}"}
 
-    inner_ctx = ToolContext(
+    inner_ctx = parent_ctx.derive(
         doc=opened_model,
-        ctx=parent_ctx.ctx,
         doc_type=doc_type,
-        services=parent_ctx.services,
-        caller=parent_ctx.caller,
-        status_callback=parent_ctx.status_callback,
-        append_thinking_callback=parent_ctx.append_thinking_callback,
-        stop_checker=parent_ctx.stop_checker,
-        send_cancellation=getattr(parent_ctx, "send_cancellation", None),
         read_only_target=True,
-        uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
+        active_page_index=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        set_active_domain_callback=None,
+        active_domain=None,
+        python_tool_domain=None,
     )
 
     def _fetch_inner_tools() -> tuple[list[ToolBase], list[ToolBase]]:
@@ -80,16 +83,6 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         "Call specialized_workflow_finished with a compact summary when done."
     )
 
-    agent = build_toolcalling_agent(
-        inner_ctx,
-        smol_tools,
-        instructions=instructions,
-        final_answer_tool_name="specialized_workflow_finished",
-        examples_block=get_examples_block(f"document_research:{doc_type}"),
-        status_callback=parent_ctx.status_callback,
-    )
-    executor = SmolAgentExecutor(inner_ctx)
-
     def tool_call_handler(step: Any) -> None:
         cb = parent_ctx.append_thinking_callback
         if cb:
@@ -98,12 +91,16 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         if sc:
             sc(f"Read: {step.name}...")
 
-    final_ans = executor.execute_safe(
-        agent,
-        task,
-        tool_call_handler=tool_call_handler,
+    final_ans = run_inner_tool_agent(
+        inner_ctx,
+        smol_tools,
+        instructions=instructions,
+        examples_key=f"document_research:{doc_type}",
+        final_answer_tool_name="specialized_workflow_finished",
+        task=task,
         stop_message="Document read stopped by user.",
         error_prefix="Document research read agent failed",
+        tool_call_handler=tool_call_handler,
     )
     return final_ans
 

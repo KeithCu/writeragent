@@ -246,7 +246,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_document_research_chat_append_on_delegate_read_document(
     mock_executor_cls,
     mock_llm,
@@ -323,7 +323,7 @@ def _run_registered_peer_tool(mock_agent_class, tool_name: str, result: dict) ->
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_document_research_return_idles_outer_after_peer_send(
     mock_executor_cls,
     mock_llm,
@@ -391,7 +391,7 @@ def test_document_research_return_idles_outer_after_peer_send(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 @patch("plugin.doc.specialized_base._outer_turn_is_peer_work", return_value=True)
 def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
     _mock_peer_work,
@@ -438,7 +438,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 @patch("plugin.doc.specialized_base._outer_turn_is_peer_work", return_value=True)
 def test_document_research_send_peer_result_skips_delivery_pending(
     _mock_peer_work,
@@ -519,7 +519,7 @@ _PEER_SEND_FAILURE_CODES = (
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 @patch("plugin.doc.specialized_base._outer_turn_is_peer_work", return_value=True)
 def test_document_research_failed_send_peer_result_does_not_stamp_idle(
     _mock_peer_work,
@@ -598,8 +598,8 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
         assert result.get("instruction") == PEER_OUTER_DELIVERY_STILL_REQUIRED, code
 
 
-@patch("plugin.doc.document_research_specialized.build_toolcalling_agent")
-@patch("plugin.doc.document_research_specialized.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent):
     mock_agent = MagicMock()
     mock_build_agent.return_value = mock_agent
@@ -617,7 +617,37 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
 
     doc = MagicMock()
     doc.supportsService = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
-    parent = ToolContext(doc, MagicMock(), "calc", {"tools": r}, stop_checker=lambda: False)
+    active_domain_sentinel = "active_domain_sentinel"
+    active_page_sentinel = 99
+
+    def approval_cb(s):
+        return True
+
+    def chat_append_cb(s):
+        return None
+
+    def set_domain_cb(s):
+        return None
+
+    python_domain_sentinel = "python_domain_sentinel"
+    send_cancel_sentinel = object()
+    uno_services_sentinel = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
+
+    parent = ToolContext(
+        doc,
+        MagicMock(),
+        "calc",
+        {"tools": r},
+        stop_checker=lambda: False,
+        active_domain=active_domain_sentinel,
+        active_page_index=active_page_sentinel,
+        approval_callback=approval_cb,
+        chat_append_callback=chat_append_cb,
+        set_active_domain_callback=set_domain_cb,
+        python_tool_domain=python_domain_sentinel,
+        send_cancellation=send_cancel_sentinel,
+        uno_services_supported=uno_services_sentinel,
+    )
 
     opened = MagicMock()
     opened.supportsService = doc.supportsService
@@ -628,7 +658,17 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
     assert "read_cell_range" in tool_names
     assert "get_sheet_summary" in tool_names
     inner_ctx = mock_build_agent.call_args[0][0]
+    assert inner_ctx.doc is opened
+    assert inner_ctx.doc_type == "calc"
     assert inner_ctx.read_only_target is True
+    assert inner_ctx.active_page_index is None
+    assert inner_ctx.approval_callback is None
+    assert inner_ctx.chat_append_callback is None
+    assert inner_ctx.set_active_domain_callback is None
+    assert inner_ctx.active_domain is None
+    assert inner_ctx.python_tool_domain is None
+    assert inner_ctx.uno_services_supported is uno_services_sentinel
+    assert inner_ctx.send_cancellation is send_cancel_sentinel
 
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})

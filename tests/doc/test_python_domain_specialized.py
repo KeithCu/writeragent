@@ -287,8 +287,8 @@ def test_delegate_tool_domains_visible_on_python_domain_for_each_app():
         assert "delegate_tool_domains" not in default_names
 
 
-@patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
-@patch("plugin.doc.python_domain_specialized.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock_build):
     mock_build.return_value = MagicMock()
     mock_executor_cls.return_value.execute_safe.return_value = "Inserted the footnote."
@@ -303,6 +303,24 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
     parent.append_thinking_callback = MagicMock()
     parent.status_callback = MagicMock()
+    active_domain_sentinel = "parent_active_domain"
+
+    def set_active_domain_cb(s):
+        return None
+
+    def approval_cb(s):
+        return True
+
+    def chat_append_cb(s):
+        return None
+
+    active_page_sentinel = 7
+
+    parent.active_domain = active_domain_sentinel
+    parent.set_active_domain_callback = set_active_domain_cb
+    parent.approval_callback = approval_cb
+    parent.chat_append_callback = chat_append_cb
+    parent.active_page_index = active_page_sentinel
 
     result = run_inner_domain_tool_agent(parent, ["footnotes", "shapes"], "Add a footnote and summarize shapes")
     assert result["status"] == "ok"
@@ -328,8 +346,12 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.doc is parent.doc
     assert inner_ctx.stop_checker is parent.stop_checker
     assert inner_ctx.status_callback is parent.status_callback
-    assert inner_ctx.read_only_target is False
+    assert inner_ctx.approval_callback is approval_cb
+    assert inner_ctx.chat_append_callback is chat_append_cb
+    assert inner_ctx.active_page_index == active_page_sentinel
+    assert inner_ctx.active_domain is None
     assert inner_ctx.set_active_domain_callback is None
+    assert inner_ctx.read_only_target is False
     assert inner_ctx.python_tool_domain == "footnotes,shapes,core"
     from plugin.scripting.host_rpc import resolve_allowed_tools
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
@@ -362,8 +384,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "insert_after" in instructions
 
 
-@patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
-@patch("plugin.doc.python_domain_specialized.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 @patch("plugin.doc.specialized_shapes_context.format_shapes_canvas_context")
 def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, mock_executor_cls, mock_build):
     """Inner shapes instructions get the same canvas line as the shapes specialized loop."""
@@ -410,8 +432,8 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"
 
 
-@patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
-@patch("plugin.doc.python_domain_specialized.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     mock_build.return_value = MagicMock()
     mock_executor_cls.return_value.execute_safe.return_value = "sorted"

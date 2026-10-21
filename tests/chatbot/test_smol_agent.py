@@ -677,6 +677,68 @@ def test_run_smol_side_turn_without_document_opens_keeps_the_default_handler():
     ctx.status_callback.assert_called_once_with("Deep research...")
 
 
+def test_run_inner_tool_agent():
+    from plugin.chatbot.smol_agent import run_inner_tool_agent
+    from plugin.chatbot.smol_examples import get_examples_block
+
+    ctx = MagicMock()
+    ctx.status_callback = MagicMock()
+    tools = [MagicMock()]
+    handler = MagicMock()
+    built_agent = MagicMock()
+
+    executor = MagicMock()
+    executor.execute_safe.return_value = "plain string result"
+
+    with patch("plugin.chatbot.smol_agent.build_toolcalling_agent", return_value=built_agent) as mock_build, patch(
+        "plugin.chatbot.smol_agent.SmolAgentExecutor", return_value=executor
+    ) as mock_exec_cls:
+        res = run_inner_tool_agent(
+            ctx,
+            tools,
+            instructions="test instructions",
+            examples_key="brainstorming",
+            final_answer_tool_name="specialized_workflow_finished",
+            task="do the task",
+            stop_message="Stopped by user.",
+            error_prefix="Agent failed",
+            tool_call_handler=handler,
+        )
+
+        assert res == "plain string result"
+        mock_build.assert_called_once_with(
+            ctx,
+            tools,
+            instructions="test instructions",
+            final_answer_tool_name="specialized_workflow_finished",
+            examples_block=get_examples_block("brainstorming"),
+            status_callback=ctx.status_callback,
+        )
+        mock_exec_cls.assert_called_once_with(ctx)
+        executor.execute_safe.assert_called_once_with(
+            built_agent,
+            "do the task",
+            tool_call_handler=handler,
+            stop_message="Stopped by user.",
+            error_prefix="Agent failed",
+        )
+
+        error_dict = {"status": "error", "error": "something broke"}
+        executor.execute_safe.return_value = error_dict
+        res_err = run_inner_tool_agent(
+            ctx,
+            tools,
+            instructions="test instructions",
+            examples_key="brainstorming",
+            final_answer_tool_name="specialized_workflow_finished",
+            task="do the task",
+            stop_message="Stopped by user.",
+            error_prefix="Agent failed",
+            tool_call_handler=handler,
+        )
+        assert res_err is error_dict
+
+
 # =============================================================================
 # Librarian smol tests (from test_librarian_smol.py)
 # =============================================================================

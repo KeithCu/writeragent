@@ -67,6 +67,50 @@ def test_tool_context_defaults():
     assert tc.append_thinking_callback is None
     assert tc.stop_checker is None
 
+
+def test_tool_context_derive():
+    sentinels = {
+        "doc": object(),
+        "ctx": object(),
+        "doc_type": "writer",
+        "services": object(),
+        "caller": "caller_sentinel",
+        "active_page_index": 42,
+        "status_callback": lambda s: None,
+        "append_thinking_callback": lambda s: None,
+        "stop_checker": lambda: False,
+        "approval_callback": lambda s: True,
+        "chat_append_callback": lambda s: None,
+        "set_active_domain_callback": lambda s: None,
+        "active_domain": "active_domain_sentinel",
+        "python_tool_domain": "python_domain_sentinel",
+        "read_only_target": False,
+        "send_cancellation": object(),
+        "uno_services_supported": frozenset({"com.sun.star.text.CustomService"}),
+    }
+    parent = ToolContext(**sentinels)
+    other = object()
+    child = parent.derive(doc=other, doc_type="calc", read_only_target=True)
+
+    assert child.doc is other
+    assert child.doc_type == "calc"
+    assert child.read_only_target is True
+
+    assert child.ctx is sentinels["ctx"]
+    assert child.services is sentinels["services"]
+    assert child.caller == sentinels["caller"]
+    assert child.active_page_index == sentinels["active_page_index"]
+    assert child.status_callback is sentinels["status_callback"]
+    assert child.append_thinking_callback is sentinels["append_thinking_callback"]
+    assert child.stop_checker is sentinels["stop_checker"]
+    assert child.approval_callback is sentinels["approval_callback"]
+    assert child.chat_append_callback is sentinels["chat_append_callback"]
+    assert child.set_active_domain_callback is sentinels["set_active_domain_callback"]
+    assert child.active_domain == sentinels["active_domain"]
+    assert child.python_tool_domain == sentinels["python_tool_domain"]
+    assert child.send_cancellation is sentinels["send_cancellation"]
+    assert child.uno_services_supported is sentinels["uno_services_supported"]
+
 # ── Tool Base Tests ──────────────────────────────────────────────────
 
 class ValidTool(ToolBase):

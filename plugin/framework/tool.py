@@ -208,6 +208,12 @@ class ToolContext:
         if send_cancellation is not None and stop_checker is None:
             self.stop_checker = send_cancellation.is_cancelled
 
+    def derive(self, **overrides: Any) -> ToolContext:
+        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
+        values = {name: getattr(self, name) for name in self.__slots__}
+        values.update(overrides)
+        return ToolContext(**values)
+
 
 def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
     """True when *value* fits a JSON Schema ``type`` (string or union list).

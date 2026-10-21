@@ -976,8 +976,8 @@ def test_draw_specialized_delegation_sub_agent(
     assert "dummy_draw_special_tool" in smol_tool_names
 
 
-@patch("plugin.doc.specialized_base.build_toolcalling_agent")
-@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):
     """Writer delegate must pick up Calc-registered ``run_venv_python_script`` (specialized_cross_cutting)."""
     from plugin.calc.python.venv import RunVenvPythonScript

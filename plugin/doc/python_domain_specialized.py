@@ -32,8 +32,7 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
-from plugin.chatbot.smol_examples import get_examples_block
+from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.doc_type import doc_type_title_for_label
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -246,23 +245,16 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     ``RunVenvPythonScript`` forwards it to the worker so script RPC is allowlisted
     to those ``writeragent_api`` domains (``shapes`` → ``shape``) and
     ``DOMAIN_TOOLS['core']``. ``run_venv_python_script`` stays off that set.
+
+    ``active_domain`` stays ``None`` and ``read_only_target`` stays ``False`` so
+    the inner loop does not inherit the outer python domain or a read-only parent.
     """
     from plugin.scripting.host_rpc import inner_script_tool_domain
 
-    return ToolContext(
-        doc=parent_ctx.doc,
-        ctx=parent_ctx.ctx,
-        doc_type=parent_ctx.doc_type,
-        services=parent_ctx.services,
-        caller=parent_ctx.caller,
-        active_page_index=getattr(parent_ctx, "active_page_index", None),
-        status_callback=parent_ctx.status_callback,
-        append_thinking_callback=parent_ctx.append_thinking_callback,
-        stop_checker=parent_ctx.stop_checker,
-        approval_callback=getattr(parent_ctx, "approval_callback", None),
-        chat_append_callback=getattr(parent_ctx, "chat_append_callback", None),
-        send_cancellation=getattr(parent_ctx, "send_cancellation", None),
-        uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
+    return parent_ctx.derive(
+        set_active_domain_callback=None,
+        active_domain=None,
+        read_only_target=False,
         python_tool_domain=inner_script_tool_domain(domains),
     )
 
@@ -361,15 +353,6 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         examples_key = "domain_tools:shapes"
     else:
         examples_key = f"domain_tools:{parent_ctx.doc_type or label.lower()}"
-    agent = build_toolcalling_agent(
-        inner_ctx,
-        smol_tools,
-        instructions=instructions,
-        final_answer_tool_name=_FINISH_TOOL,
-        examples_block=get_examples_block(examples_key),
-        status_callback=parent_ctx.status_callback,
-    )
-    executor = SmolAgentExecutor(inner_ctx)
 
     def tool_call_handler(step: Any) -> None:
         cb = parent_ctx.append_thinking_callback
@@ -379,12 +362,16 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         if sc:
             sc(f"Domain tool: {step.name}...")
 
-    final_ans = executor.execute_safe(
-        agent,
-        task,
-        tool_call_handler=tool_call_handler,
+    final_ans = run_inner_tool_agent(
+        inner_ctx,
+        smol_tools,
+        instructions=instructions,
+        examples_key=examples_key,
+        final_answer_tool_name=_FINISH_TOOL,
+        task=task,
         stop_message="Domain tool agent stopped by user.",
         error_prefix="Domain tool agent failed",
+        tool_call_handler=tool_call_handler,
     )
     return _compact_result(final_ans, domains)
 

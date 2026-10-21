@@ -649,7 +649,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
         }
 
     gateway = registry.get("delegate_to_specialized_calc_toolset")
-    with patch("plugin.doc.specialized_base.SmolAgentExecutor") as mock_executor_cls:
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_executor_cls:
         mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
         result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")
 

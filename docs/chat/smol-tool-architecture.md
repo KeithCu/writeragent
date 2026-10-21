@@ -90,6 +90,7 @@ flowchart TB
 |---------|-----------|
 | Smol wire policy **send generated schemas** | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `WriterAgentSmolModel.generate` |
 | Smol agent construction | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `build_toolcalling_agent` |
+| Shared build-and-execute runner | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_inner_tool_agent` (used by specialized gateway, the two inner agents, and `run_smol_side_turn`; librarian owns its own `execute_safe`; web research and PPT-Master do not use the helper) |
 | Brainstorming, writing plan, deep research turns | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_smol_side_turn` (librarian keeps its own `execute_safe` call so `upsert_memory` can write the chat line; PPT-Master stays on `run_ppt_master_venv_turn`) |
 | Smol few-shot examples (Action/Observation) | [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) — edit in place; refresh with [`scripts/generate_smol_examples.py`](../../scripts/generate_smol_examples.py) |
 | `ToolBase` → smol `inputs` | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `to_smol_inputs` / `SmolToolAdapter` |
@@ -143,7 +144,7 @@ python scripts/generate_smol_examples.py
 ## 8. What is already unified (keep it that way)
 
 - Single smol HTTP entry: **`WriterAgentSmolModel`** only.
-- Shared **`build_toolcalling_agent`**, **`to_smol_inputs`**, **`SmolToolAdapter`**.
+- Shared **`build_toolcalling_agent`**, **`run_inner_tool_agent`**, **`to_smol_inputs`**, **`SmolToolAdapter`**. `run_inner_tool_agent` is the shared build-and-execute used by the specialized gateway, the two inner agents, and `run_smol_side_turn`. Librarian owns its own `execute_safe` call. Web research and PPT-Master do not use the helper.
 - No second copy of **`LlmClient`** behavior inside librarian/specialized.
 
 Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product decision—that duplicates **transcript semantics**, not HTTP reuse.

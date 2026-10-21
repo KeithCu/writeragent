@@ -290,10 +290,10 @@ def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
 
-@patch("plugin.doc.specialized_base.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.run_inner_tool_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
-def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agent):
+def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_run_agent):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     ctx = MagicMock()
@@ -309,12 +309,12 @@ def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agen
     assert result["status"] == "ok"
     mock_execute.assert_called_once()
     assert mock_execute.call_args.kwargs["insert_into_document"] is True
-    mock_build_agent.assert_not_called()
+    mock_run_agent.assert_not_called()
 
 
-@patch("plugin.doc.specialized_base.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.run_inner_tool_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
-def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
+def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_run_agent):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     ctx = MagicMock()
@@ -324,7 +324,7 @@ def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
 
     assert result["status"] == "error"
     assert result.get("code") == "VISION_UNAVAILABLE"
-    mock_build_agent.assert_not_called()
+    mock_run_agent.assert_not_called()
 
 
 def test_delegate_vision_requires_document_lock_when_sub_agent():

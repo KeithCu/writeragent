@@ -33,8 +33,7 @@ from plugin.framework.prompts import (
     python_specialized_sub_agent_hint,
 )
 from plugin.framework.i18n import _
-from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
-from plugin.chatbot.smol_examples import get_examples_block
+from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 from plugin.framework import queue_executor
 
@@ -400,10 +399,6 @@ class DelegateToSpecializedBase(ToolBase):
             )
 
             examples_key = f"{self._agent_label.lower()}:{domain}"
-            agent = build_toolcalling_agent(ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=get_examples_block(examples_key), status_callback=status_callback)
-
-            executor = SmolAgentExecutor(ctx)
-
             document_open_step_index = 0
 
             def tool_call_handler(step: Any) -> None:
@@ -423,7 +418,17 @@ class DelegateToSpecializedBase(ToolBase):
                 if status_callback:
                     status_callback(f"Tool: {step.name}...")
 
-            final_ans = executor.execute_safe(agent, cast("str", task), tool_call_handler=tool_call_handler, stop_message="Specialized task stopped by user.", error_prefix="Specialized agent failed")
+            final_ans = run_inner_tool_agent(
+                ctx,
+                smol_tools,
+                instructions=instructions,
+                examples_key=examples_key,
+                final_answer_tool_name="specialized_workflow_finished",
+                task=cast("str", task),
+                stop_message="Specialized task stopped by user.",
+                error_prefix="Specialized agent failed",
+                tool_call_handler=tool_call_handler,
+            )
         finally:
             ctx.active_domain = prev_active_domain
 

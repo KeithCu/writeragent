@@ -25,6 +25,7 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.tools import Tool as SmolTool
+from plugin.chatbot import smol_examples
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError, format_error_payload, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
@@ -355,6 +356,10 @@ class SmolAgentExecutor:
             return format_error_payload(err)
 
 
+def get_examples_block(key: str) -> str:
+    return smol_examples.get_examples_block(key)
+
+
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     uno_ctx = ctx.ctx
@@ -366,6 +371,37 @@ def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, inst
     cancel_scope = getattr(ctx, "send_cancellation", None)
     smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
+
+
+def run_inner_tool_agent(
+    ctx: ToolContext,
+    tools: Sequence[SmolTool],
+    *,
+    instructions: str,
+    examples_key: str,
+    final_answer_tool_name: str,
+    task: str,
+    stop_message: str,
+    error_prefix: str,
+    tool_call_handler: Callable[[Any], Any] | None = None,
+) -> Any:
+    """Build and execute a tool-calling agent loop safely."""
+    examples_block = get_examples_block(examples_key)
+    agent = build_toolcalling_agent(
+        ctx,
+        tools,
+        instructions=instructions,
+        final_answer_tool_name=final_answer_tool_name,
+        examples_block=examples_block,
+        status_callback=getattr(ctx, "status_callback", None),
+    )
+    return SmolAgentExecutor(ctx).execute_safe(
+        agent,
+        task,
+        tool_call_handler=tool_call_handler,
+        stop_message=stop_message,
+        error_prefix=error_prefix,
+    )
 
 
 def run_subagent_tool(
@@ -447,8 +483,6 @@ def run_smol_side_turn(
     whether a document open is written into the chat stay arguments so deep
     research can keep the executor's default tool status.
     """
-    from plugin.chatbot.smol_examples import get_examples_block
-
     status_callback = getattr(ctx, "status_callback", None)
     if history_text and len(history_text) > 4000:
         history_text = "..." + history_text[-4000:]
@@ -461,21 +495,17 @@ def run_smol_side_turn(
 
         smol_tools.append(SmolToolAdapter(StickyReplyToUserTool(reply_spec), ctx, safe=False, inputs_style="librarian"))
 
-    agent = build_toolcalling_agent(
+    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
+    res = run_inner_tool_agent(
         ctx,
         smol_tools,
         instructions=instructions,
+        examples_key=examples_key,
         final_answer_tool_name="reply_to_user",
-        examples_block=get_examples_block(examples_key),
-        status_callback=status_callback,
-    )
-    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
-    res = SmolAgentExecutor(ctx).execute_safe(
-        agent,
-        task,
-        tool_call_handler=_document_open_tool_handler(ctx) if report_document_opens else None,
+        task=task,
         stop_message=stop_message,
         error_prefix=error_prefix,
+        tool_call_handler=_document_open_tool_handler(ctx) if report_document_opens else None,
     )
     if isinstance(res, dict) and res.get("status") == "error":
         return res
