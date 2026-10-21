@@ -119,3 +119,34 @@ def test_coerce_json_object() -> None:
     assert gj._coerce_json_object('{"key": "value",}') == {"key": "value"}
 
 
+def test_grammar_batch_parser_robustness() -> None:
+    raw = (
+        '{"results": ['
+        '"not a mapping", '
+        '{"errors": "not a list"}, '
+        '{"errors": ['
+        '"not a mapping", '
+        '{"wrong": "foo"}, '
+        '{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agreement"}'
+        ']}'
+        ']}'
+    )
+    items = gj.parse_grammar_batch_json(raw)
+    assert items == [[], [], [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agreement"}]]
+
+
+def test_language_detect_batch_parser_robustness() -> None:
+    raw = '{"results": ["not a mapping", {"detected_language_bcp47": "fr-FR"}, {"detected_language_bcp47": 1}]}'
+    assert gj.parse_language_detect_batch_json(raw) == [None, "fr-FR", None]
+
+
+def test_language_detect_single_non_string() -> None:
+    assert gj.parse_language_detect_json('{"detected_language_bcp47": 1}') is None
+    assert gj.parse_language_detect_json('{"detected_language_bcp47": ["fr-FR"]}') is None
+
+
+def test_batch_parsers_missing_results() -> None:
+    assert gj.parse_grammar_batch_json('{"other": 1}') == []
+    assert gj.parse_language_detect_batch_json('{"other": 1}') == []
+
+

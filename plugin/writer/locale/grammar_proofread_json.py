@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Mapping, cast
+from typing import Any, Callable, Mapping, cast
 
 from plugin.framework.json_utils import repair_json_object, safe_json_loads
 
@@ -62,6 +62,12 @@ def decompress_error(err: dict[str, Any]) -> dict[str, Any]:
 GRAMMAR_JSON_TAIL_RE = re.compile(r"\{[\s\S]*\}\s*$")
 
 
+def _as_mapping(value: object) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return cast("Mapping[str, Any]", value)
+    return None
+
+
 def _coerce_json_object(content: str) -> Mapping[str, Any] | None:
     """Extract and parse a JSON object from assistant response text, with json_repair fallback."""
     if not content or not content.strip():
@@ -71,16 +77,14 @@ def _coerce_json_object(content: str) -> Mapping[str, Any] | None:
     if m:
         text = m.group(0)
     data: Any = safe_json_loads(text)
-    if not isinstance(data, Mapping):
+    if _as_mapping(data) is None:
         try:
             _log.info("[grammar] JSON parse failed; attempting json_repair")
             data = repair_json_object(text)
         except Exception as e:
             _log.warning("[grammar] json_repair failed: %s", e)
             return None
-    if not isinstance(data, Mapping):
-        return None
-    return cast("Mapping[str, Any]", data)
+    return _as_mapping(data)
 
 
 def _parse_error_item(row: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -97,79 +101,66 @@ def _parse_error_item(row: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def parse_grammar_json(content: str) -> list[dict[str, Any]]:
-    """Parse assistant message into a list of error dicts (wrong, correct, type, reason)."""
-    root = _coerce_json_object(content)
-    if root is None:
-        return []
-    raw = root.get("errors")
+def _errors_of(mapping: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw = mapping.get("errors")
     if not isinstance(raw, list):
         return []
     out: list[dict[str, Any]] = []
     for item in raw:
-        if not isinstance(item, Mapping):
+        mapped = _as_mapping(item)
+        if mapped is None:
             continue
-        parsed = _parse_error_item(cast("Mapping[str, Any]", item))
+        parsed = _parse_error_item(mapped)
         if parsed is not None:
             out.append(parsed)
     return out
 
 
-def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
-    """Parse assistant message into a list of lists of error dicts."""
+def _detected_language(mapping: Mapping[str, Any]) -> str | None:
+    lang = mapping.get("detected_language_bcp47")
+    return lang if isinstance(lang, str) else None
+
+
+def _map_payload(
+    content: str,
+    parse_one: Callable[[Mapping[str, Any]], Any],
+    *,
+    batch: bool,
+    missing_slot: Any = None,
+    if_root_missing: Any = None,
+) -> Any:
     root = _coerce_json_object(content)
     if root is None:
-        return []
+        return [] if batch else if_root_missing
+    if not batch:
+        return parse_one(root)
     results = root.get("results")
     if not isinstance(results, list):
         return []
-
-    out: list[list[dict[str, Any]]] = []
+    out = []
     for res in results:
-        if not isinstance(res, Mapping):
-            out.append([])
-            continue
-        res_map = cast("Mapping[str, Any]", res)
-        errors = res_map.get("errors")
-        if not isinstance(errors, list):
-            out.append([])
-            continue
-        sent_errors: list[dict[str, Any]] = []
-        for item in errors:
-            if not isinstance(item, Mapping):
-                continue
-            parsed = _parse_error_item(cast("Mapping[str, Any]", item))
-            if parsed is not None:
-                sent_errors.append(parsed)
-        out.append(sent_errors)
+        mapped = _as_mapping(res)
+        out.append(missing_slot if mapped is None else parse_one(mapped))
     return out
+
+
+def parse_grammar_json(content: str) -> list[dict[str, Any]]:
+    """Parse assistant message into a list of error dicts (wrong, correct, type, reason)."""
+    return _map_payload(content, _errors_of, batch=False, if_root_missing=[])
+
+
+def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
+    """Parse assistant message into a list of lists of error dicts."""
+    return _map_payload(content, _errors_of, batch=True, missing_slot=[])
 
 
 def parse_language_detect_json(content: str) -> str | None:
     """Parse assistant message to extract the detected language string."""
-    root = _coerce_json_object(content)
-    if root is None:
-        return None
-    lang = root.get("detected_language_bcp47")
-    return str(lang) if isinstance(lang, str) else None
+    return _map_payload(content, _detected_language, batch=False, if_root_missing=None)
 
 
 def parse_language_detect_batch_json(content: str) -> list[str | None]:
     """Parse assistant message into a list of detected languages."""
-    root = _coerce_json_object(content)
-    if root is None:
-        return []
-    results = root.get("results")
-    if not isinstance(results, list):
-        return []
-
-    out: list[str | None] = []
-    for res in results:
-        if not isinstance(res, Mapping):
-            out.append(None)
-            continue
-        lang = res.get("detected_language_bcp47")
-        out.append(str(lang) if isinstance(lang, str) else None)
-    return out
+    return _map_payload(content, _detected_language, batch=True, missing_slot=None)
 
 

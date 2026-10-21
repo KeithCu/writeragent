@@ -19,7 +19,7 @@ import hashlib
 import logging
 import re
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
 
@@ -344,22 +344,6 @@ def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
     return f"{lang}@ss=standard"
 
 
-def bcp47_to_langdetect_profile(bcp47: str) -> str:
-    """Map a grammar-registry BCP-47 tag to a langdetect ``profiles/`` folder name."""
-    parts = bcp47.lower().split("-")
-    lang = parts[0]
-    if lang == "zh" and len(parts) > 1:
-        return f"zh-{parts[1]}"
-    if lang in ("nb", "nn"):
-        return "no"
-    return lang
-
-
-def langdetect_profiles_for_grammar_registry() -> frozenset[str]:
-    """Unique langdetect profile files required for shipped grammar locales."""
-    return frozenset(bcp47_to_langdetect_profile(t) for t in GRAMMAR_REGISTRY_LOCALE_TAGS)
-
-
 def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
     """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
     from plugin.framework.config import get_config
@@ -385,6 +369,21 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
     if len(parts) < 2:
         return lang, ""
     return lang, parts[1]
+
+
+def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
+    """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
+    import importlib
+
+    try:
+        uno_mod = importlib.import_module("uno")
+    except ImportError:
+        return ()
+    out: list[Any] = []
+    for tag in tags:
+        la, ctry = bcp47_to_uno_lang_country(tag)
+        out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
+    return tuple(out)
 
 
 # Exact (lowercase language, upper country) → tag
@@ -610,22 +609,8 @@ def looks_complete_sentence(text: str) -> bool:
 #     internal dots, consonant-only (Latin/Cyrillic/Greek vowels).
 # LO UNO BreakIterator does not apply ICU @ss=standard; embeddings already do.
 #
-# Future work — improve only when a real over-split/under-split shows up:
-#   1. Bump CLDR_TAG in scripts/generate_locale_abbreviations.py and regenerate
-#      when Unicode adds suppressions for more languages (today el/ja/zh segment
-#      files have no <suppression> lists; pl/nl/sv/uk/etc. have none at all).
-#   2. Tighten the generator denylist/keep rules if CLDR English still over-merges
-#      (raw ULI data includes To./By./On. — we strip those) or drops useful titles.
-#   3. Add a *tiny* vetted exception only after a reproducible user bug (cite the
-#      string + locale in the commit). Prefer one shared frozenset append in
-#      locale_abbrev generation or a short EXTRA_ABBREVS next to CLDR_ABBREVS —
-#      never revive spaCy/NLTK dumps or LLM-invented per-locale tables.
-#   4. Optional later: pass locale_key into word_before_period_is_abbrev and use
-#      language-specific CLDR subsets if cross-language false positives appear
-#      (merged list is fine until then).
-#   5. Out of scope here: dialogue !/? quote merging; wiring LO BI to @ss=standard.
+# Future work: see docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
 #
-_COMMON_ABBREVIATIONS: frozenset[str] = CLDR_ABBREVS
 _ABBREV_VOWELS: frozenset[str] = frozenset("aeiouyаеёиоуыэюяαεηιουω")
 
 
@@ -650,7 +635,7 @@ def word_before_period_is_abbrev(word: str) -> int:
         return len(word)
 
     # 3. CLDR SentenceBreak suppressions whitelist
-    if w_norm in _COMMON_ABBREVIATIONS:
+    if w_norm in CLDR_ABBREVS:
         return len(word)
 
     # 4. Words with internal periods (e.g. "U.S.A.", "d.h.", "т.е.")

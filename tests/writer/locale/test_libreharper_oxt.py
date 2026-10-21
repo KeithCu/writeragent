@@ -65,6 +65,7 @@ def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
 
 def test_harper_proofreader_identity_and_locale_check() -> None:
     from unittest.mock import MagicMock, patch
+    from plugin.writer.locale import ai_grammar_proofreader
     from plugin.writer.locale.harper_proofreader import HarperProofreader
     from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
@@ -86,6 +87,17 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
 
         locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
         assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10) is None
+
+        ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED = True
+        with (
+            patch("plugin.framework.config.is_grammar_enabled", return_value=False),
+            patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
+        ):
+            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"
+            assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
+            entry_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_entry"]
+            assert len(entry_calls) == 1
+            assert entry_calls[0].kwargs.get("locale_raw") == "en"
     finally:
         reset_package_extension_id_for_tests()
 

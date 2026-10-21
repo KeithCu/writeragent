@@ -29,8 +29,7 @@ import unicodedata
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.writer.locale.stop_words import STOP_WORDS as _STOP_WORDS
-from plugin.writer.locale.stop_words import STOP_WORDS_FALLBACK as _STOP_WORDS_FALLBACK
+from plugin.writer.locale.stop_words import stop_words_for_snowball
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 
 log = logging.getLogger("writeragent.writer.index")
@@ -108,16 +107,20 @@ class _DocIndex:
         self.build_ms = 0.0
         self.language = "english"
 
+    def _paragraphs_for(self, stems: list[str]) -> set[int]:
+        found: set[int] = set()
+        for stem in stems:
+            ps = self.terms.get(stem)
+            if ps:
+                found |= ps
+        return found
+
     def query_and(self, stem_groups: list[list[str]]) -> set[int]:
         if not stem_groups:
             return set()
         sets: list[set[int]] = []
         for group in stem_groups:
-            s: set[int] = set()
-            for stem in group:
-                ps = self.terms.get(stem)
-                if ps:
-                    s |= ps
+            s = self._paragraphs_for(group)
             if not s:
                 return set()
             sets.append(s)
@@ -130,12 +133,7 @@ class _DocIndex:
         return result
 
     def query_or(self, stems: list[str]) -> set[int]:
-        result = set()
-        for stem in stems:
-            ps = self.terms.get(stem)
-            if ps:
-                result |= ps
-        return result
+        return self._paragraphs_for(stems)
 
     def query_not(self, include: set[int], exclude_stems: list[str]) -> set[int]:
         result = include.copy()
@@ -146,16 +144,8 @@ class _DocIndex:
         return result
 
     def query_near(self, stems_a: list[str], stems_b: list[str], distance: int) -> set[int]:
-        set_a = set()
-        for s in stems_a:
-            ps = self.terms.get(s)
-            if ps:
-                set_a |= ps
-        set_b = set()
-        for s in stems_b:
-            ps = self.terms.get(s)
-            if ps:
-                set_b |= ps
+        set_a = self._paragraphs_for(stems_a)
+        set_b = self._paragraphs_for(stems_b)
         if not set_a or not set_b:
             return set()
         result = set()
@@ -170,6 +160,18 @@ class _DocIndex:
         return result
 
 
+_TOP_STEMS = 20
+
+
+def _index_counts(idx: _DocIndex, cached: bool) -> dict[str, Any]:
+    return {
+        "paragraphs": idx.para_count,
+        "unique_stems": len(idx.terms),
+        "build_ms": idx.build_ms,
+        "cached": cached,
+    }
+
+
 # ── Service ───────────────────────────────────────────────────────────
 
 
@@ -179,15 +181,13 @@ class IndexService(ServiceBase):
     name: str | None = "writer_index"
 
     _doc_svc: Any
-    _tree_svc: Any
     _bm_svc: Any
 
     def __init__(self, services: Any) -> None:
         self._doc_svc = services.document
-        self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
         events = services.events
-        self._cache: dict[str, Any] = {}  # doc_key -> _DocIndex
+        self._cache: dict[str, _DocIndex] = {}  # doc_key -> _DocIndex
         self._stemmers: dict[str, Any] = {}  # lang -> StemmerInstance
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
@@ -230,12 +230,12 @@ class IndexService(ServiceBase):
         iso = first.getPropertyValue("CharLocale").Language
         return _ISO_TO_SNOWBALL.get(iso) or "english"
 
-    def _stem(self, stemmer: Any, tokens: list[str], stop_words: Any) -> list[str]:
+    def _stem(self, stemmer: Any, tokens: list[str], stop_words: frozenset[str]) -> list[str]:
         return [stemmer.stemWord(t) for t in tokens if t not in stop_words]
 
     # ── Index build ───────────────────────────────────────────────
 
-    def _get_index(self, doc: Any) -> tuple[Any, bool]:
+    def _get_index(self, doc: Any) -> tuple[_DocIndex, bool]:
         """Get or build the inverted index. Returns (index, was_cached)."""
         key = self._doc_svc.doc_key(doc)
         if is_cacheable_doc_key(key):
@@ -246,7 +246,7 @@ class IndexService(ServiceBase):
         t0 = time.perf_counter()
         lang = self._detect_language(doc)
         stemmer = self._get_stemmer(lang)
-        stop_words = _STOP_WORDS.get(lang, _STOP_WORDS_FALLBACK)
+        stop_words = stop_words_for_snowball(lang)
 
         idx = _DocIndex()
         idx.language = lang
@@ -283,7 +283,7 @@ class IndexService(ServiceBase):
 
     # ── Query parsing ─────────────────────────────────────────────
 
-    def _stem_query_tokens(self, text: str, stemmer: Any, stop_words: Any) -> tuple[list[str], list[str]]:
+    def _stem_query_tokens(self, text: str, stemmer: Any, stop_words: frozenset[str]) -> tuple[list[str], list[str]]:
         raw = _raw_tokens(text)
         stems = []
         dropped = []
@@ -294,7 +294,7 @@ class IndexService(ServiceBase):
                 stems.append(stemmer.stemWord(t) if stemmer else t)
         return stems, dropped
 
-    def _parse_query(self, query: str, stemmer: Any, stop_words: Any) -> dict[str, Any]:
+    def _parse_query(self, query: str, stemmer: Any, stop_words: frozenset[str]) -> dict[str, Any]:
         result: dict[str, Any] = {"and_stems": [], "or_stems": [], "not_stems": [], "near": [], "dropped_stops": [], "mode": "and", "error": None}
 
         not_split = _NOT_RE.split(query)
@@ -347,7 +347,7 @@ class IndexService(ServiceBase):
 
     # ── Query Execution & Formatting ──────────────────────────────
 
-    def _execute_query(self, idx: Any, mode: str, near: Any, or_stems: Any, and_stems: Any, not_stems: Any) -> set[int]:
+    def _execute_query(self, idx: _DocIndex, mode: str, near: Any, or_stems: Any, and_stems: Any, not_stems: Any) -> set[int]:
         if mode == "near" and near:
             left, right, dist = near[0]
             hits = idx.query_near(left, right, dist)
@@ -363,7 +363,7 @@ class IndexService(ServiceBase):
 
         return hits
 
-    def _build_result_entry(self, idx: Any, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any) -> dict[str, Any]:
+    def _build_result_entry(self, idx: _DocIndex, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any) -> dict[str, Any]:
         ctx_lo = max(0, para_i - context_paragraphs)
         ctx_hi = min(idx.para_count, para_i + context_paragraphs + 1)
         context = [{"index": j, "text": idx.para_texts.get(j, "")} for j in range(ctx_lo, ctx_hi)]
@@ -385,7 +385,7 @@ class IndexService(ServiceBase):
         idx, was_cached = self._get_index(doc)
 
         stemmer = self._get_stemmer(idx.language)
-        stop_words = _STOP_WORDS.get(idx.language, _STOP_WORDS_FALLBACK)
+        stop_words = stop_words_for_snowball(idx.language)
         parsed = self._parse_query(query, stemmer, stop_words)
 
         if parsed["error"]:
@@ -415,7 +415,7 @@ class IndexService(ServiceBase):
 
         results = [self._build_result_entry(idx, para_i, context_paragraphs, all_positive, bookmark_map) for para_i in selected]
 
-        resp = {"query": query, "mode": mode, "language": idx.language, "total_found": total, "returned": len(results), "matches": results, "index": {"paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached}}
+        resp = {"query": query, "mode": mode, "language": idx.language, "total_found": total, "returned": len(results), "matches": results, "index": _index_counts(idx, was_cached)}
         if near:
             resp["near"] = {"left": near[0][0], "right": near[0][1], "distance": near[0][2]}
         if parsed["dropped_stops"]:
@@ -426,6 +426,9 @@ class IndexService(ServiceBase):
         """Index statistics + top 20 most frequent stems."""
         idx, was_cached = self._get_index(doc)
 
-        top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:20]
+        top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:_TOP_STEMS]
 
-        return {"language": idx.language, "paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached, "top_stems": [{"stem": t, "paragraphs": len(s)} for t, s in top]}
+        stats: dict[str, Any] = {"language": idx.language}
+        stats.update(_index_counts(idx, was_cached))
+        stats["top_stems"] = [{"stem": t, "paragraphs": len(s)} for t, s in top]
+        return stats

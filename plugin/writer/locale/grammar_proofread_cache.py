@@ -13,7 +13,7 @@ from typing import Any
 
 from plugin.framework.config import grammar_checker_identity
 
-from .grammar_persistence import get_persistence, grammar_registry
+from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_NORMALIZATION_RE,
     MAX_CACHE_SIZE,
@@ -202,12 +202,12 @@ def _populate_memory_cache_only(
     sentence: str,
     errors: list[dict[str, Any]],
     checker_identity: str | None = None,
-) -> tuple[str, str, bool, list[dict[str, Any]]]:
+) -> SentenceCacheEntry:
     """Internal: populate memory cache only, no persistence, no compaction.
 
     Used by cache_get_sentence to warm cache from persistence without side effects.
-    Returns the 4-tuple stored in ``sentence_cache``:
-    ``(fp, canon, is_complete, clipped_errors)``. The OrderedDict key is not
+    Returns the entry stored in ``sentence_cache``:
+    ``SentenceCacheEntry(fp, canon, is_complete, clipped_errors)``. The OrderedDict key is not
     part of that value.
     """
     canon = _normalize_for_sentence_cache(sentence)
@@ -216,14 +216,15 @@ def _populate_memory_cache_only(
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
     is_complete = _is_complete_sentence(canon)
     cloned_errors = [dict(e) for e in clipped]
+    entry = SentenceCacheEntry(fp, canon, is_complete, cloned_errors)
 
     with grammar_registry.lock:
-        grammar_registry.sentence_cache[key] = (fp, canon, is_complete, cloned_errors)
+        grammar_registry.sentence_cache[key] = entry
         grammar_registry.sentence_cache.move_to_end(key)
         while len(grammar_registry.sentence_cache) > MAX_CACHE_SIZE:
             grammar_registry.sentence_cache.popitem(last=False)
 
-    return fp, canon, is_complete, cloned_errors
+    return entry
 
 
 def _align_persistence_identity(p: Any, ident: str) -> None:
@@ -247,9 +248,9 @@ def cache_get_sentence(
     result = None
     with grammar_registry.lock:
         hit = grammar_registry.sentence_cache.get(key)
-        if hit and hit[0] == fp:
+        if hit and hit.fingerprint == fp:
             grammar_registry.sentence_cache.move_to_end(key)
-            result = list(hit[3])
+            result = list(hit.errors)
 
     if result is not None:
         if ctx and doc_id:
@@ -284,9 +285,13 @@ def cache_put_sentence(
     """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
     ident = resolve_checker_identity(checker_identity)
     # Tier 1 (global LRU) + Tier 2 (document persistence): always warm L1; L2 when doc_id is set.
-    fp, canon, is_complete, clipped_errors = _populate_memory_cache_only(
+    entry = _populate_memory_cache_only(
         locale_key, sentence, errors, ident
     )
+    fp = entry.fingerprint
+    canon = entry.canonical
+    is_complete = entry.complete
+    clipped_errors = entry.errors
 
     if ctx and doc_id:
         p = get_persistence(ctx, doc_id)
@@ -305,13 +310,12 @@ def cache_put_sentence(
             # Newest-first: typing chains keep superseded incompletes near the LRU end;
             # bounded scan finds the immediate predecessor quickly.
             # Prefix filter before scan_count — budget counts this locale only.
-            for k, v in reversed(grammar_registry.sentence_cache.items()):
+            for k, other_entry in reversed(grammar_registry.sentence_cache.items()):
                 if not k.startswith(prefix):
                     continue
                 if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
                     break
-                _other_fp, other_canon, other_complete, _unused = v
-                if should_evict_incomplete_prefix_predecessor(other_complete=other_complete, other_canon=other_canon, new_canon=canon):
+                if should_evict_incomplete_prefix_predecessor(other_complete=other_entry.complete, other_canon=other_entry.canonical, new_canon=canon):
                     to_remove.append(k)
                 scan_count += 1
             for k in to_remove:

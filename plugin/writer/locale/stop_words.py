@@ -43,9 +43,9 @@ STOP_WORDS: dict[str, frozenset[str]] = {
     "yiddish": frozenset({'און', 'די', 'אין', 'פון', 'צו', 'איז', 'עס', 'זי', 'ער', 'מיר', 'נישט', 'אויף', 'מיט', 'דער', 'דאס', 'אָבער', 'נאָר', 'אַ', 'אַז', 'וואָס', 'ביי', 'זיך', 'אים', 'זיי', 'אונז'}),
 }
 
-STOP_WORDS_FALLBACK: frozenset[str] = frozenset()
+_EMPTY: frozenset[str] = frozenset()
 
 
 def stop_words_for_snowball(snowball_lang: str) -> frozenset[str]:
     """Return grammar stop words for a Snowball algorithm name, or empty."""
-    return STOP_WORDS.get(snowball_lang, STOP_WORDS_FALLBACK)
+    return STOP_WORDS.get(snowball_lang, _EMPTY)

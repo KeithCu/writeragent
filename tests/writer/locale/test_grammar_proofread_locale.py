@@ -200,16 +200,6 @@ def test_word_before_period_is_abbrev_cldr_whitelist() -> None:
     assert gl.word_before_period_is_abbrev("All") == 0
 
 
-def test_common_abbreviations_are_cldr_only() -> None:
-    from pathlib import Path
-
-    from plugin.writer.locale import locale_abbrev
-    from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
-
-    assert gl._COMMON_ABBREVIATIONS is CLDR_ABBREVS or gl._COMMON_ABBREVIATIONS == CLDR_ABBREVS
-    assert not hasattr(gl, "_HAND_ABBREVIATIONS")
-    assert "LANG_ABBREVS" not in Path(locale_abbrev.__file__).read_text(encoding="utf-8")
-
 def test_tricky_terminator_regex_escaping() -> None:
     """Test that _sterm_class handles tricky chars like ] - \\ ^."""
     # Verify that the regex string is safe (contains escapes for special chars)

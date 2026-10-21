@@ -20,13 +20,20 @@ def clear_cache():
     gc.ignore_rules_clear()
 
 def test_sentence_cache_roundtrip() -> None:
+    from plugin.writer.locale.grammar_persistence import SentenceCacheEntry, grammar_registry
+
     assert gc.cache_get_sentence("en-US", "Hello world.") is None
     errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "wa_test"}]
     gc.cache_put_sentence("en-US", "Hello world.", errors)
+    entry = next(reversed(grammar_registry.sentence_cache.values()))
+    assert isinstance(entry, SentenceCacheEntry)
+    assert entry.fingerprint == entry[0]
+    assert entry.errors == errors
     got = gc.cache_get_sentence("en-US", "Hello world.")
     assert got is not None
     assert len(got) == 1
     assert got[0]["n_error_start"] == 0
+    assert got == errors
     assert gc.cache_get_sentence("fr-FR", "Hello world.") is None
 
 def test_sentence_cache_trailing_whitespace() -> None:

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Grammar registry ↔ langdetect profile mapping and venv RPC helpers."""
+"""Language detection mode and venv RPC helpers."""
 
 from __future__ import annotations
 
@@ -12,27 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.locale.grammar_proofread_locale import (
-    GRAMMAR_REGISTRY_LOCALE_TAGS,
-    bcp47_to_langdetect_profile,
     get_grammar_detect_language_mode,
-    langdetect_profiles_for_grammar_registry,
 )
-
-
-def test_bcp47_to_langdetect_profile_mapping() -> None:
-    assert bcp47_to_langdetect_profile("en-US") == "en"
-    assert bcp47_to_langdetect_profile("zh-CN") == "zh-cn"
-    assert bcp47_to_langdetect_profile("zh-TW") == "zh-tw"
-    assert bcp47_to_langdetect_profile("nb-NO") == "no"
-    assert bcp47_to_langdetect_profile("nn-NO") == "no"
-
-
-def test_langdetect_profiles_for_grammar_registry() -> None:
-    allowed = langdetect_profiles_for_grammar_registry()
-    assert len(allowed) >= 2
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        prof = bcp47_to_langdetect_profile(tag)
-        assert prof in allowed, f"missing profile mapping for {tag} -> {prof}"
 
 
 @pytest.mark.parametrize(

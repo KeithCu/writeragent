@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Locales must match HARPER_LOCALE_TAGS in plugin/writer/locale/harper_proofreader.py. -->
+<!-- Locales must match HARPER_LOCALE_TAGS in plugin/writer/locale/harper_locales.py. -->
 <oor:component-data oor:name="Linguistic"
         oor:package="org.openoffice.Office" xmlns:oor="http://openoffice.org/2001/registry"
         xmlns:xs="http://www.w3.org/2001/XMLSchema">

@@ -32,6 +32,7 @@ from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale.harper_binary import _get_harper_binary
 from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_rule_identifier
+from plugin.writer.locale.harper_locales import HARPER_DIALECTS
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -53,8 +54,6 @@ HARPER_SLOW_RESULT_MS = 500
 
 _LSP_POSITION_CODEC = PositionCodec("utf-16")
 
-_BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian", "en-IN": "Indian"}
-
 
 def _lsp_notification(method: str, params: dict[str, Any] | None) -> dict[str, Any]:
     return {"jsonrpc": _JSONRPC, "method": method, "params": params}
@@ -73,7 +72,7 @@ def _deadline_remaining(deadline: float) -> float:
 
 
 def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:
-    dialect = _BCP47_TO_DIALECT.get(bcp47, "American")
+    dialect = HARPER_DIALECTS.get(bcp47, "American")
     settings: dict[str, Any] = {"dialect": dialect}
     if user_config_dir:
         settings["userDictPath"] = str(Path(user_config_dir) / "harper-dictionary.txt")

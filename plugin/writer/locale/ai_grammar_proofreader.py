@@ -70,10 +70,10 @@ from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ign
 from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
-    bcp47_to_uno_lang_country,
     grammar_inflight_key,
     looks_complete_sentence,
     normalize_uno_locale_to_bcp47,
+    uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (
     NormalizedProofError,
@@ -338,13 +338,7 @@ def _locale_tuple() -> tuple[Any, ...]:
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
-    if uno_mod is None:
-        return ()
-    out: list[Any] = []
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        la, ctry = bcp47_to_uno_lang_country(tag)
-        out.append(cast("Any", uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
-    return tuple(out)
+    return uno_locales_for_tags(GRAMMAR_REGISTRY_LOCALE_TAGS)
 
 
 def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
@@ -578,6 +572,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     _locales: tuple[Any, ...]
     _provider: str = ""
     _checker_identity: str = ""
+    # LibreHarper must not consult is_grammar_enabled() (package id is reset in tests and is not Harper's switch)
+    # and must not clear WriterAgent's one-time disabled notice.
+    _always_enabled: bool = False
 
     def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
@@ -683,9 +680,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
         from plugin.framework.config import is_grammar_enabled
 
-        enabled = is_grammar_enabled()
-
-        loc_raw = _locale_key(a_locale)
+        enabled = self._always_enabled or is_grammar_enabled()
+        loc_raw = (getattr(a_locale, "Language", "") or "") if self._always_enabled else _locale_key(a_locale)
         grammar_bcp47 = self._normalize_locale(a_locale)
 
         if not enabled:
@@ -694,7 +690,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             # do_proofreading_skip for grammar_disabled omitted to avoid log noise
             return None
 
-        _clear_grammar_disabled_notice()
+        if not self._always_enabled:
+            _clear_grammar_disabled_notice()
         if grammar_bcp47 is None:
             grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None

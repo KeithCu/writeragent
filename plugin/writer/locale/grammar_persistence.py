@@ -25,7 +25,7 @@ import json
 import logging
 import threading
 import weakref
-from typing import Any
+from typing import Any, NamedTuple
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -105,13 +105,21 @@ try:
 except ImportError:
     pass
 
+# L1 tuple layout: fingerprint is index 0, errors is index 3. Getters still copy the list themselves.
+class SentenceCacheEntry(NamedTuple):
+    fingerprint: str
+    canonical: str
+    complete: bool
+    errors: list[dict[str, Any]]
+
+
 class GrammarRegistry:
     lock: threading.RLock
 
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.doc_persistence_instances: dict[str, "DocumentPersistence"] = {}
-        self.sentence_cache: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
+        self.sentence_cache: collections.OrderedDict[str, SentenceCacheEntry] = collections.OrderedDict()
         self.ignored_rules: set[str] = set()
         self.doc_locales: dict[str, set[str]] = {}
         self.lang_detect_cache: collections.OrderedDict[str, str] = collections.OrderedDict()

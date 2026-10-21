@@ -9,14 +9,8 @@ CLDR ``common/segments/*.xml`` lists abbreviations that should not end a sentenc
 (ULI / UTS #35 segmentation suppressions). Only a handful of languages ship this
 data; the grammar checker keeps heuristics for the rest.
 
-Future work (keep improving without a second hand table):
-  - Bump ``CLDR_TAG`` when Unicode releases new segment suppressions; regenerate.
-  - Retune ``_AMBIGUOUS_DENYLIST`` / ``keep_suppression`` if over- or under-merge
-    shows up in grammar splitting (raw English ULI includes To./By./On.).
-  - If a real bug needs one extra token, add a tiny vetted exception in the
-    generator output path — never spaCy/NLTK/LLM per-locale dumps.
-  See also ``grammar_proofread_locale.py`` (abbrev Future work) and
-  ``docs/writer/grammar-checker-plan.md``.
+Future work: bump CLDR_TAG and regenerate; do not hand-append tokens.
+Full rules are in docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
 
 Usage:
     python scripts/generate_locale_abbreviations.py
@@ -30,7 +24,6 @@ import os
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
-from collections import defaultdict
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -128,15 +121,6 @@ def parse_suppressions_xml(xml_text: str) -> set[str]:
     return found
 
 
-def language_key_from_filename(name: str) -> str:
-    base = name.removesuffix(".xml")
-    if base.startswith("zh_Hant"):
-        return "zh"
-    if "_" in base:
-        return base.split("_", 1)[0]
-    return base
-
-
 def fetch_segment_file(filename: str, from_dir: str | None) -> str:
     if from_dir:
         path = os.path.join(from_dir, filename)
@@ -150,27 +134,22 @@ def fetch_segment_file(filename: str, from_dir: str | None) -> str:
         raise SystemExit(f"Failed to fetch {url}: {exc}") from exc
 
 
-def collect_abbrevs(from_dir: str | None) -> dict[str, set[str]]:
-    by_lang: dict[str, set[str]] = defaultdict(set)
+def collect_abbrevs(from_dir: str | None) -> set[str]:
+    abbrevs: set[str] = set()
     for filename in CLDR_SEGMENT_FILES:
         print(f"  {filename} …", end=" ", flush=True)
         xml_text = fetch_segment_file(filename, from_dir)
-        abbrevs = parse_suppressions_xml(xml_text)
-        lang = language_key_from_filename(filename)
-        by_lang[lang].update(abbrevs)
-        print(f"{len(abbrevs)} kept")
-    return dict(by_lang)
+        file_abbrevs = parse_suppressions_xml(xml_text)
+        abbrevs.update(file_abbrevs)
+        print(f"{len(file_abbrevs)} kept")
+    return abbrevs
 
 
 def escape_py(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def generate_module(by_lang: dict[str, set[str]]) -> str:
-    merged: set[str] = set()
-    for abbrevs in by_lang.values():
-        merged.update(abbrevs)
-
+def generate_module(abbrevs: set[str]) -> str:
     lines: list[str] = [
         "# WriterAgent - AI Writing Assistant for LibreOffice",
         "# Copyright (c) 2026 KeithCu",
@@ -184,19 +163,17 @@ def generate_module(by_lang: dict[str, set[str]]) -> str:
         "",
         "Merged only — per-language subsets are not emitted (unused at runtime).",
         "",
-        "Future work: when CLDR adds suppressions for more languages, bump CLDR_TAG and",
-        "regenerate. Do not append LLM-invented locale dumps here; see the Future work",
-        "block above ``_COMMON_ABBREVIATIONS`` in grammar_proofread_locale.py and",
-        "docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).",
+        "Future work: bump CLDR_TAG and regenerate; do not hand-append tokens.",
+        "Full rules: docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).",
         '"""',
         "",
         "from __future__ import annotations",
         "",
         "",
-        f"# Merged filtered suppressions from CLDR {CLDR_VERSION_LABEL} ({len(merged)} tokens)",
+        f"# Merged filtered suppressions from CLDR {CLDR_VERSION_LABEL} ({len(abbrevs)} tokens)",
         "CLDR_ABBREVS: frozenset[str] = frozenset({",
     ]
-    for abbr in sorted(merged, key=lambda s: (s.encode("utf-8"), s)):
+    for abbr in sorted(abbrevs, key=lambda s: (s.encode("utf-8"), s)):
         lines.append(f'    "{escape_py(abbr)}",')
     lines.append("})")
     lines.append("")
@@ -218,17 +195,16 @@ def main() -> None:
 
     print(f"CLDR SentenceBreak suppressions → locale_abbrev.py (tag {CLDR_TAG})")
     print()
-    by_lang = collect_abbrevs(args.from_dir)
-    content = generate_module(by_lang)
+    abbrevs = collect_abbrevs(args.from_dir)
+    content = generate_module(abbrevs)
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(content)
 
-    total = len(set().union(*by_lang.values())) if by_lang else 0
     print()
     print(f"Wrote {args.output}")
-    print(f"  languages: {', '.join(sorted(by_lang))}")
-    print(f"  unique abbreviations: {total}")
+    print(f"  files: {', '.join(CLDR_SEGMENT_FILES)}")
+    print(f"  unique abbreviations: {len(abbrevs)}")
 
 
 if __name__ == "__main__":

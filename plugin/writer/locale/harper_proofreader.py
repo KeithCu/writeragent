@@ -10,11 +10,10 @@ implementation with English-only locales and a LibreHarper display name.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 import sys
-from typing import Any, cast
+from typing import Any
 
 # Minimal stdlib-only bootstrap (same walk as ai_grammar_proofreader) before plugin imports.
 _this = os.path.abspath(__file__)
@@ -35,18 +34,17 @@ from plugin.writer.locale.ai_grammar_proofreader import (
     WriterAgentAiGrammarProofreader,
 )
 from plugin.writer.locale.grammar_proofread_locale import (
-    bcp47_to_uno_lang_country,
     normalize_uno_locale_to_bcp47,
+    uno_locales_for_tags,
 )
 
 log = logging.getLogger("writeragent.grammar")
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
+from plugin.writer.locale.harper_locales import HARPER_LOCALE_TAGS
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
-# Must match LinguisticLibreHarperGrammar.xcu Locales (Harper English dialects).
-HARPER_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB", "en-AU", "en-CA", "en-IN")
 # One warning per unrecognized English tag. hasLocale is called per sentence.
 _HARPER_LOCALE_MISS_LOGGED: set[str] = set()
 
@@ -87,28 +85,14 @@ def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
             )
     return None
 
-uno_mod: Any
-try:
-    uno_mod = importlib.import_module("uno")
-except ImportError:
-    uno_mod = None
-
-
 def _harper_locale_tuple() -> tuple[Any, ...]:
-    if uno_mod is None:
-        return ()
-    out: list[Any] = []
-    # Do not swallow this into ``()``. An empty list stuck on the proofreader
-    # made ``hasLocale`` always false, so Writer never asked Harper to check.
-    for tag in HARPER_LOCALE_TAGS:
-        la, ctry = bcp47_to_uno_lang_country(tag)
-        out.append(cast("Any", uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
-    return tuple(out)
+    return uno_locales_for_tags(HARPER_LOCALE_TAGS)
 
 
 class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[reportGeneralTypeIssues]
     """Same proofreading pipeline; branded for the LibreHarper extension."""
 
+    _always_enabled: bool = True
     _checker_identity: str
     _provider: str
     _implementation_name: str
@@ -168,37 +152,6 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
                 maybe_start_harper_async(ctx, user_config_dir=ucd)
         except Exception as e:
             log.warning("[grammar] LibreHarper harper warmup start failed: %s", e)
-
-    def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
-        """LibreHarper is always enabled when registered; check supported locale."""
-        from plugin.writer.locale.grammar_obs import grammar_obs
-        from plugin.writer.locale.grammar_proofread_text import slice_preview_debug
-
-        grammar_bcp47 = self._normalize_locale(a_locale)
-        loc_raw = getattr(a_locale, "Language", "") or ""
-        if grammar_bcp47 is None:
-            grammar_obs(
-                "do_proofreading_skip",
-                reason="locale_not_registered",
-                doc_id=a_doc_id,
-                len_aText=len(a_text),
-                n_start_lo=n_start,
-                n_suggested_behind_end=n_suggested_end,
-                locale_raw=loc_raw,
-            )
-            return None
-
-        grammar_obs(
-            "do_proofreading_entry",
-            doc_id=a_doc_id,
-            len_aText=len(a_text),
-            n_start_lo=n_start,
-            n_suggested_behind_end=n_suggested_end,
-            grammar_bcp47=grammar_bcp47,
-            locale_raw=loc_raw,
-            text_preview=slice_preview_debug(a_text),
-        )
-        return grammar_bcp47
 
     def _normalize_locale(self, a_locale: Any) -> str | None:
         return normalize_harper_locale_to_bcp47(a_locale)

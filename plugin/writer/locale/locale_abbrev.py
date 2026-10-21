@@ -10,10 +10,8 @@ Do not edit by hand; re-run the generator after bumping CLDR_TAG.
 
 Merged only — per-language subsets are not emitted (unused at runtime).
 
-Future work: when CLDR adds suppressions for more languages, bump CLDR_TAG and
-regenerate. Do not append LLM-invented locale dumps here; see the Future work
-block above ``_COMMON_ABBREVIATIONS`` in grammar_proofread_locale.py and
-docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
+Future work: bump CLDR_TAG and regenerate; do not hand-append tokens.
+Full rules: docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
 """
 
 from __future__ import annotations

@@ -252,7 +252,7 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
 4. **Locale-aware lookup (optional)**: Pass `locale_key` into `word_before_period_is_abbrev` only if the merged CLDR set causes cross-language false positives.
 5. **Out of scope for this list**: Dialogue `!`/`?` quote merging; making LO BreakIterator honor `@ss=standard` (embeddings already use ICU filters).
 
-Code pointer: Future work comment block above `_COMMON_ABBREVIATIONS` in [`grammar_proofread_locale.py`](../../plugin/writer/locale/grammar_proofread_locale.py).
+Code pointer: [`CLDR_ABBREVS`](../../plugin/writer/locale/locale_abbrev.py) in `locale_abbrev.py` and [`word_before_period_is_abbrev`](../../plugin/writer/locale/grammar_proofread_locale.py) in `grammar_proofread_locale.py`.
 
 <a id="dialogue-breakiterator-limitation"></a>
 
