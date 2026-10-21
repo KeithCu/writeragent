@@ -599,12 +599,8 @@ class DocumentService(ServiceBase):
         return _resolve_document_by_url(get_ctx(), url)
 
     def detect_doc_type(self, doc: Any) -> str:
-        doc_type = _doc_type.get_document_type(doc)
-        if doc_type == _doc_type.DocumentType.CALC:
-            return "calc"
-        if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-            return "draw"
-        return "writer"
+        family = _doc_type.doc_type_family_label(_doc_type.get_document_type(doc))
+        return "writer" if family == "unknown" else family
 
     def open_documents(self) -> list[Any]:
         """Every open real document (Start Center excluded), in desktop order. Main-thread only."""

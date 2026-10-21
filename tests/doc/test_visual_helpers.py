@@ -8,6 +8,13 @@ from __future__ import annotations
 import pytest
 
 from plugin.doc import visual_helpers
+from plugin.doc.doc_type import (
+    CALC_DOCUMENT_SERVICE,
+    DRAW_DOCUMENT_SERVICE,
+    IMPRESS_DOCUMENT_SERVICE,
+    WEB_DOCUMENT_SERVICE,
+    WRITER_DOCUMENT_SERVICE,
+)
 
 
 class FakePropertyInfo:
@@ -109,7 +116,7 @@ class FakeWriterDoc:
         self._draw_page = draw_page
 
     def supportsService(self, service: str) -> bool:
-        return service == visual_helpers.WRITER_DOCUMENT_SERVICE
+        return service == WRITER_DOCUMENT_SERVICE
 
     def getGraphicObjects(self):
         return FakeGraphicCollection(self._graphics)
@@ -145,7 +152,7 @@ class FakeCalcDoc:
         self.CurrentController = FakeController(active_sheet=FakeSheet(draw_page))
 
     def supportsService(self, service: str) -> bool:
-        return service == visual_helpers.CALC_DOCUMENT_SERVICE
+        return service == CALC_DOCUMENT_SERVICE
 
 
 class FakeDrawDoc:
@@ -153,19 +160,19 @@ class FakeDrawDoc:
         self.CurrentController = FakeController(current_page=draw_page)
 
     def supportsService(self, service: str) -> bool:
-        return service == visual_helpers.DRAW_DOCUMENT_SERVICE
+        return service == DRAW_DOCUMENT_SERVICE
 
 
 class FakeImpressDoc:
     """PresentationDocument only — not DrawingDocument (isolates impress label)."""
 
     def supportsService(self, service: str) -> bool:
-        return service == visual_helpers.IMPRESS_DOCUMENT_SERVICE
+        return service == IMPRESS_DOCUMENT_SERVICE
 
 
 class FakeWebDoc:
     def supportsService(self, service: str) -> bool:
-        return service in (visual_helpers.WEB_DOCUMENT_SERVICE, visual_helpers.WRITER_DOCUMENT_SERVICE)
+        return service in (WEB_DOCUMENT_SERVICE, WRITER_DOCUMENT_SERVICE)
 
 
 def test_safe_uno_property_helpers_use_property_set_info():

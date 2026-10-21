@@ -25,7 +25,7 @@ Recorded 2026-09-08. Implement these; do not implement the older “don’t Read
 | **Busy** | Queue-on-listener for **all** busy targets (outbound and replies). Not fail-fast. Policy in [§4.3](#43-live-panel--busy--queue--deck). |
 | **Kind** | Which tool was called stamps the envelope: work → `[Peer work from: …]`, result → `[Peer result from: …]`. No correlation id. Host does **not** splice the reply onto the originating tool result. Routing is `document_url` → that session, like any other send. |
 | **Discoverability** | `list_open_documents` stays `tier="mcp"` (off the chat wire). When this tool is visible, bake the open-peer catalog (name / uid / url / type) into the tool description and a short prompt block. |
-| **Impress** | In v1. Research catalog `doc_type: "draw"` still folds Impress (`impress_as_draw=True`). Peer catalog uses an explicit `type: "impress"` from `PresentationDocument` on the **resolved model** (checked before `DrawingDocument` so Draw-only stays `draw`). |
+| **Impress** | In v1. Research catalog `doc_type: "draw"` still folds Impress (`doc_type_family_label`). Peer catalog uses an explicit `type: "impress"` from `PresentationDocument` on the **resolved model** (checked before `DrawingDocument` so Draw-only stays `draw`). |
 | **Lock** | No extra per-doc lock in v1. Sidebar chat does not take MCP’s uid gate. |
 | **Focus** | No `toFront`, no `query.setFocus` on the extracted send. |
 
@@ -110,7 +110,7 @@ Draw already registers a sidebar deck (`DrawingDocument` in `extension/registry/
 | Piece | Symbol / path | Relevance |
 | ----- | ------------- | --------- |
 | Open-doc catalog | `get_open_documents` in [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py) | Desktop components → `{name, url, uid, path, doc_type, is_active, modified}`. Main-thread only (`assert_main_thread`). |
-| Resolve open model | `resolve_document_by_url` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | File URL **or** `RuntimeUID`. Open components only — does **not** `loadComponentFromURL`. Returns `(model, doc_type)` with Impress labeled `"draw"` (`impress_as_draw=True`). |
+| Resolve open model | `resolve_document_by_url` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | File URL **or** `RuntimeUID`. Open components only — does **not** `loadComponentFromURL`. Returns `(model, doc_type)` with Impress labeled `"draw"` (`doc_type_family_label`). |
 | RuntimeUID | `get_runtime_uid` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | Exists for untitled docs; `""` if unavailable. Two views of one model share one uid. |
 | Write guard | `ToolRegistry.execute` and `SmolToolAdapter.forward` when `ctx.read_only_target` | Research mutations → `READ_ONLY_TARGET`. The smol path does not call the registry. Do not relax this. |
 | MCP lister | `list_open_documents` (`tier = "mcp"`) | **Not** on the chat wire. Do not promote it to core for this feature. |

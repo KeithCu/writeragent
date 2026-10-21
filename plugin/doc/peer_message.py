@@ -26,6 +26,12 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 from weakref import WeakKeyDictionary
 
+from plugin.doc.doc_type import (
+    DOCUMENT_SERVICES,
+    DocumentType,
+    doc_type_label_for_enum,
+    get_document_type,
+)
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -40,11 +46,6 @@ PEER_SPECIALIZED_DOMAIN = "document_research"
 # document_research specialized inherit or set caller="chat"; also allow a
 # specialized ToolContext that only sets active_domain.
 _PEER_SEND_BLOCKED_CALLERS = frozenset({"mcp", "script", "ppt_master_venv"})
-
-_TEXT_SERVICE = "com.sun.star.text.TextDocument"
-_CALC_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
-_DRAW_SERVICE = "com.sun.star.drawing.DrawingDocument"
-_IMPRESS_SERVICE = "com.sun.star.presentation.PresentationDocument"
 
 _WORK_DESCRIPTION = (
     "ASK PATH only: send a new work request to another already-open Writer, Calc, Draw, "
@@ -99,51 +100,15 @@ _listener_queues: WeakKeyDictionary[Any, deque[PeerPendingTurn]] = WeakKeyDictio
 _global_fifo: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
 
 
-def _supports_service(model: Any, service: str) -> bool:
-    try:
-        supports = getattr(model, "supportsService", None)
-        if not callable(supports):
-            return False
-        return bool(supports(service))
-    except Exception:
-        return False
-
-
 def is_v1_peer_model(model: Any) -> bool:
-    """True for Writer / Calc / Draw / Impress.
-
-    Impress also supports DrawingDocument, so a Draw-only check already
-    matches it. PresentationDocument is listed so a model that only
-    reports the Impress service still counts.
-    """
-    if model is None:
-        return False
-    return (
-        _supports_service(model, _TEXT_SERVICE)
-        or _supports_service(model, _CALC_SERVICE)
-        or _supports_service(model, _DRAW_SERVICE)
-        or _supports_service(model, _IMPRESS_SERVICE)
-    )
+    """True for Writer / Calc / Draw / Impress."""
+    return get_document_type(model) != DocumentType.UNKNOWN
 
 
 def v1_peer_type_label(model: Any) -> str | None:
-    """``writer`` / ``calc`` / ``draw`` / ``impress``, or None if unsupported.
-
-    Check PresentationDocument before DrawingDocument. Impress supports both,
-    and research catalog ``doc_type: "draw"`` (impress_as_draw) would otherwise
-    collapse the peer type. Draw-only models stay ``draw``.
-    """
-    if model is None:
-        return None
-    if _supports_service(model, _TEXT_SERVICE):
-        return "writer"
-    if _supports_service(model, _CALC_SERVICE):
-        return "calc"
-    if _supports_service(model, _IMPRESS_SERVICE):
-        return "impress"
-    if _supports_service(model, _DRAW_SERVICE):
-        return "draw"
-    return None
+    """``writer`` / ``calc`` / ``draw`` / ``impress``, or None if unsupported."""
+    dt = get_document_type(model)
+    return None if dt == DocumentType.UNKNOWN else doc_type_label_for_enum(dt)
 
 
 def identity_from_doc(doc: Any) -> dict[str, str]:
@@ -760,7 +725,7 @@ class _SendPeerBase(ToolBase):
     # doc_type="impress" (services map is PresentationDocument only).
     # DrawingDocument still matches Draw-only; do not treat Impress as Draw
     # in the peer catalog (see v1_peer_type_label).
-    uno_services: list[str] | None = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)
     parameters: dict[str, Any] | None = _PEER_PARAMETERS
 
     def is_async(self) -> bool:

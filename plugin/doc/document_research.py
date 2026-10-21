@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
 
 import uno
 
-from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
+from plugin.doc.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path, normalize_file_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read
@@ -651,7 +651,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:
-        return existing, existing_type or doc_type_label_for_enum(get_document_type(existing), impress_as_draw=True), None, False
+        return existing, existing_type or doc_type_family_label(get_document_type(existing)), None, False
 
     # A successful load that is not returned must not leave a hidden
     # component open. An unknown doc_type that returns the error
@@ -672,7 +672,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         model = desktop.loadComponentFromURL(url, target, flags, load_props)
         if model is None:
             return None, None, f"Failed to open {path}", False
-        doc_type = doc_type_label_for_enum(get_document_type(model), impress_as_draw=True)
+        doc_type = doc_type_family_label(get_document_type(model))
         if doc_type == "unknown":
             close_document_research_document(model, opened_for_document_research=True)
             return None, None, f"Unsupported document type for {path}", False
@@ -796,7 +796,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
             # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
             doc_type = uno_read(
-                lambda: doc_type_label_for_enum(get_document_type(model), impress_as_draw=True),
+                lambda: doc_type_family_label(get_document_type(model)),
                 "unknown",
             )
             if doc_type == "unknown":
@@ -817,7 +817,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         doc_type_guess: str = guess_doc_type_from_path(path) if path else "unknown"
         if doc_type_guess == "unknown":
             doc_type_guess = uno_read(
-                lambda: doc_type_label_for_enum(get_document_type(model), impress_as_draw=True),
+                lambda: doc_type_family_label(get_document_type(model)),
                 "unknown",
             )
         

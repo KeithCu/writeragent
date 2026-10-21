@@ -73,10 +73,10 @@ def _doc_type_str_from_doc(doc: Any) -> str | None:
     if doc is None:
         return None
     try:
-        from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
+        from plugin.doc.doc_type import doc_type_family_label, get_document_type
 
         dt = get_document_type(doc)
-        label = doc_type_label_for_enum(dt, impress_as_draw=True)
+        label = doc_type_family_label(dt)
         return None if label == "unknown" else label
     except Exception:
         _log.exception("doc_type probe failed")

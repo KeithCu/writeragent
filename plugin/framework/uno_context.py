@@ -709,7 +709,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 uid = get_runtime_uid(model)
                 if (doc_url and doc_url == target) or (uid and uid == target):
                     doc_type_enum = _doc_type.get_document_type(model)
-                    doc_type = _doc_type.doc_type_label_for_enum(doc_type_enum, impress_as_draw=True)
+                    doc_type = _doc_type.doc_type_family_label(doc_type_enum)
                     return (_guard_returned_uno(model), doc_type)
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.

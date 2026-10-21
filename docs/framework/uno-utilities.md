@@ -128,14 +128,15 @@ Module: [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py)
 | Symbol | Purpose |
 |--------|---------|
 | `DocumentType` | `UNKNOWN` / `WRITER` / `CALC` / `DRAW` / `IMPRESS`. |
-| `get_document_type` | First `supportsService` hit in `_DOCUMENT_SERVICE_MAP` order. PresentationDocument is before DrawingDocument because Impress supports both; Draw-only stays DRAW. |
+| `get_document_type` | First `supportsService` hit in `_SERVICE_PRIORITY` order. PresentationDocument is before DrawingDocument because Impress supports both; Draw-only stays DRAW. |
 | `is_writer` / `is_calc` / `is_draw` | Enum predicates (`is_draw` includes Impress). |
 | `get_document_uno_services` | Live `supportsService` set for tool filtering. |
 | `uno_services_for_doc_type_label` / `uno_services_for_document` | Label → services without (or with) a live model. |
-| `doc_type_label_for_enum` | Lowercase label; `impress_as_draw=True` for research/visual family. |
+| `doc_type_label_for_enum` | Distinct lowercase label (`writer`, `calc`, `draw`, `impress`, `unknown`). |
+| `doc_type_family_label` | Research / path-family label folding Impress into `draw`. |
 | `doc_type_title_for_label` | Sidebar title (`impress` displays as Draw). |
 
-Canonical service strings are `_DOCUMENT_SERVICE_MAP`. Map order is the classification priority (`get_document_type` returns the first match). `visual_helpers` duplicates those strings plus `WebDocument` (must be checked first).
+Canonical service strings and classification metadata live in `_META`. `_SERVICE_PRIORITY` is the classification priority (`get_document_type` returns the first match). Canonical service constants (`TEXT_DOCUMENT_SERVICE`, `CALC_DOCUMENT_SERVICE`, `DRAW_DOCUMENT_SERVICE`, `IMPRESS_DOCUMENT_SERVICE`, `WEB_DOCUMENT_SERVICE`, `DOCUMENT_SERVICES`) are exported for tools, peer messaging, and visual helpers.
 
 ### 1.6 User-defined document properties
 
@@ -417,7 +418,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 |-------|------------------------|
 | `text_helpers` / `doc_type` / `udprops` vs `document_helpers` | LibrePy import graph. Chat context / `SheetAnalyzer` must not load in LibrePy. |
 | `url_utils` HTTP helpers vs document `file:` identity | Different schemes and `@deal` contracts. The one exception is stdlib `path_to_file_url` in the filesystem section. |
-| `visual_helpers` vs `doc_type` | Visual adds `WebDocument` (checked first) and unknown→`"writer"`; research uses `impress_as_draw`. |
+| `visual_helpers` vs `doc_type` | Visual adds `WebDocument` (checked first) and unknown→`"writer"`; research uses `doc_type_family_label`. |
 | `visual_helpers` vs `image_tools` | Lookup/properties vs insert/gallery/GraphicProvider. Wrappers already delegate. |
 | `get_document_from_frame` vs `get_active_document` | Sidebar must bind the **frame’s** document, not Desktop current (wrong-doc bug). |
 | sandbox / session_manager URL→path vs UNO converters | Off-main, no PyUNO. |
@@ -439,8 +440,8 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 
 | Function | Impress | Unknown |
 |----------|---------|---------|
-| `doc_type_label_for_enum` default | `"impress"` | `"unknown"` |
-| `doc_type_label_for_enum(impress_as_draw=True)` / `resolve_document_by_url` / `get_open_documents` | `"draw"` | `"unknown"` (open-docs untitled fallback `"writer"` on success path) |
+| `doc_type_label_for_enum` | `"impress"` | `"unknown"` |
+| `doc_type_family_label` / `resolve_document_by_url` / `get_open_documents` | `"draw"` | `"unknown"` (open-docs untitled fallback `"writer"` on success path) |
 | `DocumentService.detect_doc_type` | `"draw"` | `"writer"` |
 | `get_visual_doc_type` | `"impress"` | `"writer"` (+ `"web"` for WebDocument) |
 
@@ -512,7 +513,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
 5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
-6. **`DocumentService.detect_doc_type`** → `doc_type_label_for_enum(..., impress_as_draw=True)` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
+6. **`DocumentService.detect_doc_type`** → `doc_type_family_label` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
 7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 

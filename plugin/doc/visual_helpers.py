@@ -14,6 +14,13 @@ import logging
 import re
 from typing import Any
 
+from plugin.doc.doc_type import (
+    DOCUMENT_SERVICES,
+    WEB_DOCUMENT_SERVICE,
+    DocumentType,
+    doc_type_label_for_enum,
+    get_document_type,
+)
 from plugin.framework.errors import is_real_disposal, uno_read
 
 log = logging.getLogger(__name__)
@@ -21,24 +28,11 @@ log = logging.getLogger(__name__)
 # uno_read default where None is a real UNO result (an attribute that exists but is None).
 _FAILED: Any = object()
 
-# Same Writer/Calc/Draw/Impress strings as plugin.doc.doc_type._DOCUMENT_SERVICE_MAP.
-# WebDocument also supports TextDocument, so get_visual_doc_type checks WEB first.
-WRITER_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
-WEB_DOCUMENT_SERVICE = "com.sun.star.text.WebDocument"
-CALC_DOCUMENT_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
-DRAW_DOCUMENT_SERVICE = "com.sun.star.drawing.DrawingDocument"
-IMPRESS_DOCUMENT_SERVICE = "com.sun.star.presentation.PresentationDocument"
-
 WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
 TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
 DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 
-SHAPE_TOOL_UNO_SERVICES = [
-    WRITER_DOCUMENT_SERVICE,
-    CALC_DOCUMENT_SERVICE,
-    DRAW_DOCUMENT_SERVICE,
-    IMPRESS_DOCUMENT_SERVICE,
-]
+SHAPE_TOOL_UNO_SERVICES = list(DOCUMENT_SERVICES)
 
 # IDL order of com.sun.star.text.TextContentAnchorType. image_set_properties
 # and frame_set_properties write these same integers.
@@ -79,12 +73,12 @@ def get_visual_doc_type(doc: Any) -> str:
     they also support TextDocument and would otherwise look like Writer.
     Unknown models keep the legacy ``\"writer\"`` default (not ``\"unknown\"``).
     """
-    try:
-        if doc.supportsService(WEB_DOCUMENT_SERVICE):
-            return "web"
-    except Exception:
-        pass
-    from plugin.doc.doc_type import DocumentType, doc_type_label_for_enum, get_document_type
+    if doc is not None:
+        try:
+            if doc.supportsService(WEB_DOCUMENT_SERVICE):
+                return "web"
+        except Exception:
+            pass
 
     doc_type = get_document_type(doc)
     if doc_type == DocumentType.UNKNOWN:
