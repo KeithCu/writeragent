@@ -30,6 +30,8 @@ does not import misaki (LibreOffice's Python must not gain those deps).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from importlib import import_module
 import logging
 import shutil
 import subprocess
@@ -37,37 +39,81 @@ from typing import Any, Callable
 
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
+from plugin.scripting.tts_requirements import ESPEAK_PIP, KOKORO_PIP_INSTALL
 
 log = logging.getLogger(__name__)
 
-# Spoken install line when kokoro-onnx itself is missing, and the multilingual
-# extras a non-English voice needs. piper-tts is intentionally absent here;
-# venv_diagnostics._TTS_INSTALL_CMD adds it for the Test dialog.
-KOKORO_PIP_INSTALL = (
-    "uv pip install kokoro-onnx soundfile 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
-)
+_PROBE_TIMEOUT_SEC = 90.0
+_PIP_TIMEOUT_SEC = 300.0
+_UNIDIC_TIMEOUT_SEC = 300.0
 
-# es / fr-fr / it / hi / pt-br have no Misaki language extra. EspeakG2P lives
-# in the base package and needs phonemizer-fork (set_data_path) plus
-# espeakng-loader. Do not install misaki[en]: that pulls torch.
-_ESPEAK_MISAKI_LANGS = frozenset({"es", "fr-fr", "it", "hi", "pt-br"})
-_ESPEAK_PIP = ("misaki", "phonemizer-fork", "espeakng-loader")
-
-# Snippets run inside the venv script. They must stay valid on the user's
-# venv Python (no host-only syntax). ``phonemes, _tokens`` avoids a bare ``_``.
-def _espeak_g2p_snippet(lang: str) -> str:
-    return (
-        "from misaki.espeak import EspeakG2P\n"
-        "phonemes, _tokens = EspeakG2P(language=%r)(text)" % lang
-    )
+G2P_FAILED_FMT = "Misaki G2P failed for %s: %s"
+G2P_FALLBACK_FMT = "Kokoro fell back to espeak-ng for %s; non-English text may be misread"
+G2P_FAILED_MARK = "Misaki G2P failed"
 
 
-# version=None on Chinese: legacy pinyin frontend for Kokoro-82M / kokoro-v1.0.onnx.
-# version="1.1" is only for the separate v1.1-zh checkpoint.
+def g2p_fallback_warning(lang: str, exc: BaseException | None = None) -> str:
+    fallback = G2P_FALLBACK_FMT % lang
+    if exc is None:
+        return fallback
+    return (G2P_FAILED_FMT % (lang, exc)) + " " + fallback
+
+
+@dataclass(frozen=True)
+class MisakiLangSpec:
+    lang: str
+    module: str
+    attr: str
+    kwargs: tuple[tuple[str, str], ...]
+    packages: tuple[str, ...]
+    probe_text: str
+    needs_unidic: bool
+
+
+_ESPEAK_LANGS = ("es", "fr-fr", "it", "hi", "pt-br")
+
+_LANG_SPECS: dict[str, MisakiLangSpec] = {
+    "ja": MisakiLangSpec(
+        lang="ja",
+        module="misaki.ja",
+        attr="JAG2P",
+        kwargs=(),
+        packages=("misaki[ja]",),
+        probe_text="\u3042",
+        needs_unidic=True,
+    ),
+    "zh": MisakiLangSpec(
+        lang="zh",
+        module="misaki.zh",
+        attr="ZHG2P",
+        kwargs=(),
+        packages=("misaki[zh]",),
+        probe_text="\u4f60",
+        needs_unidic=False,
+    ),
+    **{
+        lang: MisakiLangSpec(
+            lang=lang,
+            module="misaki.espeak",
+            attr="EspeakG2P",
+            kwargs=(("language", lang),),
+            packages=ESPEAK_PIP,
+            probe_text="ok",
+            needs_unidic=False,
+        )
+        for lang in _ESPEAK_LANGS
+    },
+}
+
+
+def _misaki_snippet(spec: MisakiLangSpec) -> str:
+    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in spec.kwargs)
+    return f"from {spec.module} import {spec.attr}\nphonemes, _tokens = {spec.attr}({kwargs_str})(text)"
+
+
 _MISAKI_G2P_SNIPPETS: dict[str, str] = {
-    "ja": "from misaki.ja import JAG2P\nphonemes, _tokens = JAG2P()(text)",
-    "zh": "from misaki.zh import ZHG2P\nphonemes, _tokens = ZHG2P()(text)",
-    **{lang: _espeak_g2p_snippet(lang) for lang in ("es", "fr-fr", "it", "hi", "pt-br")},
+    spec.lang: _misaki_snippet(spec)
+    for spec in _LANG_SPECS.values()
 }
 
 _g2p_cache: dict[str, Any] = {}
@@ -80,31 +126,18 @@ def _get_misaki_g2p(lang: str) -> Any:
     inst = _g2p_cache.get(lang)
     if inst is not None:
         return inst
-    if lang == "ja":
-        from misaki.ja import JAG2P  # type: ignore[import-not-found, ty:unresolved-import]
-
-        inst = JAG2P()
-    elif lang == "zh":
-        from misaki.zh import ZHG2P  # type: ignore[import-not-found, ty:unresolved-import]
-
-        inst = ZHG2P()
-    elif lang in ("es", "fr-fr", "it", "hi", "pt-br"):
-        from misaki.espeak import EspeakG2P  # type: ignore[import-not-found, ty:unresolved-import]
-
-        inst = EspeakG2P(language=lang)
-    else:
+    spec = _LANG_SPECS.get(lang)
+    if spec is None:
         raise RuntimeError("no Misaki G2P for %s" % lang)
+    cls = getattr(import_module(spec.module), spec.attr)  # type: ignore[import-not-found, ty:unresolved-import]
+    inst = cls(**dict(spec.kwargs))
     _g2p_cache[lang] = inst
     return inst
-
-_PROBE_TIMEOUT_SEC = 90.0
-_PIP_TIMEOUT_SEC = 300.0
-_UNIDIC_TIMEOUT_SEC = 300.0
 
 
 def kokoro_lang_uses_misaki(lang: str) -> bool:
     """True when this Kokoro lang code must be phonemized with Misaki."""
-    return lang in _MISAKI_G2P_SNIPPETS
+    return lang in _LANG_SPECS
 
 
 def misaki_phonemes(text: str, lang: str) -> str:
@@ -115,7 +148,7 @@ def misaki_phonemes(text: str, lang: str) -> str:
     construct is reused for that ``lang`` until the process exits. English is
     not cached and does not import misaki.
     """
-    if lang not in _MISAKI_G2P_SNIPPETS:
+    if lang not in _LANG_SPECS:
         return ""
     g2p = _get_misaki_g2p(lang)
     phonemes, _tokens = g2p(text)
@@ -126,12 +159,9 @@ def misaki_phonemes(text: str, lang: str) -> str:
 
 def kokoro_misaki_packages(lang: str) -> tuple[str, ...]:
     """Pip requirements for ``lang``, or empty when English keeps espeak-ng."""
-    if lang == "ja":
-        return ("misaki[ja]",)
-    if lang == "zh":
-        return ("misaki[zh]",)
-    if lang in _ESPEAK_MISAKI_LANGS:
-        return _ESPEAK_PIP
+    spec = _LANG_SPECS.get(lang)
+    if spec is not None:
+        return spec.packages
     return ()
 
 
@@ -151,25 +181,20 @@ def kokoro_misaki_probe_code(lang: str) -> str:
     ship the dictionary, and ``ZHG2P()`` does not import jieba until called.
     A one-character call fails when the extra is only half-installed.
     """
-    if lang == "ja":
-        return "from misaki.ja import JAG2P\nJAG2P()('\\u3042')\n"
-    if lang == "zh":
-        return "from misaki.zh import ZHG2P\nZHG2P()('\\u4f60')\n"
-    if lang in _ESPEAK_MISAKI_LANGS:
-        return (
-            "from misaki.espeak import EspeakG2P\n"
-            "EspeakG2P(language=%r)('ok')\n" % lang
-        )
-    return ""
+    spec = _LANG_SPECS.get(lang)
+    if spec is None:
+        return ""
+    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in spec.kwargs)
+    return f"from {spec.module} import {spec.attr}\n{spec.attr}({kwargs_str})({spec.probe_text!r})\n"
 
 
 def _misaki_branches() -> str:
     """If/elif body that fills ``phonemes`` for each non-English lang."""
     lines: list[str] = []
-    for index, lang in enumerate(_MISAKI_G2P_SNIPPETS):
+    for index, (lang, snippet) in enumerate(_MISAKI_G2P_SNIPPETS.items()):
         keyword = "if" if index == 0 else "elif"
         lines.append("        %s lang == %r:" % (keyword, lang))
-        for line in _MISAKI_G2P_SNIPPETS[lang].splitlines():
+        for line in snippet.splitlines():
             lines.append("            " + line)
     lines.append("        else:")
     lines.append('            raise RuntimeError("no Misaki G2P for %s" % lang)')
@@ -183,9 +208,7 @@ def _build_kokoro_onnx_script() -> str:
     ``%`` format strings for the venv process; interpolating those here would
     raise at import time.
     """
-    lang_tuple = "(" + ", ".join("%r" % lang for lang in _MISAKI_G2P_SNIPPETS) + ",)"
-    # voices-v1.0.bin is an npz. Integer indexing raises; membership and
-    # list() use the voice-id keys.
+    lang_tuple = repr(tuple(_LANG_SPECS.keys()))
     script = (
         "import sys\n"
         "from kokoro_onnx import Kokoro\n"
@@ -215,7 +238,7 @@ def _build_kokoro_onnx_script() -> str:
         "    try:\n"
         "__MISAKI_BRANCHES__\n"
         "    except Exception as exc:\n"
-        "        sys.stderr.write('Misaki G2P failed for %s: %s\\n' % (lang, exc))\n"
+        "        sys.stderr.write('" + G2P_FAILED_FMT + "\\n' % (lang, exc))\n"
         "        phonemes = ''\n"
         "\n"
         "if isinstance(phonemes, str) and phonemes.strip():\n"
@@ -225,7 +248,7 @@ def _build_kokoro_onnx_script() -> str:
         "else:\n"
         "    if lang in __KOKORO_MISAKI_LANGS__:\n"
         "        sys.stderr.write(\n"
-        "            'Kokoro fell back to espeak-ng for %s; non-English text may be misread\\n'\n"
+        "            '" + G2P_FALLBACK_FMT + "\\n'\n"
         "            % lang\n"
         "        )\n"
         "    samples, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)\n"
@@ -254,6 +277,9 @@ def _cancelled(cancelled: Callable[[], bool] | None) -> bool:
     return bool(best_effort(cancelled, "Kokoro phonemizer cancel check failed", False))
 
 
+RunCmd = Callable[[list[str], float], subprocess.CompletedProcess[str] | None]
+
+
 def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(
@@ -269,30 +295,53 @@ def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]
         return None
 
 
+def _failure_detail(completed: subprocess.CompletedProcess[str] | None) -> str:
+    if completed is None:
+        return ""
+    return (completed.stderr or completed.stdout or "").strip()
+
+
+def _run_checked(
+    cmd: list[str],
+    timeout: float,
+    *,
+    what: str,
+    level: int,
+    run_cmd: RunCmd | None,
+    log_when_empty: bool,
+) -> bool:
+    runner = run_cmd or _run_cmd
+    completed = runner(cmd, timeout)
+    if completed is None or completed.returncode != 0:
+        detail = _failure_detail(completed)
+        if detail or log_when_empty:
+            log.log(level, "%s: %s", what, detail[-2000:])
+        return False
+    return True
+
+
 def _venv_probe_ok(
     py_exe: str,
     lang: str,
-    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+    run_cmd: RunCmd | None = None,
 ) -> bool:
     code = kokoro_misaki_probe_code(lang)
     if not code:
         return True
-    runner = run_cmd or _run_cmd
-    completed = runner([py_exe, "-c", code], _PROBE_TIMEOUT_SEC)
-    if completed is None or completed.returncode != 0:
-        detail = ""
-        if completed is not None:
-            detail = (completed.stderr or completed.stdout or "").strip()
-        if detail:
-            log.info("Kokoro phonemizer probe (%s) failed: %s", lang, detail[-2000:])
-        return False
-    return True
+    return _run_checked(
+        [py_exe, "-c", code],
+        _PROBE_TIMEOUT_SEC,
+        what=f"Kokoro phonemizer probe ({lang}) failed",
+        level=logging.INFO,
+        run_cmd=run_cmd,
+        log_when_empty=False,
+    )
 
 
 def _pip_install(
     py_exe: str,
     packages: tuple[str, ...],
-    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+    run_cmd: RunCmd | None = None,
 ) -> bool:
     uv = shutil.which("uv")
     if uv:
@@ -300,31 +349,29 @@ def _pip_install(
     else:
         cmd = [py_exe, "-m", "pip", "install", *packages]
     log.info("Installing Kokoro phonemizer: %s", " ".join(cmd))
-    runner = run_cmd or _run_cmd
-    completed = runner(cmd, _PIP_TIMEOUT_SEC)
-    if completed is None or completed.returncode != 0:
-        detail = ""
-        if completed is not None:
-            detail = (completed.stderr or completed.stdout or "").strip()
-        log.warning("Kokoro phonemizer install failed: %s", detail[-2000:])
-        return False
-    return True
+    return _run_checked(
+        cmd,
+        _PIP_TIMEOUT_SEC,
+        what="Kokoro phonemizer install failed",
+        level=logging.WARNING,
+        run_cmd=run_cmd,
+        log_when_empty=True,
+    )
 
 
 def _download_unidic(
     py_exe: str,
-    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+    run_cmd: RunCmd | None = None,
 ) -> bool:
     """``misaki[ja]`` depends on the unidic package, which does not include the dictionary."""
-    runner = run_cmd or _run_cmd
-    completed = runner([py_exe, "-m", "unidic", "download"], _UNIDIC_TIMEOUT_SEC)
-    if completed is None or completed.returncode != 0:
-        detail = ""
-        if completed is not None:
-            detail = (completed.stderr or completed.stdout or "").strip()
-        log.warning("Japanese phonemizer dictionary download failed: %s", detail[-2000:])
-        return False
-    return True
+    return _run_checked(
+        [py_exe, "-m", "unidic", "download"],
+        _UNIDIC_TIMEOUT_SEC,
+        what="Japanese phonemizer dictionary download failed",
+        level=logging.WARNING,
+        run_cmd=run_cmd,
+        log_when_empty=True,
+    )
 
 
 def ensure_kokoro_misaki(
@@ -332,7 +379,7 @@ def ensure_kokoro_misaki(
     lang: str,
     on_status: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
-    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+    run_cmd: RunCmd | None = None,
 ) -> bool | None:
     """Install the Misaki extra for ``lang`` when the venv cannot import it.
 
@@ -367,7 +414,8 @@ def ensure_kokoro_misaki(
 
     # fugashi's default dictionary is not in the wheel. Without this download,
     # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
-    if lang == "ja":
+    spec = _LANG_SPECS.get(lang)
+    if spec is not None and spec.needs_unidic:
         _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
         if _download_unidic(py_exe, run_cmd=run_cmd) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
             return True

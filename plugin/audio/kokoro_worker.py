@@ -40,6 +40,7 @@ from plugin.scripting.ipc import (  # noqa: E402
     read_pickle_frame,
     write_pickle_frame,
 )
+from plugin.audio.kokoro_g2p import g2p_fallback_warning  # noqa: E402
 
 # Held for the life of the process. Replaced only when the model paths change.
 _loaded_key: tuple[str, str] | None = None
@@ -148,20 +149,16 @@ def _misaki_frontend(text: str, lang: str) -> tuple[str, str]:
         # a phonemizer failure. Other langs still speak via espeak-ng.
         if lang in ("en-us", "en-gb", ""):
             return "", ""
-        failed = f"Misaki G2P failed for {lang}: {exc}"
-        fallback = f"Kokoro fell back to espeak-ng for {lang}; non-English text may be misread"
-        return "", f"{failed} {fallback}"
+        return "", g2p_fallback_warning(lang, exc)
     if not kokoro_lang_uses_misaki(lang):
         return "", ""
     try:
         phonemes = misaki_phonemes(text, lang)
     except Exception as exc:
-        failed = f"Misaki G2P failed for {lang}: {exc}"
-        fallback = f"Kokoro fell back to espeak-ng for {lang}; non-English text may be misread"
-        return "", f"{failed} {fallback}"
+        return "", g2p_fallback_warning(lang, exc)
     if isinstance(phonemes, str) and phonemes.strip():
         return phonemes, ""
-    return "", f"Kokoro fell back to espeak-ng for {lang}; non-English text may be misread"
+    return "", g2p_fallback_warning(lang)
 
 
 def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:

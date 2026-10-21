@@ -19,11 +19,12 @@ from collections import deque
 from typing import Any, Callable, ClassVar, cast
 
 from plugin.audio.kokoro_g2p import (
+    G2P_FAILED_MARK,
     KOKORO_ONNX_SCRIPT,
-    KOKORO_PIP_INSTALL,
     ensure_kokoro_misaki,
     kokoro_lang_uses_misaki,
 )
+from plugin.scripting.tts_requirements import KOKORO_PIP_INSTALL
 from plugin.audio.kokoro_pool import (
     cancel_kokoro_inflight,
     get_kokoro_inflight_token,
@@ -796,7 +797,7 @@ def _notify_kokoro_g2p_fallback(
     """Surface Misaki fallback to the chat panel."""
     if misaki_ready is False and on_status is not None:
         _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
-    elif "Misaki G2P failed" in stderr_text and on_status is not None:
+    elif G2P_FAILED_MARK in stderr_text and on_status is not None:
         _notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
 
 

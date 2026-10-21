@@ -22,40 +22,68 @@ from plugin.audio.kokoro_g2p import (
 
 def test_kokoro_script_compiles():
     compile(KOKORO_ONNX_SCRIPT, "<kokoro_onnx_script>", "exec")
-    assert "is_phonemes=True" in KOKORO_ONNX_SCRIPT
-    assert "JAG2P()(text)" in KOKORO_ONNX_SCRIPT
-    assert "ZHG2P()(text)" in KOKORO_ONNX_SCRIPT
     assert "version=" not in KOKORO_ONNX_SCRIPT
-    assert "EspeakG2P(language='fr-fr')" in KOKORO_ONNX_SCRIPT
-    assert "EspeakG2P(language='es')" in KOKORO_ONNX_SCRIPT
 
 
-def test_misaki_package_map():
-    assert kokoro_lang_uses_misaki("ja")
-    assert kokoro_lang_uses_misaki("fr-fr")
-    assert kokoro_lang_uses_misaki("es")
-    assert not kokoro_lang_uses_misaki("en-us")
-    assert not kokoro_lang_uses_misaki("en-gb")
+@pytest.mark.parametrize(
+    ("lang", "uses_misaki", "expected_pkgs"),
+    [
+        ("ja", True, ("misaki[ja]",)),
+        ("zh", True, ("misaki[zh]",)),
+        ("es", True, ("misaki", "phonemizer-fork", "espeakng-loader")),
+        ("fr-fr", True, ("misaki", "phonemizer-fork", "espeakng-loader")),
+        ("it", True, ("misaki", "phonemizer-fork", "espeakng-loader")),
+        ("hi", True, ("misaki", "phonemizer-fork", "espeakng-loader")),
+        ("pt-br", True, ("misaki", "phonemizer-fork", "espeakng-loader")),
+        ("en-us", False, ()),
+        ("en-gb", False, ()),
+    ],
+)
+def test_misaki_lang_properties(lang: str, uses_misaki: bool, expected_pkgs: tuple[str, ...]):
+    assert kokoro_lang_uses_misaki(lang) is uses_misaki
+    assert kokoro_misaki_packages(lang) == expected_pkgs
 
-    assert kokoro_misaki_packages("ja") == ("misaki[ja]",)
-    assert kokoro_misaki_packages("zh") == ("misaki[zh]",)
-    espeak_pkgs = ("misaki", "phonemizer-fork", "espeakng-loader")
-    for lang in ("es", "fr-fr", "it", "hi", "pt-br"):
-        assert kokoro_misaki_packages(lang) == espeak_pkgs
-        assert "torch" not in " ".join(espeak_pkgs)
-    assert kokoro_misaki_packages("en-us") == ()
+    code = kokoro_misaki_probe_code(lang)
+    if not uses_misaki:
+        assert code == ""
+    else:
+        compile(code, "<probe>", "exec")
+        calls = []
+
+        class FakeG2P:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+
+            def __call__(self, text):
+                pass
+
+        fake_ja = types.ModuleType("misaki.ja")
+        fake_ja.JAG2P = FakeG2P
+        fake_zh = types.ModuleType("misaki.zh")
+        fake_zh.ZHG2P = FakeG2P
+        fake_espeak = types.ModuleType("misaki.espeak")
+        fake_espeak.EspeakG2P = FakeG2P
+        with patch.dict(
+            sys.modules,
+            {"misaki.ja": fake_ja, "misaki.zh": fake_zh, "misaki.espeak": fake_espeak},
+        ):
+            exec(compile(code, "<probe>", "exec"), {})
+        assert len(calls) == 1
+
+
+def test_kokoro_misaki_install_hints_and_requirements():
+    from plugin.scripting.tts_requirements import KOKORO_PIP_INSTALL as REQ_KOKORO_PIP, TTS_INSTALL_CMD
 
     assert kokoro_misaki_install_hint("ja") == "uv pip install 'misaki[ja]'"
     assert kokoro_misaki_install_hint("zh") == "uv pip install 'misaki[zh]'"
-    assert kokoro_misaki_install_hint("fr-fr") == (
-        "uv pip install misaki phonemizer-fork espeakng-loader"
-    )
+    assert kokoro_misaki_install_hint("fr-fr") == "uv pip install misaki phonemizer-fork espeakng-loader"
+
+    assert KOKORO_PIP_INSTALL == REQ_KOKORO_PIP
     assert "misaki[ja,zh]" in KOKORO_PIP_INSTALL
     assert "phonemizer-fork" in KOKORO_PIP_INSTALL
-    assert "JAG2P" in kokoro_misaki_probe_code("ja")
-    assert "ZHG2P" in kokoro_misaki_probe_code("zh")
-    assert "language='es'" in kokoro_misaki_probe_code("es")
-    assert kokoro_misaki_probe_code("en-us") == ""
+    assert "piper-tts" not in KOKORO_PIP_INSTALL
+
+    assert TTS_INSTALL_CMD == KOKORO_PIP_INSTALL.replace("soundfile", "soundfile piper-tts")
 
 
 def _exec_kokoro_script(argv: list[str], modules: dict[str, types.ModuleType]) -> None:
