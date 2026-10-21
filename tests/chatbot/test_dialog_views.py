@@ -1469,7 +1469,7 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.client.requests.sync_request") as mock_sync, \
-             patch("plugin.audio.tts_voices.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+             patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)), \
              patch("plugin.chatbot.dialog_views.get_config", return_value=""):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
             mock_sync.assert_not_called()
@@ -1519,7 +1519,7 @@ def test_tts_settings_listener_sync():
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
-         patch("plugin.audio.tts_voices.get_config", side_effect=_cfg):
+         patch("plugin.framework.config.get_config", side_effect=_cfg):
         listener = TtsSettingsListener(dlg, ctx)
         listener.sync_ui()
 
@@ -1560,7 +1560,7 @@ def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-         patch("plugin.audio.tts_voices.get_config", side_effect=_cfg):
+         patch("plugin.framework.config.get_config", side_effect=_cfg):
         TtsSettingsListener(dlg, MagicMock()).sync_ui()
 
     voice_ctrl.setText.assert_called_once()
@@ -1598,8 +1598,8 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.audio.tts_voices.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.audio.tts_voices.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         assert voice_ctrl.setText.call_args[0][0] == "Kore"
@@ -1644,8 +1644,8 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         stored: dict = {"audio.tts_voice_openrouter": stored_voice}
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.audio.tts_voices.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.audio.tts_voices.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
         if voice_ctrl.setText.called:
             shown = voice_ctrl.setText.call_args[0][0]
@@ -1724,8 +1724,8 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.audio.tts_voices.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.audio.tts_voices.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         voice_ctrl.setText.assert_not_called()
@@ -1906,7 +1906,6 @@ def test_voice_combo_change_does_not_write_config_until_ok():
     voice_listener = TtsVoiceListener(dlg, TtsSettingsListener(dlg, MagicMock()))
     stored: dict[str, str] = {}
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
-         patch("plugin.audio.tts_voices.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
          patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
         voice_listener._on_change()
         TtsSettingsListener(dlg, MagicMock()).sync_ui()
@@ -1924,7 +1923,7 @@ def test_voice_combo_change_does_not_write_config_until_ok():
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: saved.update(values)) as batch, \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.audio.tts_voices.set_config") as tts_set:
+         patch("plugin.framework.config.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
             "audio__tts_voice": "US English Female - Amy",

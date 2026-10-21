@@ -431,7 +431,7 @@ def test_build_module_field_specs_voice_options_come_from_catalog():
     with (
         patch("plugin._manifest.MODULES", [manifest]),
         patch("plugin.chatbot.settings_fields.get_config", side_effect=_cfg),
-        patch("plugin.audio.tts_voices.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"),
         patch("plugin.main.get_services", return_value=None),
     ):

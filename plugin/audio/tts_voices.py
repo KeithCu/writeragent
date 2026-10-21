@@ -8,28 +8,29 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from typing import Any
 
 from plugin.audio.voice_catalog import (
     DEFAULT_VOICE_FOR_FAMILY,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     KOKORO_FALLBACK_VOICE as _KOKORO_FALLBACK_VOICE,
-    KOKORO_OPENAI_ALIASES as _KOKORO_VOICES,
+    KOKORO_OPENAI_ALIASES as _KOKORO_OPENAI_ALIASES,
     LOCALE_TO_KOKORO_DEFAULT as _LOCALE_TO_KOKORO_DEFAULT,
     PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
     catalog_voice_display_label as _catalog_voice_display_label,
+    split_display_label,
 )
-from plugin.framework import config
+from plugin.framework import config, i18n
+from plugin.framework.i18n import _
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "clean_provider_name",
     "clean_voice_name",
     "endpoint_is_together",
-    "get_config",
-    "get_config_str",
     "get_default_voice_for_locale",
     "get_scoped_tts_voice",
     "get_voice_catalog",
@@ -37,33 +38,12 @@ __all__ = [
     "is_kokoro_voice_id",
     "kokoro_g2p_lang",
     "parse_tts_speed",
-    "set_config",
     "set_scoped_tts_voice",
     "settings_voice_options",
     "tts_test_sample",
     "voice_choice_to_id",
     "voice_options_for_provider",
-    "_endpoint_provider",
-    "_resolve_tts_voice",
 ]
-
-
-def get_config(*args: Any, **kwargs: Any) -> Any:
-    return config.get_config(*args, **kwargs)
-
-
-def get_config_str(*args: Any, **kwargs: Any) -> Any:
-    return config.get_config_str(*args, **kwargs)
-
-
-def set_config(*args: Any, **kwargs: Any) -> Any:
-    return config.set_config(*args, **kwargs)
-
-
-from plugin.framework import i18n
-from plugin.framework.i18n import _
-
-log = logging.getLogger(__name__)
 
 # Single source of truth for Kokoro voice prefixes and their G2P language codes
 KOKORO_VOICE_PREFIX_TO_LANG: dict[str, str] = {
@@ -78,13 +58,11 @@ KOKORO_VOICE_PREFIX_TO_LANG: dict[str, str] = {
     "z": "zh",
 }
 
-_KOKORO_PREFIX_CHARS = "".join(sorted(KOKORO_VOICE_PREFIX_TO_LANG.keys()))
-_KOKORO_VOICE_ID_RE = re.compile(rf"^[{_KOKORO_PREFIX_CHARS}][fm]_", re.IGNORECASE)
-
 
 def is_kokoro_voice_id(voice: str) -> bool:
     """True if voice starts with a known Kokoro prefix (e.g. af_, jf_, bm_)."""
-    return bool(_KOKORO_VOICE_ID_RE.match((voice or "").strip()))
+    clean = (voice or "").strip().lower()
+    return len(clean) >= 3 and clean[0] in KOKORO_VOICE_PREFIX_TO_LANG and clean[1:3] in ("f_", "m_")
 
 
 def _kokoro_lang_for_voice(voice: str) -> str:
@@ -138,10 +116,9 @@ def _locale_language_stem(locale: str | None) -> str:
 
 def _voice_lang_matches_ui(ui_stem: str, voice_lang: str) -> bool:
     """True if a voice language matches the active UI language stem."""
-    v = (voice_lang or "").strip().lower()
-    if not v:
+    if not voice_lang:
         return False
-    v_stem = v.split("_")[0].split("-")[0]
+    v_stem = _locale_language_stem(voice_lang)
     if v_stem == ui_stem:
         return True
     if ui_stem in ("nb", "nn") and v_stem == "no":
@@ -164,20 +141,63 @@ def _kokoro_voice_is_female(voice_id: str, label: str) -> bool:
     return _label_says_female(label)
 
 
+def _first_matching(
+    rows: Any,
+    is_match: Any,
+    is_preferred: Any,
+    fallback: str,
+) -> str:
+    """First preferred match, else the first match, else fallback."""
+    any_voice = ""
+    for item in rows:
+        if is_match(item):
+            voice_id = item["value"] if isinstance(item, dict) else item[0]
+            if is_preferred(item):
+                return voice_id
+            if not any_voice:
+                any_voice = voice_id
+    return any_voice or fallback
+
+
+def _buckets(
+    rows: Any,
+    is_locale: Any,
+    is_english: Any,
+    preferred_id: str | None = None,
+) -> list[dict[str, str]]:
+    """locale + english + other. preferred_id is inserted at the front of locale."""
+    locale_voices: list[dict[str, str]] = []
+    en_voices: list[dict[str, str]] = []
+    other_voices: list[dict[str, str]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            item = {"value": row["value"], "label": _catalog_voice_display_label(row["label"])}
+            vid = row["value"]
+        else:
+            vid, model = row
+            item = {"value": vid, "label": _catalog_voice_display_label(model[3])}
+        if is_locale(row):
+            if preferred_id and vid == preferred_id:
+                locale_voices.insert(0, item)
+            else:
+                locale_voices.append(item)
+        elif is_english(row):
+            en_voices.append(item)
+        else:
+            other_voices.append(item)
+    return locale_voices + en_voices + other_voices
+
+
 def _piper_default_for_stem(stem: str) -> str:
     """First female voice for the language stem in Piper's catalog."""
     if stem == "en":
         return _PIPER_FALLBACK_VOICE
-    any_voice = ""
-    for voice_id, model in _PIPER_VOICE_MODELS.items():
-        v_stem = model[2].split("_")[0].lower()
-        if _voice_lang_matches_ui(stem, v_stem):
-            label = model[3]
-            if _label_says_female(label):
-                return voice_id
-            if not any_voice:
-                any_voice = voice_id
-    return any_voice or _PIPER_FALLBACK_VOICE
+    return _first_matching(
+        _PIPER_VOICE_MODELS.items(),
+        lambda item: _voice_lang_matches_ui(stem, item[1][2]),
+        lambda item: _label_says_female(item[1][3]),
+        _PIPER_FALLBACK_VOICE,
+    )
 
 
 def _kokoro_default_for_stem(stem: str) -> str:
@@ -186,14 +206,12 @@ def _kokoro_default_for_stem(stem: str) -> str:
         return _KOKORO_FALLBACK_VOICE
     if stem in _LOCALE_TO_KOKORO_DEFAULT:
         return _LOCALE_TO_KOKORO_DEFAULT[stem]
-    any_voice = ""
-    for opt in _KOKORO_CATALOG_ITEMS:
-        if opt.get("lang") == stem:
-            if _kokoro_voice_is_female(opt["value"], opt["label"]):
-                return opt["value"]
-            if not any_voice:
-                any_voice = opt["value"]
-    return any_voice or _KOKORO_FALLBACK_VOICE
+    return _first_matching(
+        _KOKORO_CATALOG_ITEMS,
+        lambda opt: opt.get("lang") == stem,
+        lambda opt: _kokoro_voice_is_female(opt["value"], opt["label"]),
+        _KOKORO_FALLBACK_VOICE,
+    )
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
@@ -225,53 +243,28 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
     stem = _locale_language_stem(locale)
 
     if fam == "kokoro":
-        locale_voices: list[dict[str, str]] = []
-        en_voices: list[dict[str, str]] = []
-        other_voices: list[dict[str, str]] = []
-        for opt in _KOKORO_CATALOG_ITEMS:
-            v_lang = opt.get("lang", "en")
-            item = {"value": opt["value"], "label": _catalog_voice_display_label(opt["label"])}
-            if stem != "en" and v_lang == stem:
-                locale_voices.append(item)
-            elif v_lang == "en":
-                en_voices.append(item)
-            else:
-                other_voices.append(item)
-        return locale_voices + en_voices + other_voices
-
-    # Piper: matching locale voices first, then English, then others
-    locale_voices_p: list[dict[str, str]] = []
-    en_voices_p: list[dict[str, str]] = []
-    other_voices_p: list[dict[str, str]] = []
+        return _buckets(
+            _KOKORO_CATALOG_ITEMS,
+            is_locale=lambda opt: stem != "en" and opt.get("lang") == stem,
+            is_english=lambda opt: opt.get("lang") == "en",
+        )
 
     preferred_default = _piper_default_for_stem(stem)
-
-    for voice_id, model in _PIPER_VOICE_MODELS.items():
-        lang_code = model[2]
-        label = model[3]
-        v_stem = lang_code.split("_")[0].lower()
-        item = {"value": voice_id, "label": _catalog_voice_display_label(label)}
-        is_loc = stem != "en" and (
-            voice_id == preferred_default or _voice_lang_matches_ui(stem, v_stem)
-        )
-        if is_loc:
-            if voice_id == preferred_default:
-                locale_voices_p.insert(0, item)
-            else:
-                locale_voices_p.append(item)
-        elif v_stem == "en":
-            en_voices_p.append(item)
-        else:
-            other_voices_p.append(item)
-
-    return locale_voices_p + en_voices_p + other_voices_p
+    return _buckets(
+        _PIPER_VOICE_MODELS.items(),
+        is_locale=lambda item: stem != "en" and (
+            item[0] == preferred_default or _voice_lang_matches_ui(stem, item[1][2])
+        ),
+        is_english=lambda item: _locale_language_stem(item[1][2]) == "en",
+        preferred_id=preferred_default,
+    )
 
 
-def settings_voice_options(services: Any = None) -> list[dict[str, str]]:
+def settings_voice_options(_services: Any = None) -> list[dict[str, str]]:
     """Dynamic options provider for Settings dialog's audio.tts_voice combobox."""
     try:
-        provider = str(get_config("audio.tts_provider") or "system")
-        model = str(get_config("audio.tts_model") or "")
+        provider = str(config.get_config("audio.tts_provider") or "system")
+        model = str(config.get_config("audio.tts_model") or "")
         return voice_options_for_provider(provider, model)
     except Exception as exc:
         log.warning("Could not determine dynamic TTS voice options: %s", exc)
@@ -288,16 +281,6 @@ def endpoint_is_together(endpoint: str | None = None) -> bool:
     return "api.together" in str(ep).lower()
 
 
-def _endpoint_provider(endpoint: str | None) -> str:
-    """Identify host for logging and family dispatch."""
-    ep = (endpoint or "").lower()
-    if "openrouter.ai" in ep:
-        return "openrouter"
-    if "api.together" in ep:
-        return "together"
-    return "generic"
-
-
 def _sort_voice_rows_by_label(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     """Sort voice option dicts by localized display label."""
     return sorted(rows, key=lambda row: row.get("label", "").casefold())
@@ -308,7 +291,6 @@ def voice_options_for_provider(
     model: str | None = None,
     locale: str | None = None,
     endpoint: str | None = None,
-    api_key: str | None = None,
 ) -> list[dict[str, str]]:
     """Voice rows for Settings.
 
@@ -325,7 +307,7 @@ def voice_options_for_provider(
     """
     prov = clean_provider_name(provider)
     if prov == "endpoint":
-        together_rows = _together_endpoint_voice_rows(str(model or ""), endpoint, api_key)
+        together_rows = _together_endpoint_voice_rows(str(model or ""), endpoint)
         if together_rows is not None:
             return _sort_voice_rows_by_label(together_rows)
         rows = _endpoint_voice_rows(str(model or ""))
@@ -344,14 +326,12 @@ def voice_options_for_provider(
 def _together_endpoint_voice_rows(
     model: str,
     endpoint: str | None = None,
-    api_key: str | None = None,
 ) -> list[dict[str, str]] | None:
     """Together voice rows, ``[]`` so alloy is not shown, or None for the family catalog.
 
     Kokoro with no Together answer falls through to the local Kokoro catalog.
     Orpheus and Cartesia do not: an empty list beats the OpenAI alloy list.
     """
-    del api_key
     if not endpoint_is_together(endpoint):
         return None
     mid = (model or "").strip()
@@ -411,6 +391,7 @@ def clean_provider_name(provider_or_label: str) -> str:
     """Extract canonical provider code from a provider string or UI label."""
     if not provider_or_label:
         return "system"
+    # Deliberately uses first segment before ' (' to inspect the provider keyword
     clean = provider_or_label.split(" (")[0].strip().lower()
     for code in ("endpoint", "kokoro", "piper", "system"):
         if code in clean:
@@ -430,12 +411,9 @@ def clean_voice_name(voice_or_label: str) -> str:
     text = voice_or_label.strip()
     if os.path.isabs(text) and not text.endswith(")"):
         return text
-    # Only strip a trailing parenthesized label
-    m = re.match(r"^(.*?)\s+\([^()]+\)$", text)
-    if m:
-        candidate = m.group(1).strip()
-        if candidate:
-            return candidate
+    head, inside = split_display_label(text)
+    if inside is not None and head:
+        return head
     return text
 
 
@@ -514,7 +492,7 @@ def _voice_belongs_to_other_family(voice: str, current_family: str) -> bool:
         if clean_v in fam_voices:
             return True
     if current_family not in ("kokoro",):
-        if clean_v in _KOKORO_VOICES or is_kokoro_voice_id(clean_v):
+        if clean_v in _KOKORO_OPENAI_ALIASES or is_kokoro_voice_id(clean_v):
             return True
     return False
 
@@ -527,7 +505,7 @@ def get_scoped_tts_voice(
 ) -> str:
     """Get the scoped voice for the given provider/model's voice family."""
     if provider is None:
-        provider = str(get_config("audio.tts_provider") or "system")
+        provider = str(config.get_config("audio.tts_provider") or "system")
     prov_clean = clean_provider_name(provider)
     if model is None and prov_clean == "endpoint":
         from plugin.framework.client.model_fetcher import get_tts_model
@@ -536,9 +514,9 @@ def get_scoped_tts_voice(
 
     family = get_voice_family(prov_clean, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
-    val = get_config(scoped_key)
+    val = config.get_config(scoped_key)
     clean_scoped = clean_voice_name(val.strip()) if isinstance(val, str) and val.strip() else ""
-    general_voice = str(get_config("audio.tts_voice") or "").strip()
+    general_voice = str(config.get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
 
     voices: list[str] = []
@@ -580,8 +558,8 @@ def set_scoped_tts_voice(
         return
     family = get_voice_family(provider, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
-    set_config(scoped_key, clean_v)
-    set_config("audio.tts_voice", clean_v)
+    config.set_config(scoped_key, clean_v)
+    config.set_config("audio.tts_voice", clean_v)
     log.info("Saved TTS voice '%s' (scoped to %s)", clean_v, scoped_key)
 
 
@@ -599,7 +577,7 @@ def parse_tts_speed(val: Any) -> float:
         return 1.0
 
 
-def _resolve_tts_voice(model: str, voice: str) -> str:
+def _resolve_tts_voice(model: str, voice: str) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by tts_endpoint.py
     """Ensure voice name is compatible with the target model."""
     voice = clean_voice_name(voice)
     if not voice:
@@ -608,5 +586,5 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
         v_low = voice.lower()
         if is_kokoro_voice_id(v_low):
             return voice
-        return _KOKORO_VOICES.get(v_low, _KOKORO_FALLBACK_VOICE)
+        return _KOKORO_OPENAI_ALIASES.get(v_low, _KOKORO_FALLBACK_VOICE)
     return voice

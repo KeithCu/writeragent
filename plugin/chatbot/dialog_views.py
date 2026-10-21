@@ -804,14 +804,6 @@ def _dialog_endpoint_url(dlg: Any) -> str | None:
     return endpoint_from_selector_text(get_control_text(ctrl))
 
 
-def _dialog_api_key(dlg: Any) -> str | None:
-    """API key typed in Settings, or None when the field is not on this dialog."""
-    ctrl = get_optional(dlg, "api_key")
-    if ctrl is None:
-        return None
-    return get_control_text(ctrl)
-
-
 def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
     """Enable Audio Model for endpoint STT and Local Model for faster-whisper.
 
@@ -896,7 +888,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 voice_choice_to_id,
                 voice_options_for_provider,
             )
-            from plugin.audio.tts_voices import get_config
+            from plugin.framework import config
 
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -906,14 +898,13 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
             provider = clean_provider_name(raw_prov)
             raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
             endpoint = _dialog_endpoint_url(self._dlg)
-            api_key = _dialog_api_key(self._dlg)
 
             if model_ctrl:
                 set_control_enabled(model_ctrl, provider == "endpoint")
 
             if voice_ctrl and hasattr(voice_ctrl, "getModel"):
                 catalog = voice_options_for_provider(
-                    provider, raw_model, endpoint=endpoint, api_key=api_key,
+                    provider, raw_model, endpoint=endpoint,
                 )
                 labels = tuple(opt["label"] for opt in catalog)
 
@@ -939,7 +930,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 # and a stale id was "repaired" on disk just by showing the
                 # fallback. apply_settings_result persists the combo on OK.
                 family = get_voice_family(provider, raw_model, endpoint)
-                stored = clean_voice_name(str(get_config(f"audio.tts_voice_{family}") or ""))
+                stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{family}") or ""))
                 by_value = {opt["value"]: opt["label"] for opt in catalog}
                 if current_id in by_value:
                     chosen = current_id
@@ -1184,7 +1175,6 @@ class TtsTestVoiceListener(BaseActionListener):
             raw_prov,
             raw_model,
             endpoint=_dialog_endpoint_url(self._dlg),
-            api_key=_dialog_api_key(self._dlg),
         )
         voice = voice_choice_to_id(raw_voice, options) if raw_voice.strip() else ""
         # Kokoro's Misaki-vs-espeak choice runs inside speak on this sample.

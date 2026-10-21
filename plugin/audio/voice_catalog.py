@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 # onnx relative path, config relative path, lang code, display label.
@@ -87,7 +88,6 @@ KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
     for item in _KOKORO_ROWS
 ]
 
-LOCALE_TO_PIPER_DEFAULT: dict[str, str] = _locale_defaults(_PIPER)
 LOCALE_TO_KOKORO_DEFAULT: dict[str, str] = _locale_defaults(_KOKORO)
 
 PIPER_FALLBACK_VOICE = _fallback_voice(_PIPER, "en_US-lessac-medium")
@@ -118,9 +118,25 @@ for _row in _PIPER_ROWS + _KOKORO_ROWS:
     if short:
         _SHORT_NAMES[_row["id"]] = short
 
+_TRAILING_PARENS = re.compile(r"^(.*?)\s+\(([^()]+)\)$")
+
+
+def split_display_label(text: str) -> tuple[str, str | None]:
+    """Split a trailing parenthetical from a display label or combo string.
+
+    Returns (head, inside) when text ends with ' (no-nested-parens)',
+    otherwise (stripped_text, None).
+    """
+    clean = (text or "").strip()
+    m = _TRAILING_PARENS.match(clean)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return clean, None
+
 
 def voice_short_name(voice_id: str) -> str:
     """Human name from the catalog, e.g. Thorsten for ``de_DE-thorsten-medium``."""
+    # Deliberately uses first segment before ' (' rather than a trailing paren group
     clean = (voice_id or "").split(" (")[0].strip()
     named = _SHORT_NAMES.get(clean)
     if named:
@@ -139,11 +155,10 @@ def catalog_voice_display_label(label: str) -> str:
     (harvested voices) and is returned unchanged. The stored selection stays
     the voice id; this does not rewrite it.
     """
-    text = (label or "").strip()
-    open_at = text.rfind(" (")
-    if open_at < 0 or not text.endswith(")"):
-        return text
-    human = text[open_at + 2:-1].strip()
+    head, inside = split_display_label(label)
+    if inside is None:
+        return head
+    human = inside
     if human.casefold().startswith("kokoro "):
         human = human[len("kokoro "):].strip()
-    return human or text
+    return human or head

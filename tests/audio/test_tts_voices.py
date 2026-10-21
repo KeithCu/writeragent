@@ -123,7 +123,6 @@ def test_together_voice_options_read_the_cache_and_do_not_fetch():
                 "endpoint",
                 "cartesia/sonic",
                 endpoint="https://api.together.xyz",
-                api_key="sk-test",
             )
             mock_sync.assert_not_called()
         assert cartesia == []
