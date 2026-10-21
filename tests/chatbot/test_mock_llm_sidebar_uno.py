@@ -3874,7 +3874,7 @@ def test_r9_three_edits_user_middle(ctx):
         doc = current_component(ctx)
         changes = agent_changes(doc)
         assert len(changes) == 3, f"R9 expected 3 pending agent edits, got {changes}"
-        body = doc.getText().getString()
+        body = doc.getText().getString().replace("\r\n", "\n")  # goRight counts a paragraph break as 1 char
         idx = body.find("two.")
         assert idx >= 0, f"R9 middle paragraph missing: {body!r}"
         insert_user_redline(doc, ctx, "UserEdit", idx, idx + len("two"))
