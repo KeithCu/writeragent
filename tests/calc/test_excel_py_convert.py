@@ -45,7 +45,6 @@ from plugin.calc.excel_py_convert.to_dag import (
     convert_model_to_dag,
     rewrite_excel_code,
 )
-from plugin.doc.text_helpers import ast_source_offset
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
     convert_dag_formula_to_excel,
@@ -1875,10 +1874,6 @@ def test_ast_source_offset_with_form_feed_and_u2028():
     res_comm_u2028 = rewrite_excel_code(src_comm_u2028, num_deps=1)
     assert not res_comm_u2028.fatal
     assert 'y = xl("%P2%")' in res_comm_u2028.code
-
-    # Test 4: direct ast_source_offset indexing
-    assert ast_source_offset(src_ff, 2, 4) == len('s = "hello\x0cworld"\n') + 4
-    assert ast_source_offset(src_u2028, 2, 4) == len('s = "hello\u2028world"\n') + 4
 
 
 def test_convert_cell_best_effort_message_accurately_reports_skip():

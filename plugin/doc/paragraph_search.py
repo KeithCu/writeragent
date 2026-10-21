@@ -16,7 +16,7 @@ from typing import Any
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
 
-def build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
+def _build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
     """Build a single match result with context paragraphs."""
     ctx_lo = max(0, para_idx - ctx_paras)
     ctx_hi = min(para_count, para_idx + ctx_paras + 1)
@@ -60,7 +60,7 @@ def search_paragraph_texts(
             for m in compiled.finditer(ptext):
                 total_count += 1
                 if len(matches) < max_results:
-                    matches.append(build_paragraph_match(m.group(), i, context_paragraphs, para_count, para_texts))
+                    matches.append(_build_paragraph_match(m.group(), i, context_paragraphs, para_count, para_texts))
         else:
             haystack = ptext if case_sensitive else ptext.lower()
             needle = pattern if case_sensitive else pattern.lower()
@@ -72,7 +72,7 @@ def search_paragraph_texts(
                     break
                 total_count += 1
                 if len(matches) < max_results:
-                    matches.append(build_paragraph_match(ptext[pos : pos + len(pattern)], i, context_paragraphs, para_count, para_texts))
+                    matches.append(_build_paragraph_match(ptext[pos : pos + len(pattern)], i, context_paragraphs, para_count, para_texts))
                 pos += step
 
     return matches, total_count

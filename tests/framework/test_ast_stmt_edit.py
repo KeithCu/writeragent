@@ -135,3 +135,14 @@ def test_is_name_call_expr_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         is_name_call_expr(node, frozenset({"x" * (DEAL_MAX_TOKEN + 1)}))
     assert is_name_call_expr(node, frozenset({"xl"})) is True
+
+
+def test_ast_source_offset_with_form_feed_and_u2028() -> None:
+    from plugin.framework.ast_stmt_edit import ast_source_offset
+
+    src_ff = 's = "hello\x0cworld"\ny = xl(%P2%)\n'
+    src_u2028 = 's = "hello\u2028world"\ny = xl(%P2%)\n'
+
+    assert ast_source_offset(src_ff, 2, 4) == len('s = "hello\x0cworld"\n') + 4
+    assert ast_source_offset(src_u2028, 2, 4) == len('s = "hello\u2028world"\n') + 4
+

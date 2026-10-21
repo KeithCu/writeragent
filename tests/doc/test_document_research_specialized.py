@@ -120,18 +120,6 @@ def test_document_research_workflow_hint_peer_choice_when_peers_open():
     assert "PEER SIDEBARS" not in hint
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", False)
-def test_document_research_requires_sub_agent_when_disabled():
-    r = ToolRegistry(services={})
-    r.register(DelegateToSpecializedWriter())
-    gw = r.get("delegate_to_specialized_writer_toolset")
-    ctx = MagicMock()
-    ctx.services = {"tools": r}
-    result = gw.execute_safe(ctx, domain="document_research", task="read budget")
-    assert result["status"] == "error"
-    assert "DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT" in result.get("code", "") or "specialized task" in result.get("message", "").lower()
-
-
 def test_read_only_target_blocks_mutation_in_registry():
     r = ToolRegistry(services={})
     r.register(_MutatingTool())

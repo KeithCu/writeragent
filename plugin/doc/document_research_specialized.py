@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
 from plugin.chatbot.smol_examples import get_examples_block
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.queue_executor import run_on_main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
 
 log = logging.getLogger(__name__)
@@ -24,15 +25,6 @@ READ_TOOLS_BY_DOC_TYPE: dict[str, frozenset[str]] = {
     "calc": frozenset({"get_sheet_summary", "read_cell_range"}),
     "draw": frozenset({"list_pages", "get_draw_tree"}),
 }
-
-
-def _run_on_main(fn: Any) -> Any:
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework import queue_executor
-
-    if on_main_thread():
-        return fn()
-    return queue_executor.execute_on_main_thread(fn)
 
 
 def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: str, task: str) -> dict[str, Any] | str:
@@ -63,7 +55,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 
     from plugin.framework.queue_executor import SendCancelled
     try:
-        domain_tools, finish_tools = _run_on_main(_fetch_inner_tools)
+        domain_tools, finish_tools = run_on_main(_fetch_inner_tools)
     except SendCancelled:
         return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
@@ -161,7 +153,7 @@ class DelegateReadDocument(ToolBase):
             return (path, model, doc_type, opened_for_document_research)
 
         try:
-            opened = _run_on_main(_open_on_main)
+            opened = run_on_main(_open_on_main)
         except SendCancelled:
             return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 
@@ -179,7 +171,7 @@ class DelegateReadDocument(ToolBase):
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
             try:
-                _run_on_main(_do_close)
+                run_on_main(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
                 from plugin.framework.queue_executor import post_to_main_thread
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop

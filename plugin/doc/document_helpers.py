@@ -88,6 +88,32 @@ except ImportError:
     pass
 
 
+def _dispatch_calc_draw_text(
+    model: Any,
+    doc_type: _doc_type.DocumentType,
+    max_chars: int,
+    chat: bool,
+    ctx: Any | None = None,
+) -> tuple[bool, str]:
+    if doc_type == _doc_type.DocumentType.CALC:
+        if chat:
+            from plugin.calc.analyzer import get_calc_context_for_chat
+
+            return (True, get_calc_context_for_chat(model, max_chars, ctx))
+        from plugin.calc.analyzer import get_full_calc_text
+
+        return (True, get_full_calc_text(model, max_chars))
+
+    if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+        from plugin.draw.bridge import get_draw_context_for_chat
+
+        if chat:
+            return (True, get_draw_context_for_chat(model, max_chars, ctx))
+        return (True, get_draw_context_for_chat(model, max_chars))
+
+    return (False, "")
+
+
 @main_thread_only
 def get_full_document_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
     """Dispatch full-text / summary by document type.
@@ -100,18 +126,12 @@ def get_full_document_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MA
         check_disposed(model, "Document Model")
         doc_type = _doc_type.get_document_type(model)
 
-        if doc_type == _doc_type.DocumentType.CALC:
-            from plugin.calc.analyzer import get_full_calc_text
-
-            return get_full_calc_text(model, max_chars)
+        handled, text = _dispatch_calc_draw_text(model, doc_type, max_chars, chat=False)
+        if handled:
+            return text
 
         if doc_type == _doc_type.DocumentType.WRITER:
             return _text_helpers.get_full_writer_text(model, max_chars)
-
-        if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-            from plugin.draw.bridge import get_draw_context_for_chat
-
-            return get_draw_context_for_chat(model, max_chars)
 
         return ""
     except UnoObjectError:
@@ -165,15 +185,9 @@ def get_document_context_for_chat(
     try:
         doc_type = _doc_type.get_document_type(model)
 
-        if doc_type == _doc_type.DocumentType.CALC:
-            from plugin.calc.analyzer import get_calc_context_for_chat
-
-            return get_calc_context_for_chat(model, max_context, ctx)
-
-        if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-            from plugin.draw.bridge import get_draw_context_for_chat
-
-            return get_draw_context_for_chat(model, max_context, ctx)
+        handled, text = _dispatch_calc_draw_text(model, doc_type, max_context, chat=True, ctx=ctx)
+        if handled:
+            return text
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
         # in getString(); we only hint to call get_document_content.
@@ -577,9 +591,6 @@ def _ensure_cache_listener(doc: Any, key: str) -> None:
 class DocumentService(ServiceBase):
     name: str | None = "document"
 
-    def initialize(self, ctx: Any) -> None:
-        pass
-
     def get_active_document(self) -> Any:
         return get_active_document()
 
@@ -780,10 +791,6 @@ class DocumentService(ServiceBase):
         ``resolve_locator``.
         """
         return resolve_locator(doc, locator)
-
-    def yield_to_gui(self) -> None:
-        """Yield to the UI event loop (no-op here)."""
-        pass
 
     def find_paragraph_element(self, doc: Any, para_index: int) -> tuple[Any, None]:
         """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""

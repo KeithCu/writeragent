@@ -25,7 +25,6 @@ class TestTreeServiceSearch:
 
         self.doc_svc = MagicMock()
         self.doc_svc.doc_key.return_value = "test_doc"
-        self.doc_svc.yield_to_gui = MagicMock()
         from plugin.doc.paragraph_search import get_paragraph_ranges
         self.doc_svc.get_paragraph_ranges.side_effect = get_paragraph_ranges
 

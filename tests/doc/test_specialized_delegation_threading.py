@@ -70,7 +70,6 @@ class _DummyDocResearchTool(ToolBase):
         return {"status": "ok", "matches": []}
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -123,7 +122,6 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     assert "Sheets: Sheet1" in instructions
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -193,7 +191,6 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     assert "[SPREADSHEET CONTEXT]" in instructions
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -243,7 +240,6 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     assert "Document canvas (Writer)" in instructions
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -287,7 +283,6 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     assert mock_execute_on_main.call_count >= 1
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -396,7 +391,6 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
     assert "uid=u2" in inner
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
@@ -602,7 +596,6 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
     assert "read_cell_range" in (ToolCalcSheetBase.required_core_tools or frozenset())
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,

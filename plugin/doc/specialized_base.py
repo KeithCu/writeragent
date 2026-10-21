@@ -23,7 +23,6 @@ from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_real_disposal, safe_json_loads
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.constants import USE_SUB_AGENT
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -169,16 +168,12 @@ class DelegateToSpecializedBase(ToolBase):
         domain = _field_from_tool_arguments(arguments, "domain")
         if domain in self._READ_ONLY_DOMAINS:
             if domain == "vision":
-                # USE_SUB_AGENT delegates run ExtractStructureFromImage with insert_into_document=True.
-                from plugin.framework.constants import USE_SUB_AGENT
-                if USE_SUB_AGENT:
-                    return True
+                return True
             return False
         return super().requires_document_lock(arguments)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         domain = kwargs.get("domain")
-        python_tool_domain = kwargs.get("python_tool_domain")
         task = kwargs.get("task")
 
         status_callback = getattr(ctx, "status_callback", None)
@@ -204,31 +199,11 @@ class DelegateToSpecializedBase(ToolBase):
                     code="VISION_UNAVAILABLE",
                 )
 
-            if USE_SUB_AGENT:
-                if status_callback:
-                    status_callback(_("Running local OCR on selected image(s)..."))
-                # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-                vision_tool = ExtractStructureFromImage()
-                return vision_tool.execute(ctx, insert_into_document=True)
-
-        if domain == "document_research" and not USE_SUB_AGENT:
-            return self._tool_error(
-                _("Document research reads require specialized task delegation (USE_SUB_AGENT). Enable this in configuration."),
-                code="DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT",
-            )
-
-        if not USE_SUB_AGENT:
-            # Tell the main LLM loop to switch tools for the next round
-            callback = getattr(ctx, "set_active_domain_callback", None)
-            if callback:
-                callback(domain, python_tool_domain=python_tool_domain)
-
-            msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. You must call 'specialized_workflow_finished' when done to restore the full set of APIs.").format(domain)
-
             if status_callback:
-                status_callback(f"Switched to '{domain}' tools.")
-
-            return {"status": "ok", "message": msg}
+                status_callback(_("Running local OCR on selected image(s)..."))
+            # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
+            vision_tool = ExtractStructureFromImage()
+            return vision_tool.execute(ctx, insert_into_document=True)
 
         if domain == "document_research":
             try:

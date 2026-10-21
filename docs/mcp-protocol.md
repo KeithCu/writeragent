@@ -313,7 +313,7 @@ If a client ignores `initialize.instructions` and only binds tools from `tools/l
 
 ### What happens when the host calls `delegate`
 
-With [`USE_SUB_AGENT = True`](../plugin/framework/constants.py) (current default), `delegate_to_specialized_writer_toolset` does **not** “switch tools” on the MCP host. Instead WriterAgent:
+With `delegate_to_specialized_writer_toolset`, WriterAgent does **not** “switch tools” on the MCP host. Instead WriterAgent:
 
 1. Resolves the `domain` enum (`styles`, `page`, `charts`, `shapes`, `web_research`, …).
 2. Collects all tools registered for that domain.
@@ -323,15 +323,6 @@ With [`USE_SUB_AGENT = True`](../plugin/framework/constants.py) (current default
 The outer MCP model never holds the specialized tool schemas in its context; it only sees the delegate call and the final payload. That is intentional: smaller host prompts, fewer direct UNO foot-guns, and the same pattern as the in-app sidebar when using delegation.
 
 **Special case `domain="web_research"`:** the gateway forwards to [`WebResearchTool`](../plugin/chatbot/web_research.py) instead of the generic specialized sub-agent, but the idea is the same: an **internal** ReAct loop with `DuckDuckGoSearchTool` / `VisitWebpageTool`, not MCP-exposed search tools.
-
-### Contrast: in-app chat without MCP
-
-| Mode | Constant | Outer model (main chat or MCP host) | Inner work |
-|------|----------|--------------------------------------|------------|
-| **Sub-agent delegation** | `USE_SUB_AGENT = True` | Calls `delegate` with a natural-language `task` | smol sub-agent runs domain tools |
-| **In-place tool switching** | `USE_SUB_AGENT = False` | Receives “switched to domain X”; **same** model calls specialized tools until `specialized_workflow_finished` | No nested agent; tools swapped on the outer loop |
-
-MCP today always follows the **`USE_SUB_AGENT = True`** path when the host uses `delegate`. In-place switching is a main-chat FSM feature ([`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py)); it is **not** exposed over HTTP unless you deliberately change MCP tool exposure and protocol (future work).
 
 ### LLM endpoint: the sub-agent still needs your API config
 
@@ -403,7 +394,6 @@ Possible, but a deliberate fork:
 |----------|------|------|
 | **Status quo (delegate only)** | Small `tools/list`; stable host prompts; inner ReAct + step limits | Host must delegate; no step visibility over MCP; two-hop workflows |
 | **Expose `tier=specialized` on MCP** | True “pure MCP”; host calls `style_list` etc. | Huge schemas; token cost every turn; more misuse of UNO tools |
-| **MCP-only in-place switching** | Host drives specialized tools round-by-round | Protocol + FSM work; differs from current `USE_SUB_AGENT` default |
 
 None of these are required for a working integration; they are release-level product choices.
 
@@ -413,7 +403,7 @@ WriterAgent’s primary integration path—sidebar chat and MCP via `delegate_to
 
 An outer MCP model that **alternates** between unrelated tool groups in one long thread (document edits, then styles, then charts, then research) carries stale assumptions, bloated schemas, and cross-domain mistakes. We intentionally keep **`tools/list` small** and push complexity behind `delegate`.
 
-**In-place tool switching** (`USE_SUB_AGENT = False` in main chat) is a different model: the *same* outer loop swaps specialized tools until `specialized_workflow_finished`. That may never be desirable for MCP even if more tools are exposed later—the failure mode is the same: **tool-set thrashing** without a clean sub-context.
+**In-place tool switching** without sub-agents would cause the same failure mode: **tool-set thrashing** without a clean sub-context.
 
 **Low priority for now:** MCP could be extended to expose additional tools on `tools/list` (specialized-tier tools or other surfaces). That could work for some hosts, especially if they **clear or compact context** so earlier tool-call history does not accumulate. It has not been a development focus because delegation matches the main use cases today.
 
@@ -458,7 +448,7 @@ The MCP server is **implemented and opt-in** (default off). Live summary (paths 
 - **Config:** `mcp.mcp_enabled` (default false), `mcp.mcp_port` (default **18765**) in [`plugin/framework/config.py`](../plugin/framework/config.py) / `writeragent.json`.
 - **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
 - **Stdio bridge (optional):** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for clients that speak stdio MCP.
-- **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `get_guidance` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py). `USE_SUB_AGENT` remains in [`plugin/framework/constants.py`](../plugin/framework/constants.py).
+- **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `get_guidance` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py).
 
 Orientation for AI assistants: [`AGENTS.md`](../AGENTS.md). Deep threading notes: [threading architecture — MCP](framework/threading.md#2-http-server-and-mcp-protocol-pluginmcp).
 

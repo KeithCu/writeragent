@@ -34,7 +34,8 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.framework.errors import is_real_disposal
+from plugin.doc.doc_type import doc_type_title_for_label
+from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -49,25 +50,12 @@ _SCRIPT_PLACEMENT_DOMAINS = frozenset({"shapes"})
 _SCRIPT_PLACEMENT_LLM_KEEP = frozenset({"shape_summary"})
 
 
-def _run_on_main(fn: Any) -> Any:
-    """Run *fn* on the UI thread. ``get_tools(doc=…)`` may call ``supportsService``."""
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework import queue_executor
-
-    if on_main_thread():
-        return fn()
-    return queue_executor.execute_on_main_thread(fn)
-
-
 def agent_label_for_context(ctx: ToolContext) -> str:
     """Writer / Calc / Draw label used to validate specialized domain names."""
-    label = (getattr(ctx, "doc_type", None) or "").strip().lower()
-    if label == "calc":
-        return "Calc"
-    if label in ("draw", "impress"):
-        return "Draw"
-    if label == "writer":
-        return "Writer"
+    raw = (getattr(ctx, "doc_type", None) or "").strip().lower()
+    titled = doc_type_title_for_label(raw)
+    if raw and titled != "Unknown":
+        return titled
     services = getattr(ctx, "uno_services_supported", None) or ()
     blob = " ".join(str(svc) for svc in services)
     if "SpreadsheetDocument" in blob:
@@ -243,16 +231,16 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     break
         return body + venv + finish
 
-    fetched: list[ToolBase] = _run_on_main(_fetch)
+    fetched: list[ToolBase] = run_on_main(_fetch)
     return fetched
 
 
 def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     """Same document and callbacks as the outer python agent.
 
-    ``set_active_domain_callback`` is not copied. ``specialized_workflow_finished``
-    calls it when ``USE_SUB_AGENT`` is off, which would clear the outer python
-    session while the inner agent is only finishing its own task.
+    ``set_active_domain_callback`` is omitted: the outer chat loop owns the
+    callback, and the inner context omits it so finishing the inner task does
+    not clear the outer python session.
 
     ``python_tool_domain`` is the delegated names plus ``core`` (comma-separated).
     ``RunVenvPythonScript`` forwards it to the worker so script RPC is allowlisted
@@ -279,27 +267,6 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     )
 
 
-def _shapes_canvas_hint(doc: Any) -> str:
-    """Page size, origin, and HMM units for the inner shapes tools.
-
-    Same string as the shapes specialized loop (``format_shapes_canvas_context``).
-    Must run on the main thread. A failed read must not abort the inner agent.
-    """
-    from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
-
-    try:
-        return format_shapes_canvas_context(doc) or ""
-    except Exception as exc:
-        # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
-            raise
-        log.warning("Failed to get shapes canvas for domain tool agent", exc_info=True)
-        return ""
-
-
 def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label: str) -> str:
     """Small suffixes the single-domain specialized loop adds, when those domains are requested.
 
@@ -321,7 +288,9 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
         elif agent_label in ("Writer", "Draw"):
             parts.append(" When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.")
     if "shapes" in domains:
-        canvas = _run_on_main(lambda: _shapes_canvas_hint(getattr(parent_ctx, "doc", None)))
+        from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
+
+        canvas = run_on_main(lambda: format_shapes_canvas_context(getattr(parent_ctx, "doc", None)))
         if canvas:
             parts.append(canvas if canvas.startswith(" ") else " " + canvas)
     return "".join(parts)

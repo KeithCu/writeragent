@@ -129,7 +129,7 @@ See [Threading / nested delegation](#threading--nested-delegation) for UNO threa
 
 ## Tool API contract (in-process parity, read-only elsewhere)
 
-**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent when `USE_SUB_AGENT` is on ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
+**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
 
 **Multi-document extension:**
 
@@ -240,7 +240,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 **Phase 0 tests (implemented):**
 
-- [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `USE_SUB_AGENT=False` error; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
+- [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
 - [`test_nearby_uno.py`](../../tests/doc/test_nearby_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
 - `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
@@ -290,7 +290,6 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 | ------- | ---- |
 | **Sidebar chat** | Primary target for workspace delegation. |
 | **Menu “Chat with Document”** | No tool-calling today ([AGENTS.md](../../AGENTS.md)) — workspace **not** supported until menu gains tools. |
-| **`USE_SUB_AGENT = False`** | [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) returns `DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT` for `domain="document_research"` (no in-place domain switch). |
 | **Librarian mode** | No document_research reads until document mode (`switch_mode` / `switch_to_document_mode`). |
 | **Extend / Edit selection** | Single-doc selection path; out of scope unless explicitly wired. |
 | **Hermes ACP** | Defer; same registry tools if host exposes delegate gateway later. |
@@ -341,7 +340,6 @@ flowchart LR
 - `delegate_to_specialized_{writer|calc|draw}_toolset(domain="document_research", task="…")` only.
 - No `list_nearby_files`, no read tools, no new core tools on main.
 - Delegate gateway descriptions mention `domain=document_research` (Writer/Calc/Draw).
-- **`USE_SUB_AGENT` must be on** for document_research (`DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT` otherwise).
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 

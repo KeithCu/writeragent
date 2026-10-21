@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-from plugin.framework.constants import USE_SUB_AGENT
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 
@@ -305,8 +304,8 @@ class ToolWriterCustomizationBase(ToolWriterSpecialBase):
 
 
 class SpecializedWorkflowFinished(ToolBase):
-    """Tool called by the main chat model to indicate it has completed its specialized task.
-    This mimics the built-in 'final_answer' tool of smolagents for the in-place switching approach.
+    """Inner specialized agent's final-answer tool.
+    Mimics the built-in 'final_answer' tool of smolagents for specialized sub-agents.
     """
 
     name: str | None = "specialized_workflow_finished"
@@ -320,10 +319,4 @@ class SpecializedWorkflowFinished(ToolBase):
     is_final_answer_tool: bool = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Allow the main LLM loop to exit specialized mode
-        if not USE_SUB_AGENT:
-            callback = getattr(ctx, "set_active_domain_callback", None)
-            if callback:
-                callback(None)
-
         return {"status": "ok", "finished": True, "answer": kwargs.get("answer"), "message": "Specialized task complete. Normal toolset restored."}

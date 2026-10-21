@@ -30,7 +30,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     analyze_xl_calls,
 )
 from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
-from plugin.doc.text_helpers import ast_source_offset, line_starts_exact
+from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).

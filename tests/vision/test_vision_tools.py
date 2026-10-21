@@ -290,7 +290,6 @@ def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
@@ -313,7 +312,6 @@ def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agen
     mock_build_agent.assert_not_called()
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
@@ -329,15 +327,6 @@ def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
     mock_build_agent.assert_not_called()
 
 
-@patch("plugin.framework.constants.USE_SUB_AGENT", False)
-def test_delegate_vision_no_document_lock_when_no_sub_agent():
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
-
-    gateway = DelegateToSpecializedWriter()
-    assert gateway.requires_document_lock({"domain": "vision"}) is False
-
-
-@patch("plugin.framework.constants.USE_SUB_AGENT", True)
 def test_delegate_vision_requires_document_lock_when_sub_agent():
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 

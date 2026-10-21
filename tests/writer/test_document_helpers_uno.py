@@ -214,8 +214,6 @@ def test_proximity_service(ctx, doc):
             return get_paragraph_ranges(doc)
         def find_paragraph_for_range(self, anchor, para_ranges, text_obj):
             return find_paragraph_for_range(anchor, para_ranges, text_obj)
-        def yield_to_gui(self):
-            pass
 
     services = SimpleNamespace()
     services.document = DocSvcAdapter()

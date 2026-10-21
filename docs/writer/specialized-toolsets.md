@@ -162,21 +162,13 @@ While the "Fat API" approach drastically reduces tool count and could potentiall
 - **MCP** and **direct `execute(tool_name, …)`** remain able to run any registered tool by name (registry does not block execution by tier).
 - **Tests** can enumerate specialized tools with `exclude_tiers=()` when registration needs to be asserted.
 
-### 1.4 Two Implementations for Specialized Workflows
+### 1.4 Sub-Agent Delegation for Specialized Workflows
 
-We currently support two alternative implementations for the `delegate_to_specialized_writer_toolset` tool. This allows us to experiment, research, and quantify which approach works best (e.g., perhaps smaller models need the sub-agent approach to avoid confusion, while larger models can handle in-place tool switching seamlessly). You can toggle between them using the `USE_SUB_AGENT` flag in [`plugin/framework/constants.py`](../../plugin/framework/constants.py). Both modes use a `final_answer` tool to explicitly return control and exit the mode.
-
-**Approach A: The Sub-Agent Model (`USE_SUB_AGENT = True`)**
+The `delegate_to_specialized_writer_toolset` tool uses sub-agent delegation:
 
 - The gateway tool launches a **short-lived sub-agent** (via `smolagents`) in a background thread.
-- This sub-agent receives the user's task description and has access *only* to the specialized domain tools (and `smolagents`' built-in `final_answer` tool).
+- This sub-agent receives the user's task description and has access *only* to the specialized domain tools (and `specialized_workflow_finished` as its final-answer tool).
 - The main chat model is blocked, waiting for the sub-agent to finish and return its final answer.
-
-**Approach B: In-Place Tool Switching (`USE_SUB_AGENT = False`)**
-
-- The gateway tool simply sets an active domain flag on the current session and immediately returns control to the main chat model with a message like: `"Tool call switched to '{domain}'..."`.
-- On the next turn, the main chat model receives *only* the specialized tools for that domain, plus a custom `final_answer` tool (designed to perfectly mimic the smolagents exit approach). All normal default-tier (**core**) tools are hidden to keep the context clean and make the sub-task easy for the model.
-- The model continues its reasoning within the same context and explicitly calls `final_answer` when the sub-task is complete, which clears the active domain and restores the default toolset.
 
 ---
 
@@ -240,8 +232,8 @@ When `active_domain` is set, the list is that domain's specialized tools, `speci
 - Tool gathering:
   - `registry.get_tools(filter_doc_type=False, exclude_tiers=())` — **all** tiers, no doc filter (needed so specialized tools are discoverable server-side).
   - Filter to `ToolWriterSpecialBase` with matching `specialized_domain`, plus `specialized_workflow_finished`.
-- Depending on the `USE_SUB_AGENT` toggle, it either uses `ToolCallingAgent` + `WriterAgentSmolModel` to execute the task autonomously, or calls `ctx.set_active_domain_callback(domain)` to switch the context for the main model.
-- **Sub-agent UNO threading (USE_SUB_AGENT=True):** the gateway runs on a background worker (`is_async()`). Before the smol loop starts, UNO scaffolding (`ToolRegistry.get_tools(doc=…)`, shapes canvas context, document-research open-doc list, embeddings index wakeup) is marshalled via `execute_on_main_thread` in [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py). `ToolContext.active_page_index` via `DrawBridge` is marshalled in [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) `build_tool_execute_fn` (same hop is required for Draw/Impress async gateways). Sync domain tools are wrapped with `SmolToolAdapter` so each tool call marshals to the main thread by default; async tools must marshal UNO internally (e.g. `image_generate`, `delegate_read_document`). See [../framework/uno-thread-safety.md](../framework/uno-thread-safety.md).
+- It uses `ToolCallingAgent` + `WriterAgentSmolModel` to execute the task autonomously.
+- **Sub-agent UNO threading:** the gateway runs on a background worker (`is_async()`). Before the smol loop starts, UNO scaffolding (`ToolRegistry.get_tools(doc=…)`, shapes canvas context, document-research open-doc list, embeddings index wakeup) is marshalled via `execute_on_main_thread` in [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py). `ToolContext.active_page_index` via `DrawBridge` is marshalled in [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) `build_tool_execute_fn` (same hop is required for Draw/Impress async gateways). Sync domain tools are wrapped with `SmolToolAdapter` so each tool call marshals to the main thread by default; async tools must marshal UNO internally (e.g. `image_generate`, `delegate_read_document`). See [../framework/uno-thread-safety.md](../framework/uno-thread-safety.md).
 
 ### 3.3 System prompt guidance
 

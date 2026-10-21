@@ -19,9 +19,19 @@ from plugin.framework.thread_guard import assert_main_thread
 log = logging.getLogger("writeragent.specialized_shapes_context")
 
 
+def _best_effort(fn: Any, default: Any, message: str, *msg_args: Any) -> Any:
+    try:
+        return fn()
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        log.debug(message, *msg_args, exc_info=True)
+        return default
+
+
 def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
     """Best-effort page style name from the paragraph at the view cursor."""
-    try:
+    def _read() -> str | None:
         ctrl = doc.getCurrentController()
         if ctrl is None:
             return None
@@ -41,11 +51,9 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
             s = str(v).strip()
             if s:
                 return s
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        log.debug("writer_page_style_at_cursor: failed", exc_info=True)
-    return None
+        return None
+
+    return _best_effort(_read, None, "writer_page_style_at_cursor: failed")
 
 
 def _writer_fallback_style_names() -> tuple[str, ...]:
@@ -53,7 +61,7 @@ def _writer_fallback_style_names() -> tuple[str, ...]:
 
 
 def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | None:
-    try:
+    def _read() -> dict[str, Any] | None:
         page_styles = doc.getStyleFamilies().getByName("PageStyles")
         if not page_styles.hasByName(style_name):
             return None
@@ -66,11 +74,8 @@ def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | No
         bm = float(style.getPropertyValue("BottomMargin")) / 100.0
         landscape = bool(style.getPropertyValue("IsLandscape"))
         return {"style_name": style_name, "width_mm": w, "height_mm": h, "left_margin_mm": lm, "right_margin_mm": rm, "top_margin_mm": tm, "bottom_margin_mm": bm, "is_landscape": landscape}
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        log.debug("read_writer_page_style_mm: failed for %r", style_name, exc_info=True)
-        return None
+
+    return _best_effort(_read, None, "read_writer_page_style_mm: failed for %r", style_name)
 
 
 def _format_writer_canvas(doc: Any) -> str:
@@ -103,7 +108,7 @@ def _format_writer_canvas(doc: Any) -> str:
 
 
 def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
-    try:
+    def _read() -> str:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(doc)
@@ -118,16 +123,13 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
         if w_mm <= 0 or h_mm <= 0:
             return ""
         return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w_mm:.1f} x {h_mm:.1f} mm; {n_pages} page(s) total. Shape x/y/width/height use 1/100 mm."
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        log.debug("format_draw_canvas: failed", exc_info=True)
-        return ""
+
+    return _best_effort(_read, "", "format_draw_canvas: failed")
 
 
 def _format_calc_canvas(doc: Any) -> str:
     """Active sheet draw page size (floating objects / charts on sheet)."""
-    try:
+    def _read() -> str:
         from plugin.calc.bridge import CalcBridge
 
         bridge = CalcBridge(doc)
@@ -141,13 +143,6 @@ def _format_calc_canvas(doc: Any) -> str:
         sheets = doc.getSheets()
         n_sheets = int(sheets.getCount())
         sheet_idx = 0
-        # The active sheet index follows the sheet. Leaving it at 0 while
-        # the name is correct (e.g. "index 0 ... name 'Sheet2'") sends
-        # inner shapes+sheets work at sheet 0. getByIndex and
-        # getActiveSheet often return distinct PyUNO wrappers for one
-        # sheet, so bare ``is`` / ``==`` both miss. uno_same is the same
-        # identity ladder DrawBridge.get_active_page_index already uses
-        # (``is`` → ``==`` → ``uno.isSame``).
         from plugin.framework.uno_context import uno_same
 
         for i in range(n_sheets):
@@ -159,11 +154,16 @@ def _format_calc_canvas(doc: Any) -> str:
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
         return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, draw-page size {w_mm:.1f} x {h_mm:.1f} mm; {n_sheets} sheet(s). Shape x/y/width/height use 1/100 mm."
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        log.debug("format_calc_canvas: failed", exc_info=True)
-        return ""
+
+    return _best_effort(_read, "", "format_calc_canvas: failed")
+
+
+_SHAPES_CANVAS_DISPATCH = (
+    ("com.sun.star.text.TextDocument", _format_writer_canvas),
+    ("com.sun.star.sheet.SpreadsheetDocument", _format_calc_canvas),
+    ("com.sun.star.presentation.PresentationDocument", lambda doc: _format_draw_canvas(doc, product_label="Impress")),
+    ("com.sun.star.drawing.DrawingDocument", lambda doc: _format_draw_canvas(doc, product_label="Draw")),
+)
 
 
 def format_shapes_canvas_context(doc: Any) -> str:
@@ -171,21 +171,11 @@ def format_shapes_canvas_context(doc: Any) -> str:
     assert_main_thread("specialized_shapes_context.format_shapes_canvas_context")
     if doc is None:
         return ""
-    try:
-        if doc.supportsService("com.sun.star.text.TextDocument"):
-            return _format_writer_canvas(doc)
-        if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
-            return _format_calc_canvas(doc)
-        if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
-            return _format_draw_canvas(doc, product_label="Impress")
-        if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
-            return _format_draw_canvas(doc, product_label="Draw")
-    except Exception as exc:
-        # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
-            raise
-        log.debug("format_shapes_canvas_context: failed", exc_info=True)
-    return ""
+
+    def _format() -> str:
+        for service, handler in _SHAPES_CANVAS_DISPATCH:
+            if doc.supportsService(service):
+                return handler(doc) or ""
+        return ""
+
+    return _best_effort(_format, "", "format_shapes_canvas_context: failed")

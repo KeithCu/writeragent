@@ -94,11 +94,6 @@ class ModelCapability(IntFlag):
     TOOLS = 256
 
 
-# Toggle for specialized delegation approach.
-# Approach A: The Sub-Agent Model (True) - Spins up a separate agent.
-# Approach B: In-Place Tool Switching (False) - Switches the main model's tools.
-USE_SUB_AGENT = True
-
 # document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
 
 _FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"

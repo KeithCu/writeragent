@@ -709,7 +709,7 @@ def test_specialized_delegation_sub_agent_mode(
     registry,
     mock_ctx,
 ):
-    # Sub-agent path (default USE_SUB_AGENT=True in writer/specialized.py)
+    # Sub-agent delegation path
     mock_ctx.ctx = MagicMock()
     mock_get_config.return_value = {}
 
@@ -869,7 +869,7 @@ def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registr
 
 
 def test_active_domain_schemas_include_calc_and_draw(registry):
-    """Calc/Draw specialized tools must appear when active_domain matches (in-place mode)."""
+    """Calc/Draw specialized tools must appear when active_domain matches."""
     registry.register(DummyCalcSpecialTool())
     registry.register(DummyDrawSpecialTool())
 
@@ -976,7 +976,6 @@ def test_draw_specialized_delegation_sub_agent(
     assert "dummy_draw_special_tool" in smol_tool_names
 
 
-@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
 @patch("plugin.doc.specialized_base.SmolAgentExecutor")
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):

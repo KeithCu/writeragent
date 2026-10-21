@@ -94,6 +94,8 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     doc = MagicMock()
     doc.supportsService = lambda svc, service=service: svc == service
     stop_checker = extra.pop("stop_checker", lambda: False)
+    services_list = (service,) if service else ()
+    uno_services_supported = extra.pop("uno_services_supported", services_list)
     return ToolContext(
         doc,
         MagicMock(),
@@ -101,6 +103,7 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
         {"tools": registry},
         caller="chat",
         stop_checker=stop_checker,
+        uno_services_supported=uno_services_supported,
         **extra,
     )
 
@@ -233,6 +236,8 @@ def test_agent_label_from_doc_type():
     assert agent_label_for_context(_ctx(registry, "writer", "com.sun.star.text.TextDocument")) == "Writer"
     assert agent_label_for_context(_ctx(registry, "calc", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
     assert agent_label_for_context(_ctx(registry, "impress", "com.sun.star.presentation.PresentationDocument")) == "Draw"
+    assert agent_label_for_context(_ctx(registry, "", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
+    assert agent_label_for_context(_ctx(registry, "", "")) == "Writer"
 
 
 def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
@@ -372,7 +377,7 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     registry.register(SpecializedWorkflowFinished())
     parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
-    def _call(fn, *args, **kwargs):
+    def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
@@ -452,7 +457,7 @@ def test_gather_domain_tools_marshals_off_main_thread():
     registry.register(SpecializedWorkflowFinished())
     parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
-    def _call(fn, *args, **kwargs):
+    def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
@@ -544,25 +549,4 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert "HMM" in ring
     assert "top-left" in ring
 
-
-def test_shapes_canvas_hint_reraises_disposed():
-    import pytest
-    from plugin.doc.python_domain_specialized import _shapes_canvas_hint
-
-    class DisposedException(Exception):
-        pass
-
-    doc = MagicMock()
-    with patch(
-        "plugin.doc.specialized_shapes_context.format_shapes_canvas_context",
-        side_effect=DisposedException("closed"),
-    ):
-        with pytest.raises(DisposedException):
-            _shapes_canvas_hint(doc)
-
-    with patch(
-        "plugin.doc.specialized_shapes_context.format_shapes_canvas_context",
-        side_effect=RuntimeError("canvas error"),
-    ):
-        assert _shapes_canvas_hint(doc) == ""
 

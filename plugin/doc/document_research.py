@@ -478,9 +478,6 @@ def list_nearby_files(
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework.queue_executor import execute_on_main_thread
-
     extensions = _extensions_for_file_kind(file_kind)
 
     def _fetch_uno_state() -> tuple[Any, Any, Any]:
@@ -503,14 +500,12 @@ def list_nearby_files(
 
         return res_exclude, res_open, res_root
 
-    if on_main_thread():
-        exclude_path, open_paths, listing_root = _fetch_uno_state()
-    else:
-        from plugin.framework.queue_executor import SendCancelled
-        try:
-            exclude_path, open_paths, listing_root = execute_on_main_thread(_fetch_uno_state)
-        except SendCancelled:
-            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+    from plugin.framework.queue_executor import run_on_main, SendCancelled
+
+    try:
+        exclude_path, open_paths, listing_root = run_on_main(_fetch_uno_state)
+    except SendCancelled:
+        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
     if listing_root:
         try:

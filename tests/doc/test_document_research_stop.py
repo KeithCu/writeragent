@@ -26,7 +26,7 @@ def test_delegate_read_document_closes_when_stopped(
             raise SendCancelled("Stopped")
         return fn()
 
-    with patch("plugin.doc.document_research_specialized._run_on_main", side_effect=mock_run_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+    with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=mock_run_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
         # Bind a dummy scope so _current_send_cancellation.get() is not None initially
         token = _current_send_cancellation.set(MagicMock())
         try:

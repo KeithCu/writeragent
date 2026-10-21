@@ -1925,5 +1925,31 @@ def test_pump_main_thread_work_queue_runs_in_sync_host_on_main() -> None:
     assert called == ["ran"]
 
 
+def test_run_on_main_inlines_when_on_main() -> None:
+    from plugin.framework.queue_executor import run_on_main
+
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), \
+         patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec:
+        result = run_on_main(lambda x: x * 2, 21)
+        assert result == 42
+        mock_exec.assert_not_called()
+
+
+def test_run_on_main_marshals_when_off_main() -> None:
+    from plugin.framework.queue_executor import run_on_main
+
+    def fn() -> str:
+        return "marshaled"
+
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), \
+         patch("plugin.framework.queue_executor.execute_on_main_thread", return_value="marshaled") as mock_exec:
+        result = run_on_main(fn)
+        assert result == "marshaled"
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0][0] is fn
+        assert mock_exec.call_args[1].get("timeout") == 30.0
+
+
+
 
 

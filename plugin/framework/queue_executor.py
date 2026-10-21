@@ -1117,6 +1117,21 @@ def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_sco
     return default_executor.execute(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
 
 
+def run_on_main(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
+    """Call fn now if on_main_thread() (including an untagged Dummy-N), else execute_on_main_thread.
+
+    on_main_thread() is true for the Python main thread, the designated test pump,
+    and an untagged PyUNO Dummy thread. execute() does not inline those Dummy
+    threads, and it refuses inline work under force-marshal and background-task
+    tags. This helper keeps the document-research / python-domain short-circuit.
+    Use execute_on_main_thread where that stricter predicate is required.
+    """
+    from plugin.framework.thread_guard import on_main_thread
+    if on_main_thread():
+        return fn(*args, **kwargs)
+    return execute_on_main_thread(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
+
+
 def post_to_main_thread(fn: Any, *args: Any, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> None:
     """Legacy helper: Use default_executor.post instead."""
     return default_executor.post(fn, *args, bound_scope=bound_scope, **kwargs)

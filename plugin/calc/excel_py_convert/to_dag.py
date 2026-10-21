@@ -68,7 +68,7 @@ from plugin.calc.excel_py_convert.to_dag_contracts import (
     _deal_excel_src_ok,
     _deal_note_ok,
 )
-from plugin.doc.text_helpers import ast_source_offset, line_starts_exact
+from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import (
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_XL_EXPR,

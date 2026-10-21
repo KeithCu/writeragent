@@ -88,8 +88,7 @@ class ListOpenDocuments(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
+        from plugin.framework.queue_executor import run_on_main, SendCancelled
         from plugin.doc.document_research import get_open_documents
 
         def _run() -> dict[str, Any]:
@@ -99,10 +98,8 @@ class ListOpenDocuments(ToolBase):
             # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
             return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
 
-        if on_main_thread():
-            return _run()
         try:
-            return execute_on_main_thread(_run)
+            return run_on_main(_run)
         except SendCancelled:
             return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 

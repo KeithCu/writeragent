@@ -155,7 +155,6 @@ def test_clone_heading_block_with_table():
     ctx = MagicMock()
     ctx.doc = doc
     doc_svc = DocumentService()
-    doc_svc.yield_to_gui = MagicMock()
     doc_svc.doc_key = MagicMock(return_value="test_doc")
     bm_svc = MagicMock()
     bm_svc.ensure_heading_bookmarks.return_value = {}
