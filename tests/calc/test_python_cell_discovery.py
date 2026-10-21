@@ -13,6 +13,7 @@ from plugin.calc.python.cell_discovery import (
     extract_code_from_formula,
     is_py_formula_text,
     list_python_cells_on_sheet,
+    python_code_from_formula,
 )
 from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.tests.testing_utils import CalcDocStub
@@ -58,7 +59,12 @@ def test_canonicalize_py_formula_for_parse_variations():
 def test_short_py_formula():
     assert is_py_formula_text('=PY("result = 3")')
     assert extract_code_from_formula('=PY("result = 3")') == "result = 3"
+    assert python_code_from_formula('=PY("result = 3")') == "result = 3"
+    assert python_code_from_formula('=PY("")') == ""
+    assert is_py_formula_text('=PY("")')
+    assert extract_code_from_formula('=PY("")') == ""
     assert not is_py_formula_text("=SUM(A1:A2)")
+    assert python_code_from_formula("=SUM(A1:A2)") is None
 
 
 def test_list_python_cells_on_sheet_filters_non_py():

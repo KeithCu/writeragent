@@ -106,16 +106,9 @@ class PythonDiagnosticsStore:
         if not needle:
             return None
         for entry in self.list_entries(workbook_key, filt="all", newest_first=True):
-            if entry.code == needle or entry.code.startswith(needle) or needle.startswith(entry.code):
+            if entry.code.startswith(needle) or needle.startswith(entry.code):
                 return entry
         return None
-
-    def clear(self, workbook_key: str | None = None) -> None:
-        with self._lock:
-            if workbook_key is None:
-                self._by_workbook.clear()
-            else:
-                self._by_workbook.pop((workbook_key or "").strip() or "unknown", None)
 
     def add_listener(self, callback: Any) -> None:
         with self._lock:

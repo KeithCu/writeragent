@@ -50,6 +50,21 @@ def test_latest_for_code_and_detail():
     assert "fail" in text
 
 
+def test_latest_for_code_truncated_snippet_prefix():
+    store = PythonDiagnosticsStore()
+    # Stored code is shorter than the search needle
+    store.record(workbook_key="wb", code="short_prefix", status="ok", stdout="stored-short")
+    found = store.latest_for_code("wb", "short_prefix_and_more_tokens")
+    assert found is not None
+    assert found.stdout == "stored-short"
+
+    # Stored code is longer than the search needle
+    store.record(workbook_key="wb2", code="long_stored_code_snippet", status="ok", stdout="stored-long")
+    found2 = store.latest_for_code("wb2", "long_stored")
+    assert found2 is not None
+    assert found2.stdout == "stored-long"
+
+
 def test_module_singleton_record_python_eval():
     entry = record_python_eval(
         workbook_key="singleton-test",

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import (
+    assemble_python_formula,
     build_data_suffix,
     build_new_python_formula,
     cell_looks_python_like,
@@ -230,6 +231,8 @@ def test_format_py_and_excel_data_range_real_sheets():
     assert format_excel_data_range("A1.B5") == "A1.B5"
     assert format_py_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
     assert format_excel_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
+    assert format_excel_data_range("!A1") == "!A1"
+    assert format_py_data_range("!A1") == "''.A1"
     assert build_data_suffix(["Sheet.A1"]) == ";Sheet.A1)"
     assert build_data_suffix(["'My Sheet'.A1"]) == ";'My Sheet'.A1)"
     assert build_data_suffix(["Sheet!A1"], separator=",", excel_ranges=True) == ",Sheet!A1)"
@@ -330,6 +333,11 @@ def test_monaco_save_round_trip_preserves_user_code():
     parsed_after = parse_python_formula(saved)
     assert parsed_after is not None
     assert parsed_after.code == code
+
+
+def test_assemble_python_formula():
+    assert assemble_python_formula("=PY(", "x = 1", ")", quoted=True) == '=PY("x = 1")'
+    assert assemble_python_formula("=PY(", "A1", ";B1)", quoted=False) == "=PY(A1;B1)"
 
 
 def test_dollar_sign_preserved_in_data_args():

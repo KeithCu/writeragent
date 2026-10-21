@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Literal, Mapping
 
-from plugin.calc.address_utils import index_to_column, parse_address, parse_range_string, split_sheet_prefix
-from plugin.calc.calc_addin_data import split_python_addin_data_args
+from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
+    assemble_python_formula,
     escape_code_for_excel_formula,
     format_data_binding_display,
     format_py_data_range,
@@ -160,21 +160,14 @@ def repair_n_args(formula: str) -> int:
     return 0 if args is None else len(args)
 
 
-def eval_n_args_from_data(data: Any) -> int:
-    """Eval-time arity: ``len(split_python_addin_data_args(data))``."""
-    return len(split_python_addin_data_args(data))
-
-
-def discovery_cap_hit(n_found: int, *, truncated: bool | None = None) -> bool:
+def discovery_cap_hit(n_found: int, *, truncated: bool) -> bool:
     """True when discovery was truncated — skip the whole sheet.
 
     Pass *truncated* from :func:`discover_python_cells_on_sheet`. ``truncated=False``
     with 100 cells is complete. ``truncated=True`` skips even when fewer
-    than 100 (50k scan cap). Omitting *truncated* falls back to ``len >= 100``.
+    than 100 (50k scan cap).
     """
-    if truncated is not None:
-        return truncated
-    return n_found >= GEOMETRIC_DISCOVERY_CAP
+    return truncated
 
 
 def resolved_code_for_formula(formula: str, *, code_cell_text: str | None = None) -> str:
@@ -223,8 +216,8 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     old_args = formula_data_args(formula) or []
     suffix = _geometric_data_suffix(old_args, data_args)
     if py_formula_has_unquoted_code_ref(formula):
-        return f"{parts.prefix}{parts.code}{suffix}"
-    return f'{parts.prefix}"{escape_code_for_excel_formula(parts.code)}"{suffix}'
+        return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
+    return assemble_python_formula(parts.prefix, escape_code_for_excel_formula(parts.code), suffix, quoted=True)
 
 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
@@ -234,24 +227,35 @@ def geometric_cap_hit_user_message(sheet_name: str) -> str:
     ) % {"sheet": sheet_name, "cap": GEOMETRIC_DISCOVERY_CAP}
 
 
+def _last_cell_ref(args: list[str]) -> str | None:
+    if not args:
+        return None
+    last = args[-1]
+    return last if py_code_arg_is_cell_ref(last) else None
+
+
+def _last_matches(args: list[str], ref: str | None) -> bool:
+    if ref is None:
+        return False
+    last = _last_cell_ref(args)
+    return last is not None and same_cell_ref(last, ref)
+
+
 def _plan_action(
     *,
     desired: str | None,
     data_args: list[str],
     record: GeometricRecord | None,
 ) -> tuple[Literal["append", "replace", "remove", "noop"], list[str]]:
-    last = data_args[-1] if data_args else None
-    last_is_cell = last is not None and py_code_arg_is_cell_ref(last)
-
     if desired is None:
-        if record is not None and last_is_cell:
+        if record is not None and _last_cell_ref(data_args) is not None:
             return "remove", data_args[:-1]
         return "noop", data_args
 
-    if last_is_cell and last is not None and same_cell_ref(last, desired):
+    if _last_matches(data_args, desired):
         return "noop", data_args
 
-    if record is not None and last_is_cell and last is not None and same_cell_ref(last, record.predecessor):
+    if record is not None and _last_matches(data_args, record.predecessor):
         return "replace", data_args[:-1] + [desired]
 
     return "append", data_args + [desired]
@@ -268,14 +272,7 @@ def _plan_cell(
     """Determine action and arguments for a cell, guarding against Err:522 cycles."""
     if desired is not None and pred_formula is not None and formula_mentions_cell(pred_formula, cell_address):
         # A1 already names A2 → attaching ;A1 onto A2 is Err:522.
-        last = data_args[-1] if data_args else None
-        last_is_ours = (
-            record is not None
-            and last is not None
-            and py_code_arg_is_cell_ref(last)
-            and same_cell_ref(last, record.predecessor)
-        )
-        if last_is_ours:
+        if record is not None and _last_matches(data_args, record.predecessor):
             return "remove", data_args[:-1]
         log.debug(
             "geometric_recalc: skip attach %s onto %s (predecessor already refs successor; Err:522)",
@@ -297,7 +294,7 @@ def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
     if ncol < 0 or nrow < 0:
         return None
     try:
-        return f"{index_to_column(ncol)}{nrow + 1}"
+        return format_address(ncol, nrow)
     except (TypeError, ValueError):
         return None
 
@@ -369,10 +366,7 @@ def _collect_rule2_claimed(
         if desired is None:
             continue
         data_args = formula_data_args(cell.formula)
-        if not data_args:
-            continue
-        last = data_args[-1]
-        if not py_code_arg_is_cell_ref(last) or not same_cell_ref(last, desired):
+        if not data_args or not _last_matches(data_args, desired):
             continue
         best: tuple[int, int] | None = None
         chosen: str | None = None
@@ -411,10 +405,7 @@ def _rehome_or_keep_record(
     rule2_claimed: set[str],
 ) -> None:
     """Keep a true live record, or rehome a homeless one after a row/col move."""
-    if desired is None:
-        return
-    last = data_args[-1] if data_args else None
-    if last is None or not py_code_arg_is_cell_ref(last) or not same_cell_ref(last, desired):
+    if desired is None or not _last_matches(data_args, desired):
         return
     chosen: str | None = None
     best: tuple[int, int] | None = None
@@ -471,13 +462,11 @@ def compute_eval_index(
         rec = records.get(addr)
         if rec is None:
             return False
-        cell = cell_by_addr.get(addr)
-        formula = formulas.get(addr, cell.formula if cell else "")
+        formula = formulas.get(addr, cell_by_addr[addr].formula)
         args = formula_data_args(formula)
         if not args:
             return False
-        last = args[-1]
-        return py_code_arg_is_cell_ref(last) and same_cell_ref(last, rec.predecessor)
+        return _last_matches(args, rec.predecessor)
 
     safe: set[EvalIndexKey] = set()
     for key, addrs in groups.items():
@@ -545,7 +534,7 @@ def compute_sheet_repair(
             continue
         key = local_a1(cell.address)
         desired = desired_by_key[key]
-        pred_formula = new_formulas.get(cells[i - 1].address, cells[i - 1].formula) if i > 0 else None
+        pred_formula = new_formulas[cells[i - 1].address] if i > 0 else None
         action, new_args = _plan_cell(
             desired=desired,
             data_args=data_args,

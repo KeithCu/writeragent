@@ -8,13 +8,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import contextvars
-import logging
 import re
 from typing import Any, Iterator
 
 from plugin.framework.errors import uno_probe
 
-log = logging.getLogger(__name__)
+CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 
 _LOCATE_MEMO: contextvars.ContextVar[dict[tuple[int, str], tuple[Any, Any, tuple[int, int]] | None] | None] = contextvars.ContextVar("_LOCATE_MEMO", default=None)
 
@@ -112,6 +111,33 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
     return False
 
 
+def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: bool = False) -> Iterator[tuple[int, int, str]]:
+    """Yield (row, col, formula_text). getFormulas() runs before the first yield.
+    Fallback getFormula() errors propagate unless skip_cell_errors."""
+    addr = cell_range.getRangeAddress()
+    formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
+
+    def _gen() -> Iterator[tuple[int, int, str]]:
+        if formula_matrix is not None and len(formula_matrix) > 0:
+            for r_idx, row_formulas in enumerate(formula_matrix):
+                row = addr.StartRow + r_idx
+                for c_idx, formula in enumerate(row_formulas):
+                    yield (row, addr.StartColumn + c_idx, str(formula or ""))
+        else:
+            for row in range(addr.StartRow, addr.EndRow + 1):
+                for col in range(addr.StartColumn, addr.EndColumn + 1):
+                    try:
+                        cell = sheet.getCellByPosition(col, row)
+                        formula = str(cell.getFormula() or "")
+                    except Exception:
+                        if skip_cell_errors:
+                            continue
+                        raise
+                    yield (row, col, formula)
+
+    return _gen()
+
+
 def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | None:
     """Return top-left (row, col) if cell is part of a multi-cell array formula block.
 
@@ -152,32 +178,27 @@ def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: An
 
     formula_array: Any = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
 
-    if formula_array is not None and isinstance(formula_array, (list, tuple)):
-        for r_offset, row_formulas in enumerate(formula_array):
-            r = addr.StartRow + r_offset
-            for c_offset, formula in enumerate(row_formulas):
-                c = addr.StartColumn + c_offset
-                if not formula:
-                    continue
-                formula_str = str(formula)
-                upper = formula_str.upper()
-                if "PY" not in upper:
-                    continue
-                if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
+    def _candidates() -> Iterator[tuple[str, int, int]]:
+        if formula_array is not None and isinstance(formula_array, (list, tuple)):
+            for r_offset, row_formulas in enumerate(formula_array):
+                r = addr.StartRow + r_offset
+                for c_offset, formula in enumerate(row_formulas):
+                    yield (str(formula or ""), r, addr.StartColumn + c_offset)
+        else:
+            for r in range(addr.StartRow, addr.EndRow + 1):
+                for c in range(addr.StartColumn, addr.EndColumn + 1):
                     cell = sheet.getCellByPosition(c, r)
-                    raw_hits.append((cell, r, c))
-    else:
-        for r in range(addr.StartRow, addr.EndRow + 1):
-            for c in range(addr.StartColumn, addr.EndColumn + 1):
-                cell = sheet.getCellByPosition(c, r)
-                formula = cell.getFormula()
-                if not formula:
-                    continue
-                upper = formula.upper()
-                if "PY" not in upper:
-                    continue
-                if is_matching_py_formula(formula, code_str, sheet=sheet, doc=doc):
-                    raw_hits.append((cell, r, c))
+                    yield (str(cell.getFormula() or ""), r, c)
+
+    for formula_str, r, c in _candidates():
+        if not formula_str:
+            continue
+        upper = formula_str.upper()
+        if "PY" not in upper:
+            continue
+        if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
+            cell = sheet.getCellByPosition(c, r)
+            raw_hits.append((cell, r, c))
 
     if len(raw_hits) <= 1:
         return raw_hits
@@ -213,8 +234,7 @@ def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) 
 def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
-    # com.sun.star.sheet.CellFlags.FORMULA = 16
-    formula_cells = sheet.queryContentCells(16)
+    formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
     if formula_cells is None:
         return found
     count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0

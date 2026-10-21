@@ -128,11 +128,8 @@ class NativePythonCellEditorDialog:
     def _set_cell_addr(self) -> None:
         from plugin.calc.python.editor import format_cell_a1
 
-        ctrl = self._ctrl("CellAddr")
-        if ctrl is None:
-            return
         addr = format_cell_a1(self._code_cell if self._following_ref() else self._cell)
-        set_control_text(ctrl, addr)
+        set_control_text(self._ctrl("CellAddr"), addr)
 
     def _following_ref(self) -> bool:
         from plugin.calc.python.editor import _same_calc_cell
@@ -148,14 +145,11 @@ class NativePythonCellEditorDialog:
         self._loading = True
         self._set_cell_addr()
         code_ctrl = self._ctrl("CodeEdit")
-        if code_ctrl is not None:
-            set_control_text(code_ctrl, initial_code or "")
+        set_control_text(code_ctrl, initial_code or "")
         data_text = ""
         if self._parsed_parts is not None:
             data_text = format_data_binding_display(self._parsed_parts.data_suffix)
-        data_ctrl = self._ctrl("DataEdit")
-        if data_ctrl is not None:
-            set_control_text(data_ctrl, data_text)
+        set_control_text(self._ctrl("DataEdit"), data_text)
         plain = editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
@@ -169,12 +163,9 @@ class NativePythonCellEditorDialog:
         # Twin of editor.js updateDataBindingEnabled: Data: is off when Save
         # without =PY(), except when following =PY($A$1) (data lives on the formula cell).
         disabled = bool(get_checkbox_state(self._ctrl("ChkPlainText"))) and not self._following_ref()
-        for name in ("DataEdit", "DataLbl"):
-            ctrl = self._ctrl(name)
-            if ctrl is None:
-                continue
-            set_control_enabled(ctrl, not disabled)
         data_ctrl = self._ctrl("DataEdit")
+        set_control_enabled(data_ctrl, not disabled)
+        set_control_enabled(self._ctrl("DataLbl"), not disabled)
         if data_ctrl is None:
             return
         title = _("Data ranges apply only when saving as a =PY() formula.") if disabled else _("Calc injects `data` and `ranges` from these range(s) at runtime.")

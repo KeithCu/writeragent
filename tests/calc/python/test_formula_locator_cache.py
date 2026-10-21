@@ -9,9 +9,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from plugin.calc.python.formula_locator_cache import (
+    CELL_FLAG_FORMULA,
     bind_formula_locate_memo,
     extract_code_from_py_formula,
     is_matching_py_formula,
+    iter_range_formula_texts,
     locate_formula_cell_in_doc,
 )
 from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
@@ -350,4 +352,18 @@ def test_locate_formula_quoted_still_works():
     assert located is not None
     found_sheet, found_cell, (r, c) = located
     assert (r, c) == (0, 1)
+
+
+def test_iter_range_formula_texts():
+    assert CELL_FLAG_FORMULA == 16
+    doc = CalcDocStub(data=(("=A1+1", "=A2+2"), ("=B1+1", "=B2+2")))
+    sheet = doc.getSheets().getByIndex(0)
+    ranges = sheet.queryContentCells(CELL_FLAG_FORMULA)
+    cell_range = ranges.getByIndex(0)
+    items = list(iter_range_formula_texts(sheet, cell_range))
+    assert len(items) == 4
+    assert items[0] == (0, 0, "=A1+1")
+    assert items[1] == (0, 1, "=A2+2")
+    assert items[2] == (1, 0, "=B1+1")
+    assert items[3] == (1, 1, "=B2+2")
 

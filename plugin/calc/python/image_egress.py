@@ -9,6 +9,7 @@ Supports multiple plot shapes per cell via indexed shape slots with reuse.
 
 from __future__ import annotations
 
+from functools import partial
 import logging
 import os
 import re
@@ -70,21 +71,22 @@ def _plot_slot_index(name: str) -> int | None:
     return None
 
 
+_SVG_UNIT_TO_MM = {
+    "pt": 0.3528,
+    "in": 25.4,
+    "cm": 10.0,
+    "mm": 1.0,
+}
+
+
 def _parse_svg_dimension(val_str: str) -> float | None:
     m = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*(pt|px|in|cm|mm)?\s*$", val_str)
     if not m:
         return None
     num = float(m.group(1))
     unit = m.group(2) or "px"
-    if unit == "pt":
-        return num * 0.3528
-    elif unit == "in":
-        return num * 25.4
-    elif unit == "cm":
-        return num * 10.0
-    elif unit == "mm":
-        return num * 1.0
-    return num
+    scale = _SVG_UNIT_TO_MM.get(unit)
+    return num * scale if scale is not None else num
 
 
 def _intrinsic_aspect(data: bytes) -> tuple[int, int] | None:
@@ -127,7 +129,7 @@ def _aspect_size(aspect: tuple[int, int] | None) -> Any:
     """Calculate Size maintaining aspect ratio, longer side 10000 (10 cm)."""
     from com.sun.star.awt import Size
 
-    if aspect is None or len(aspect) != 2:
+    if aspect is None:
         return Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
     w, h = aspect
     if w <= 0 or h <= 0:
@@ -152,7 +154,7 @@ def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -
         to_remove = []
         for index in range(raw_count):
             shape = draw_page.getByIndex(index)
-            if not _supports_draw_graphic(shape):
+            if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
                 continue
             if not _shape_anchor_matches_cell(shape, target_cell):
                 continue
@@ -160,11 +162,7 @@ def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -
             if slot_idx is not None and slot_idx >= image_count:
                 to_remove.append(shape)
         for s in to_remove:
-
-            def _remove(shape: Any = s) -> None:
-                draw_page.remove(shape)
-
-            best_effort(_remove, "_drop_extra_plot_slots: remove shape")
+            best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
     except Exception:
         log.debug("_drop_extra_plot_slots scan failed", exc_info=True)
 
@@ -183,17 +181,24 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
     return None
 
 
-def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_message: str) -> None:
-    """Set error annotation on the located formula cell after off-main egress failure."""
+def _located_image_cell(ctx: Any, doc: Any, code: str | None) -> tuple[Any, Any, tuple[int, int]] | None:
     if not code or doc is None:
-        return
+        return None
     try:
         from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 
-        located = locate_formula_cell_in_doc(ctx, doc, code)
-        if located is None:
-            return
-        sheet, cell, (row, col) = located
+        return locate_formula_cell_in_doc(ctx, doc, code)
+    except Exception:
+        return None
+
+
+def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_message: str) -> None:
+    """Set error annotation on the located formula cell after off-main egress failure."""
+    located = _located_image_cell(ctx, doc, code)
+    if located is None:
+        return
+    sheet, cell, (row, col) = located
+    try:
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
         ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
         note_str = ""
@@ -244,15 +249,11 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
 
 def _clear_image_cell_annotation(ctx: Any, doc: Any, code: str | None) -> None:
     """Remove WriterAgent image: annotation on the located formula cell on success."""
-    if not code or doc is None:
+    located = _located_image_cell(ctx, doc, code)
+    if located is None:
         return
+    sheet, cell, (row, col) = located
     try:
-        from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-
-        located = locate_formula_cell_in_doc(ctx, doc, code)
-        if located is None:
-            return
-        sheet, cell, (row, col) = located
         ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
         if ann is not None and hasattr(ann, "getString"):
             val = ann.getString() or ""
@@ -302,16 +303,12 @@ def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
     return None
 
 
-def _is_sheet_anchor(anchor: Any) -> bool:
-    """True when *anchor* is the sheet itself (a page-anchored shape), not a cell.
-
-    Only a real ``True`` / ``1`` from ``supportsService`` counts, as in
-    ``_supports_draw_graphic``.
-    """
-    supports = getattr(anchor, "supportsService", None)
+def _supports_service(obj: Any, name: str) -> bool:
+    """True only when obj.supportsService(name) returns True or 1."""
+    supports = getattr(obj, "supportsService", None)
     if not callable(supports):
         return False
-    hit = supports("com.sun.star.sheet.Spreadsheet")
+    hit = supports(name)
     return hit is True or (type(hit) is int and hit == 1)
 
 
@@ -324,26 +321,11 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     if not hasattr(shape, "getPropertyValue"):
         return False
     anchor = shape.getPropertyValue("Anchor")
-    if _is_sheet_anchor(anchor):
+    if _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
         return False
     left = _cell_address_key(anchor)
     right = _cell_address_key(target_cell)
     return left is not None and left == right
-
-
-def _supports_draw_graphic(shape: Any) -> bool:
-    """True only for a real GraphicObjectShape.
-
-    UNO ``supportsService`` returns True or 1. A test double's MagicMock is
-    truthy too, so only those two results count.
-    """
-    supports = getattr(shape, "supportsService", None)
-    if not callable(supports):
-        return False
-    hit = supports(_DRAW_GRAPHIC_SERVICE)
-    if hit is True:
-        return True
-    return type(hit) is int and hit == 1
 
 
 def _shape_name(shape: Any) -> str:
@@ -354,14 +336,14 @@ def _shape_name(shape: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str = _PLOT_SHAPE_NAME_PREFIX) -> bool:
+def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str) -> bool:
     """Graphic we previously inserted at *target_cell* in *slot_name*, not a user image or other shape.
 
     Require GraphicObjectShape plus matching the specific slot name. An
     anchor match alone replaces GraphicURL on a rectangle or a photo the
     user placed on the formula cell. Other WriterAgentPlot* shapes stay put.
     """
-    if not _supports_draw_graphic(shape):
+    if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
         return False
     if _shape_name(shape) != slot_name:
         return False

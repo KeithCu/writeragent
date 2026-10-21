@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, cast
+from typing import Any
 
 import unohelper
 
@@ -87,7 +87,7 @@ def _get_interceptor() -> Any:
 
                 import uno
 
-                factory = cast("Any", container).queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
+                factory = container.queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
                 if factory is None:
                     return IGNORED
                 separator = factory.createInstance("com.sun.star.ui.ActionTriggerSeparator")

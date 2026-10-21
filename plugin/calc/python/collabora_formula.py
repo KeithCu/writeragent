@@ -41,6 +41,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from plugin.calc.python.formula_edit import normalize_formula_string
+from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
 
 log = logging.getLogger(__name__)
 
@@ -52,8 +53,7 @@ _COLLABORA_ADDIN_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
-# com.sun.star.sheet.CellFlags.FORMULA
-_CELL_FLAG_FORMULA = 16
+_SHORT_NAME_BY_METHOD = {"GETPYTHON": "PYTHON", "GETPY": "PY"}
 
 
 def rewrite_collabora_addin_prefix(formula: str) -> str:
@@ -71,7 +71,7 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
         return formula
     equals = match.group(1)
     method = match.group(2).upper()
-    short = "PYTHON" if method == "GETPYTHON" else "PY"
+    short = _SHORT_NAME_BY_METHOD.get(method, "PY")
     return f"{equals}{short}(" + raw[match.end() :]
 
 
@@ -135,7 +135,7 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
     """Rewrite Collabora PY OriginalNames on *sheet*. Returns cells changed."""
     changed = 0
     try:
-        formula_cells = sheet.queryContentCells(_CELL_FLAG_FORMULA)
+        formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
     except Exception:
         log.debug("collabora PY rewrite: queryContentCells failed", exc_info=True)
         return 0
@@ -149,45 +149,21 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
     for i in range(count):
         try:
             cell_range = formula_cells.getByIndex(i)
-            addr = cell_range.getRangeAddress()
-            formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
         except Exception:
             continue
 
-        if formula_matrix is not None and len(formula_matrix) > 0:
-            for r_idx, row_formulas in enumerate(formula_matrix):
-                row = addr.StartRow + r_idx
-                for c_idx, formula in enumerate(row_formulas):
-                    text = str(formula or "")
-                    if not is_collabora_py_formula(text):
-                        continue
-                    new = rewrite_collabora_addin_prefix(text)
-                    if new == text:
-                        continue
-                    try:
-                        sheet.getCellByPosition(addr.StartColumn + c_idx, row).setFormula(new)
-                        changed += 1
-                    except Exception:
-                        log.debug("collabora PY rewrite: setFormula failed", exc_info=True)
-            continue
-
-        for row in range(addr.StartRow, addr.EndRow + 1):
-            for col in range(addr.StartColumn, addr.EndColumn + 1):
-                try:
-                    cell = sheet.getCellByPosition(col, row)
-                    text = str(cell.getFormula() or "")
-                except Exception:
-                    continue
-                if not is_collabora_py_formula(text):
-                    continue
+        try:
+            for row, col, text in iter_range_formula_texts(sheet, cell_range, skip_cell_errors=True):
                 new = rewrite_collabora_addin_prefix(text)
                 if new == text:
                     continue
                 try:
-                    cell.setFormula(new)
+                    sheet.getCellByPosition(col, row).setFormula(new)
                     changed += 1
                 except Exception:
                     log.debug("collabora PY rewrite: setFormula failed", exc_info=True)
+        except Exception:
+            continue
     return changed
 
 

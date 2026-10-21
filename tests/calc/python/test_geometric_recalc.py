@@ -41,7 +41,6 @@ from plugin.calc.python.geometric_recalc import (
 )
 from plugin.calc.python.geometric_recalc_core import (
     GEOMETRIC_DISCOVERY_CAP,
-    eval_n_args_from_data,
     formula_data_args,
     formula_mentions_cell,
     rebuild_formula_with_data_args,
@@ -533,7 +532,6 @@ def test_n_args_matches_split_python_addin_data_args_for_range_plus_1x1():
     pred = ((0.0,),)
     split = split_python_addin_data_args((col, pred))
     assert len(split) == 2
-    assert eval_n_args_from_data((col, pred)) == 2
     assert repair_n_args('=PY("np.mean(data)"; B1:B10; A1)') == 2
 
 
@@ -650,10 +648,6 @@ def test_discovery_cap_hit_uses_truncated_flag():
     assert discovery_cap_hit(100, truncated=False) is False
     assert discovery_cap_hit(100, truncated=True) is True
     assert discovery_cap_hit(50, truncated=True) is True
-    # Count-only fallback (no truncated) still treats len >= 100 as cap-hit.
-    assert discovery_cap_hit(99) is False
-    assert discovery_cap_hit(100) is True
-    assert discovery_cap_hit(101) is True
 
 
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():

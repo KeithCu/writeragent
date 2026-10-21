@@ -11,23 +11,18 @@ formulas, WriterAgent / LibrePy fully qualified add-in forms, and Collabora
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.address_utils import index_to_column
+from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
 from plugin.calc.python.formula_edit import (
-    cell_looks_python_like,
     extract_python_code_loose,
     normalize_formula_string,
-    parse_python_formula,
     stored_addin_call_open_end,
 )
+from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
 
-log = logging.getLogger(__name__)
-
-# CellFlags.FORMULA = 16
-_CELL_FLAG_FORMULA = 16
 _MAX_PYTHON_CELLS_FOUND = 100
 _MAX_CELLS_TO_SCAN = 50000
 
@@ -60,8 +55,6 @@ class PythonSheetDiscovery:
 
 def canonicalize_py_formula_for_parse(formula: str) -> str:
     """Map LO add-in formula text to ``=PYTHON(…)`` for ``parse_python_formula``."""
-    from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
-
     raw = rewrite_collabora_addin_prefix(normalize_formula_string(formula))
     end = stored_addin_call_open_end(raw)
     if end is None:
@@ -69,33 +62,34 @@ def canonicalize_py_formula_for_parse(formula: str) -> str:
     return "=PYTHON(" + raw[end:]
 
 
+def python_code_from_formula(formula: str) -> str | None:
+    """Extract Python code from a PY/PYTHON formula, or None if not a PY formula."""
+    return extract_python_code_loose(canonicalize_py_formula_for_parse(formula))
+
+
 def is_py_formula_text(formula: str) -> bool:
     """True when *formula* is PY/PYTHON, including fully qualified add-in form."""
-    return cell_looks_python_like(canonicalize_py_formula_for_parse(formula))
+    return python_code_from_formula(formula) is not None
 
 
 def extract_code_from_formula(formula: str) -> str:
     """Best-effort Python source from a PY/PYTHON formula."""
-    canonical = canonicalize_py_formula_for_parse(formula)
-    parts = parse_python_formula(canonical)
-    if parts is not None:
-        return parts.code
-    return extract_python_code_loose(canonical) or ""
+    return python_code_from_formula(formula) or ""
 
 
 def _cell_address(sheet_name: str, row: int, column: int) -> str:
     return f"{sheet_name}.{index_to_column(column)}{row + 1}"
 
 
-def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> list[PythonCellInfo]:
+def list_python_cells_on_sheet(sheet: Any) -> list[PythonCellInfo]:
     """Return Python formula cells on *sheet*, sorted by row then column.
 
     Cap / completeness live on :func:`discover_python_cells_on_sheet` (``truncated``).
     """
-    return discover_python_cells_on_sheet(sheet, sheet_name=sheet_name).cells
+    return discover_python_cells_on_sheet(sheet).cells
 
 
-def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> PythonSheetDiscovery:
+def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
     """Discover PY cells and report whether the 100 / 50k caps truncated the list.
 
     After 100 PY cells we keep scanning for one more. Finding #101 (or hitting
@@ -104,15 +98,13 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
     """
     if sheet is None:
         return PythonSheetDiscovery([], False)
-    name = sheet_name
-    if not name:
-        name = str(sheet.getName() or "")
+    name = str(sheet.getName() or "") if hasattr(sheet, "getName") else ""
     if not name:
         name = "Sheet"
 
     found: list[PythonCellInfo] = []
     truncated = False
-    formula_cells = sheet.queryContentCells(_CELL_FLAG_FORMULA)
+    formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
     if formula_cells is None:
         return PythonSheetDiscovery([], False)
 
@@ -123,13 +115,15 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
     def _consider(formula: str, row: int, col: int) -> bool:
         """Add a PY cell, or mark truncated on the 101st. False means stop."""
         nonlocal truncated
-        if not formula or not is_py_formula_text(str(formula)):
+        if not formula:
+            return True
+        code = python_code_from_formula(str(formula))
+        if code is None:
             return True
         if len(found) >= _MAX_PYTHON_CELLS_FOUND:
             # 101st PY cell: the returned list of 100 is incomplete.
             truncated = True
             return False
-        code = extract_code_from_formula(str(formula))
         found.append(PythonCellInfo(sheet=name, row=row, column=col, address=_cell_address(name, row, col), code=code, formula=str(formula)))
         return True
 
@@ -139,48 +133,18 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
                 truncated = True
             break
         cell_range = formula_cells.getByIndex(i)
-        addr = cell_range.getRangeAddress()
-        formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
-
-        if formula_matrix is not None and len(formula_matrix) > 0:
-            stop = False
-            for r_idx, row_formulas in enumerate(formula_matrix):
-                row = addr.StartRow + r_idx
-                for c_idx, formula in enumerate(row_formulas):
-                    scanned_count += 1
-                    if scanned_count > _MAX_CELLS_TO_SCAN:
-                        truncated = True
-                        stop = True
-                        break
-                    col = addr.StartColumn + c_idx
-                    if not _consider(str(formula), row, col):
-                        stop = True
-                        break
-                if stop:
-                    break
-        else:
-            stop = False
-            for row in range(addr.StartRow, addr.EndRow + 1):
-                if truncated or scanned_count >= _MAX_CELLS_TO_SCAN:
-                    if scanned_count >= _MAX_CELLS_TO_SCAN:
-                        truncated = True
-                    stop = True
-                    break
-                for col in range(addr.StartColumn, addr.EndColumn + 1):
-                    scanned_count += 1
-                    if scanned_count > _MAX_CELLS_TO_SCAN:
-                        truncated = True
-                        stop = True
-                        break
-                    cell = sheet.getCellByPosition(col, row)
-                    formula = str(cell.getFormula() or "")
-                    if not _consider(formula, row, col):
-                        stop = True
-                        break
-                if stop:
-                    break
+        for row, col, formula in iter_range_formula_texts(sheet, cell_range):
+            scanned_count += 1
+            if scanned_count > _MAX_CELLS_TO_SCAN:
+                truncated = True
+                break
+            if not _consider(formula, row, col):
+                break
         if truncated:
             break
+
+    found.sort(key=lambda c: (c.row, c.column))
+    return PythonSheetDiscovery(found, truncated)
 
     found.sort(key=lambda c: (c.row, c.column))
     return PythonSheetDiscovery(found, truncated)
