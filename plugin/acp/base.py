@@ -20,10 +20,10 @@ from typing import Any, ClassVar
 
 
 class AgentBackend:
-    """Contract for pluggable agent backends (Aider, Hermes, etc.).
+    """Contract for pluggable agent backends (builtin plus the five ACP backends).
 
     Inputs: user_message, document_context, document_url (for MCP targeting),
-    optional selection_text, optional system_prompt.
+    optional system_prompt.
     Outputs: events pushed to queue — first element is :class:`~plugin.framework.async_stream.StreamQueueKind`
     (e.g. ``CHUNK``, ``STATUS``, ``STREAM_DONE``, ``TOOL_CALL``, ``TOOL_RESULT``, ``ERROR``, …).
     """
@@ -35,7 +35,7 @@ class AgentBackend:
         """Return True if this backend can be used (e.g. CLI installed, config valid)."""
         return True
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, stop_checker: Any = None) -> None:
         """Run the agent; push events to queue. Block until done or stopped.
 
         Called from a worker thread. stop_checker() should return True when user pressed Stop.

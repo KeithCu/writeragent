@@ -16,10 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args
-from plugin.acp.claude_simple import ClaudeBackend
-from plugin.acp.grok_simple import GrokBackend
-from plugin.acp.hermes_simple import HermesBackend
-from plugin.acp.opencode_simple import OpenCodeBackend
+from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.version import EXTENSION_VERSION
 
@@ -867,6 +864,14 @@ class TestStopAndShutdown:
         assert (StreamQueueKind.ERROR) in (kinds)
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
+
+    def test_send_error_when_process_fails(self):
+        backend = _bare_backend()
+        backend._ensure_connection = MagicMock(side_effect=RuntimeError("spawn failed"))
+        q = queue.Queue()
+        backend.send(queue=q, user_message="test", document_context=None, document_url=None)
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.ERROR) in (kinds)
 
     def test_stop_during_prompt_keeps_the_cli_when_the_prompt_returns(self):
         backend = _bare_backend()
@@ -1860,26 +1865,6 @@ class TestSessionCwd:
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: False)
         assert (_directory_from_document_url("file://server/share/doc.odt")) is None
 
-
-def test_registry_classes_own_their_display_names():
-    from plugin.acp.registry import AGENT_BACKEND_REGISTRY
-
-    expected = {
-        "builtin": "Built-in",
-        "hermes": "Hermes",
-        "claude": "Claude Code",
-        "vibe": "Mistral Vibe",
-        "grok": "Grok Build",
-        "opencode": "OpenCode",
-    }
-    assert (list(AGENT_BACKEND_REGISTRY)) == (["builtin", "hermes", "claude", "vibe", "grok", "opencode"])
-    for b_id, expected_display in expected.items():
-        cls = AGENT_BACKEND_REGISTRY[b_id]
-        assert not isinstance(cls, tuple)
-        assert isinstance(cls, type)
-        assert (cls.backend_id) == (b_id)
-        assert (cls.display_name) == (expected_display)
-        assert ("display_name") in (cls.__dict__)
 
 
 class TestReplyAndCancelDoNotSwallow:

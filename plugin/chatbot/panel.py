@@ -2257,7 +2257,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._run_ppt_master(query_text, model)
                 return
 
-            # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
+            # Agent backend: use external agent instead of built-in LLM.
             # Show the error and end the send here. The handler documents
             # no builtin fallback. Leaving `_do_send_via_agent_backend` in
             # this try means the except only logs, then execution falls

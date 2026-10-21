@@ -316,7 +316,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     except Exception:
         log.exception("Resize listener setup failed")
 
-    # Backend indicator (Aider / Hermes when external agent enabled)
+    # Backend indicator (when external agent enabled)
     self._update_backend_indicator(root_window)
 
     # 6. Global Config Listener

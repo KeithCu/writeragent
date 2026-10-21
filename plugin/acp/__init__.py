@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Pluggable agent backends for Chat with Document (Aider, Hermes)."""
+"""Pluggable agent backends for Chat with Document (builtin plus the five ACP backends)."""
 
 from plugin.acp.registry import AGENT_BACKEND_REGISTRY, get_backend
 from plugin.acp.base import AgentBackend

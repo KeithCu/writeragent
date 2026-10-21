@@ -117,12 +117,7 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     boolean is the same stray line: ``pending.get`` would raise ``TypeError``
     on an unhashable key, or ``true`` would hash equal to request id ``1``.
 
-    What was wrong: a line was sliced at ``{`` unless it already started with
-    ``{`` or ``[``. ``[{"a": 1}]`` became ``{"a": 1}``. Skipping every ``[``
-    line then dropped ``[INFO] {"jsonrpc": ...}``, which the docstring said
-    would still parse. Why: load the whole line first. A real JSON value that
-    is not an object is rejected, so the array is not sliced. Only a failed
-    load falls through to the first ``{``.
+    # Load the whole line first; only a failed load falls through to find '{'.
     """
     payload = line.lstrip()
     msg = _json_value(payload)
@@ -139,13 +134,7 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     if not isinstance(msg, dict):
         log.debug("Non-object JSON output: %s", payload[:200])
         return None
-    # What was wrong: every object id was rewritten. A request id 1.0 was answered
-    # as 1. A request id 1.5 or true made _canonical_id return _BAD_ID,
-    # _accept_message returned None, and the agent blocked with no response.
-    # How: the pending map only matches responses to integer ids this client sent.
-    # The same dict is what send_response echoes for agent requests.
-    # Why: canonicalize only when there is an id and no method. A request keeps
-    # the parsed id.
+    # Canonicalize only response ids (no method); agent requests keep their original id.
     if "id" in msg and "method" not in msg:
         canonical = _canonical_id(msg["id"])
         if canonical is _BAD_ID:
@@ -297,11 +286,7 @@ class ACPConnection:
             proc = self._proc
             # Claim it so a concurrent shutdown does not terminate twice.
             self._proc = None
-            # What was wrong: this also set ``_stderr_drain`` to None.
-            # The reader finally logs that drain after stop() returns, so
-            # a normal Stop dropped the tail and never logged it.
-            # Why: this connection is not respawned. Leave the drain for
-            # the reader finally and stderr_text().
+            # Leave _stderr_drain intact for the reader finally block and stderr_text().
         if proc is None:
             return
 
@@ -313,11 +298,7 @@ class ACPConnection:
         self._enqueue(_QueuedStop(proc))
 
         def _watchdog_terminate() -> None:
-            # What was wrong: sleep(0.5) then poll() always waited half a
-            # second, and killed again after the writer had already reaped
-            # the child. Why: wait returns as soon as the child is gone.
-            # Kill only when that wait times out, which is a writer blocked
-            # in a full-pipe write that has not reached its own wait.
+            # Kill only when wait times out (writer blocked in a full-pipe write).
             try:
                 proc.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
@@ -345,12 +326,7 @@ class ACPConnection:
     def _enqueue(self, item: _QueuedWrite | _QueuedStop) -> None:
         """Queue one stdin item. A closed connection fails a request write.
 
-        What was wrong: the writer set ``_writer_thread`` to None after the
-        stop item and exited. A ``send_request`` that had already passed its
-        ``_running`` check then started another writer, which blocked on
-        ``get()`` forever, and items already behind the stop item were never
-        failed. Why: ``_closed`` is set under this lock when the stop item
-        runs. The closed check, the writer start, and the put share that lock.
+        The closed check, writer start, and put share _lock so stopped writers don't restart.
         """
         fail_id: int | None = None
         with self._lock:
@@ -401,12 +377,7 @@ class ACPConnection:
                         # already closed raises ValueError, which is not an OSError.
                         # Either one must still reach the tree kill below.
                         log.debug("ACP stdin close failed", exc_info=True)
-                    # What was wrong: terminate()/kill() hit only this process, and
-                    # closing stdout was supposed to unblock readline. close()
-                    # takes the buffer lock readline already holds, so both
-                    # threads wait forever when a grandchild still has the pipe.
-                    # Why: kill the process group. The child's death closes the
-                    # write end, and readline returns EOF.
+                    # Kill process group; child's death closes write end and unblocks readline.
                     if proc is not None:
                         _kill_acp_tree(proc)
                         try:
@@ -439,10 +410,7 @@ class ACPConnection:
 
     @property
     def is_alive(self) -> bool:
-        # What was wrong: ``self._proc is not None and self._proc.poll()``
-        # loaded ``_proc`` twice. stop() sets it to None between those
-        # loads, so the second was None.poll() and raised AttributeError.
-        # Why: keep the process from the first load.
+        # Snapshot _proc to avoid race with stop() clearing it.
         proc = self._proc
         return proc is not None and proc.poll() is None
 
@@ -500,10 +468,7 @@ class ACPConnection:
             entry = self._pending.pop(req_id, None)
 
         resp = entry.response if entry is not None else None
-        # What was wrong: ``"error" in resp`` is true when the field is JSON
-        # null. A successful result was raised as ``ACP error: None``. Why:
-        # JSON-RPC null means there is no error. Only a real error value
-        # fails the request.
+        # JSON-RPC null means no error; only non-null fails the request.
         err = resp.get("error") if resp else None
         if err is not None:
             msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
@@ -514,10 +479,7 @@ class ACPConnection:
     def _wait_idle(self, event: threading.Event, timeout: float) -> bool:
         """True when ``event`` is set before ``timeout`` seconds of silence.
 
-        What was wrong: one ``event.wait(timeout)`` was a wall clock. A
-        ``session/prompt`` that was still streaming died at 600s. Why: each
-        accepted stdout line stores ``_last_inbound``. The wait is sliced so
-        that reset is visible before the idle budget runs out.
+        The wait is sliced so that inbound stdout lines reset the idle budget.
         """
         self._last_inbound = time.monotonic()
         while True:
@@ -548,25 +510,14 @@ class ACPConnection:
         if error is not None:
             msg["error"] = error
         else:
-            # What was wrong: result or {} turned False, 0, [], and "" into
-            # {}; only None means the caller omitted the result, which is the
-            # rule _reply already uses.
+            # Only None means omitted result; False, 0, [], and "" are valid JSON values.
             msg["result"] = result if result is not None else {}
 
         line = json.dumps(msg) + "\n"
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))
 
     def _answer_without_callback(self, method: str, msg_id: Any) -> None:
-        """Reply to an agent request that arrived after the turn callback was cleared.
-
-        What was wrong: ``send()`` sets the notification callback to None so a
-        late ``session/update`` cannot write into that turn's queue. The reader
-        then dropped every line, including ``session/request_permission`` and
-        ``fs/*`` requests that carry an id. The CLI stays up, so the agent
-        blocked on that request and the next prompt waited behind it. Why:
-        permission is cancelled, and any other method is JSON-RPC method not
-        found. A notification has no id and is still ignored.
-        """
+        """Reply to an agent request that arrived after the turn callback was cleared."""
         if method == "session/request_permission":
             self.send_response(msg_id, result={"outcome": {"outcome": "cancelled"}})
             return
@@ -638,11 +589,7 @@ class ACPConnection:
                         method = msg.get("method", "")
                         params = msg.get("params", {})
                         msg_id = msg.get("id")
-                        # What was wrong: ``if self._notify_callback:`` then
-                        # called ``self._notify_callback(...)``. shutdown()
-                        # sets it to None between those reads, so the call
-                        # was None(...) and logged "Notification callback
-                        # error". Why: copy the callback once.
+                        # Read callback into local once to prevent race with shutdown() clearing it.
                         callback = self._notify_callback
                         if callback:
                             try:

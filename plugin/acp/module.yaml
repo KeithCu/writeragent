@@ -12,8 +12,6 @@ config:
     options:
       - value: builtin
         label: Built-in
-      # - value: aider
-      #   label: Aider
       - value: hermes
         label: Hermes
       - value: claude
@@ -24,8 +22,6 @@ config:
         label: Grok Build
       - value: opencode
         label: OpenCode
-      # - value: openhands
-      #   label: OpenHands
 
   path:
     type: string

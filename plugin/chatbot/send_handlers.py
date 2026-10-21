@@ -5,7 +5,7 @@ alternate send flows that would otherwise bloat that class:
 
 - Audio transcription fallback
 - Direct image generation / img2img (sidebar Image mode)
-- External agent backends (Aider, Hermes)
+- External agent backends
 - Web research sub-agent
 """
 
@@ -638,7 +638,7 @@ class SendHandlersMixin:
         defer_until_drain_done(_image_ready)
 
     def _do_send_via_agent_backend(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str) -> None:
-        """Send via external agent backend (Aider, Hermes). No fallback to built-in on failure."""
+        """Send via external agent backend. No fallback to built-in on failure."""
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="agent", status="ready")
 

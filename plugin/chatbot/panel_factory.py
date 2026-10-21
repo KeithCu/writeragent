@@ -745,7 +745,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         chk_voice.setState(want)
 
             try:
-                # Backend indicator: show "Aider" / "Hermes" when external agent backend is enabled
+                # Backend indicator: show backend name when external agent backend is enabled
                 self._update_backend_indicator(root)
             except Exception:
                 log.exception("_refresh_controls_from_config backend indicator failed")
