@@ -176,11 +176,34 @@ def test_inject_auto_imports_skips_bound_names():
 
 
 def test_helper_names_complete():
-    from plugin.scripting.calc_functions_common import HELPER_NAMES
+    from plugin.scripting.venv.calc_functions import HELPER_NAMES
 
     exported = {name for name in dir(calc) if not name.startswith("_") and callable(getattr(calc, name))}
     assert "py_str" in HELPER_NAMES
     assert HELPER_NAMES == exported
+
+
+def test_bucket_all_tuples_disjoint_and_match_helper_names():
+    from plugin.scripting.venv import (
+        calc_functions_a_c,
+        calc_functions_d_h,
+        calc_functions_i_m,
+        calc_functions_n_s,
+        calc_functions_t_z,
+    )
+    from plugin.scripting.venv.calc_functions import HELPER_NAMES
+
+    buckets = [
+        calc_functions_a_c.__all__,
+        calc_functions_d_h.__all__,
+        calc_functions_i_m.__all__,
+        calc_functions_n_s.__all__,
+        calc_functions_t_z.__all__,
+    ]
+    total_len = sum(len(b) for b in buckets)
+    union = set().union(*buckets)
+    assert len(union) == total_len
+    assert union == HELPER_NAMES
 
 
 def test_tier_d_helpers():

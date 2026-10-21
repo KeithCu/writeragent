@@ -764,20 +764,6 @@ def _user_writeragent_uno_packages() -> Path | None:
     return None
 
 
-def _seed_worker_python_path() -> str | None:
-    """Do not seed throwaway ``scripting.python_venv_path``.
-
-    Checkout ``.venv`` as that key made leftover Shared look Isolated
-    (``x_geo_live`` undefined) on Linux (GHA 33751116865) and macOS
-    (GHA 33752809831). Sheet ``=PY()`` is off-main; workers must keep
-    the office interpreter via ``resolve_libreoffice_python`` (sibling
-    ``python.exe`` / Darwin ``Contents/Resources/python`` when soffice
-    ``sys.executable`` is empty or not Python). Windows GHA 33752806292
-    was missing that neighbor lookup, not a venv seed.
-    """
-    return None
-
-
 def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     """Copy user-level WriterAgent into the throwaway ``UserInstallation``.
 
@@ -821,17 +807,17 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     # Shared-kernel leftover UNO needs soffice ``get_config`` to see ``shared``
     # on first read (2s mtime cache + Isolated OnNew otherwise). Isolated
     # tests that care must write Isolated after bootstrap.
+    # Checkout ``.venv`` as scripting.python_venv_path made leftover Shared look
+    # Isolated (x_geo_live undefined) on Linux and macOS. Sheet =PY() is
+    # off-main; workers keep the office interpreter via resolve_libreoffice_python.
     cfg = profile_dir / "user" / "config"
     cfg.mkdir(parents=True, exist_ok=True)
     seeded: dict[str, str] = {"scripting.python_session_mode": "shared"}
-    worker = _seed_worker_python_path()
-    if worker:
-        seeded["scripting.python_venv_path"] = worker
     cfg_path = cfg / "writeragent.json"
     cfg_path.write_text(json.dumps(seeded, indent=2) + "\n", encoding="utf-8")
     _progress_verbose(
-        "BOOTSTRAP throwaway writeragent.json session_mode=shared venv=%s path=%s"
-        % (worker, cfg_path)
+        "BOOTSTRAP throwaway writeragent.json session_mode=shared venv=(not set) path=%s"
+        % cfg_path
     )
 
 
@@ -1217,11 +1203,6 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     ):
         return (1, module_path)
     return (0, module_path)
-
-
-def _should_rebootstrap_after_recycle(*, more_suites: bool) -> bool:
-    """False when this was the last suite — do not start a second soffice."""
-    return more_suites
 
 
 def _rebootstrap_ctx(ctx: Any) -> None:
@@ -1996,7 +1977,7 @@ def run_all_tests(ctx: Any) -> str:
                     total_failed += f
                     if consume_office_recycle_request():
                         more = i + 1 < len(ordered_candidates)
-                        if _should_rebootstrap_after_recycle(more_suites=more):
+                        if more:
                             ctx, keeper_doc = _recycle_harness_office(ctx)
                         else:
                             # GHA 34551644954: rebootstrap then hung the next

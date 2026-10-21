@@ -9,11 +9,10 @@ import sys
 import json
 import subprocess
 import tempfile
-import logging
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger("writeragent.grammar")
+from plugin.framework.grammar_rule_ids import grammar_match
 
 
 def _get_vale_binary() -> str:
@@ -132,18 +131,20 @@ Microsoft.Headings = NO
             correct = action_params[0] if (action_name == "replace" and action_params) else ""
             suggestions = action_params[:5] if (action_name == "replace" and action_params) else []
 
-            errors.append({
-                "wrong": text[start:start+length] if start + length <= len(text) else "",
-                "correct": correct,
-                "n_error_start": start,
-                "n_error_length": length,
-                "short_comment": f"[{severity.upper()}] {msg}",
-                "full_comment": err.get("Description") or msg,
-                "rule_identifier": f"vale||{rule}",
-                "suggestions": suggestions,
-                "reason": msg,
-                "type": f"Style ({severity})"
-            })
+            errors.append(
+                grammar_match(
+                    wrong=text[start:start+length] if start + length <= len(text) else "",
+                    correct=correct,
+                    n_error_start=start,
+                    n_error_length=length,
+                    short_comment=f"[{severity.upper()}] {msg}",
+                    full_comment=err.get("Description") or msg,
+                    rule_identifier=f"vale||{rule}",
+                    suggestions=suggestions,
+                    reason=msg,
+                    type=f"Style ({severity})",
+                )
+            )
             
         return {"errors": errors}
         

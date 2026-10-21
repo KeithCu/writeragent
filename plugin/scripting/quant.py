@@ -56,9 +56,4 @@ _API = make_template_api(
 
 parse_quant_script_header = _API.parse_header
 get_quant_script_templates = _API.get_templates
-
-
-def get_quant_template(helper: str) -> str | None:
-    if helper not in HELPER_NAMES:
-        return None
-    return _API.template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
+get_quant_template = _API.template_for

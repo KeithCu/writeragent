@@ -192,20 +192,6 @@ def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_pa
         raise AssertionError("expected RuntimeError on GitHub Actions without user OXT")
 
 
-def test_seed_worker_python_path_never_seeds_checkout_venv(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """Checkout .venv seed made leftover Shared Isolated (33751116865 / 33752809831)."""
-    fake_root = tmp_path / "repo"
-    venv_py = fake_root / ".venv" / "bin" / "python"
-    venv_py.parent.mkdir(parents=True)
-    venv_py.write_text("", encoding="utf-8")
-    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
-    for platform in ("darwin", "win32", "linux"):
-        monkeypatch.setattr(tr.sys, "platform", platform)
-        assert tr._seed_worker_python_path() is None
-
-
 def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "missing")
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)

@@ -563,23 +563,6 @@ def test_get_coupon_dates_calendar_stepping():
         _get_coupon_dates(43983, 43831, 2, 0)
 
 
-def test_nan_on_error():
-    from plugin.scripting.venv.calc_functions_util import nan_on_error
-
-    @nan_on_error(ValueError, ZeroDivisionError)
-    def fail(x):
-        if x == 0:
-            raise ZeroDivisionError
-        if x < 0:
-            raise ValueError
-        return 10.0 / x
-
-    assert fail(2) == 5.0
-    assert math.isnan(fail(0))
-    assert math.isnan(fail(-1))
-    with pytest.raises(TypeError):
-        fail("bad")
-
 
 
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
@@ -27,9 +28,6 @@ if TYPE_CHECKING:
 
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-_TEXT_DOCUMENT = "com.sun.star.text.TextDocument"
-_DRAW_DOCUMENT = "com.sun.star.drawing.DrawingDocument"
-_IMPRESS_DOCUMENT = "com.sun.star.presentation.PresentationDocument"
 
 
 def _supports_service(doc: Any, service: str) -> bool:
@@ -38,7 +36,11 @@ def _supports_service(doc: Any, service: str) -> bool:
 
 def _is_draw_family(doc: Any) -> bool:
     """True for Draw or Impress. Check PresentationDocument first: Impress also supports DrawingDocument."""
-    return _supports_service(doc, _IMPRESS_DOCUMENT) or _supports_service(doc, _DRAW_DOCUMENT)
+    return _supports_service(doc, IMPRESS_DOCUMENT_SERVICE) or _supports_service(doc, DRAW_DOCUMENT_SERVICE)
+
+
+def _ok_image(source: str, b64: str) -> dict[str, Any]:
+    return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
 
 
 def _read_png_or_reason(tmp_path: str, page: int) -> tuple[bytes | None, str | None]:
@@ -200,7 +202,7 @@ class GetImage(ToolBase):
         "required": [],
     }
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
-    uno_services: list[str] | None = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
+    uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -215,7 +217,7 @@ class GetImage(ToolBase):
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
             b64 = base64.b64encode(raw).decode("utf-8")
-            return {"status": "ok", "source": f"page {page}", "_mcp_image": {"data": b64, "mimeType": "image/png"}}
+            return _ok_image(f"page {page}", b64)
         if want_selection or not name:
             b64 = get_selected_image_base64(doc, ctx.ctx)
             if not b64:
@@ -237,4 +239,4 @@ class GetImage(ToolBase):
             source = name
         # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
         # native image content block; over non-image transports it is just an ignorable marker.
-        return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
+        return _ok_image(source, b64)

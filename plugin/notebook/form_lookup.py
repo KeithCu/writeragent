@@ -8,12 +8,9 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-import logging
 import threading
 from typing import Any, Iterator
 
-log = logging.getLogger("writeragent.notebook")
- 
 from plugin.framework.errors import best_effort
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
@@ -77,6 +74,13 @@ def build_control_index(doc: Any) -> ControlIndex:
     return ControlIndex(doc=doc, models_by_name=models, shapes_by_name=shapes)
 
 
+def _index_for(doc: Any) -> ControlIndex:
+    idx = _current_control_index()
+    if idx is not None and idx.doc is doc:
+        return idx
+    return build_control_index(doc)
+
+
 def _unwrap_form_model(obj: Any) -> Any | None:
     if obj is None:
         return None
@@ -120,13 +124,6 @@ def _iter_control_shapes(doc: Any) -> Iterator[tuple[str, Any, Any]]:
             yield name, model, shape
 
 
-def _collect_models_from_draw_page(doc: Any, by_name: dict[str, Any]) -> None:
-    """Writer registers in-flow ``ControlShape`` objects on the document draw page."""
-    for name, model, _shape in _iter_control_shapes(doc):
-        if name not in by_name:
-            by_name[name] = model
-
-
 def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     """Fallback for tests and LO builds that expose controls only via text portions."""
     text = doc.getText()
@@ -152,23 +149,13 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
 
 def index_form_control_models(doc: Any) -> dict[str, Any]:
     """Map form control ``Name`` → model for all notebook fields and ▶ buttons."""
-    idx = _current_control_index()
-    if idx is not None and idx.doc is doc:
-        return idx.models_by_name
-    by_name: dict[str, Any] = {}
-    _collect_models_from_draw_page(doc, by_name)
-    if not by_name:
-        _collect_models_from_text(doc, by_name)
-    return by_name
+    return _index_for(doc).models_by_name
 
 
 def find_form_control_model_by_name(doc: Any, control_name: str) -> Any | None:
     if not control_name:
         return None
-    idx = _current_control_index()
-    if idx is not None and idx.doc is doc:
-        return idx.models_by_name.get(control_name)
-    return index_form_control_models(doc).get(control_name)
+    return _index_for(doc).models_by_name.get(control_name)
 
 
 def find_control_shape_by_name(doc: Any, control_name: str) -> Any | None:

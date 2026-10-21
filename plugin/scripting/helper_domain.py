@@ -783,10 +783,16 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
             on_bad_json=cfg.on_bad_json,
         )
 
+    def template_for(helper: str) -> str | None:
+        if helper not in cfg.helper_names:
+            return None
+        return _template_body(helper, dict(cfg.default_params.get(helper, {})))
+
     return SimpleNamespace(
         template_body=_template_body,
         get_templates=get_templates,
         parse_header=parse_header,
+        template_for=template_for,
     )
 
 

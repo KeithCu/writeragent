@@ -790,13 +790,6 @@ def test_streamed_append_allows_format_redline_and_still_appends():
     assert text_range.set_calls == ["Hi!"]
 
 
-def test_menu_message_matches_session_exception():
-    from pathlib import Path
-
-    src = Path(__file__).resolve().parents[2].joinpath("plugin/writer/editselection.py").read_text(encoding="utf-8")
-    assert TRACKED_SELECTION_MESSAGE in src
-
-
 def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
     from plugin.writer import editselection
 

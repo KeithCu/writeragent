@@ -131,7 +131,7 @@ Grammar checking is a native `XProofreader` service (`WriterAgentAiGrammarProofr
 
 #### Calc Intelligence
 
-Beyond `=PY()` (below), Calc supports pivot-table analysis, logical-error detection, and specialized toolsets (conditional formatting, sheet filters, charts). The **spreadsheet → Python converter** rewrites classic formulas as `=PY("…"; …)` through a **259-helper `calc.*` parity library** (auto-imported as `calc`), preserving constants, dates, and cell formats while targeting ~90% formula-cell coverage and ≥99% value fidelity against an oracle.
+Beyond `=PY()` (below), Calc supports pivot-table analysis, logical-error detection, and specialized toolsets (conditional formatting, sheet filters, charts). The **spreadsheet → Python converter** rewrites classic formulas as `=PY("…"; …)` through a **261-helper `calc.*` parity library** (auto-imported as `calc`), preserving constants, dates, and cell formats while targeting ~90% formula-cell coverage and ≥99% value fidelity against an oracle.
 
 #### Multimodal Mastery
 

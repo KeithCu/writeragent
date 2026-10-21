@@ -17,7 +17,6 @@ from plugin.vision.vision_availability import (
     filter_vision_delegate_schemas,
     filter_vision_specialized_tools,
     invalidate_vision_availability_cache,
-    vision_ocr_available,
     vision_packages_probe_ready,
     vision_venv_configured,
 )
@@ -132,14 +131,12 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is True
-    assert vision_ocr_available(MagicMock()) is True
 
 
 @patch("plugin.vision.vision_availability.get_config_str", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is False
-    assert vision_ocr_available(MagicMock()) is False
 
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)

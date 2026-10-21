@@ -4,18 +4,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted LanguageTool grammar checker executing inside the user's virtual environment."""
 
-import logging
 import threading
 from typing import Any, Dict
 
-from plugin.framework.grammar_rule_ids import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
+from plugin.framework.grammar_rule_ids import (
+    LANGUAGETOOL_RULE_PREFIX,
+    grammar_match,
+    make_rule_identifier,
+)
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
 # Check-then-set must be locked: two threads both missing the key used to each
 # construct LanguageTool(), and the loser leaked an orphaned JVM.
 _LT_CACHE: Dict[str, Any] = {}
 _LT_CACHE_LOCK = threading.Lock()
-log = logging.getLogger("writeragent.grammar")
 
 
 def _match_wrong_text(m: Any) -> str:
@@ -83,18 +85,20 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
         errors = []
         for m in matches:
             # Replicate standard schema expected by WriterAgent grammar underlines
-            errors.append({
-                "wrong": _match_wrong_text(m),
-                "correct": m.replacements[0] if m.replacements else "",
-                "n_error_start": m.offset,
-                "n_error_length": m.error_length,
-                "short_comment": m.message,
-                "full_comment": m.sentence,
-                "rule_identifier": make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, m.rule_id),
-                "suggestions": m.replacements[:5],
-                "reason": m.message,
-                "type": "LanguageTool",
-            })
+            errors.append(
+                grammar_match(
+                    wrong=_match_wrong_text(m),
+                    correct=m.replacements[0] if m.replacements else "",
+                    n_error_start=m.offset,
+                    n_error_length=m.error_length,
+                    short_comment=m.message,
+                    full_comment=m.sentence,
+                    rule_identifier=make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, m.rule_id),
+                    suggestions=m.replacements[:5],
+                    reason=m.message,
+                    type="LanguageTool",
+                )
+            )
         return {"errors": errors}
     except Exception as e:
         raise RuntimeError(f"LanguageTool check failed: {e}")

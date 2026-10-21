@@ -105,11 +105,6 @@ def vision_packages_probe_ready(ctx: Any = None) -> bool:
     return _probe_ready(python_exe)
 
 
-def vision_ocr_available(ctx: Any = None) -> bool:
-    """Schema/prompt gate: same as :func:`vision_venv_configured` (no subprocess on Send)."""
-    return vision_venv_configured(ctx)
-
-
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
     """Omit extract_structure_from_image when no Settings venv is configured."""
     if vision_venv_configured(ctx):

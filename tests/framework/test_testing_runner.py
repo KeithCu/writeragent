@@ -24,7 +24,6 @@ from plugin.testing_runner import (
     _module_matches_filters,
     _native_suite_set_config,
     _native_suite_sort_key,
-    _should_rebootstrap_after_recycle,
     _test_function_filters,
     collect_post_test_death,
     consume_application_error,
@@ -350,12 +349,6 @@ def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
         "/tmp/tests/draw/test_bridge_uno.py",
     ]
     assert sorted(paths, key=_native_suite_sort_key) == sorted(paths)
-
-
-def test_should_not_rebootstrap_when_no_remaining_suites() -> None:
-    """GHA 34551644954: recycled office hung the next scalc factory load."""
-    assert _should_rebootstrap_after_recycle(more_suites=True) is True
-    assert _should_rebootstrap_after_recycle(more_suites=False) is False
 
 
 def test_office_recycle_request_is_consumed_once() -> None:

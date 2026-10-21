@@ -55,6 +55,10 @@ from plugin.notebook.writer_importer import import_ipynb_to_writer  # noqa: E402
 log = logging.getLogger("writeragent.notebook")
 
 IMPL_NAME = "org.extension.writeragent.JupyterNotebookImportFilter"
+_SUPPORTED_SERVICE_NAMES = (
+    "com.sun.star.document.ImportFilter",
+    "com.sun.star.document.ExtendedTypeDetection",
+)
 
 
 class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceInfo, XExtendedFilterDetection):
@@ -117,8 +121,8 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
         return ServiceName in self.getSupportedServiceNames()
 
     def getSupportedServiceNames(self) -> tuple[str, ...]:
-        return ("com.sun.star.document.ImportFilter", "com.sun.star.document.ExtendedTypeDetection")
+        return _SUPPORTED_SERVICE_NAMES
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(JupyterNotebookImportFilter, IMPL_NAME, ("com.sun.star.document.ImportFilter", "com.sun.star.document.ExtendedTypeDetection"))
+g_ImplementationHelper.addImplementation(JupyterNotebookImportFilter, IMPL_NAME, _SUPPORTED_SERVICE_NAMES)

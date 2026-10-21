@@ -13,7 +13,6 @@ import pytest
 from plugin.notebook.cell_registry import (
     _MAX_IMPORT_TEXT_CHARS,
     _TRUNCATION_SUFFIX,
-    _cell_heading,
     _coerce_notebook_text,
     _format_in_prompt,
     _prepare_display_text,
@@ -113,8 +112,8 @@ def test_coerce_notebook_text_joins_list():
 
 def test_prepare_display_text_truncates():
     long_text = "x" * (_MAX_IMPORT_TEXT_CHARS + 1000)
-    display, truncated = _prepare_display_text(long_text)
-    assert truncated is True
+    display = _prepare_display_text(long_text)
+    assert display.endswith(_TRUNCATION_SUFFIX)
     assert len(display) <= _MAX_IMPORT_TEXT_CHARS + 50
 
 def test_notebook_image_payload():
@@ -650,9 +649,8 @@ def test_unglue_last_paragraph_clears_keep_with_next():
 
 
 def test_cell_heading_is_in_prompt_only():
-    assert _cell_heading(1, "code") == "In [ ]:"
-    assert _cell_heading(0, "markdown") == ""
-    assert "Cell" not in _cell_heading(0, "code", 2)
+    assert _format_in_prompt(None) == "In [ ]:"
+    assert _format_in_prompt(2) == "In [2]:"
 
 
 def test_create_import_para_style_skips_existing():

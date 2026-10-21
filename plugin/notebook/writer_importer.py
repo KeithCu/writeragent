@@ -44,7 +44,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
-from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
+from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import (
     _CODE_FONT_NAME,
     _cap_from_style,
@@ -579,7 +579,7 @@ def _append_body_text_block(doc: Any, block: str, para_style: str | None, *, lea
     SwUnoCursorHelper::DocInsertStringSplitCR splits paragraphs only on \\r;
     \\n is an in-paragraph line break.
     """
-    display, _unused = _prepare_display_text(block)
+    display = _prepare_display_text(block)
     if not display:
         return
     _append_body_paragraph(doc, display, para_style, lead_break=lead_break)
@@ -1026,7 +1026,7 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
     directory via ``_embed_markdown_image``, not a temp-file HTML import.
     No ``Cell N: Markdown`` chrome.
     """
-    display, _unused = _prepare_display_text(source)
+    display = _prepare_display_text(source)
     if not display:
         return
     display = _html_img_and_a_to_markdown(display)
@@ -1754,7 +1754,7 @@ def _import_cells(
                 # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
                 # glue onto this cell's unsplittable field.
                 _unglue_last_paragraph(doc)
-                title = _cell_heading(idx, cell_type, ec)
+                title = _format_in_prompt(ec)
                 _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
                 # Pin keep-with-next (ParaKeepTogether) off on the gutter
                 # paragraph too so In+field is not one unsplittable brick.

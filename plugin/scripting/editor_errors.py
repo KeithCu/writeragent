@@ -16,6 +16,17 @@ from plugin.framework.deal_shim import (
 )
 
 
+def _deal_text_ok_pytest(value: object) -> bool:
+    return isinstance(value, str)
+
+
+def _deal_text_ok_crosshair(value: object) -> bool:
+    return str_bounded(value, DEAL_MAX_SOURCE)
+
+
+_deal_text_ok = _profile(_deal_text_ok_crosshair, _deal_text_ok_pytest)
+
+
 def _deal_optional_exc_ok_pytest(exc: object) -> bool:
     return exc is None or isinstance(exc, BaseException)
 
@@ -27,27 +38,16 @@ def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
 _deal_optional_exc_ok = _profile(_deal_optional_exc_ok_crosshair, _deal_optional_exc_ok_pytest)
 
 
-def _deal_failure_detail_ok_pytest(detail: object = None, exc: object = None) -> bool:
-    return (detail is None or isinstance(detail, str)) and _deal_optional_exc_ok(exc)
-
-
-def _deal_failure_detail_ok_crosshair(detail: object = None, exc: object = None) -> bool:
-    return (detail is None or str_bounded(detail, DEAL_MAX_SOURCE)) and exc is None
-
-
-_deal_failure_detail_ok = _profile(_deal_failure_detail_ok_crosshair, _deal_failure_detail_ok_pytest)
+def _deal_failure_detail_ok(detail: object = None, exc: object = None) -> bool:
+    return (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc)
 
 
 def _deal_failure_message_ok_pytest(summary: object, detail: object = None, exc: object = None) -> bool:
-    return isinstance(summary, str) and _deal_failure_detail_ok(detail, exc)
+    return _deal_text_ok_pytest(summary) and _deal_failure_detail_ok(detail, exc)
 
 
 def _deal_failure_message_ok_crosshair(summary: object, detail: object = None, exc: object = None) -> bool:
-    return (
-        isinstance(summary, str)
-        and str_bounded(summary, DEAL_MAX_SOURCE)
-        and _deal_failure_detail_ok(detail, exc)
-    )
+    return _deal_text_ok_crosshair(summary) and _deal_failure_detail_ok(detail, exc)
 
 
 _deal_failure_message_ok = _profile(_deal_failure_message_ok_crosshair, _deal_failure_message_ok_pytest)

@@ -201,7 +201,7 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
         rt = version_tuple(remote_ver)
         lt = version_tuple(EXTENSION_VERSION)
         log.info("extension update check: comparing remote_tuple=%s local_tuple=%s (local %r)", rt, lt, EXTENSION_VERSION)
-        if not remote_is_newer(remote_ver, EXTENSION_VERSION):
+        if rt is None or lt is None or rt <= lt:
             log.info(
                 "extension update check: not notifying (remote %s is not newer than local %s)",
                 remote_ver,

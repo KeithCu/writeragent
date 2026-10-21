@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``xl``).
+"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
@@ -25,7 +25,6 @@ from .calc_functions_util import (
     _clean_paired_arrays,
     _collect_a_values,
     _date_to_serial,
-    _days360,
     _extract_numeric_array,
     _find_match_index,
     _find_text_cut,
@@ -33,6 +32,7 @@ from .calc_functions_util import (
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
+    yearfrac,
 )
 from .coerce import _LO_ERROR_TOKENS, is_blank_value
 
@@ -1049,64 +1049,6 @@ def xor(*args: Any) -> bool | float | str:
     if not saw:
         return "#VALUE!"
     return trues % 2 == 1
-
-
-def _actual_actual_year_length(start: dt.date, end: dt.date) -> float:
-    """Year length for YEARFRAC basis 1.
-
-    GetYearFrac (analysishelper.cxx, ODFF 1.2 §4.11.7.7). ``start`` is on
-    or before ``end``. A span longer than one year uses the average length
-    of each calendar year it touches. A shorter span uses 366 when it sits
-    in one leap year or includes 29 February, otherwise 365. Dividing by
-    a flat 365.25 made 2023-01-01 through 2024-01-01 about 0.99932.
-    """
-    y1, m1, d1 = start.year, start.month, start.day
-    y2, m2, d2 = end.year, end.month, end.day
-    years_differ = y1 != y2
-    longer_than_one_year = years_differ and (
-        y2 != y1 + 1 or m1 < m2 or (m1 == m2 and d1 < d2)
-    )
-    if longer_than_one_year:
-        day_count = sum(366 if calendar.isleap(year) else 365 for year in range(y1, y2 + 1))
-        return day_count / (y2 - y1 + 1)
-    if not years_differ and calendar.isleap(y1):
-        return 366.0
-    includes_feb29 = years_differ and (
-        (calendar.isleap(y1) and (m1 < 2 or (m1 == 2 and d1 <= 29)))
-        or (calendar.isleap(y2) and (m2 > 2 or (m2 == 2 and d2 == 29)))
-    )
-    if includes_feb29:
-        return 366.0
-    return 365.0
-
-
-def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
-    # Swap when start is after end. Excel and LibreOffice GetYearFrac return
-    # a non-negative fraction either way. Bond callers check order themselves.
-    try:
-        s = float(start_date)
-        e = float(end_date)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-    if b < 0 or b > 4 or not math.isfinite(s) or not math.isfinite(e):
-        return float("nan")
-    if s > e:
-        s, e = e, s
-    # _days360 is what days360() calls. Importing days360 from calc_functions_d_h
-    # pulled that module back while it imports yearfrac at load time.
-    sd = _serial_to_date(s)
-    ed = _serial_to_date(e)
-    if sd is None or ed is None:
-        return float("nan")
-    if b == 0 or b == 4:
-        return _days360(sd, ed, european=(b == 4)) / 360.0
-    actual = (ed - sd).days
-    if b == 1:
-        return actual / _actual_actual_year_length(sd, ed)
-    if b == 2:
-        return actual / 360.0
-    return actual / 365.0
 
 
 def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:

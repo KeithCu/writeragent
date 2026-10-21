@@ -696,8 +696,7 @@ def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None 
     from plugin.chatbot.dialogs import msgbox_with_report
     from plugin.scripting.editor_errors import failure_message
 
-    full_detail = "\n\n".join(filter(None, [(detail or "").strip(), exception_traceback(exc).rstrip() if exc is not None else ""]))
-    message = failure_message(reason, detail=full_detail or None)
+    message = failure_message(reason, detail=detail, exc=exc)
     msgbox_with_report(ctx, _("Error"), message, box_type=3, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
 
 

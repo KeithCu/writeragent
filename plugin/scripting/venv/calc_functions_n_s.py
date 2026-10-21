@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``xl``).
+"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
@@ -454,7 +454,7 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
     # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
     # A negative base raised to that fraction was a Python complex.
-    from .calc_functions_t_z import yearfrac
+    from .calc_functions_util import yearfrac
 
     span_last_mat = yearfrac(li, m, b)
     span_set_mat = yearfrac(s, m, b)
@@ -587,9 +587,6 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
         # (GetDouble() != 0).
         # Why this change fixes it: _as_nonzero is that check. "0" is false.
         # "abc" raises ValueError, which this handler already turns into NaN.
-        # Imported here so this module does not load t_z at import time.
-        from .calc_functions_t_z import _as_nonzero
-
         if _as_nonzero(cumulative):
             return float(st.poisson.cdf(k, m))
         return float(st.poisson.pmf(k, m))

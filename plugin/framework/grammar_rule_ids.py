@@ -36,6 +36,33 @@ def bare_code_for_persistence(rule_identifier: str, prefix: str) -> str:
     return parse_prefixed_rule_identifier(rule_identifier, prefix) or rule_identifier
 
 
+def grammar_match(
+    *,
+    wrong: str,
+    correct: str,
+    n_error_start: int,
+    n_error_length: int,
+    short_comment: str,
+    full_comment: str,
+    rule_identifier: str,
+    suggestions: list[str],
+    reason: str,
+    type: str,
+) -> dict[str, Any]:
+    return {
+        "wrong": wrong,
+        "correct": correct,
+        "n_error_start": n_error_start,
+        "n_error_length": n_error_length,
+        "short_comment": short_comment,
+        "full_comment": full_comment,
+        "rule_identifier": rule_identifier,
+        "suggestions": suggestions,
+        "reason": reason,
+        "type": type,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Shipped BCP-47 registry + UNO CharLocale bridging
 # ---------------------------------------------------------------------------

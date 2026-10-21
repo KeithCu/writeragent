@@ -833,7 +833,7 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
     output_style = output_para_style(doc)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     if out_text.strip():
-        display, _unused = _prepare_display_text(out_text)
+        display = _prepare_display_text(out_text)
         if display.strip():
             if cursor is not None:
                 _insert_stdout_paragraph(doc, cell, cursor, display, output_style, notebook_in)

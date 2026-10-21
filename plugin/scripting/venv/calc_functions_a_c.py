@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``xl``).
+"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
@@ -17,7 +17,6 @@ from typing import Any
 
 import numpy as np
 
-from .calc_functions_t_z import yearfrac
 from .calc_functions_util import (
     _bessel_iv_jv,
     _bessel_kn_yn,
@@ -35,6 +34,7 @@ from .calc_functions_util import (
     _round_half_up,
     _serial_to_date,
     match_criteria,
+    yearfrac,
 )
 from .coerce import is_missing_value
 

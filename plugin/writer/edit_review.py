@@ -51,7 +51,7 @@ import uuid
 from typing import Any, Callable, ClassVar, Iterator
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.writer import review_scan as _review_scan
 
 log = logging.getLogger(__name__)
@@ -1106,9 +1106,8 @@ def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
 _BLOCKING_REDLINE_TYPES = frozenset({"Insert", "Delete"})
 _WALK_FAILED = object()
 
-# Shown by the Extend/Edit Selection message box. editselection.py wraps the same
-# words in _() so xgettext can extract them; keep the two copies identical.
-TRACKED_SELECTION_MESSAGE = "This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified."
+# Shown by the Extend/Edit Selection message box.
+TRACKED_SELECTION_MESSAGE = N_("This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified.")
 
 
 class TrackedChangesInSelection(Exception):

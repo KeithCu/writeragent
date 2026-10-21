@@ -325,7 +325,7 @@ Microsoft’s `xl("A1:B10")` is a **data bridge** (UI literals rewritten at edit
 
 | | Microsoft `xl()` | WriterAgent `calc.*` |
 |--|------------------|-------------------|
-| **Shape** | One callable: `xl("A1:C10", headers=True)` (package: `%Pn%` + `_xlws.PY` deps) | Module alias with **259** helpers: `calc.sumif(...)`, `calc.xlookup(...)`, … |
+| **Shape** | One callable: `xl("A1:C10", headers=True)` (package: `%Pn%` + `_xlws.PY` deps) | Module alias with **261** helpers: `calc.sumif(...)`, `calc.xlookup(...)`, … |
 | **Purpose** | Data **ingress** (ranges, tables, names, images, Power Query) → usually a pandas DataFrame | Replicate **Calc/Excel formula semantics** inside Python during spreadsheet conversion |
 | **Where it lives** | Script bank + `_xlws.PY` cell stub (not a long inline `=PY("…")` string) | Data arrives via explicit `=PY(...; range)` args as `data`; `calc` auto-imported from [`AUTO_IMPORTS`](../../plugin/framework/constants.py) |
 | **Plumbing** | Required `import excel` + `excel.set_xl_scalar_conversion(...)` / `excel.set_xl_array_conversion(...)` | [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) (WriterAgent OXT only; excluded from LibrePy for now) |
@@ -338,7 +338,7 @@ Microsoft’s `xl("A1:B10")` is a **data bridge** (UI literals rewritten at edit
 - **`xl()`** — pull worksheet objects into Python ([Get started with Python in Excel](https://support.microsoft.com/en-us/excel/python/get-started-with-python-in-excel), [PY function](https://support.microsoft.com/en-us/excel/python/py-function)).
 - **`excel` module** — type conversion plumbing only (`convert_to_scalar`, `convert_to_dataframe`, `client_timezone`, `client_locale`); not formula parity ([initialization settings](https://support.microsoft.com/en-us/office/python-in-excel-initialization-settings-ab0868da-cdfd-4f2d-a61e-1a242a97ea39)).
 - **Pre-loaded analysis stack** — `numpy`, `pandas`, `matplotlib`, `statsmodels`, `seaborn` for aggregation, plotting, and stats **after** data is in Python.
-- **User-defined init helpers** — e.g. `QuickStats`, `kpi_summary`, `format_currency` in the editable initialization pane; community patterns, **not** 259 built-in formula emulators.
+- **User-defined init helpers** — e.g. `QuickStats`, `kpi_summary`, `format_currency` in the editable initialization pane; community patterns, **not** 261 built-in formula emulators.
 - **Excel formulas remain Excel formulas** — Microsoft’s product model keeps `=SUMIF` / `=XLOOKUP` in normal cells and uses Python for analysis on table data pulled via `xl()`. They are **not** converting formula cells to Python the way this import pipeline does.
 
 For a SUMIF-like operation in Python in Excel, the intended path is pandas (e.g. `df.loc[df["Region"] == "East", "Sales"].sum()`) or referencing a cell that still holds `=SUMIF(...)`. WriterAgent’s `calc.*` library exists because **spreadsheet import** must emit readable Python that preserves Calc semantics without hand-rolling 200+ functions per workbook — a gap Microsoft does not fill.
@@ -361,7 +361,7 @@ flowchart TB
   end
 ```
 
-**Coverage:** WriterAgent ships **259** helpers in [`HELPER_NAMES`](../../plugin/scripting/calc_functions_common.py); the translator maps **~157** Calc builtins today (see [§8.12](#812-master-function-inventory-goal)); gaps become TODO cells, inline `np`/`math`, or native Calc. Microsoft has no equivalent library.
+**Coverage:** WriterAgent ships **261** helpers in [`HELPER_NAMES`](../../plugin/scripting/venv/calc_functions.py); the translator maps **~157** Calc builtins today (see [§8.12](#812-master-function-inventory-goal)); gaps become TODO cells, inline `np`/`math`, or native Calc. Microsoft has no equivalent library.
 
 **Packaging:** The `calc.*` stack is **WriterAgent-only** for now ([LibrePy exclusion](../scripting/librepy-split.md)); LibrePy keeps explicit `data` args but not formula-parity helpers until spreadsheet conversion ships in core.
 

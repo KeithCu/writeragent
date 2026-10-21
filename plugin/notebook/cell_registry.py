@@ -51,7 +51,6 @@ __all__ = [
     "init_registry_execution_counter",
     "_IN_PROMPT_RE",
     "_format_in_prompt",
-    "_cell_heading",
     "_coerce_notebook_text",
     "_MAX_IMPORT_TEXT_CHARS",
     "_TRUNCATION_SUFFIX",
@@ -129,13 +128,13 @@ def _coerce_notebook_text(value: Any) -> str:
     return str(value)
 
 
-def _prepare_display_text(text: str) -> tuple[str, bool]:
+def _prepare_display_text(text: str) -> str:
     """Display text only (markdown, raw, output), not code form fields."""
     display = text or ""
     if len(display) <= _MAX_IMPORT_TEXT_CHARS:
-        return display, False
+        return display
     keep = max(0, _MAX_IMPORT_TEXT_CHARS - len(_TRUNCATION_SUFFIX))
-    return display[:keep] + _TRUNCATION_SUFFIX, True
+    return display[:keep] + _TRUNCATION_SUFFIX
 
 
 def _format_in_prompt(execution_count: Any | None) -> str:
@@ -143,13 +142,6 @@ def _format_in_prompt(execution_count: Any | None) -> str:
     if execution_count is None:
         return "In [ ]:"
     return f"In [{execution_count}]:"
-
-
-def _cell_heading(idx: int, cell_type: str, execution_count: Any | None = None) -> str:
-    """Code-cell gutter prompt only. Markdown/raw have no Cell N chrome."""
-    if cell_type == "code":
-        return _format_in_prompt(execution_count)
-    return ""
 
 
 # ---------------------------------------------------------------------------

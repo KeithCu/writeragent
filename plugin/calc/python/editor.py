@@ -41,7 +41,7 @@ from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
 from plugin.scripting.editor_host import get_active_session, launch_monaco_editor, monaco_editor_available, set_active_session
-from plugin.scripting.editor_errors import exception_traceback, failure_message
+from plugin.scripting.editor_errors import failure_message
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -397,7 +397,7 @@ def open_python_cell_editor(ctx: Any) -> None:
         _open_python_cell_editor_impl(ctx)
     except Exception as e:
         log.exception("python_editor: unhandled failure")
-        msg = failure_message(_("The Python editor failed unexpectedly."), detail=exception_traceback(e))
+        msg = failure_message(_("The Python editor failed unexpectedly."), exc=e)
         msgbox_with_report(ctx, product_display_name(ctx), msg, box_type=3, reportable=True, report_title="Python cell editor failed", report_extra=msg)
 
 

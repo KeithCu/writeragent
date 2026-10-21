@@ -40,7 +40,6 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     rows = librepy_hamburger_actions(
         is_calc_doc=True,
         is_writer_doc=False,
-        is_draw_doc=False,
         handler_lookup=_lookup,
     )
     actions = [a for _label, a, _icon in rows]
@@ -67,7 +66,6 @@ def test_writer_hamburger_without_notebook_registry_omits_run_actions():
     rows = librepy_hamburger_actions(
         is_calc_doc=False,
         is_writer_doc=True,
-        is_draw_doc=False,
         handler_lookup=_lookup,
         doc=object(),
     )
@@ -84,8 +82,7 @@ def test_writer_hamburger_includes_notebook_run_actions():
         rows = librepy_hamburger_actions(
             is_calc_doc=False,
             is_writer_doc=True,
-            is_draw_doc=False,
-            handler_lookup=_lookup,
+                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -100,8 +97,7 @@ def test_writer_hamburger_omits_run_actions_when_registry_has_no_code_cells():
         rows = librepy_hamburger_actions(
             is_calc_doc=False,
             is_writer_doc=True,
-            is_draw_doc=False,
-            handler_lookup=_lookup,
+                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -116,8 +112,7 @@ def test_calc_hamburger_omits_notebook_even_with_registry():
         rows = librepy_hamburger_actions(
             is_calc_doc=True,
             is_writer_doc=False,
-            is_draw_doc=False,
-            handler_lookup=_lookup,
+                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -130,7 +125,6 @@ def test_skips_unregistered_handlers():
     rows = librepy_hamburger_actions(
         is_calc_doc=True,
         is_writer_doc=False,
-        is_draw_doc=False,
         handler_lookup=lambda _a: None,
     )
     assert rows == []
@@ -203,7 +197,6 @@ def test_show_hamburger_uses_librepy_command_prefix():
     with (
         patch("plugin.librepy.sidebar_menus.is_calc", return_value=True),
         patch("plugin.librepy.sidebar_menus.is_writer", return_value=False),
-        patch("plugin.librepy.sidebar_menus.is_draw", return_value=False),
         patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
         patch(
             "plugin.librepy.sidebar_menus.command_prefix_for_ctx",

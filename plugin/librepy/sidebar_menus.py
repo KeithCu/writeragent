@@ -14,7 +14,7 @@ import inspect
 import logging
 from typing import Any, Callable
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
 from plugin.framework.thread_guard import main_thread_only
@@ -162,7 +162,7 @@ def document_has_notebook_registry(doc: Any) -> bool:
         return False
 
 
-def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, is_draw_doc: bool, handler_lookup: Callable[[str], Any] | None = None, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
+def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler_lookup: Callable[[str], Any] | None = None, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
     """Return (label, action, icon) rows that have a registered handler."""
     lookup = handler_lookup or get_action_handler
     out: list[tuple[str, str, str | None]] = []
@@ -170,8 +170,6 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, is_draw
         if when == "calc" and not is_calc_doc:
             continue
         if when == "writer" and not is_writer_doc:
-            continue
-        if when == "draw" and not is_draw_doc:
             continue
         if when == "notebook":
             if not is_writer_doc or not document_has_notebook_registry(doc):
@@ -268,7 +266,7 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         item_actions: dict[int, str] = {}
         next_id = [1]
         pos = 0
-        for label, action, icon in librepy_hamburger_actions(is_calc_doc=is_calc(model), is_writer_doc=is_writer(model), is_draw_doc=is_draw(model), doc=model):
+        for label, action, icon in librepy_hamburger_actions(is_calc_doc=is_calc(model), is_writer_doc=is_writer(model), doc=model):
             add_popup_item(popup, label, action, pos, item_actions, next_id, ctx, prefix, icon)
             pos += 1
 

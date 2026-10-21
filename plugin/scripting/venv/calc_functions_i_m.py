@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``xl``).
+"""Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
@@ -361,7 +361,7 @@ def intercept(data_y: Any, data_x: Any) -> float:
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
-    from .calc_functions_t_z import yearfrac
+    from .calc_functions_util import yearfrac
 
     # type errors are left to the worker exception path, which returns #VALUE!
     s = float(settlement)

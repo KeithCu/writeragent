@@ -58,26 +58,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-_ANALYSIS_VENV_EXPORTS = frozenset(
-    {
-        "QuickStats",
-        "clean_and_prepare",
-        "cluster_numeric",
-        "compare_periods",
-        "correlation_matrix",
-        "describe_data",
-        "detect_outliers",
-        "format_currency",
-        "format_percent",
-        "group_summary",
-        "kpi_summary",
-        "monte_carlo",
-        "pivot_aggregate",
-        "quick_stats",
-        "run_analysis",
-        "run_regression",
-    }
-)
+_ANALYSIS_VENV_EXPORTS = HELPER_NAMES | {"QuickStats", "run_analysis"}
 
 
 _ANALYSIS_COERCE_EXPORTS = frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"})

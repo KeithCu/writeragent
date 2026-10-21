@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Internal shared utilities for calc_functions formula emulation."""
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -10,54 +11,13 @@ import builtins
 import calendar
 import datetime as dt
 from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
-import functools
 import math
 import re
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
 from .coerce import _LO_ERROR_TOKENS, header_label, is_missing_value
-
-__all__ = [
-    "_SERIAL_OFFSET",
-    "_as_bool_flag",
-    "_as_nonzero",
-    "_bessel_iv_jv",
-    "_bessel_kn_yn",
-    "_build_holiday_set",
-    "_calc_sort_key",
-    "_clean_paired_arrays",
-    "_collect_a_values",
-    "_complex_coeff",
-    "_criteria_numbers",
-    "_date_to_serial",
-    "_days360",
-    "_days_between",
-    "_dollar_fraction_terms",
-    "_eval_d_criteria",
-    "_extract_numeric_array",
-    "_find_match_index",
-    "_find_text_cut",
-    "_fractional_dollar_digits",
-    "_from_complex",
-    "_get_coupon_dates",
-    "_int_bitwise",
-    "_int_shift",
-    "_is_calc_error",
-    "_multi_criteria_mask",
-    "_npf_result",
-    "_parse_complex",
-    "_parse_weekend",
-    "_round_half_up",
-    "_scipy_stats",
-    "_serial_to_date",
-    "_to_complex",
-    "_to_float_a",
-    "_wildcard_fullmatch",
-    "match_criteria",
-    "nan_on_error",
-]
 
 _SERIAL_OFFSET: int = 693594
 
@@ -125,6 +85,64 @@ def _days_between(d1: Any, d2: Any, basis: int) -> float:
     return float((ed - sd).days)
 
 
+def _actual_actual_year_length(start: dt.date, end: dt.date) -> float:
+    """Year length for YEARFRAC basis 1.
+
+    GetYearFrac (analysishelper.cxx, ODFF 1.2 §4.11.7.7). ``start`` is on
+    or before ``end``. A span longer than one year uses the average length
+    of each calendar year it touches. A shorter span uses 366 when it sits
+    in one leap year or includes 29 February, otherwise 365. Dividing by
+    a flat 365.25 made 2023-01-01 through 2024-01-01 about 0.99932.
+    """
+    y1, m1, d1 = start.year, start.month, start.day
+    y2, m2, d2 = end.year, end.month, end.day
+    years_differ = y1 != y2
+    longer_than_one_year = years_differ and (
+        y2 != y1 + 1 or m1 < m2 or (m1 == m2 and d1 < d2)
+    )
+    if longer_than_one_year:
+        day_count = sum(366 if calendar.isleap(year) else 365 for year in range(y1, y2 + 1))
+        return day_count / (y2 - y1 + 1)
+    if not years_differ and calendar.isleap(y1):
+        return 366.0
+    includes_feb29 = years_differ and (
+        (calendar.isleap(y1) and (m1 < 2 or (m1 == 2 and d1 <= 29)))
+        or (calendar.isleap(y2) and (m2 > 2 or (m2 == 2 and d2 == 29)))
+    )
+    if includes_feb29:
+        return 366.0
+    return 365.0
+
+
+def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
+    # Swap when start is after end. Excel and LibreOffice GetYearFrac return
+    # a non-negative fraction either way. Bond callers check order themselves.
+    try:
+        s = float(start_date)
+        e = float(end_date)
+        b = int(float(basis))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    if b < 0 or b > 4 or not math.isfinite(s) or not math.isfinite(e):
+        return float("nan")
+    if s > e:
+        s, e = e, s
+    # _days360 is what days360() calls. Importing days360 from calc_functions_d_h
+    # pulled that module back while it imports yearfrac at load time.
+    sd = _serial_to_date(s)
+    ed = _serial_to_date(e)
+    if sd is None or ed is None:
+        return float("nan")
+    if b == 0 or b == 4:
+        return _days360(sd, ed, european=(b == 4)) / 360.0
+    actual = (ed - sd).days
+    if b == 1:
+        return actual / _actual_actual_year_length(sd, ed)
+    if b == 2:
+        return actual / 360.0
+    return actual / 365.0
+
+
 def _round_half_up(val: float, decimals: int) -> Decimal:
     """Round a float half-away-from-zero matching Excel/Calc rounding rules."""
     # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
@@ -149,23 +167,6 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
             return d.quantize(exp, rounding=ROUND_HALF_UP)
     except (InvalidOperation, Overflow):
         raise ValueError("decimal quantize failed") from None
-
-
-def nan_on_error(*exceptions: type[BaseException]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator catching given exceptions (default ValueError, TypeError, OverflowError) and returning NaN."""
-    exc_types = exceptions or (ValueError, TypeError, OverflowError)
-
-    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return fn(*args, **kwargs)
-            except exc_types:
-                return float("nan")
-
-        return wrapper
-
-    return decorator
 
 
 def _as_bool_flag(val: Any) -> bool:
