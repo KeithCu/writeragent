@@ -1266,8 +1266,8 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         try:
             from plugin.chatbot.memory import MemoryStore
 
-            store = MemoryStore(ctx)
-            user_mem = store.read("user")
+            store = MemoryStore()
+            user_mem = store.read()
             if user_mem:
                 base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
         except Exception:

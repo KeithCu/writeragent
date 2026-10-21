@@ -1,91 +1,62 @@
 from __future__ import annotations
 
-import logging
 import os
-import tempfile
 import threading
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
+from plugin.framework.config import atomic_write_text, user_config_dir
+from plugin.framework.deal_shim import (
+    DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_SOURCE,
+    DEAL_MAX_TOKEN,
+    _profile,
+    str_bounded,
+    deal,
+)
+from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-from plugin.framework.config import user_config_dir
-from plugin.framework.errors import ConfigError, best_effort
-
-log = logging.getLogger(__name__)
 
 # Librarian and chat can upsert the same USER.md from different threads.
 # os.replace is atomic; the read-modify-write around it was not.
 _MEMORY_WRITE_LOCK = threading.Lock()
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    ascii_bounded,
-    str_bounded,
-    deal,
-)
-
 
 class MemoryStore:
-    config_dir: str | None
     memory_dir: str
 
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self) -> None:
         # crosshair: off
-        self.config_dir = user_config_dir()
-        if self.config_dir is None:
+        config_dir = user_config_dir()
+        if config_dir is None:
             raise ConfigError("UNO context is required to resolve memory store path")
-        self.memory_dir = os.path.join(self.config_dir, "memories")
+        self.memory_dir = os.path.join(config_dir, "memories")
         os.makedirs(self.memory_dir, exist_ok=True)
 
-    @deal.pre(lambda self, target: ascii_bounded(target, DEAL_MAX_TOKEN, min_len=1))
-    @deal.post(lambda result: isinstance(result, str) and (result.endswith("USER.md") or result.endswith("MEMORY.md")))
-    def _get_path(self, target: str) -> str:
+    @deal.post(lambda result: isinstance(result, str) and result.endswith("USER.md"))
+    def _get_path(self) -> str:
         # crosshair: off
-        filename = "USER.md" if target == "user" else "MEMORY.md"
-        return os.path.join(self.memory_dir, filename)
+        return os.path.join(self.memory_dir, "USER.md")
 
-    def read(self, target: str) -> str:
+    def read(self) -> str:
         # crosshair: off
-        path = self._get_path(target)
+        path = self._get_path()
         if not os.path.exists(path):
             return ""
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
-    def write(self, target: str, content: str) -> bool:
+    def write(self, content: str) -> None:
         # crosshair: off
-        path = self._get_path(target)
-        # Atomic replace (same directory → same filesystem): a reader or concurrent
-        # writer can never observe a half-written file, even if this process crashes
-        # mid-write.
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".memory-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(content)
-                # Flush and fsync before replace, matching
-                # config._write_config_file. Otherwise os.replace can publish
-                # USER.md while the new bytes are still only in the page cache,
-                # and a crash after the replace loses the write.
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-        return True
+        path = self._get_path()
+        atomic_write_text(path, content, prefix=".memory-", fsync=True)
 
 
-def user_profile_exists(ctx: Any) -> bool:
+def user_profile_exists(ctx: Any = None) -> bool:
     """True when USER.md has non-empty content. Missing store or I/O → False (start Librarian)."""
-    val = best_effort(lambda: MemoryStore(ctx).read("user"), "user_profile_exists: treating profile as missing")
+    val = best_effort(lambda: MemoryStore().read(), "user_profile_exists: treating profile as missing")
     return bool(str(val or "").strip())
 
 
@@ -111,7 +82,7 @@ def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
     )
 
 
-_deal_memory_args_ok = _deal_memory_args_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_args_ok_pytest
+_deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair, _deal_memory_args_ok_pytest)
 
 
 @deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
@@ -122,9 +93,6 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)
     if isinstance(arguments, str):
-        # Do not sniff sys.modules["crosshair"] — CrossHair explores both
-        # branches. 16-char JSON (DEAL_MAX_SOURCE under CrossHair) via
-        # safe_json_loads is the domain; keep this FQN on.
         from plugin.framework.errors import safe_json_loads
 
         parsed = safe_json_loads(arguments)
@@ -132,24 +100,14 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
-@deal.post(lambda result: result is None or isinstance(result, str))
-def memory_key_from_tool_arguments(arguments: object) -> str | None:
-    # crosshair: off  # wraps upsert_memory_arguments_dict (cover-all 33569420452: 4491 examples / ~485s est). Doable later.
-    """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
-    d = upsert_memory_arguments_dict(arguments)
-    if not d:
-        return None
-    k = d.get("key")
-    return k if isinstance(k, str) else None
+def _deal_memory_chat_line_ok_pytest(arguments: object) -> bool:
+    return True
 
 
-def _deal_memory_chat_line_ok_pytest(func_args: object) -> bool:
-    return hasattr(func_args, "get")
-
-
-def _deal_memory_chat_line_ok_crosshair(func_args: object) -> bool:
-    get = getattr(func_args, "get", None)
+def _deal_memory_chat_line_ok_crosshair(arguments: object) -> bool:
+    if isinstance(arguments, str):
+        return str_bounded(arguments, DEAL_MAX_SOURCE)
+    get = getattr(arguments, "get", None)
     if not callable(get):
         return False
     key = get("key")
@@ -159,39 +117,30 @@ def _deal_memory_chat_line_ok_crosshair(func_args: object) -> bool:
     )
 
 
-_deal_memory_chat_line_ok = (
-    _deal_memory_chat_line_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_chat_line_ok_pytest
-)
+_deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair, _deal_memory_chat_line_ok_pytest)
 
 
-@deal.pre(lambda func_args: _deal_memory_chat_line_ok(func_args))
+@deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
-def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
+def format_upsert_memory_chat_line(arguments: object) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
-    # Deep check-all run 32840960268: Prev 20:53.
     # crosshair: off
-    key = func_args.get("key")
-    if not isinstance(key, str):
-        return "[Running tool: upsert_memory...]\n"
-    raw = func_args.get("content", "")
-    if raw is None:
-        val = ""
-    elif isinstance(raw, str):
-        val = raw
-    else:
-        val = str(raw)
-    one_line = val.replace("\n", " ").replace("\r", " ")
-    if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
-        one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."
-    return f"[Memory update: key {key!r} value {one_line!r}]\n"
+    if isinstance(arguments, Mapping):
+        key = arguments.get("key")
+        if not isinstance(key, str):
+            return "[Running tool: upsert_memory...]\n"
+        raw = arguments.get("content", "")
+        if raw is None:
+            val = ""
+        elif isinstance(raw, str):
+            val = raw
+        else:
+            val = str(raw)
+        one_line = val.replace("\n", " ").replace("\r", " ")
+        if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
+            one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."
+        return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
-
-@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
-@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
-def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
-    # crosshair: off
-    # safe_json_loads/json.loads CrossHairInternal after DEAL_MAX_SOURCE pre; cover-all 32987767383 ~23m.
-    """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)
     if not d:
         return "[Memory update: upsert_memory]\n"
@@ -223,20 +172,19 @@ class MemoryTool(ToolBase):
         content = kwargs.get("content")
 
         try:
-            store = MemoryStore(ctx)
+            store = MemoryStore()
         except Exception as e:
             return self._tool_error(f"Failed to initialize memory store: {e}")
 
-        target = "user"
         with _MEMORY_WRITE_LOCK:
-            return self._upsert_locked(store, key, content, target)
+            return self._upsert_locked(store, key, content)
 
-    def _upsert_locked(self, store: MemoryStore, key: str, content: Any, target: str) -> dict[str, Any]:
+    def _upsert_locked(self, store: MemoryStore, key: str, content: Any) -> dict[str, Any]:
         # crosshair: off
         import json
 
         try:
-            current = store.read(target)
+            current = store.read()
         except (OSError, UnicodeDecodeError) as e:
             # Invalid UTF-8 raises UnicodeDecodeError, a ValueError, not
             # an OSError. Catch both and return the same tool error as any
@@ -293,7 +241,7 @@ class MemoryTool(ToolBase):
             return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
 
         try:
-            store.write(target, new_content)
+            store.write(new_content)
             return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
         except OSError as e:
             return self._tool_error(f"Failed to write memory: {e}")

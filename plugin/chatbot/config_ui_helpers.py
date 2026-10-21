@@ -129,7 +129,7 @@ def _filter_models_for_provider(models: list[str], provider: str | None) -> list
     return [mid for mid in models if not _is_incompatible_model_for_provider(mid, provider)]
 
 
-def _effective_api_key(ctx: Any, endpoint: str, api_key_override: str | None) -> str:
+def _effective_api_key(endpoint: str, api_key_override: str | None) -> str:
     if api_key_override is not None:
         return str(api_key_override).strip()
     return str(get_api_key_for_endpoint(endpoint) or "").strip()
@@ -184,6 +184,16 @@ def _resolve_display_model_for_combobox(
 _PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"})
 
 
+def _paint_combo(ctrl: Any, items: list[str], selected: str) -> None:
+    if items:
+        ctrl.removeItems(0, ctrl.getItemCount())
+        ctrl.addItems(tuple(items), 0)
+    if selected:
+        ctrl.setText(selected)
+    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+        ctrl.setText("")
+
+
 def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru_key: str, endpoint: str) -> str:
     """Populate combobox from LRU only; no model fetch or text_model fallback."""
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
@@ -194,13 +204,7 @@ def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru
     to_show = [str(m).strip() for m in lru if str(m).strip()]
     if curr_val_str and curr_val_str not in to_show:
         to_show.insert(0, curr_val_str)
-    if to_show:
-        ctrl.removeItems(0, ctrl.getItemCount())
-        ctrl.addItems(tuple(to_show), 0)
-    if curr_val_str:
-        ctrl.setText(curr_val_str)
-    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
-        ctrl.setText("")
+    _paint_combo(ctrl, to_show, curr_val_str)
     return curr_val_str
 
 
@@ -269,7 +273,7 @@ def populate_combobox_with_lru(
         if "audio" in lru_key.lower() or "stt" in lru_key.lower()
         else "text"
     )
-    effective_key = _effective_api_key(ctx, endpoint, api_key_override)
+    effective_key = _effective_api_key(endpoint, api_key_override)
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
 
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
@@ -398,32 +402,30 @@ def populate_combobox_with_lru(
                 to_show.append(_("(Connection failed)"))
 
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
-
-    if to_show:
-        ctrl.removeItems(0, ctrl.getItemCount())
-        ctrl.addItems(tuple(to_show), 0)
-    if display_val:
-        ctrl.setText(display_val)
-    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
-        ctrl.setText("")
+    _paint_combo(ctrl, to_show, display_val)
     return display_val if display_val else ""
 
 
-def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
-    """Persist sidebar image model combobox text to image_model and optionally image_model_lru."""
+def _sync_sidebar_model(
+    ctrl: Any,
+    model_key: str,
+    lru_base: str,
+    get_current_model: Any,
+    *,
+    update_lru: bool = True,
+) -> str | None:
     if not ctrl or not hasattr(ctrl, "getText"):
         return None
     txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
     if not txt:
         return None
-    from plugin.framework.client.model_fetcher import get_image_model
 
     patch: dict[str, Any] = {}
-    if txt != get_image_model():
-        patch["image_model"] = txt
+    if txt != get_current_model():
+        patch[model_key] = txt
 
     if update_lru:
-        lru_key = lru_config_key("image_model_lru", get_current_endpoint())
+        lru_key = lru_config_key(lru_base, get_current_endpoint())
         updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
         if updated is not None:
             patch[lru_key] = updated
@@ -433,36 +435,19 @@ def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
     return txt
 
 
+def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
+    """Persist sidebar image model combobox text to image_model and optionally image_model_lru."""
+    from plugin.framework.client.model_fetcher import get_image_model
+
+    return _sync_sidebar_model(ctrl, "image_model", "image_model_lru", get_image_model, update_lru=update_lru)
+
+
 def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
-    """Persist sidebar chat model combobox text to text_model and model_lru.
-
-    Dropdown picks fire ItemListener; paste/typing only change ComboBox text.
-    Send and TextListener call this so get_text_model/get_api_config match the UI.
-
-    Both ``text_model`` and ``model_lru@endpoint`` go in one ``set_configs``
-    when they differ from disk. Separate writes each rewrite
-    ``writeragent.json`` and emit ``config:changed``. A model that already
-    matches, or an LRU head that already matches, is left out of that dict,
-    so one real change is still one write and one event.
-    """
+    """Persist sidebar chat model combobox text to text_model and model_lru."""
     del ctx  # Listeners pass the panel context; the write uses the config store.
-    if not ctrl or not hasattr(ctrl, "getText"):
-        return None
-    txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
-    if not txt:
-        return None
     from plugin.framework.client.model_fetcher import get_text_model
 
-    patch: dict[str, Any] = {}
-    if txt != get_text_model():
-        patch["text_model"] = txt
-    lru_key = lru_config_key("model_lru", get_current_endpoint())
-    updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
-    if updated is not None:
-        patch[lru_key] = updated
-    if patch:
-        set_configs(patch)
-    return txt
+    return _sync_sidebar_model(ctrl, "text_model", "model_lru", get_text_model, update_lru=True)
 
 
 def endpoint_from_selector_text(text: Any) -> str:

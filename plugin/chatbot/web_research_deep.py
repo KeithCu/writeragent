@@ -67,7 +67,10 @@ LlmChatFn = Callable[[list[dict[str, str]], int], str]
 WorkerFactory = Callable[[], tuple[WebAgentRunner, LlmChatFn, Callable[[], None]]]
 StopChecker = Callable[[], bool] | None
 StatusCallback = Callable[[str], None] | None
-ProgressCallback = Callable[["ResearchProgress"], None] | None
+
+
+def _unfenced_lines(response: str) -> list[str]:
+    return response.replace("```json", "").replace("```", "").splitlines()
 
 
 def _extract_json_payloads(response: str) -> list[str]:
@@ -114,7 +117,7 @@ def parse_search_queries_response(response: str, num_queries: int) -> list[dict[
 
     line_queries: list[dict[str, str]] = []
     current_query: dict[str, str] = {}
-    for raw_line in response.replace("```json", "").replace("```", "").splitlines():
+    for raw_line in _unfenced_lines(response):
         line = raw_line.strip()
         if not line:
             continue
@@ -143,7 +146,7 @@ def parse_follow_up_questions_response(response: str, num_questions: int) -> lis
             return parsed_questions[:num_questions]
 
     line_questions: list[str] = []
-    for raw_line in response.replace("```json", "").replace("```", "").splitlines():
+    for raw_line in _unfenced_lines(response):
         line = raw_line.strip()
         if not line:
             continue
@@ -191,7 +194,7 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
     line_learnings: list[str] = []
     line_questions: list[str] = []
     line_citations: dict[str, list[str]] = {}
-    for raw_line in response.replace("```json", "").replace("```", "").splitlines():
+    for raw_line in _unfenced_lines(response):
         line = raw_line.strip()
         if not line:
             continue
@@ -224,15 +227,23 @@ def count_words(text: Any) -> int:
     return len(str(text).split())
 
 
-def trim_context_to_word_limit(learnings: list[str], context_chunks: list[str], max_words: int = MAX_CONTEXT_WORDS) -> list[str]:
+def _trim_evidence(
+    learnings: list[str],
+    context_chunks: list[str],
+    max_words: int = MAX_CONTEXT_WORDS,
+) -> tuple[list[str], list[str]]:
     total_words = 0
+    trimmed_learnings: list[str] = []
     for item in learnings:
         words = count_words(item)
         if total_words + words <= max_words:
+            trimmed_learnings.append(item)
             total_words += words
         else:
             if total_words < max_words:
+                text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
                 rem = max_words - total_words
+                trimmed_learnings.append(" ".join(text.split()[:rem]))
                 total_words += rem
             break
 
@@ -250,7 +261,16 @@ def trim_context_to_word_limit(learnings: list[str], context_chunks: list[str], 
         else:
             break
 
-    return trimmed_context
+    return trimmed_learnings, trimmed_context
+
+
+def trim_context_to_word_limit(
+    learnings: list[str],
+    context_chunks: list[str],
+    max_words: int = MAX_CONTEXT_WORDS,
+) -> list[str]:
+    _trimmed_learnings, trimmed_chunks = _trim_evidence(learnings, context_chunks, max_words)
+    return trimmed_chunks
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -296,10 +316,7 @@ class _ResearchAccumulator:
 def _emit_progress(
     progress: ResearchProgress,
     status_callback: StatusCallback,
-    on_progress: ProgressCallback,
 ) -> None:
-    if on_progress:
-        on_progress(progress)
     if status_callback:
         status_callback(progress.status_text())
 
@@ -371,12 +388,8 @@ def assess_research_coverage(
             ),
         },
     ]
-    response = _llm_chat(llm_chat, messages, max_tokens=1200)
+    response = llm_chat(messages, 1200)
     return parse_assessment_response(response)
-
-
-def _llm_chat(llm_chat: LlmChatFn, messages: list[dict[str, str]], max_tokens: int = 1000) -> str:
-    return llm_chat(messages, max_tokens)
 
 
 def _local_clock_stamp() -> str:
@@ -407,7 +420,7 @@ def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -
             ),
         },
     ]
-    response = _llm_chat(llm_chat, messages, max_tokens=1500)
+    response = llm_chat(messages, 1500)
     return parse_search_queries_response(response, num_queries)
 
 
@@ -433,7 +446,7 @@ def generate_research_plan(llm_chat: LlmChatFn, query: str, search_results: str,
             ),
         },
     ]
-    response = _llm_chat(llm_chat, messages, max_tokens=1500)
+    response = llm_chat(messages, 1500)
     return parse_follow_up_questions_response(response, num_questions)
 
 
@@ -455,7 +468,7 @@ def process_research_results(llm_chat: LlmChatFn, query: str, context: str, num_
             ),
         },
     ]
-    response = _llm_chat(llm_chat, messages, max_tokens=1000)
+    response = llm_chat(messages, 1000)
     return parse_research_results_response(response, num_learnings)
 
 
@@ -468,23 +481,7 @@ def synthesize_deep_report(
     *,
     sources: list[str] | None = None,
 ) -> str:
-    trimmed_chunks = trim_context_to_word_limit(learnings, context_chunks)
-
-    # Also trim learnings themselves if they exceed max_words
-    trimmed_learnings: list[str] = []
-    total_words = 0
-    for item in learnings:
-        words = count_words(item)
-        if total_words + words <= MAX_CONTEXT_WORDS:
-            trimmed_learnings.append(item)
-            total_words += words
-        else:
-            if total_words < MAX_CONTEXT_WORDS:
-                text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
-                rem = MAX_CONTEXT_WORDS - total_words
-                trimmed_learnings.append(" ".join(text.split()[:rem]))
-            break
-
+    trimmed_learnings, trimmed_chunks = _trim_evidence(learnings, context_chunks)
     evidence_parts = list(trimmed_learnings)
     evidence_parts.extend(trimmed_chunks)
     evidence = "\n\n".join(evidence_parts)
@@ -511,7 +508,7 @@ def synthesize_deep_report(
             ),
         },
     ]
-    return _llm_chat(llm_chat, messages, max_tokens=4096)
+    return llm_chat(messages, 4096)
 
 
 def _partial_report_from_evidence(
@@ -578,7 +575,6 @@ def _process_one_sub_query(
     max_sub_queries: int,
     progress: ResearchProgress,
     status_callback: StatusCallback,
-    on_progress: ProgressCallback,
 ) -> dict[str, Any] | None:
     stopped = _check_stopped(stop_checker)
     if stopped is not None:
@@ -594,7 +590,7 @@ def _process_one_sub_query(
         progress.started_queries = acc.started_queries
         progress.current_query = sub_query
 
-    _emit_progress(progress, status_callback, on_progress)
+    _emit_progress(progress, status_callback)
 
     try:
         raw = run_web_agent(sub_query, research_goal, None)
@@ -656,7 +652,6 @@ def _run_sub_queries_parallel(
     concurrency: int,
     progress: ResearchProgress,
     status_callback: StatusCallback,
-    on_progress: ProgressCallback,
     worker_factory: WorkerFactory | None = None,
 ) -> dict[str, Any] | None:
     if not serp_queries:
@@ -690,7 +685,6 @@ def _run_sub_queries_parallel(
                 max_sub_queries=max_sub_queries,
                 progress=progress,
                 status_callback=status_callback,
-                on_progress=on_progress,
             )
         finally:
             if worker_cleanup is not None:
@@ -786,7 +780,6 @@ def _run_adaptive_research_loop(
     run_web_agent: WebAgentRunner,
     stop_checker: StopChecker,
     status_callback: StatusCallback,
-    on_progress: ProgressCallback,
     breadth: int,
     max_rounds: int,
     concurrency: int,
@@ -804,7 +797,7 @@ def _run_adaptive_research_loop(
             return {"error": stopped}
 
         progress.current_round = round_num
-        _emit_progress(progress, status_callback, on_progress)
+        _emit_progress(progress, status_callback)
 
         if round_num == 1:
             if status_callback:
@@ -832,7 +825,6 @@ def _run_adaptive_research_loop(
             concurrency=concurrency,
             progress=progress,
             status_callback=status_callback,
-            on_progress=on_progress,
             worker_factory=worker_factory,
         )
         if loop_error is not None:
@@ -884,7 +876,6 @@ def run_deep_research(
     concurrency: int = 2,
     max_sub_queries: int = 14,
     quality_threshold: int = 7,
-    on_progress: ProgressCallback = None,
     worker_factory: WorkerFactory | None = None,
 ) -> str | dict[str, Any]:
     """Run adaptive multi-round deep research; returns report string or error payload dict."""
@@ -907,7 +898,6 @@ def run_deep_research(
             concurrency=concurrency,
             max_sub_queries=max_sub_queries,
             quality_threshold=quality_threshold,
-            on_progress=on_progress,
             worker_factory=worker_factory,
         )
     except ToolExecutionError as exc:
@@ -934,7 +924,6 @@ def _run_deep_research_body(
     concurrency: int = 2,
     max_sub_queries: int = 14,
     quality_threshold: int = 7,
-    on_progress: ProgressCallback = None,
     worker_factory: WorkerFactory | None = None,
 ) -> str | dict[str, Any]:
     if status_callback:
@@ -961,7 +950,6 @@ def _run_deep_research_body(
         run_web_agent=run_web_agent,
         stop_checker=stop_checker,
         status_callback=status_callback,
-        on_progress=on_progress,
         breadth=breadth,
         max_rounds=max_rounds,
         concurrency=concurrency,

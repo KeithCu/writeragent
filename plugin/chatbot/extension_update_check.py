@@ -27,10 +27,11 @@ from plugin.framework.constants import (
     EXTENSION_ID_LIBREPY,
     EXTENSION_ID_WRITERAGENT,
 )
+from plugin.framework.thread_guard import background
 
 log = logging.getLogger(__name__)
 
-WEEK_SECONDS = 7 * 24 * 3600
+_WEEK_SECONDS = 7 * 24 * 3600
 _FETCH_TIMEOUT = 15
 _GITHUB_RAW = "https://raw.githubusercontent.com/KeithCu/writeragent/refs/heads/master"
 
@@ -98,7 +99,7 @@ def parse_update_xml(data: bytes) -> tuple[str | None, str | None]:
     ident: str | None = None
     ver: str | None = None
     for el in root.iter():
-        tag = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        tag = el.tag.split("}")[-1]
         if tag == "identifier":
             ident = el.get("value")
         elif tag == "version":
@@ -140,9 +141,6 @@ def reset_extension_update_check_schedule_for_tests() -> None:
         _scheduled_extension_ids.clear()
 
 
-from plugin.framework.thread_guard import background
-
-
 @background
 def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
@@ -167,24 +165,19 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
             profile.update_xml_url,
         )
         now = time.time()
-        from plugin.framework.config import get_config_int
+        from plugin.framework.config import get_config_float
 
-        raw_last = get_config_int(profile.config_key_epoch)
-        if raw_last is not None and raw_last != "":
-            try:
-                last_ts = float(str(raw_last))
-                age = now - last_ts
-                if age < WEEK_SECONDS:
-                    log.info(
-                        "extension update check: skipped %s (last attempt %.1f h ago; next fetch in %.1f h). Remove key %r from writeragent.json to force a run sooner.",
-                        profile.display_name,
-                        age / 3600.0,
-                        (WEEK_SECONDS - age) / 3600.0,
-                        profile.config_key_epoch,
-                    )
-                    return
-            except (TypeError, ValueError):
-                log.info("extension update check: ignoring invalid %r value %r", profile.config_key_epoch, raw_last)
+        last_ts = get_config_float(profile.config_key_epoch)
+        age = now - last_ts
+        if age < _WEEK_SECONDS:
+            log.info(
+                "extension update check: skipped %s (last attempt %.1f h ago; next fetch in %.1f h). Remove key %r from writeragent.json to force a run sooner.",
+                profile.display_name,
+                age / 3600.0,
+                (_WEEK_SECONDS - age) / 3600.0,
+                profile.config_key_epoch,
+            )
+            return
 
         attempted = True
         log.info("extension update check: fetching %s …", profile.update_xml_url)

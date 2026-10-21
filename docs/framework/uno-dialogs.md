@@ -66,18 +66,7 @@ LibreOffice controls often differ in method vs model property names across OS bu
 | `set_control_visible(ctrl, visible)` | `plugin.chatbot.dialogs` | Safely shows/hides control via `setVisible()` or `model.Visible`. |
 | `copy_to_clipboard(ctx, text)` | `plugin.chatbot.dialogs` | Sets system clipboard text via `com.sun.star.datatransfer.clipboard.SystemClipboard`. |
 
-### 3.3 Dynamic Control Generation (Programmatic Dialogs)
-
-For building dialogs entirely in code or adding dynamic widgets:
-
-| Function | Location | Description |
-| :--- | :--- | :--- |
-| `add_dialog_button(model, name, label, x, y, w, h, push_button_type=None, enabled=True)` | `plugin.chatbot.dialogs` | Creates and inserts a `UnoControlButtonModel`. |
-| `add_dialog_label(model, name, label, x, y, w, h, multiline=True)` | `plugin.chatbot.dialogs` | Creates and inserts a `UnoControlFixedTextModel`. |
-| `add_dialog_edit(model, name, text, x, y, w, h, readonly=False)` | `plugin.chatbot.dialogs` | Creates and inserts a `UnoControlEditModel`. |
-| `add_dialog_hyperlink(model, name, label, url, x, y, w, h)` | `plugin.chatbot.dialogs` | Creates and inserts a clickable URL button / hyperlink. |
-
-### 3.4 Pre-Built Dialog Helpers
+### 3.3 Pre-Built Dialog Helpers
 
 | Function / Class | Location | Description |
 | :--- | :--- | :--- |
@@ -87,7 +76,7 @@ For building dialogs entirely in code or adding dynamic widgets:
 | `input_box(ctx, message, title="", default="")` | `plugin.chatbot.dialog_views` | Multi-line text input dialog (`EditInputDialog.xdl`) with prompt/model LRU comboboxes. The model combo passes `skip_remote_fetch` so Edit/Extend Selection does not block the UI thread on `/v1/models`. |
 | `show_text_input_dialog(ctx, message, title="", default="")` | `plugin.chatbot.dialogs` | Simple single-line text input dialog (`ShortTextInputDialog.xdl`). |
 
-### 3.5 Combobox & Dropdown Populators
+### 3.4 Combobox & Dropdown Populators
 
 | Function | Location | Description |
 | :--- | :--- | :--- |
@@ -96,7 +85,7 @@ For building dialogs entirely in code or adding dynamic widgets:
 | `populate_endpoint_selector(ctx, ctrl, current_endpoint)` | `plugin.chatbot.config_ui_helpers` | Populates the endpoint dropdown with known provider URLs. |
 | `update_lru_history(val, lru_key, endpoint, max_items=None)` | `plugin.framework.model_lru` | Prepends a selected item to an LRU list. Settings OK and the sidebar model sync fold that list into the same `set_configs` as the field. Other callers still write through this helper. |
 
-### 3.6 Exception-Safe UNO Listeners (`plugin.framework.uno_listeners`)
+### 3.5 Exception-Safe UNO Listeners (`plugin.framework.uno_listeners`)
 
 All listener base classes catch and log ordinary exceptions in callbacks, so a Python bug does not enter the PyUNO bridge. `ListenerBoundary` is not an `Exception`: the main-thread guard and a disposed desktop leave the callback as that one type, and a generic `except Exception` cannot report them as an empty success. Close and termination vetoes are re-raised as the original UNO exception. `disposing` logs disposal instead of raising, so the broadcaster can notify the remaining listeners. A runtime error is logged and is not reported as disposal:
 

@@ -59,7 +59,7 @@ def search_engine_preview_line(query_for_engine: str) -> str:
     return _("This search query '%s' will be sent to the search engine.") % (query_for_engine or "",)
 
 
-def web_search_engine_step_chat_text(query_for_engine: str, step_index: int) -> str:
+def web_search_engine_step_chat_text(query_for_engine: str) -> str:
     """Chat history for each internal web_search step (Tool: web_search + search-engine preview).
 
     Appended from WebResearchTool.tool_call_handler. When prompt_for_web_research is on, the
@@ -68,15 +68,9 @@ def web_search_engine_step_chat_text(query_for_engine: str, step_index: int) -> 
     """
     from plugin.framework.i18n import _
 
-    del step_index  # format does not vary by step index
     block = "\n" + _("Tool: %s") % "web_search" + "\n"
     block += search_engine_preview_line(query_for_engine) + "\n\n"
     return block
-
-
-def web_research_engine_chat_block(query_for_engine: str) -> str:
-    """Same as web_search_engine_step_chat_text for step 0."""
-    return web_search_engine_step_chat_text(query_for_engine, 0)
 
 
 def format_research_cache_result_chat(result_data: Mapping[str, Any]) -> str:

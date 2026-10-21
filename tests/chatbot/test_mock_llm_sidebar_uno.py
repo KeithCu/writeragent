@@ -61,7 +61,7 @@ def _setup_mock(ctx):
     # Ensure clean CI profile starts directly in Chat mode (creates USER.md and sets flag).
     mark_librarian_invoked()
     try:
-        MemoryStore(ctx).write("user", "# Test User Profile\n")
+        MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
 

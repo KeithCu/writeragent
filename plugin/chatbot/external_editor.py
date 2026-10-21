@@ -14,32 +14,24 @@ import shlex
 import shutil
 import subprocess
 import sys
-
 from typing import Any
 
-from plugin.framework.config import init_config, _config_path
 from plugin.chatbot.dialogs import msgbox
+from plugin.framework.config import get_config_file_path, init_config
 from plugin.framework.i18n import _
-
-
-def _which(exe: str) -> str | None:
-    return shutil.which(exe)
 
 
 def resolve_editor_argv(path: str) -> list[str] | None:
     """Return a subprocess argv to open *path* in an editor, or None if none found."""
-    p = path
     if sys.platform == "win32":
         return None  # use os.startfile
     if sys.platform == "darwin":
-        return ["open", "-t", p]
+        return ["open", "-t", path]
 
-    kate = _which("kate")
-    if kate:
-        return [kate, p]
-    gedit = _which("gedit")
-    if gedit:
-        return [gedit, p]
+    for name in ("kate", "gedit"):
+        found = shutil.which(name)
+        if found:
+            return [found, path]
     for env_var in ("EDITOR", "VISUAL"):
         raw = (os.environ.get(env_var) or "").strip()
         if not raw:
@@ -49,7 +41,7 @@ def resolve_editor_argv(path: str) -> list[str] | None:
         except ValueError:
             continue
         if parts:
-            return parts + [p]
+            return parts + [path]
     return None
 
 
@@ -79,7 +71,7 @@ def open_writeragent_json_in_editor(ctx: Any) -> None:
     """Open ``writeragent.json`` in an external editor (best-effort by OS)."""
     try:
         init_config(ctx)
-        path = _config_path()
+        path = get_config_file_path()
     except Exception as e:
         msgbox(ctx, _("Error"), str(e))
         return
@@ -93,7 +85,7 @@ def open_writeragent_json_in_editor(ctx: Any) -> None:
         try:
             os.startfile(path)  # noqa: S606
         except OSError:
-            notepad = _which("notepad.exe")
+            notepad = shutil.which("notepad.exe")
             if notepad:
                 subprocess.Popen([notepad, path], close_fds=True)  # noqa: S603
             else:

@@ -37,3 +37,88 @@ def test_format_grammar_status_lifecycle():
     assert format_grammar_status({"phase": "failed", "preview": "sample", "length": 6, "result": "API error"}) == "Grammar: failed 'sample' len 6: API error"
     clipped = format_grammar_status({"phase": "failed", "preview": "Language d\u2026", "length": 19, "result": "TimeoutError"})
     assert clipped == "Language: failed 'Language d…' len 19: TimeoutError"
+
+
+def test_format_grammar_status_complete() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "complete",
+            "preview": "This are bad",
+            "length": 42,
+            "result": "1 issue",
+            "elapsed_ms": 812,
+        }
+    )
+    assert text == "Grammar: done 'This are b…' len 42: 1 issue, 812ms"
+
+
+def test_format_grammar_status_done_matches_complete_line() -> None:
+    """Worker batch completion uses phase ``done``; sidebar should show result suffix like ``complete``."""
+    text = format_grammar_status(
+        {
+            "phase": "done",
+            "preview": "The quick brown fox jumps.",
+            "length": 120,
+            "result": "2 issues, 2 sentences",
+            "elapsed_ms": 400,
+        }
+    )
+    assert text == "Grammar: done 'The quick …' len 120: 2 issues, 2 sentences, 400ms"
+
+
+def test_format_grammar_status_request_language_detect() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "Hello world",
+            "length": 11,
+            "result": "Detecting language",
+        }
+    )
+    assert text == "Language: detecting 'Hello worl…' len 11"
+
+
+def test_format_grammar_status_request_grammar_checking() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "Hello world",
+            "length": 11,
+            "result": "LLM request",
+        }
+    )
+    assert text == "Grammar: checking 'Hello worl…' len 11"
+
+
+def test_format_grammar_status_request_harper_detail() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "They is here.",
+            "length": 13,
+            "result": "Downloading harper-ls v2.7.0…",
+        }
+    )
+    assert text == "Grammar: Downloading harper-ls v2.7.0…"
+
+
+def test_format_grammar_status_failed_language_vs_grammar() -> None:
+    lang = format_grammar_status(
+        {
+            "phase": "failed",
+            "preview": "Language detection",
+            "length": 19,
+            "result": "TimeoutError",
+        }
+    )
+    assert lang == "Language: failed 'Language d…' len 19: TimeoutError"
+
+    grm = format_grammar_status(
+        {
+            "phase": "failed",
+            "preview": "Grammar check",
+            "length": 13,
+            "result": "ValueError",
+        }
+    )
+    assert grm == "Grammar: failed 'Grammar ch…' len 13: ValueError"

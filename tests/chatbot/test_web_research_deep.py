@@ -143,7 +143,6 @@ class TestDeepResearchParsers:
             max_sub_queries=3,
             progress=ResearchProgress(),
             status_callback=None,
-            on_progress=None,
         )
         assert branch is not None
         assert url in branch["sources"]
@@ -929,7 +928,6 @@ def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat
         concurrency=concurrency,
         progress=ResearchProgress(),
         status_callback=None,
-        on_progress=None,
     )
 
 

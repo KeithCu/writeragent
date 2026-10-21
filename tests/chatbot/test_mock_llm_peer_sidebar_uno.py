@@ -58,7 +58,7 @@ def _setup_peer(ctx):
 
     mark_librarian_invoked()
     try:
-        MemoryStore(ctx).write("user", "# Test User Profile\n")
+        MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
     if get_config_bool("chatbot.prompt_for_web_research"):

@@ -10,14 +10,11 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.i18n import _
-
-log = logging.getLogger(__name__)
 
 CHAT_MODE_CHAT = "chat"
 CHAT_MODE_IMAGE = "image"
@@ -31,19 +28,6 @@ CHAT_MODE_LIBRARIAN = "librarian"
 # Fixed history_db session id: one Librarian transcript per LibreOffice user
 # profile, not per document (unlike doc_session / web_session).
 LIBRARIAN_HISTORY_SESSION_ID = "writeragent_librarian"
-
-_VALID_MODES = frozenset(
-    {
-        CHAT_MODE_CHAT,
-        CHAT_MODE_IMAGE,
-        CHAT_MODE_WEB_RESEARCH,
-        CHAT_MODE_DEEP_RESEARCH,
-        CHAT_MODE_BRAINSTORMING,
-        CHAT_MODE_WRITING_PLAN,
-        CHAT_MODE_PPT_MASTER,
-        CHAT_MODE_LIBRARIAN,
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -98,62 +82,61 @@ def _label_librarian() -> str:
     return _("Librarian")
 
 
+@dataclass(frozen=True)
+class _ModeSpec:
+    key: str
+    label_fn: Any
+    flag_attr: str | None = None
+    pinned_last: bool = False
+
+
+_MODE_SPECS: tuple[_ModeSpec, ...] = (
+    _ModeSpec(CHAT_MODE_CHAT, _label_chat),
+    _ModeSpec(CHAT_MODE_IMAGE, _label_image),
+    _ModeSpec(CHAT_MODE_WEB_RESEARCH, _label_web_research),
+    _ModeSpec(CHAT_MODE_DEEP_RESEARCH, _label_deep_research),
+    _ModeSpec(CHAT_MODE_BRAINSTORMING, _label_brainstorming, flag_attr="include_brainstorming"),
+    _ModeSpec(CHAT_MODE_WRITING_PLAN, _label_writing_plan, flag_attr="include_writing_plan"),
+    _ModeSpec(CHAT_MODE_PPT_MASTER, _label_ppt_master, flag_attr="include_ppt_master"),
+    _ModeSpec(CHAT_MODE_LIBRARIAN, _label_librarian, pinned_last=True),
+)
+
+_SPEC_BY_KEY: dict[str, _ModeSpec] = {spec.key: spec for spec in _MODE_SPECS}
+_VALID_MODES: frozenset[str] = frozenset(_SPEC_BY_KEY)
+
+
 def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
-    modes: list[str] = [CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_DEEP_RESEARCH]
-    if flags.include_brainstorming:
-        modes.append(CHAT_MODE_BRAINSTORMING)
-    if flags.include_writing_plan:
-        modes.append(CHAT_MODE_WRITING_PLAN)
-    if flags.include_ppt_master:
-        modes.append(CHAT_MODE_PPT_MASTER)
-    # Last on purpose: onboarding is opt-in after first run; default *selection*
-    # can still be Librarian when USER.md is missing.
-    modes.append(CHAT_MODE_LIBRARIAN)
-    return tuple(modes)
-
-
-_LABEL_FOR_MODE = {
-    CHAT_MODE_CHAT: _label_chat,
-    CHAT_MODE_IMAGE: _label_image,
-    CHAT_MODE_WEB_RESEARCH: _label_web_research,
-    CHAT_MODE_DEEP_RESEARCH: _label_deep_research,
-    CHAT_MODE_BRAINSTORMING: _label_brainstorming,
-    CHAT_MODE_WRITING_PLAN: _label_writing_plan,
-    CHAT_MODE_PPT_MASTER: _label_ppt_master,
-    CHAT_MODE_LIBRARIAN: _label_librarian,
-}
+    modes: list[str] = []
+    pinned: list[str] = []
+    for spec in _MODE_SPECS:
+        if spec.flag_attr and not getattr(flags, spec.flag_attr):
+            continue
+        if spec.pinned_last:
+            pinned.append(spec.key)
+        else:
+            modes.append(spec.key)
+    return tuple(modes + pinned)
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) >= 5)
-def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> tuple[str, ...]:
+def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, ...]:
     """Translated combobox labels in the same order as ``_modes_for``."""
-    flags = SidebarModeFlags(
-        include_brainstorming=include_brainstorming,
-        include_writing_plan=include_writing_plan,
-        include_ppt_master=include_ppt_master,
-    )
-    return tuple(_LABEL_FOR_MODE[mode]() for mode in _modes_for(flags))
+    return tuple(_SPEC_BY_KEY[mode].label_fn() for mode in _modes_for(flags))
 
 
-@deal.pre(lambda label, include_brainstorming=False, include_writing_plan=True, include_ppt_master=False: str_bounded(label, DEAL_MAX_TOKEN))
+@deal.pre(lambda label, flags=SidebarModeFlags(): str_bounded(label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: result in _VALID_MODES)
-def mode_from_label(label: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
+def mode_from_label(label: str, flags: SidebarModeFlags = SidebarModeFlags()) -> str:
     """Map a combobox display label to a mode constant."""
-    # Deep check-all run 32840960268: Prev 10:13 (gettext labels).
     # crosshair: off
-    flags = SidebarModeFlags(
-        include_brainstorming=include_brainstorming,
-        include_writing_plan=include_writing_plan,
-        include_ppt_master=include_ppt_master,
-    )
     text = str(label or "").strip()
-    for mode, item_label in zip(_modes_for(flags), get_mode_labels(**flags.__dict__)):
+    for mode, item_label in zip(_modes_for(flags), get_mode_labels(flags)):
         if text == item_label:
             return mode
     return CHAT_MODE_CHAT
 
 
-def mode_from_selector(ctrl: Any, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
+def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
     """Read the selected sidebar mode from a combobox control.
 
     Prefer ``getSelectedItemPos`` over ``getText``. The ChatPanel ComboBox is
@@ -164,33 +147,14 @@ def mode_from_selector(ctrl: Any, *, include_brainstorming: bool = False, includ
     # crosshair: off
     if not ctrl:
         return CHAT_MODE_CHAT
-    flags = SidebarModeFlags(
-        include_brainstorming=include_brainstorming,
-        include_writing_plan=include_writing_plan,
-        include_ppt_master=include_ppt_master,
-    )
     modes = _modes_for(flags)
     if hasattr(ctrl, "getSelectedItemPos"):
         idx = int(ctrl.getSelectedItemPos())
         if 0 <= idx < len(modes):
             return modes[idx]
     if hasattr(ctrl, "getText"):
-        return mode_from_label(
-            ctrl.getText(),
-            include_brainstorming=include_brainstorming,
-            include_writing_plan=include_writing_plan,
-            include_ppt_master=include_ppt_master,
-        )
+        return mode_from_label(ctrl.getText(), flags)
     return CHAT_MODE_CHAT
-
-
-def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
-    return mode_from_selector(
-        ctrl,
-        include_brainstorming=flags.include_brainstorming,
-        include_writing_plan=flags.include_writing_plan,
-        include_ppt_master=flags.include_ppt_master,
-    )
 
 
 def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
@@ -228,59 +192,30 @@ def _configure_mode_selector_model(ctrl: Any) -> None:
         model.Dropdown = True
 
 
-def populate_mode_selector(ctrl: Any, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> None:
+def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> None:
     """Fill the mode combobox with translated items."""
     if not ctrl:
         return
-    labels = get_mode_labels(
-        include_brainstorming=include_brainstorming,
-        include_writing_plan=include_writing_plan,
-        include_ppt_master=include_ppt_master,
-    )
-    labels = tuple(str(x) for x in labels)
+    labels = tuple(str(x) for x in get_mode_labels(flags))
     _configure_mode_selector_model(ctrl)
     _set_combobox_items(ctrl, labels)
 
 
-def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> None:
-    populate_mode_selector(
-        ctrl,
-        include_brainstorming=flags.include_brainstorming,
-        include_writing_plan=flags.include_writing_plan,
-        include_ppt_master=flags.include_ppt_master,
-    )
-
-
-def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> None:
+def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
     """Set combobox selection by mode constant."""
     # crosshair: off
     if not ctrl or mode not in _VALID_MODES:
         return
-    flags = SidebarModeFlags(
-        include_brainstorming=include_brainstorming,
-        include_writing_plan=include_writing_plan,
-        include_ppt_master=include_ppt_master,
-    )
     modes = _modes_for(flags)
     if mode not in modes:
         mode = CHAT_MODE_CHAT
-    labels = get_mode_labels(**flags.__dict__)
+    labels = get_mode_labels(flags)
     idx = modes.index(mode)
     label = labels[idx]
     if hasattr(ctrl, "selectItemPos"):
         ctrl.selectItemPos(idx, True)
     if hasattr(ctrl, "setText"):
         ctrl.setText(label)
-
-
-def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
-    set_selector_mode(
-        ctrl,
-        mode,
-        include_brainstorming=flags.include_brainstorming,
-        include_writing_plan=flags.include_writing_plan,
-        include_ppt_master=flags.include_ppt_master,
-    )
 
 
 def clear_brainstorming_session(send_listener: Any) -> None:
@@ -299,30 +234,6 @@ def is_image_mode(mode: str) -> bool:
     return mode == CHAT_MODE_IMAGE
 
 
-def is_web_research_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_WEB_RESEARCH
-
-
-def is_deep_research_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_DEEP_RESEARCH
-
-
-def is_brainstorming_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_BRAINSTORMING
-
-
-def is_writing_plan_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_WRITING_PLAN
-
-
-def is_ppt_master_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_PPT_MASTER
-
-
-def is_librarian_mode(mode: str) -> bool:
-    return mode == CHAT_MODE_LIBRARIAN
-
-
 def librarian_default_mode(ctx: Any = None) -> str:
     """Librarian once on first sidebar open; later opens start on Chat even if USER.md is empty.
 
@@ -336,7 +247,7 @@ def librarian_default_mode(ctx: Any = None) -> str:
     if ctx is not None:
         from plugin.chatbot.memory import user_profile_exists
 
-        if user_profile_exists(ctx):
+        if user_profile_exists():
             mark_librarian_invoked()
             return CHAT_MODE_CHAT
     return CHAT_MODE_LIBRARIAN

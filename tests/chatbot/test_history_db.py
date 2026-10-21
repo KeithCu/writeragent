@@ -152,7 +152,7 @@ def test_json_history_reraises_save_oserror(tmp_path, monkeypatch):
     def _boom(*_args, **_kwargs):
         raise OSError("disk")
 
-    monkeypatch.setattr("plugin.chatbot.history_db.os.replace", _boom)
+    monkeypatch.setattr("plugin.framework.config.os.replace", _boom)
     with pytest.raises(OSError):
         history.add_message("user", "new")
 

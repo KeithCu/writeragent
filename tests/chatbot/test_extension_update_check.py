@@ -158,7 +158,7 @@ def test_run_extension_update_check_dialog_formatting(monkeypatch):
     ctx = MagicMock()
     with patch("plugin.framework.client.requests.sync_request", return_value=SAMPLE_XML), \
          patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox, \
-         patch("plugin.framework.config.get_config_int", return_value=None), \
+         patch("plugin.framework.config.get_config_float", return_value=0.0), \
          patch("plugin.framework.config.set_config"), \
          patch("plugin.version.EXTENSION_VERSION", "0.7.0"):
         run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)

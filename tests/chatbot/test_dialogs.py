@@ -30,10 +30,6 @@ setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransfer
 from plugin.chatbot.dialogs import (
     _uno_impl_to_control_type,
     _xcc,
-    add_dialog_button,
-    add_dialog_label,
-    add_dialog_edit,
-    add_dialog_hyperlink,
     show_new_script_dialog,
     show_text_input_dialog,
     translate_dialog,
@@ -122,99 +118,6 @@ def test_xcc_passes_uno_type_not_interface_class():
         _xcc(mock_ctrl)
     get_type.assert_called_once_with("com.sun.star.awt.XControlContainer")
     mock_ctrl.queryInterface.assert_called_once_with(get_type.return_value)
-
-@patch("plugin.chatbot.dialogs._")
-@patch("plugin.chatbot.dialogs._")
-
-def test_add_dialog_button(mock_i18n_translate, mock_translate):
-    mock_translate.side_effect = lambda x: f"T_{x}"
-    mock_i18n_translate.side_effect = lambda x: f"T_{x}"
-    mock_dlg_model = MagicMock()
-    mock_btn = MagicMock()
-    mock_dlg_model.createInstance.return_value = mock_btn
-
-    btn = add_dialog_button(
-        mock_dlg_model, "TestBtn", "Click Me", 10, 20, 100, 30, push_button_type=1, enabled=False
-    )
-
-    mock_dlg_model.createInstance.assert_called_once_with("com.sun.star.awt.UnoControlButtonModel")
-    assert btn.Name == "TestBtn"
-    assert btn.PositionX == 10
-    assert btn.PositionY == 20
-    assert btn.Width == 100
-    assert btn.Height == 30
-    assert btn.Label == "T_Click Me"
-    assert btn.Enabled is False
-    assert btn.PushButtonType == 1
-    mock_dlg_model.insertByName.assert_called_once_with("TestBtn", mock_btn)
-
-@patch("plugin.chatbot.dialogs._")
-@patch("plugin.chatbot.dialogs._")
-
-def test_add_dialog_label(mock_i18n_translate, mock_translate):
-    mock_translate.side_effect = lambda x: f"T_{x}"
-    mock_i18n_translate.side_effect = lambda x: f"T_{x}"
-    mock_dlg_model = MagicMock()
-    mock_lbl = MagicMock()
-    mock_dlg_model.createInstance.return_value = mock_lbl
-
-    lbl = add_dialog_label(
-        mock_dlg_model, "TestLbl", "Hello Label", 5, 15, 50, 20, multiline=False
-    )
-
-    mock_dlg_model.createInstance.assert_called_once_with("com.sun.star.awt.UnoControlFixedTextModel")
-    assert lbl.Name == "TestLbl"
-    assert lbl.PositionX == 5
-    assert lbl.PositionY == 15
-    assert lbl.Width == 50
-    assert lbl.Height == 20
-    assert lbl.MultiLine is False
-    assert lbl.Label == "T_Hello Label"
-    mock_dlg_model.insertByName.assert_called_once_with("TestLbl", mock_lbl)
-
-def test_add_dialog_edit():
-    mock_dlg_model = MagicMock()
-    mock_edit = MagicMock()
-    mock_dlg_model.createInstance.return_value = mock_edit
-
-    edit = add_dialog_edit(
-        mock_dlg_model, "TestEdit", "Initial Text", 0, 0, 200, 50, readonly=True
-    )
-
-    mock_dlg_model.createInstance.assert_called_once_with("com.sun.star.awt.UnoControlEditModel")
-    assert edit.Name == "TestEdit"
-    assert edit.PositionX == 0
-    assert edit.PositionY == 0
-    assert edit.Width == 200
-    assert edit.Height == 50
-    assert edit.Text == "Initial Text"
-    assert edit.ReadOnly is True
-    mock_dlg_model.insertByName.assert_called_once_with("TestEdit", mock_edit)
-
-@patch("plugin.chatbot.dialogs._")
-@patch("plugin.chatbot.dialogs._")
-
-def test_add_dialog_hyperlink(mock_i18n_translate, mock_translate):
-    mock_translate.side_effect = lambda x: f"T_{x}"
-    mock_i18n_translate.side_effect = lambda x: f"T_{x}"
-    mock_dlg_model = MagicMock()
-    mock_link = MagicMock()
-    mock_dlg_model.createInstance.return_value = mock_link
-
-    link = add_dialog_hyperlink(
-        mock_dlg_model, "TestLink", "Click Link", "http://example.com", 2, 4, 10, 20
-    )
-
-    mock_dlg_model.createInstance.assert_called_once_with("com.sun.star.awt.UnoControlFixedHyperlinkModel")
-    assert link.Name == "TestLink"
-    assert link.PositionX == 2
-    assert link.PositionY == 4
-    assert link.Width == 10
-    assert link.Height == 20
-    assert link.Label == "T_Click Link"
-    assert link.URL == "http://example.com"
-    assert link.TextColor == 0x0563C1
-    mock_dlg_model.insertByName.assert_called_once_with("TestLink", mock_link)
 
 @patch("plugin.chatbot.dialogs._")
 

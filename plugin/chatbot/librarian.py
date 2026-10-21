@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import getpass
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import best_effort
@@ -14,9 +13,7 @@ from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-from plugin.chatbot.memory import format_upsert_memory_chat_line_from_arguments
-
-log = logging.getLogger(__name__)
+from plugin.chatbot.memory import format_upsert_memory_chat_line
 
 _USER_PROFILE_NODE = "/org.openoffice.UserProfile/Data"
 
@@ -33,10 +30,6 @@ _GENERIC_NAMES = frozenset(
 )
 
 
-def _resolve_uno_ctx(ctx: Any) -> Any:
-    return getattr(ctx, "ctx", ctx)
-
-
 def _normalize_suggested_name(raw: str | None) -> str | None:
     if raw is None:
         return None
@@ -50,7 +43,7 @@ def _normalize_suggested_name(raw: str | None) -> str | None:
 
 def get_libreoffice_user_display_name(ctx: Any) -> str | None:
     """Return given name from LibreOffice User Data (Tools → Options → User Data)."""
-    uno_ctx = _resolve_uno_ctx(ctx)
+    uno_ctx = getattr(ctx, "ctx", ctx)
     if uno_ctx is None:
         return None
 
@@ -110,7 +103,7 @@ def _run_librarian_agent(
         if len(history_text) > 4000:
             history_text = "..." + history_text[-4000:]
 
-    user_mem = best_effort(lambda: MemoryStore(ctx).read("user"), "Failed to read user memory for librarian", default="") or ""
+    user_mem = best_effort(lambda: MemoryStore().read(), "Failed to read user memory for librarian", default="") or ""
 
     if status_callback:
         status_callback("Librarian is thinking...")
@@ -175,9 +168,6 @@ TOOLS FOR COMPLETION:
 
 """
 
-#Unused for now
-# Tip 7: In Writer, the sidebar mode dropdown includes Brainstorming. Choose Brainstorming to start a multi-turn design session: the agent asks one question at a time, can read the open document, search nearby files, and do web research, then discusses approaches with you. 
-
     from plugin.framework.prompts import _cap_injected_prompt_blob, get_chat_response_format_instructions
 
     instructions += (
@@ -209,7 +199,7 @@ TOOLS FOR COMPLETION:
 
     def tool_call_handler(step: Any) -> None:
         if step.name == "upsert_memory":
-            line = format_upsert_memory_chat_line_from_arguments(step.arguments)
+            line = format_upsert_memory_chat_line(step.arguments)
             if callable(chat_append_callback):
                 chat_append_callback(line)
             elif append_thinking_callback:

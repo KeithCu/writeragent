@@ -9,8 +9,6 @@ from plugin.chatbot.memory import (
     MemoryTool,
     UPSERT_MEMORY_CHAT_VALUE_MAX,
     format_upsert_memory_chat_line,
-    format_upsert_memory_chat_line_from_arguments,
-    memory_key_from_tool_arguments,
     upsert_memory_arguments_dict,
     user_profile_exists,
 )
@@ -41,34 +39,17 @@ class TestMemory:
     def teardown_method(self):
         shutil.rmtree(self.tmp_dir)
 
-    def test_memory_store_uses_tool_context_inner_ctx(self):
-        inner_ctx = object()
-        tctx = _ToolContextLike(inner_ctx)
-
-        with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir) as mock_cfg:
-            MemoryStore(tctx)
-
-        mock_cfg.assert_called_once_with()
-
     def test_user_profile_exists_false_when_empty(self):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
             assert user_profile_exists(self.ctx) is False
-            MemoryStore(self.ctx).write("user", "   ")
+            MemoryStore().write("   ")
             assert user_profile_exists(self.ctx) is False
-            MemoryStore(self.ctx).write("user", '{"name": "Keith"}')
+            MemoryStore().write('{"name": "Keith"}')
             assert user_profile_exists(self.ctx) is True
 
     def test_user_profile_exists_false_on_store_error(self):
         with patch("plugin.chatbot.memory.MemoryStore", side_effect=RuntimeError("no config")):
             assert user_profile_exists(object()) is False
-
-    def test_memory_store_accepts_raw_ctx(self):
-        raw_ctx = object()
-
-        with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir) as mock_cfg:
-            MemoryStore(raw_ctx)
-
-        mock_cfg.assert_called_once_with()
 
     def test_memory_tool_execute_with_tool_context_like(self):
         inner_ctx = object()
@@ -112,17 +93,12 @@ class TestMemory:
         assert ("...") in (line)
         assert (len(line)) < (len(long_val) + 80)
 
-    def test_format_upsert_memory_chat_line_from_arguments_json_string(self):
-        line = format_upsert_memory_chat_line_from_arguments(
+    def test_format_upsert_memory_chat_line_json_string(self):
+        line = format_upsert_memory_chat_line(
             '{"key": "a", "content": "b"}'
         )
         assert ("'a'") in (line)
         assert ("'b'") in (line)
-
-    def test_memory_key_from_tool_arguments(self):
-        assert (memory_key_from_tool_arguments({"key": "name"})) == ("name")
-        assert (memory_key_from_tool_arguments({})) is None
-        assert (memory_key_from_tool_arguments('{"key": "nested.k", "content": "v"}')) == ("nested.k")
 
     def test_upsert_memory_arguments_dict(self):
         assert (upsert_memory_arguments_dict({"key": "x", "content": "y"})) == ({"key": "x", "content": "y"})
@@ -135,8 +111,8 @@ class TestMemory:
         assert upsert_memory_arguments_dict([]) is None
         assert upsert_memory_arguments_dict(None) is None
         assert upsert_memory_arguments_dict(1) is None
-        assert memory_key_from_tool_arguments([]) is None
-        assert format_upsert_memory_chat_line_from_arguments([]) == "[Memory update: upsert_memory]\n"
+        assert format_upsert_memory_chat_line([]) == "[Memory update: upsert_memory]\n"
+
 
 def test_memory_tool_insert_update_and_nested_key(tmp_path):
     """upsert_memory inserts, replaces, and nests keys in USER.md JSON.
@@ -149,19 +125,19 @@ def test_memory_tool_insert_update_and_nested_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
+        store = MemoryStore()
 
         res = tool.execute(ctx, key="favorite_language", content="Python")
         assert res["status"] == "ok", res
-        assert json.loads(store.read("user"))["favorite_language"] == "Python"
+        assert json.loads(store.read())["favorite_language"] == "Python"
 
         res = tool.execute(ctx, key="favorite_language", content="Rust")
         assert res["status"] == "ok", res
-        assert json.loads(store.read("user"))["favorite_language"] == "Rust"
+        assert json.loads(store.read())["favorite_language"] == "Rust"
 
         res = tool.execute(ctx, key="editor.vim", content="Yes")
         assert res["status"] == "ok", res
-        data = json.loads(store.read("user"))
+        data = json.loads(store.read())
         assert data["editor"]["vim"] == "Yes"
         assert data["favorite_language"] == "Rust"
 
@@ -171,7 +147,7 @@ class TestMemoryWriteConcurrency:
     def setup_method(self):
         self.tmp_dir = tempfile.mkdtemp()
         self.ctx = DummyCtx(self.tmp_dir)
-        self.store = MemoryStore(self.ctx)
+        self.store = MemoryStore()
 
     def teardown_method(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
@@ -185,15 +161,13 @@ class TestMemoryWriteConcurrency:
         assert (res1.get("status")) == ("ok"), res1
         assert (res2.get("status")) == ("ok"), res2
 
-        data = json.loads(self.store.read("user"))
+        data = json.loads(self.store.read())
         assert (data["name"]) == ("Andre")
         assert (data["favorite_colors"]) == ("dark blue")
 
     def test_write_is_atomic_and_cleans_temp_files(self):
-        import os
-
-        self.store.write("user", json.dumps({"name": "Andre"}))
-        assert (json.loads(self.store.read("user"))) == ({"name": "Andre"})
+        self.store.write(json.dumps({"name": "Andre"}))
+        assert (json.loads(self.store.read())) == ({"name": "Andre"})
         leftovers = [f for f in os.listdir(self.tmp_dir) if f.startswith(".memory-")]
         assert (leftovers) == ([]), "atomic-write temp files must not leak"
 
@@ -205,22 +179,22 @@ class TestMemoryWriteConcurrency:
             "favorite_colors": "",
             "name": "andre",
         }
-        self.store.write("user", json.dumps(seeded))
+        self.store.write(json.dumps(seeded))
 
         res = MemoryTool().execute(self.ctx, key="name", content="André")
         assert (res["status"]) == ("ok")
 
-        data = json.loads(self.store.read("user"))
+        data = json.loads(self.store.read())
         assert ("name_source") not in (data)
         assert (data["name"]) == ("André")
 
     def test_color_upsert_alone_keeps_seed_marker(self):
         seeded = {"name_source": "auto-detected", "favorite_colors": "", "name": "andre"}
-        self.store.write("user", json.dumps(seeded))
+        self.store.write(json.dumps(seeded))
 
         MemoryTool().execute(self.ctx, key="favorite_colors", content="blue")
 
-        data = json.loads(self.store.read("user"))
+        data = json.loads(self.store.read())
         assert ("name_source") in (data)  # name still unconfirmed → keep asking once
 
 
@@ -228,34 +202,34 @@ def test_upsert_rejects_non_json_user_md(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        store.write("user", "name: Andre\n")
-        before = store.read("user")
+        store = MemoryStore()
+        store.write("name: Andre\n")
+        before = store.read()
         res = tool.execute(ctx, key="favorite_language", content="Python")
     assert res["status"] != "ok"
-    assert store.read("user") == before
+    assert store.read() == before
 
 
 def test_upsert_dotted_key_does_not_replace_string(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        store.write("user", json.dumps({"name": "Ada"}))
+        store = MemoryStore()
+        store.write(json.dumps({"name": "Ada"}))
         res = tool.execute(ctx, key="name.nickname", content="A")
         assert res["status"] != "ok"
-        assert json.loads(store.read("user")) == {"name": "Ada"}
+        assert json.loads(store.read()) == {"name": "Ada"}
 
 
 def test_upsert_null_content_pops_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        store.write("user", json.dumps({"name": "Ada", "editor": "vim"}))
+        store = MemoryStore()
+        store.write(json.dumps({"name": "Ada", "editor": "vim"}))
         res = tool.execute(ctx, key="editor", content=None)
         assert res["status"] == "ok"
-        assert json.loads(store.read("user")) == {"name": "Ada"}
+        assert json.loads(store.read()) == {"name": "Ada"}
 
 
 def test_write_fsyncs_before_replace(tmp_path):
@@ -272,20 +246,20 @@ def test_write_fsyncs_before_replace(tmp_path):
         real_replace(src, dst)
 
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)), patch(
-        "plugin.chatbot.memory.os.fsync", side_effect=_fsync
-    ), patch("plugin.chatbot.memory.os.replace", side_effect=_replace):
-        store = MemoryStore(object())
-        assert store.write("user", '{"name": "Ada"}') is True
+        "plugin.framework.config.os.fsync", side_effect=_fsync
+    ), patch("plugin.framework.config.os.replace", side_effect=_replace):
+        store = MemoryStore()
+        store.write('{"name": "Ada"}')
     assert order == ["fsync", "replace"]
-    assert json.loads(store.read("user")) == {"name": "Ada"}
+    assert json.loads(store.read()) == {"name": "Ada"}
 
 
 def test_upsert_invalid_utf8_returns_tool_error(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        path = store._get_path("user")
+        store = MemoryStore()
+        path = store._get_path()
         payload = b"\xff\xfe not utf-8"
         with open(path, "wb") as handle:
             handle.write(payload)
@@ -301,23 +275,23 @@ def test_upsert_missing_content_does_not_delete(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        store.write("user", json.dumps({"name": "Ada"}))
+        store = MemoryStore()
+        store.write(json.dumps({"name": "Ada"}))
         res = tool.execute(ctx, key="name")
         assert res["status"] == "error"
         assert "Content is required" in res["message"]
-        assert json.loads(store.read("user")) == {"name": "Ada"}
+        assert json.loads(store.read()) == {"name": "Ada"}
 
 
 def test_upsert_empty_content_pops_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore(ctx)
-        store.write("user", json.dumps({"name": "Andre", "editor": {"vim": "Yes"}}))
+        store = MemoryStore()
+        store.write(json.dumps({"name": "Andre", "editor": {"vim": "Yes"}}))
         res = tool.execute(ctx, key="name", content="")
         assert res["status"] == "ok"
-        data = json.loads(store.read("user"))
+        data = json.loads(store.read())
         assert "name" not in data
         assert data["editor"]["vim"] == "Yes"
 
@@ -345,5 +319,3 @@ def test_memory_arguments_longer_than_source_normalize():
     line = format_upsert_memory_chat_line(args)
     assert line.startswith("[Memory update:")
     assert line.endswith("...\n") or "notes" in line
-
-

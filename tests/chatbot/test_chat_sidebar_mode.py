@@ -29,9 +29,9 @@ from plugin.chatbot.chat_sidebar_mode import (
     librarian_default_mode,
     mark_librarian_invoked,
     mode_from_label,
-    mode_from_selector,
-    populate_mode_selector,
-    set_selector_mode,
+    mode_from_selector_with_flags,
+    populate_mode_selector_with_flags,
+    set_selector_mode_with_flags,
     sidebar_mode_flags_for_doc_type,
 )
 
@@ -44,78 +44,84 @@ def test_mode_labels_match_modes_for_length_and_order():
         SidebarModeFlags(include_brainstorming=True, include_writing_plan=False, include_ppt_master=False),
     ):
         modes = _modes_for(flags)
-        labels = get_mode_labels(**flags.__dict__)
+        labels = get_mode_labels(flags)
         assert len(labels) == len(modes)
         for mode, label in zip(modes, labels):
-            assert mode_from_label(label, **flags.__dict__) == mode
+            assert mode_from_label(label, flags) == mode
 
 
 def test_mode_labels_include_brainstorming_when_writer():
-    labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    labels = get_mode_labels(flags)
     assert len(labels) == 7
-    assert mode_from_label(labels[0], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_CHAT
+    assert mode_from_label(labels[0], flags) == CHAT_MODE_CHAT
     assert labels[1] == "Image"
-    assert mode_from_label(labels[1], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_IMAGE
-    assert mode_from_label(labels[2], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_WEB_RESEARCH
-    assert mode_from_label(labels[3], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_DEEP_RESEARCH
-    assert mode_from_label(labels[4], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_BRAINSTORMING
-    assert mode_from_label(labels[5], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
-    assert mode_from_label(labels[6], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_LIBRARIAN
+    assert mode_from_label(labels[1], flags) == CHAT_MODE_IMAGE
+    assert mode_from_label(labels[2], flags) == CHAT_MODE_WEB_RESEARCH
+    assert mode_from_label(labels[3], flags) == CHAT_MODE_DEEP_RESEARCH
+    assert mode_from_label(labels[4], flags) == CHAT_MODE_BRAINSTORMING
+    assert mode_from_label(labels[5], flags) == CHAT_MODE_WRITING_PLAN
+    assert mode_from_label(labels[6], flags) == CHAT_MODE_LIBRARIAN
 
 
 def test_mode_labels_omit_brainstorming_for_calc():
-    labels = get_mode_labels(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
+    flags = SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
+    labels = get_mode_labels(flags)
     assert len(labels) == 6
-    assert mode_from_label(labels[4], include_brainstorming=False, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
-    assert mode_from_label(labels[-1], include_brainstorming=False, include_writing_plan=True) == CHAT_MODE_LIBRARIAN
+    assert mode_from_label(labels[4], flags) == CHAT_MODE_WRITING_PLAN
+    assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
 
 
 def test_calc_sidebar_omits_writing_plan():
     flags = sidebar_mode_flags_for_doc_type("calc")
     assert flags.include_writing_plan is False
-    assert "Writing Plan" not in get_mode_labels(**flags.__dict__)
+    assert "Writing Plan" not in get_mode_labels(flags)
 
 
 def test_mode_labels_ppt_master_for_impress():
     flags = sidebar_mode_flags_for_doc_type("impress")
-    labels = get_mode_labels(**flags.__dict__)
+    labels = get_mode_labels(flags)
     assert len(labels) == 6
-    assert mode_from_label(labels[4], **flags.__dict__) == CHAT_MODE_PPT_MASTER
-    assert mode_from_label(labels[-1], **flags.__dict__) == CHAT_MODE_LIBRARIAN
+    assert mode_from_label(labels[4], flags) == CHAT_MODE_PPT_MASTER
+    assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
 
 
 def test_mode_from_selector_reads_combobox_text():
     ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True)
+    labels = get_mode_labels(flags)
     ctrl.getSelectedItemPos.return_value = -1
     ctrl.getText.return_value = labels[1]
-    assert mode_from_selector(ctrl, include_brainstorming=True) == CHAT_MODE_IMAGE
+    assert mode_from_selector_with_flags(ctrl, flags) == CHAT_MODE_IMAGE
 
 
 def test_mode_from_selector_prefers_selected_index_over_stale_text():
     """XDL ComboBox spin=true can keep the default Chat text while index is Librarian."""
     ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    labels = get_mode_labels(flags)
     ctrl.getSelectedItemPos.return_value = len(labels) - 1
     ctrl.getText.return_value = labels[0]
     assert (
-        mode_from_selector(ctrl, include_brainstorming=True, include_writing_plan=True)
+        mode_from_selector_with_flags(ctrl, flags)
         == CHAT_MODE_LIBRARIAN
     )
 
 
 def test_mode_from_selector_oob_index_falls_back_to_text():
     ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True)
+    labels = get_mode_labels(flags)
     ctrl.getSelectedItemPos.return_value = 99
     ctrl.getText.return_value = labels[1]
-    assert mode_from_selector(ctrl, include_brainstorming=True) == CHAT_MODE_IMAGE
+    assert mode_from_selector_with_flags(ctrl, flags) == CHAT_MODE_IMAGE
 
 
 def test_set_selector_mode_selects_by_index():
     ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True)
-    set_selector_mode(ctrl, CHAT_MODE_WEB_RESEARCH, include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True)
+    labels = get_mode_labels(flags)
+    set_selector_mode_with_flags(ctrl, CHAT_MODE_WEB_RESEARCH, flags)
     ctrl.selectItemPos.assert_called_once_with(2, True)
     ctrl.setText.assert_called_once_with(labels[2])
 
@@ -125,8 +131,9 @@ def test_populate_mode_selector_sets_string_item_list_on_model():
     model = MagicMock()
     ctrl.getModel.return_value = model
     ctrl.getItemCount.return_value = 0
-    populate_mode_selector(ctrl, include_brainstorming=True)
-    labels = tuple(str(x) for x in get_mode_labels(include_brainstorming=True))
+    flags = SidebarModeFlags(include_brainstorming=True)
+    populate_mode_selector_with_flags(ctrl, flags)
+    labels = tuple(str(x) for x in get_mode_labels(flags))
     assert model.StringItemList == labels
     ctrl.addItems.assert_called_once_with(labels, 0)
 
@@ -181,8 +188,9 @@ def test_librarian_history_session_id_is_global():
 
 def test_set_selector_mode_librarian_is_last_index():
     ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
-    set_selector_mode(ctrl, CHAT_MODE_LIBRARIAN, include_brainstorming=True, include_writing_plan=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    labels = get_mode_labels(flags)
+    set_selector_mode_with_flags(ctrl, CHAT_MODE_LIBRARIAN, flags)
     ctrl.selectItemPos.assert_called_once_with(len(labels) - 1, True)
 
 

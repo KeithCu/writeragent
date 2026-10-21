@@ -516,7 +516,7 @@ def _run_web_agent(
                         return
                 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
-                params.chat_append_callback(web_search_engine_step_chat_text(query_for_engine, web_search_step_index))
+                params.chat_append_callback(web_search_engine_step_chat_text(query_for_engine))
 
             if prompt_and_approve:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar

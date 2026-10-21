@@ -342,6 +342,25 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
     return None
 
 
+def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-", fsync: bool = False) -> None:
+    """Atomically write text to path using a temp file in the same directory and os.replace."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            if fsync:
+                f.flush()
+                os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file."""
     # What was wrong: A set or other non-JSON value raised bare TypeError from
@@ -356,20 +375,7 @@ def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     if not body.endswith("\n"):
         body += "\n"
     content = CONFIG_SCHEMA_COMMENT + body
-    directory = os.path.dirname(config_file_path) or "."
-    fd, tmp_path = tempfile.mkstemp(prefix=".writeragent-", suffix=".tmp", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, config_file_path)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(config_file_path, content, prefix=".writeragent-", fsync=True)
 
 
 def _invalidate_config_cache() -> None:

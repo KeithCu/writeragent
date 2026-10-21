@@ -17,7 +17,6 @@ from plugin.chatbot.web_research import (
 )
 from plugin.chatbot.web_research_chat import (
     web_research_cache_chat_text,
-    web_research_engine_chat_block,
     web_search_engine_step_chat_text,
 )
 from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -298,36 +297,14 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
     assert "visited_urls_lock" in hints
 
 
-def test_step_zero_matches_legacy_engine_block():
+def test_web_search_engine_step_chat_text():
     q = "best pizza test"
-    a = web_search_engine_step_chat_text(q, 0)
-    b = web_research_engine_chat_block(q)
-    assert a == b
-    assert "Tool: web_search" in a
-    assert "best pizza test" in a
-    assert "[Web search]" not in a
-    assert "[Additional web search]" not in a
-
-
-def test_step_one_same_format_as_first():
-    q = "refined query"
-    first = web_search_engine_step_chat_text(q, 0)
-    second = web_search_engine_step_chat_text(q, 1)
-    assert first == second
-    assert "Tool: web_search" in second
-    assert "[Additional web search]" not in second
-    assert "[Web search]" not in second
-
-
-def test_web_research_engine_chat_block_ignores_legacy_approval_flag():
-    q = "x"
-    assert web_research_engine_chat_block(q) == web_search_engine_step_chat_text(q, 0)
-    assert "approval required" not in web_research_engine_chat_block(q).lower()
-
-
-def test_step_index_negative_treated_as_first():
-    q = "q"
-    assert web_search_engine_step_chat_text(q, -1) == web_search_engine_step_chat_text(q, 0)
+    text = web_search_engine_step_chat_text(q)
+    assert "Tool: web_search" in text
+    assert "best pizza test" in text
+    assert "[Web search]" not in text
+    assert "[Additional web search]" not in text
+    assert "approval required" not in text.lower()
 
 
 def test_norm_research_query_collapses_whitespace_and_case():

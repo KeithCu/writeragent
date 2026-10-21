@@ -13,10 +13,8 @@ from hypothesis import strategies as st
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
 from plugin.framework.i18n import _, get_active_locale
 from plugin.chatbot.memory import (
-    upsert_memory_arguments_dict,
-    memory_key_from_tool_arguments,
     format_upsert_memory_chat_line,
-    format_upsert_memory_chat_line_from_arguments,
+    upsert_memory_arguments_dict,
 )
 
 
@@ -41,10 +39,7 @@ def test_format_upsert_memory_chat_line_contracts(key: str, content: str) -> Non
 def test_memory_arguments_contracts(arg_json: str) -> None:
     d = upsert_memory_arguments_dict(arg_json)
     assert d is None or isinstance(d, dict)
-    
-    k = memory_key_from_tool_arguments(arg_json)
-    assert k is None or isinstance(k, str)
 
-    line = format_upsert_memory_chat_line_from_arguments(arg_json)
+    line = format_upsert_memory_chat_line(arg_json)
     assert isinstance(line, str)
     assert line.endswith("\n")

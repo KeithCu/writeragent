@@ -17,12 +17,13 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import json
+import logging
 import os
-import tempfile
 from contextlib import closing
 from typing import Any
+
+from plugin.framework.config import atomic_write_text
 
 try:
     import sqlite3
@@ -291,18 +292,7 @@ class JSONHistory:
 
     def _replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Atomic replace in the session directory (same pattern as MemoryStore.write)."""
-        directory = self.history_dir or os.path.dirname(self.file_path) or "."
-        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".history-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(messages, handle, indent=2)
-            os.replace(tmp_path, self.file_path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-", fsync=False)
 
     def get_messages(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.file_path):

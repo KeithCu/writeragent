@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
 from typing import Any
 
-from plugin.framework.config import user_config_dir
-from plugin.framework.errors import ConfigError, best_effort
+from plugin.framework.config import atomic_write_text, user_config_dir
+from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -105,20 +104,9 @@ class SkillStore:
 
     def write_humanizer_guidance(self, content: str) -> bool:
         """Persist a user-edited version of the humanizer rules."""
-        # Write a temp file in the same directory and os.replace it, with
-        # path setup inside the try. open(path, "w") truncates SKILL.md in
-        # place, and an OSError from makedirs must return False.
         try:
             path = self._humanizer_path()
-            directory = os.path.dirname(path) or "."
-            fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".skill-", suffix=".tmp")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(content.strip() + "\n")
-                os.replace(tmp_path, path)
-            except BaseException:
-                best_effort(lambda: os.unlink(tmp_path), "unlink tmp_path")
-                raise
+            atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
             return True
         except OSError as e:
             log.exception("Failed to write humanizer skill: %s", e)

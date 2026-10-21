@@ -166,6 +166,63 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         return False
 
 
+def _run_text_dialog(
+    ctx: Any,
+    xdl_name: str,
+    edit_name: str,
+    *,
+    prepare: Any,
+    log_label: str,
+) -> str | None:
+    if not ctx:
+        log.warning("%s: no ctx", log_label)
+        return None
+    try:
+        dlg = load_writeragent_dialog(xdl_name, ctx)
+        if dlg is None:
+            return None
+
+        prepare(dlg)
+
+        _outcome: list[str | None] | None = None
+
+        class _OkListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
+                nonlocal _outcome
+                ec = dlg.getControl(edit_name)
+                m = ec.getModel() if ec else None
+                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
+                dlg.endDialog(1)
+
+            def disposing(self, Source: EventObject) -> None:
+                pass
+
+        class _CancelListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
+                nonlocal _outcome
+                _outcome = [None]
+                dlg.endDialog(0)
+
+            def disposing(self, Source: EventObject) -> None:
+                pass
+
+        btn_ok = dlg.getControl("BtnOK")
+        if btn_ok is not None:
+            btn_ok.addActionListener(_OkListener())
+        btn_cancel = dlg.getControl("BtnCancel")
+        if btn_cancel is not None:
+            btn_cancel.addActionListener(_CancelListener())
+
+        dlg.execute()
+        dlg.dispose()
+        if _outcome is None:
+            return None
+        return _outcome[0]
+    except Exception:
+        log.exception("%s failed", log_label)
+        return None
+
+
 def show_web_search_query_edit_dialog(ctx: Any, parent_frame: Any, initial_text: str) -> str | None:
     """Modal multiline edit for a web-search query before DuckDuckGo runs.
 
@@ -173,56 +230,18 @@ def show_web_search_query_edit_dialog(ctx: Any, parent_frame: Any, initial_text:
 
     Returns the edited text (stripped) if the user clicks OK, or ``None`` if Cancel/close/error.
     """
-    if not ctx:
-        log.warning("show_web_search_query_edit_dialog: no ctx")
-        return None
-    try:
-        dlg = load_writeragent_dialog("WebSearchQueryEditDialog", ctx)
-        if dlg is None:
-            return None
-
+    def _prepare(dlg: Any) -> None:
         edit = dlg.getControl("QueryEdit")
         if edit is not None:
             edit.setText(initial_text or "")
 
-        # Single-slot outcome: None = dialog closed without OK/Cancel; else [str] or [None].
-        _outcome: list[str | None] | None = None
-
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                ec = dlg.getControl("QueryEdit")
-                m = ec.getModel() if ec else None
-                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
-                dlg.endDialog(1)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                _outcome = [None]
-                dlg.endDialog(0)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        btn_ok = dlg.getControl("BtnOK")
-        if btn_ok is not None:
-            btn_ok.addActionListener(_OkListener())
-        btn_cancel = dlg.getControl("BtnCancel")
-        if btn_cancel is not None:
-            btn_cancel.addActionListener(_CancelListener())
-
-        dlg.execute()
-        dlg.dispose()
-        if _outcome is None:
-            return None
-        return _outcome[0]
-    except Exception:
-        log.exception("show_web_search_query_edit_dialog failed")
-        return None
+    return _run_text_dialog(
+        ctx,
+        "WebSearchQueryEditDialog",
+        "QueryEdit",
+        prepare=_prepare,
+        log_label="show_web_search_query_edit_dialog",
+    )
 
 
 def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str = "") -> str | None:
@@ -230,64 +249,24 @@ def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str
 
     Used for short names (e.g. Save Script As). Returns stripped text on OK, ``None`` on Cancel.
     """
-    if not ctx:
-        log.warning("show_text_input_dialog: no ctx")
-        return None
-    try:
-        dlg = load_writeragent_dialog("ShortTextInputDialog", ctx)
-        if dlg is None:
-            return None
-
+    def _prepare(dlg: Any) -> None:
         if title:
             dlg.getModel().Title = _(title)
-
         lbl = dlg.getControl("PromptLbl")
         if lbl is not None:
             lbl.getModel().Label = message
-
         edit = dlg.getControl("TextEdit")
         if edit is not None:
             edit.setText(default or "")
-
-        _outcome: list[str | None] | None = None
-
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                ec = dlg.getControl("TextEdit")
-                m = ec.getModel() if ec else None
-                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
-                dlg.endDialog(1)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                _outcome = [None]
-                dlg.endDialog(0)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        btn_ok = dlg.getControl("BtnOK")
-        if btn_ok is not None:
-            btn_ok.addActionListener(_OkListener())
-        btn_cancel = dlg.getControl("BtnCancel")
-        if btn_cancel is not None:
-            btn_cancel.addActionListener(_CancelListener())
-
-        if edit is not None:
             edit.setFocus()
-        dlg.execute()
-        dlg.dispose()
-        if _outcome is None:
-            return None
-        return _outcome[0]
-    except Exception:
-        log.exception("show_text_input_dialog failed")
-        return None
+
+    return _run_text_dialog(
+        ctx,
+        "ShortTextInputDialog",
+        "TextEdit",
+        prepare=_prepare,
+        log_label="show_text_input_dialog",
+    )
 
 
 def show_new_script_dialog(
@@ -346,68 +325,6 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
     except Exception:
         log.exception("Clipboard copy failed")
         return False
-
-
-# ── Dialog control helpers ──────────────────────────────────────────
-
-
-def add_dialog_button(dlg_model: Any, name: str, label: str, x: int, y: int, width: int, height: int, push_button_type: int | None = None, enabled: bool = True) -> Any:
-    """Add a button to a dialog model."""
-    btn = dlg_model.createInstance("com.sun.star.awt.UnoControlButtonModel")
-    btn.Name = name
-    btn.PositionX = x
-    btn.PositionY = y
-    btn.Width = width
-    btn.Height = height
-    btn.Label = _(label)
-    btn.Enabled = enabled
-    if push_button_type is not None:
-        btn.PushButtonType = push_button_type
-    dlg_model.insertByName(name, btn)
-    return btn
-
-
-def add_dialog_label(dlg_model: Any, name: str, label: str, x: int, y: int, width: int, height: int, multiline: bool = True) -> Any:
-    """Add a fixed text label to a dialog model."""
-    lbl = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
-    lbl.Name = name
-    lbl.PositionX = x
-    lbl.PositionY = y
-    lbl.Width = width
-    lbl.Height = height
-    lbl.MultiLine = multiline
-    lbl.Label = _(label)
-    dlg_model.insertByName(name, lbl)
-    return lbl
-
-
-def add_dialog_edit(dlg_model: Any, name: str, text: str, x: int, y: int, width: int, height: int, readonly: bool = False) -> Any:
-    """Add an edit (text field) control to a dialog model."""
-    edit = dlg_model.createInstance("com.sun.star.awt.UnoControlEditModel")
-    edit.Name = name
-    edit.PositionX = x
-    edit.PositionY = y
-    edit.Width = width
-    edit.Height = height
-    edit.Text = text
-    edit.ReadOnly = readonly
-    dlg_model.insertByName(name, edit)
-    return edit
-
-
-def add_dialog_hyperlink(dlg_model: Any, name: str, label: str, url: str, x: int, y: int, width: int, height: int) -> Any:
-    """Add a clickable hyperlink to a dialog model."""
-    link = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedHyperlinkModel")
-    link.Name = name
-    link.PositionX = x
-    link.PositionY = y
-    link.Width = width
-    link.Height = height
-    link.Label = _(label)
-    link.URL = url
-    link.TextColor = 0x0563C1  # standard link blue
-    dlg_model.insertByName(name, link)
-    return link
 
 
 class _CopyListener(BaseActionListener):

@@ -105,7 +105,7 @@ Vary your sentences.
         assert store.write_humanizer_guidance("keep") is True
         self._track_skill_path(store)
         path = store.get_humanizer_skill_path()
-        with patch("plugin.chatbot.skills.os.replace", side_effect=OSError("disk")):
+        with patch("plugin.framework.config.os.replace", side_effect=OSError("disk")):
             assert store.write_humanizer_guidance("new") is False
         with open(path, encoding="utf-8") as handle:
             assert handle.read() == "keep\n"

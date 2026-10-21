@@ -351,7 +351,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/scripting/python_runner.py`](../../plugin/scripting/python_runner.py) | Dialog, run, domain fast-paths, Writer/Calc branch |
 | [`plugin/scripting/python_runner_ui.py`](../../plugin/scripting/python_runner_ui.py) | Native XDL fallback when Monaco unavailable |
 | [`plugin/scripting/document_scripts.py`](../../plugin/scripting/document_scripts.py) | Document-attached scripts, init script storage |
-| [`plugin/chatbot/dialogs.py`](../../plugin/chatbot/dialogs.py) | Shared XDL kit (`add_dialog_*`, `msgbox`) — lives under `chatbot/` but is not the chat panel |
+| [`plugin/chatbot/dialogs.py`](../../plugin/chatbot/dialogs.py) | Shared XDL kit (`msgbox`) — lives under `chatbot/` but is not the chat panel |
 | [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | `get_ctx`, `get_desktop` |
 | [`plugin/framework/worker_pool.py`](../../plugin/framework/worker_pool.py) | Via `dialogs.py` |
 | [`plugin/framework/appearance.py`](../../plugin/framework/appearance.py) | LO light/dark → Monaco theme |

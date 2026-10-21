@@ -54,20 +54,16 @@ def format_grammar_status(data: dict[str, Any]) -> str:
         if result and result not in ("LLM request", "LLM batch request", "Detecting language"):
             return f"{prefix} {result}"
         return base
-    if phase == "complete":
+    if phase in ("complete", "done"):
         suffix = result or "done"
         if elapsed is not None:
             suffix = f"{suffix}, {elapsed}ms"
         return f"{prefix} done '{preview}' len {length}: {suffix}"
-    if phase == "done":
-        suffix = result or "done"
-        if elapsed is not None:
-            suffix = f"{suffix}, {elapsed}ms"
-        return f"{prefix} done '{preview}' len {length}: {suffix}"
-    if phase == "timeout":
-        return f"{prefix} still running '{preview}' len {length}: {result}"
-    if phase == "skipped":
-        return f"{prefix} skipped '{preview}' len {length}: {result}"
-    if phase == "failed":
-        return f"{prefix} failed '{preview}' len {length}: {result}"
+    _status_verbs = {
+        "timeout": "still running",
+        "skipped": "skipped",
+        "failed": "failed",
+    }
+    if phase in _status_verbs:
+        return f"{prefix} {_status_verbs[phase]} '{preview}' len {length}: {result}"
     return f"{prefix} {phase or 'update'} '{preview}' len {length}"

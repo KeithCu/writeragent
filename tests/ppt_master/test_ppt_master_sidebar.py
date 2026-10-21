@@ -23,7 +23,7 @@ def test_sidebar_flags_impress_has_ppt_master():
     flags = sidebar_mode_flags_for_doc_type("impress")
     assert flags.include_ppt_master is True
     assert flags.include_brainstorming is False
-    labels = get_mode_labels(**flags.__dict__)
+    labels = get_mode_labels(flags)
     assert mode_from_label_ppt_master(labels, flags) == CHAT_MODE_PPT_MASTER
 
 
@@ -31,7 +31,7 @@ def mode_from_label_ppt_master(labels, flags):
     from plugin.chatbot.chat_sidebar_mode import mode_from_label
 
     # Librarian is always last; PPT-Master is the last doc-type-specific mode.
-    return mode_from_label(labels[-2], **flags.__dict__)
+    return mode_from_label(labels[-2], flags)
 
 
 def test_sidebar_flags_writer_no_ppt_master():
