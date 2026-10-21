@@ -32,7 +32,7 @@ _LANGDETECT_SAMPLE_MAX = 8000
 
 
 def _normalize_locale_tag(raw: str | None) -> str | None:
-    from plugin.writer.locale.grammar_proofread_locale import normalize_detected_bcp47
+    from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
 
     return normalize_detected_bcp47(raw)
 
@@ -42,7 +42,7 @@ def _uno_shim_from_lang_country(lang: str | None, country: str | None) -> Any:
 
 
 def _bcp47_from_lang_country(lang: str | None, country: str | None) -> str | None:
-    from plugin.writer.locale.grammar_proofread_locale import normalize_uno_locale_to_bcp47
+    from plugin.framework.grammar_rule_ids import normalize_uno_locale_to_bcp47
 
     shim = _uno_shim_from_lang_country(lang, country)
     if not shim.Language:

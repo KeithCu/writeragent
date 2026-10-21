@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
+
 LANGDETECT_VERSION = "1.0.9"
 
 
@@ -21,7 +23,6 @@ def _import_error() -> ImportError:
 def _raw_lang_to_bcp47(raw: str | None) -> str | None:
     if not raw:
         return None
-    from plugin.writer.locale.grammar_proofread_locale import normalize_detected_bcp47
 
     text = str(raw).strip()
     if text == "zh-cn":

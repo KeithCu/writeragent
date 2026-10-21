@@ -390,10 +390,10 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
     # crosshair: off
     # ICU/locale sentence merge still combinatoric (cover-all 33569420452: ~738s est / 2036 ex despite str_bounded). Doable later.
+    from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
     from plugin.writer.locale.grammar_proofread_locale import (
         bcp47_to_icu_sentence_breaker_locale,
         is_whitespace_sentence_locale,
-        normalize_detected_bcp47,
     )
 
     canon = normalize_detected_bcp47(locale_bcp47) if locale_bcp47 else None

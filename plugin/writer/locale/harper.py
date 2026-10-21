@@ -32,7 +32,6 @@ from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale.harper_binary import _get_harper_binary
 from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_rule_identifier
-from plugin.writer.locale.harper_locales import HARPER_DIALECTS
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -69,6 +68,18 @@ def _lsp_response(req_id: int, result: Any) -> dict[str, Any]:
 
 def _deadline_remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
+
+
+# XCU Locales order: en-US en-GB en-AU en-CA en-IN
+HARPER_DIALECTS: dict[str, str] = {
+    "en-US": "American",
+    "en-GB": "British",
+    "en-AU": "Australian",
+    "en-CA": "Canadian",
+    "en-IN": "Indian",
+}
+
+HARPER_LOCALE_TAGS: tuple[str, ...] = tuple(HARPER_DIALECTS)
 
 
 def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:

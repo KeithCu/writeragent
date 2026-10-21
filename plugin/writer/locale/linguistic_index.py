@@ -36,40 +36,7 @@ log = logging.getLogger("writeragent.writer.index")
 
 # ── Language mapping (ISO 639-1 -> snowballstemmer algorithm) ─────────
 
-_ISO_TO_SNOWBALL = {
-    "ar": "arabic",
-    "hy": "armenian",
-    "eu": "basque",
-    "ca": "catalan",
-    "da": "danish",
-    "nl": "dutch",
-    "en": "english",
-    "eo": "esperanto",
-    "et": "estonian",
-    "fi": "finnish",
-    "fr": "french",
-    "de": "german",
-    "el": "greek",
-    "hi": "hindi",
-    "hu": "hungarian",
-    "id": "indonesian",
-    "ga": "irish",
-    "it": "italian",
-    "lt": "lithuanian",
-    "ne": "nepali",
-    "no": "norwegian",
-    "nb": "norwegian",
-    "nn": "norwegian",
-    "pt": "portuguese",
-    "ro": "romanian",
-    "ru": "russian",
-    "sr": "serbian",
-    "es": "spanish",
-    "sv": "swedish",
-    "ta": "tamil",
-    "tr": "turkish",
-    "yi": "yiddish",
-}
+from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 
 # ── Tokenisation ──────────────────────────────────────────────────────
 

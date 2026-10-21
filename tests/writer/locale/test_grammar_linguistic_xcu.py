@@ -10,7 +10,7 @@ import os
 import ast
 import xml.etree.ElementTree as ET
 
-from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_REGISTRY_LOCALE_TAGS
+from plugin.framework.grammar_rule_ids import GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _OOR = "http://openoffice.org/2001/registry"
 _IMPLEMENTATION = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"

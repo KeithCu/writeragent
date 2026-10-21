@@ -25,7 +25,11 @@ from typing import Any
 
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence, grammar_proofread_text
 from .grammar_obs import emit_grammar_status, grammar_obs
-from .grammar_proofread_locale import grammar_bcp47_tags_match, normalize_detected_bcp47
+from plugin.framework.grammar_rule_ids import (
+    grammar_bcp47_tags_match,
+    grammar_english_name_for_bcp47,
+    normalize_detected_bcp47,
+)
 from .grammar_proofread_text import slice_preview_debug
 from .grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, next_enqueue_seq, grammar_queue
 
@@ -188,7 +192,7 @@ def process_grammar_results(
             if cache_ident:
                 put_kwargs["checker_identity"] = cache_ident
             grammar_proofread_cache.cache_put_sentence(bcp47, text, payload, **put_kwargs)
-            if original_bcp47 and not grammar_proofread_locale.grammar_bcp47_tags_match(original_bcp47, bcp47):
+            if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
                 log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
                 grammar_proofread_cache.cache_put_sentence(original_bcp47, text, payload, **put_kwargs)
             else:
@@ -385,7 +389,7 @@ def build_grammar_system_prompt(
     batch: bool,
     any_partial: bool,
 ) -> str:
-    lang_name = grammar_proofread_locale.grammar_english_name_for_bcp47(bcp47)
+    lang_name = grammar_english_name_for_bcp47(bcp47)
     if batch:
         sys_prompt = grammar_proofread_locale.GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name, bcp47=bcp47)
         if any_partial:
@@ -507,12 +511,12 @@ def _fill_from_cache_and_persistence(
     for idx, (item, text) in enumerate(chunk):
         cached = grammar_persistence.grammar_registry.get_cached_language(text)
         if cached:
-            canon = grammar_proofread_locale.normalize_detected_bcp47(cached) or cached
+            canon = normalize_detected_bcp47(cached) or cached
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
         elif trust_persisted and persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text, ec.grammar_bcp47):
             grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
-            canon = grammar_proofread_locale.normalize_detected_bcp47(ec.grammar_bcp47) or ec.grammar_bcp47
+            canon = normalize_detected_bcp47(ec.grammar_bcp47) or ec.grammar_bcp47
             grammar_persistence.grammar_registry.put_cached_language(text, canon)
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "persisted", ec.grammar_bcp47, canon, text)
@@ -579,7 +583,7 @@ def _detect_via_llm_batch(
         for idx, d_lang in enumerate(parsed_langs):
             text = chunk[idx][1]
             if d_lang:
-                canon = grammar_proofread_locale.normalize_detected_bcp47(d_lang) or d_lang
+                canon = normalize_detected_bcp47(d_lang) or d_lang
                 grammar_persistence.grammar_registry.put_cached_language(text, canon)
                 results.append(canon)
                 _obs_lang_detect_item(idx, "llm", d_lang, canon, text)
@@ -617,7 +621,7 @@ def _detect_via_llm_single(
     parsed_lang = grammar_proofread_json.parse_language_detect_json(detect_content or "")
     grammar_obs("lang_detect_single_parse", parsed=bool(parsed_lang), text_preview=slice_preview_debug(text, 48))
     if parsed_lang:
-        canon = grammar_proofread_locale.normalize_detected_bcp47(parsed_lang) or parsed_lang
+        canon = normalize_detected_bcp47(parsed_lang) or parsed_lang
         grammar_persistence.grammar_registry.put_cached_language(text, canon)
         _obs_lang_detect_item(0, "llm", parsed_lang, canon, text)
         return canon
@@ -876,7 +880,7 @@ def _worker_ready_items(
             ready.append((item, text))
         else:
             orig_bcp47 = item.original_bcp47 or getattr(item, "grammar_bcp47", "")
-            if orig_bcp47 and not grammar_proofread_locale.grammar_bcp47_tags_match(orig_bcp47, grammar_bcp47):
+            if orig_bcp47 and not grammar_bcp47_tags_match(orig_bcp47, grammar_bcp47):
                 applied = grammar_persistence.apply_language_change(
                     ctx,
                     item.doc_id,

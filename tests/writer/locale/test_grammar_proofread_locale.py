@@ -15,6 +15,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.constants import get_locales_dir
+from plugin.framework.grammar_rule_ids import (
+    GRAMMAR_REGISTRY_LOCALE_TAGS,
+    bcp47_to_uno_lang_country,
+    grammar_bcp47_tags_match,
+    grammar_english_name_for_bcp47,
+    normalize_detected_bcp47,
+    normalize_uno_locale_to_bcp47,
+)
 from plugin.writer.locale import grammar_proofread_locale as gl
 
 # Folder names under repo-root ``locales/`` that are translation targets (excludes en; English uses POT as msgid).
@@ -71,17 +79,17 @@ def test_grammar_tags_match_gettext_folders() -> None:
         f"{_GETTEXT_LOCALE_DIRS.symmetric_difference(_FOLDERS_TO_TAG.keys())}"
     )
     for _folder, expected in _FOLDERS_TO_TAG.items():
-        assert expected in gl.GRAMMAR_REGISTRY_LOCALE_TAGS, expected
+        assert expected in GRAMMAR_REGISTRY_LOCALE_TAGS, expected
 
 def test_grammar_tags_include_english_variants() -> None:
-    assert "en-US" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-GB" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-AU" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-CA" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-IN" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-US" in GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-GB" in GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-AU" in GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-CA" in GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-IN" in GRAMMAR_REGISTRY_LOCALE_TAGS
 
 def test_grammar_tag_count() -> None:
-    assert len(gl.GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
+    assert len(GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
 
 @pytest.mark.parametrize(
     "value, value_2, expected, value_3, value_4, expected_2",
@@ -92,8 +100,8 @@ def test_grammar_tag_count() -> None:
     ],
 )
 def test_normalize_german_regional(value, value_2, expected, value_3, value_4, expected_2) -> None:
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale(value, value_2)) == expected
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale(value_3, value_4)) == expected_2
+    assert normalize_uno_locale_to_bcp47(_uno_locale(value, value_2)) == expected
+    assert normalize_uno_locale_to_bcp47(_uno_locale(value_3, value_4)) == expected_2
 
 def test_bcp47_to_icu_sentence_breaker_locale() -> None:
     assert gl.bcp47_to_icu_sentence_breaker_locale("en-US") == "en@ss=standard"
@@ -103,19 +111,19 @@ def test_bcp47_to_icu_sentence_breaker_locale() -> None:
     assert gl.bcp47_to_icu_sentence_breaker_locale("") == "en@ss=standard"
 
 def test_normalize_english_choices() -> None:
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "US")) == "en-US"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "GB")) == "en-GB"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "AU")) == "en-AU"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
+    assert normalize_uno_locale_to_bcp47(_uno_locale("en", "US")) == "en-US"
+    assert normalize_uno_locale_to_bcp47(_uno_locale("en", "GB")) == "en-GB"
+    assert normalize_uno_locale_to_bcp47(_uno_locale("en", "AU")) == "en-AU"
+    assert normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
+    assert normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
 
 def test_english_name_is_nonempty() -> None:
-    for tag in gl.GRAMMAR_REGISTRY_LOCALE_TAGS:
-        assert len(gl.grammar_english_name_for_bcp47(tag)) > 0
+    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+        assert len(grammar_english_name_for_bcp47(tag)) > 0
 
 def test_bcp47_tags_have_valid_uno_language() -> None:
-    for tag in gl.GRAMMAR_REGISTRY_LOCALE_TAGS:
-        la, c = gl.bcp47_to_uno_lang_country(tag)
+    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+        la, c = bcp47_to_uno_lang_country(tag)
         assert la and len(la) >= 2
         assert c == c.upper()
 
@@ -293,16 +301,12 @@ def test_grammar_max_tokens_and_chars() -> None:
 
 
 def test_normalize_detected_bcp47_registry_and_shorthand() -> None:
-    from plugin.writer.locale.grammar_proofread_locale import normalize_detected_bcp47
-
     assert normalize_detected_bcp47("ja-JP") == "ja-JP"
     assert normalize_detected_bcp47("ja") == "ja-JP"
     assert normalize_detected_bcp47("en") == "en-US"
 
 
 def test_grammar_bcp47_tags_match() -> None:
-    from plugin.writer.locale.grammar_proofread_locale import grammar_bcp47_tags_match
-
     assert grammar_bcp47_tags_match("ja", "ja-JP")
     assert grammar_bcp47_tags_match("ja-JP", "ja-JP")
     assert not grammar_bcp47_tags_match("ja-JP", "zh-CN")

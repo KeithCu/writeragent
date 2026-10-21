@@ -468,7 +468,7 @@ Resolution order for **document default**:
 | 2 | `meta.xml` — `dc:language` if present | **`word/styles.xml`** — `w:docDefaults` / default style `w:lang` | Document-level langdetect sample (fallback default only) |
 | 3 | `DEFAULT_SENTENCE_LOCALE` (`en@ss=standard` after ICU mapping) | `word/settings.xml` or default-style fallback | `DEFAULT_SENTENCE_LOCALE` |
 
-**Plain text — per-paragraph `langdetect`:** for each extracted paragraph, run detection via [`langdetect_rpc.detect_lang_sample`](../plugin/embeddings/venv/langdetect_rpc.py) in the embeddings worker (requires `langdetect` in the venv). Map through [`normalize_detected_bcp47`](../plugin/writer/locale/grammar_proofread_locale.py). Short paragraphs may mis-detect — fall back to document default from a file sample or `DEFAULT_SENTENCE_LOCALE`.
+**Plain text — per-paragraph `langdetect`:** for each extracted paragraph, run detection via [`langdetect_rpc.detect_lang_sample`](../plugin/embeddings/venv/langdetect_rpc.py) in the embeddings worker (requires `langdetect` in the venv). Map through [`normalize_detected_bcp47`](../plugin/framework/grammar_rule_ids.py). Short paragraphs may mis-detect — fall back to document default from a file sample or `DEFAULT_SENTENCE_LOCALE`.
 
 **Parsing:** stdlib `zipfile` + `ElementTree` in [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) (no UNO, no extra venv packages for locale).
 

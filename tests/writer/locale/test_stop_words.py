@@ -2,7 +2,7 @@
 
 import snowballstemmer
 
-from plugin.writer.locale.linguistic_index import _ISO_TO_SNOWBALL
+from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 from plugin.writer.locale.stop_words import STOP_WORDS, stop_words_for_snowball
 
 

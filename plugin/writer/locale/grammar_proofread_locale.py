@@ -4,10 +4,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Locale-aware policy for the native AI grammar proofreader (DAG root for grammar code).
 
-Includes **shipped BCP-47 tags** (aligned with gettext ``locales/`` and ``LinguisticWriterAgentGrammar.xcu``),
-**UNO ``Locale`` ↔ canonical tag bridging**, English display names for prompts, **Unicode sentence-boundary**
+Shipped BCP-47 tags and UNO ``Locale`` ↔ canonical tag bridging live in ``plugin.framework.grammar_rule_ids``.
+This module holds English display names for prompts, **Unicode sentence-boundary**
 tables, scheduling thresholds, abbreviations, Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting,
-LLM worker caps/prompt, and JSON wire parsing — plus pure helpers for those tables.
+LLM worker caps/prompt, and JSON wire parsing.
 
 Must not import sibling grammar-processing modules under ``plugin.writer.locale``
 (leaf data modules such as ``locale_abbrev`` are fine).
@@ -18,9 +18,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from types import SimpleNamespace
 from typing import Any, Literal, Sequence
 
+from plugin.framework.grammar_rule_ids import (
+    bcp47_to_uno_lang_country,
+    normalize_detected_bcp47,
+)
 from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
 
 _log = logging.getLogger("writeragent.grammar")
@@ -270,60 +273,6 @@ def normalize_reason(reason: str) -> str:
     return " ".join(s.split())
 
 
-# ---------------------------------------------------------------------------
-# Shipped BCP-47 registry + UNO CharLocale bridging
-# ---------------------------------------------------------------------------
-
-# One canonical tag per folder under repo-root ``locales/`` (plus en-US, en-GB; English has no ``en`` dir).
-# Order: English first, then alphabetical by BCP-47. Must match ``LinguisticWriterAgentGrammar.xcu``.
-#
-# * ``pt`` → ``pt-BR`` (user docs may set ``pt-PT``; ``normalize_uno_locale_to_bcp47`` maps any ``pt`` to ``pt-BR``)
-#
-# English names for the LLM (short addendum; JSON schema part stays in English)
-GRAMMAR_REGISTRY_LOCALES: dict[str, str] = {
-    "en-US": "English (United States)",
-    "en-GB": "English (United Kingdom)",
-    "en-AU": "English (Australia)",
-    "en-CA": "English (Canada)",
-    "en-IN": "English (India)",
-    "bg-BG": "Bulgarian",
-    "bn-IN": "Bengali (India)",
-    "ca-ES": "Catalan",
-    "cs-CZ": "Czech",
-    "da-DK": "Danish",
-    "de-DE": "German",
-    "el-GR": "Greek",
-    "es-ES": "Spanish",
-    "et-EE": "Estonian",
-    "fi-FI": "Finnish",
-    "fr-FR": "French",
-    "hi-IN": "Hindi (India)",
-    "hr-HR": "Croatian",
-    "hu-HU": "Hungarian",
-    "id-ID": "Indonesian",
-    "it-IT": "Italian",
-    "ja-JP": "Japanese",
-    "ko-KR": "Korean",
-    "lt-LT": "Lithuanian",
-    "lv-LV": "Latvian",
-    "nb-NO": "Norwegian Bokmål",
-    "nl-NL": "Dutch",
-    "nn-NO": "Norwegian Nynorsk",
-    "pl-PL": "Polish",
-    "pt-BR": "Portuguese (Brazil)",
-    "ro-RO": "Romanian",
-    "ru-RU": "Russian",
-    "sk-SK": "Slovak",
-    "sv-SE": "Swedish",
-    "tr-TR": "Turkish",
-    "uk-UA": "Ukrainian",
-    "ur-PK": "Urdu (Pakistan)",
-    "zh-CN": "Chinese (Simplified, China)",
-    "zh-TW": "Chinese (Traditional, Taiwan)",
-}
-
-GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = tuple(GRAMMAR_REGISTRY_LOCALES.keys())
-
 GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
 
 
@@ -360,17 +309,6 @@ def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
     return "off"
 
 
-def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
-    """Return (Language, Country) for ``com.sun.star.lang.Locale`` (Variant empty for our tags)."""
-    parts = bcp47.split("-")
-    if not parts[0]:
-        return "", ""
-    lang = parts[0]
-    if len(parts) < 2:
-        return lang, ""
-    return lang, parts[1]
-
-
 def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
     import importlib
@@ -384,124 +322,6 @@ def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
         la, ctry = bcp47_to_uno_lang_country(tag)
         out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
     return tuple(out)
-
-
-# Exact (lowercase language, upper country) → tag
-_EXACT_PAIR_TO_TAG: dict[tuple[str, str], str] = {}
-for _t in GRAMMAR_REGISTRY_LOCALE_TAGS:
-    _l, c = bcp47_to_uno_lang_country(_t)
-    _EXACT_PAIR_TO_TAG[(_l.lower(), c.upper())] = _t
-    if c == "":
-        _EXACT_PAIR_TO_TAG[(_l.lower(), "")] = _t
-
-# One canonical BCP-47 per ISO language when the document country does not match the registry
-# (e.g. ``de-AT`` / ``es-MX``) — ``en`` / ``zh`` / ``pt`` / ``nb``/``nn``/``no`` are handled in code.
-_CANON_BY_LANG_NO_REGION: dict[str, str] = {}
-for _t in GRAMMAR_REGISTRY_LOCALE_TAGS:
-    _l, c = bcp47_to_uno_lang_country(_t)
-    key = _l.lower()
-    if key in ("en", "zh", "pt", "nb", "nn", "no"):
-        continue
-    if key not in _CANON_BY_LANG_NO_REGION:
-        _CANON_BY_LANG_NO_REGION[key] = _t
-
-
-# Special country/dialect overrides for multi-region or alias languages
-_LANGUAGE_DIALECT_OVERRIDES: dict[tuple[str, str], str] = {
-    # English regional variants
-    ("en", "GB"): "en-GB",
-    ("en", "UK"): "en-GB",
-    ("en", "AU"): "en-AU",
-    ("en", "CA"): "en-CA",
-    ("en", "IN"): "en-IN",
-    # Chinese variants
-    ("zh", "TW"): "zh-TW",
-    ("zh", "HK"): "zh-TW",
-    ("zh", "MO"): "zh-TW",
-    ("zh", "CN"): "zh-CN",
-    # Norwegian variants
-    ("no", "NO"): "nb-NO",
-    ("no", ""): "nb-NO",
-    ("nb", "NO"): "nb-NO",
-    ("nb", ""): "nb-NO",
-    ("nn", "NO"): "nn-NO",
-    ("nn", ""): "nn-NO",
-}
-
-_LANGUAGE_DEFAULT_FALLBACKS: dict[str, str] = {
-    "en": "en-US",
-    "zh": "zh-CN",
-    "pt": "pt-BR",
-    "nb": "nb-NO",
-    "no": "nb-NO",
-    "nn": "nn-NO",
-}
-
-
-def _normalize_lang_country(lang: str, country: str = "") -> str | None:
-    """Same registry mapping as a UNO Locale with Language/Country fields."""
-    return normalize_uno_locale_to_bcp47(SimpleNamespace(Language=lang, Country=country))
-
-
-def normalize_detected_bcp47(tag: str | None) -> str | None:
-    """Map an LLM-detected BCP-47 tag onto a supported registry tag (same rules as UNO locales)."""
-    if not tag or not str(tag).strip():
-        return None
-    raw = str(tag).strip().replace("_", "-")
-    if raw in GRAMMAR_REGISTRY_LOCALES:
-        return raw
-    parts = raw.split("-")
-    lang = parts[0]
-    if not lang:
-        return None
-    country = parts[1].upper() if len(parts) > 1 else ""
-    return _normalize_lang_country(lang, country)
-
-
-def grammar_bcp47_tags_match(a: str | None, b: str | None) -> bool:
-    """True when two tags denote the same supported grammar locale (e.g. ``ja`` vs ``ja-JP``)."""
-    if not a or not b:
-        return False
-    na = normalize_detected_bcp47(a) or a
-    nb = normalize_detected_bcp47(b) or b
-    return na == nb
-
-
-def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
-    """Map a document ``Locale`` to our canonical BCP-47, or None if the language is not supported.
-
-    Regional variants (e.g. ``de-AT``) map to the same canonical tag as ``de-DE`` for cache/LLM.
-    """
-    if a_locale is None:
-        return None
-    lang = (getattr(a_locale, "Language", None) or "").strip()
-    if not lang:
-        return None
-    country = (getattr(a_locale, "Country", None) or "").strip().upper()
-
-    lang_l = lang.lower()
-    key = (lang_l, country)
-
-    # 1. Exact (lang, country) or (lang, "") matches
-    if key in _EXACT_PAIR_TO_TAG:
-        return _EXACT_PAIR_TO_TAG[key]
-    if (lang_l, "") in _EXACT_PAIR_TO_TAG:
-        return _EXACT_PAIR_TO_TAG[(lang_l, "")]
-
-    # 2. Dialect / territory overrides
-    if key in _LANGUAGE_DIALECT_OVERRIDES:
-        return _LANGUAGE_DIALECT_OVERRIDES[key]
-
-    # 3. Base language default fallbacks
-    if lang_l in _LANGUAGE_DEFAULT_FALLBACKS:
-        return _LANGUAGE_DEFAULT_FALLBACKS[lang_l]
-
-    # 4. Standard regional fallback (e.g. de-AT -> de-DE, es-MX -> es-ES)
-    return _CANON_BY_LANG_NO_REGION.get(lang_l)
-
-
-def grammar_english_name_for_bcp47(bcp47: str) -> str:
-    return GRAMMAR_REGISTRY_LOCALES.get(bcp47, bcp47)
 
 
 

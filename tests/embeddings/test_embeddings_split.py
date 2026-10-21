@@ -125,7 +125,7 @@ def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
         return [(0, 5, "word "), (5, 9, "one "), (9, 14, "two "), (14, 19, "three")]
 
     monkeypatch.setattr(
-        "plugin.writer.locale.grammar_proofread_locale.normalize_detected_bcp47",
+        "plugin.framework.grammar_rule_ids.normalize_detected_bcp47",
         lambda tag: "th-TH" if tag else None,
     )
     monkeypatch.setattr(

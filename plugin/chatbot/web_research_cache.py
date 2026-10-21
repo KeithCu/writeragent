@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.deal_shim import deal
-from plugin.writer.locale.linguistic_index import _ISO_TO_SNOWBALL
+from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 
 log = logging.getLogger("writeragent.web_research_cache")
 

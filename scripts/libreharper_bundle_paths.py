@@ -92,7 +92,6 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/locale/__init__.py",
     "plugin/writer/locale/ai_grammar_proofreader.py",
     "plugin/writer/locale/harper.py",
-    "plugin/writer/locale/harper_locales.py",
     "plugin/writer/locale/harper_binary.py",
     "plugin/writer/locale/harper_proofreader.py",
     "plugin/writer/locale/locale_abbrev.py",

@@ -10,15 +10,7 @@ import json
 import os
 import urllib.request
 
-SNOWBALL_TO_ISO = {
-    "arabic": "ar", "armenian": "hy", "basque": "eu", "catalan": "ca",
-    "danish": "da", "dutch": "nl", "english": "en", "esperanto": "eo",
-    "estonian": "et", "finnish": "fi", "french": "fr", "german": "de",
-    "greek": "el", "hindi": "hi", "hungarian": "hu", "indonesian": "id",
-    "irish": "ga", "italian": "it", "lithuanian": "lt", "norwegian": "no",
-    "portuguese": "pt", "romanian": "ro", "russian": "ru", "serbian": "hr",
-    "spanish": "es", "swedish": "sv", "tamil": "ta", "turkish": "tr", "yiddish": "yi",
-}
+from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL, STOPWORDS_ISO_KEY
 
 # Not in stopwords-iso.
 MANUAL: dict[str, list[str]] = {
@@ -49,8 +41,6 @@ def _from_iso(words: list[str]) -> list[str]:
 
 
 def main() -> None:
-    from plugin.writer.locale.linguistic_index import _ISO_TO_SNOWBALL
-
     with urllib.request.urlopen(STOPWORDS_ISO_URL, timeout=30) as r:
         all_sw = json.load(r)
 
@@ -60,7 +50,7 @@ def main() -> None:
         if lang in MANUAL:
             data[lang] = MANUAL[lang]
         else:
-            iso = SNOWBALL_TO_ISO[lang]
+            iso = STOPWORDS_ISO_KEY[lang]
             data[lang] = _from_iso(all_sw[iso])
 
     lines = [

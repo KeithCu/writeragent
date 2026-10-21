@@ -31,6 +31,11 @@ log = logging.getLogger("writeragent.grammar")
 
 from plugin.framework.config import grammar_checker_identity
 
+from plugin.framework.grammar_rule_ids import (
+    bcp47_to_uno_lang_country,
+    normalize_detected_bcp47,
+)
+
 from . import grammar_proofread_json
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
@@ -806,15 +811,14 @@ def apply_language_change(
 ) -> bool:
     """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
     import uno
-    from . import grammar_proofread_locale
 
     def _do_update() -> bool:
         model = get_document_model_for_id(ctx, doc_id)
         if not model:
             return False
 
-        lang, country = grammar_proofread_locale.bcp47_to_uno_lang_country(
-            grammar_proofread_locale.normalize_detected_bcp47(detected_bcp47) or detected_bcp47
+        lang, country = bcp47_to_uno_lang_country(
+            normalize_detected_bcp47(detected_bcp47) or detected_bcp47
         )
 
         new_locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=lang, Country=country)

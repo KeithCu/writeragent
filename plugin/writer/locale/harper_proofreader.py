@@ -33,15 +33,15 @@ from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
     WriterAgentAiGrammarProofreader,
 )
+from plugin.framework.grammar_rule_ids import normalize_uno_locale_to_bcp47
 from plugin.writer.locale.grammar_proofread_locale import (
-    normalize_uno_locale_to_bcp47,
     uno_locales_for_tags,
 )
 
 log = logging.getLogger("writeragent.grammar")
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
-from plugin.writer.locale.harper_locales import HARPER_LOCALE_TAGS
+from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"

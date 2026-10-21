@@ -67,12 +67,14 @@ _GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
+from plugin.framework.grammar_rule_ids import (
+    GRAMMAR_REGISTRY_LOCALE_TAGS,
+    normalize_uno_locale_to_bcp47,
+)
 from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
-    GRAMMAR_REGISTRY_LOCALE_TAGS,
     grammar_inflight_key,
     looks_complete_sentence,
-    normalize_uno_locale_to_bcp47,
     uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (

@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from plugin.version import EXTENSION_VERSION
+from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
 from plugin.writer.locale.harper_proofreader import (
-    HARPER_LOCALE_TAGS,
     IMPLEMENTATION_NAME,
 )
 from scripts.build_libreharper_oxt import (
