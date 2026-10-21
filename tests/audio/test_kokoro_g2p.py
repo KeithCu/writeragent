@@ -12,6 +12,7 @@ import pytest
 from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
+    TTS_INSTALL_CMD,
     ensure_kokoro_misaki,
     kokoro_lang_uses_misaki,
     kokoro_misaki_install_hint,
@@ -72,13 +73,10 @@ def test_misaki_lang_properties(lang: str, uses_misaki: bool, expected_pkgs: tup
 
 
 def test_kokoro_misaki_install_hints_and_requirements():
-    from plugin.scripting.tts_requirements import KOKORO_PIP_INSTALL as REQ_KOKORO_PIP, TTS_INSTALL_CMD
-
     assert kokoro_misaki_install_hint("ja") == "uv pip install 'misaki[ja]'"
     assert kokoro_misaki_install_hint("zh") == "uv pip install 'misaki[zh]'"
     assert kokoro_misaki_install_hint("fr-fr") == "uv pip install misaki phonemizer-fork espeakng-loader"
 
-    assert KOKORO_PIP_INSTALL == REQ_KOKORO_PIP
     assert "misaki[ja,zh]" in KOKORO_PIP_INSTALL
     assert "phonemizer-fork" in KOKORO_PIP_INSTALL
     assert "piper-tts" not in KOKORO_PIP_INSTALL

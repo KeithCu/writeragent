@@ -21,10 +21,10 @@ from typing import Any, Callable, ClassVar, cast
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
     KOKORO_ONNX_SCRIPT,
+    KOKORO_PIP_INSTALL,
     ensure_kokoro_misaki,
     kokoro_lang_uses_misaki,
 )
-from plugin.scripting.tts_requirements import KOKORO_PIP_INSTALL
 from plugin.audio.kokoro_pool import (
     cancel_kokoro_inflight,
     get_kokoro_inflight_token,

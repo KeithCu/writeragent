@@ -48,8 +48,14 @@ _AUDIO_PACKAGE_KEYS = (
 # and each missing set gets its own install line.
 _TTS_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
 _AUDIO_OPTIONAL_KEYS = _TTS_OPTIONAL_KEYS + ("faster_whisper",)
-# Sourced from plugin/scripting/tts_requirements.py to avoid importing plugin.audio.
-from plugin.scripting.tts_requirements import TTS_INSTALL_CMD
+# Kokoro multilingual extras match plugin/audio/kokoro_g2p.py KOKORO_PIP_INSTALL.
+# Fallback handles standalone LibrePy builds where plugin.audio is excluded.
+try:
+    from plugin.audio.kokoro_g2p import TTS_INSTALL_CMD
+except ImportError:
+    TTS_INSTALL_CMD = (
+        "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
+    )
 # Separate from the TTS recipe so a missing Whisper package does not print
 # the Kokoro/Piper install line (and the reverse).
 _WHISPER_INSTALL_CMD = 'uv pip install faster-whisper "av<14"'

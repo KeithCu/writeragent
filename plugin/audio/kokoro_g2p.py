@@ -39,9 +39,27 @@ from typing import Any, Callable
 
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
-from plugin.scripting.tts_requirements import ESPEAK_PIP, KOKORO_PIP_INSTALL
 
 log = logging.getLogger(__name__)
+
+KOKORO_RUNTIME = ("kokoro-onnx", "soundfile")
+PIPER_PACKAGE = "piper-tts"
+MISAKI_LANG_EXTRAS = ("ja", "zh")
+G2P_SHARED = ("phonemizer-fork", "espeakng-loader")
+ESPEAK_PIP = ("misaki",) + G2P_SHARED
+
+
+def misaki_lang_extra() -> str:
+    return f"misaki[{','.join(MISAKI_LANG_EXTRAS)}]"
+
+
+def uv_install(*packages: str) -> str:
+    quoted = [f"'{p}'" if "[" in p else p for p in packages]
+    return "uv pip install " + " ".join(quoted)
+
+
+KOKORO_PIP_INSTALL = uv_install(*KOKORO_RUNTIME, misaki_lang_extra(), *G2P_SHARED)
+TTS_INSTALL_CMD = uv_install(*KOKORO_RUNTIME, PIPER_PACKAGE, misaki_lang_extra(), *G2P_SHARED)
 
 _PROBE_TIMEOUT_SEC = 90.0
 _PIP_TIMEOUT_SEC = 300.0
@@ -170,8 +188,7 @@ def kokoro_misaki_install_hint(lang: str) -> str:
     packages = kokoro_misaki_packages(lang)
     if not packages:
         return KOKORO_PIP_INSTALL
-    quoted = ["'%s'" % pkg if "[" in pkg else pkg for pkg in packages]
-    return "uv pip install " + " ".join(quoted)
+    return uv_install(*packages)
 
 
 def kokoro_misaki_probe_code(lang: str) -> str:
