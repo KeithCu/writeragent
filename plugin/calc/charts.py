@@ -1183,25 +1183,6 @@ class UpsertChart(ToolBaseDummy):
     uno_services: list[str] | None = ListCharts.uno_services
     is_mutation: bool | None = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return _chart_parameters(self.parameters, doc_type)
-
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        # ToolBaseDummy has no schema validate; mirror ToolBase.validate here.
-        schema = self.get_parameters(doc_type) or {}
-        required = schema.get("required", [])
-        for key in required:
-            if key not in kwargs:
-                return False, f"Missing required parameter: {key}"
-        props = schema.get("properties", {})
-        for key in kwargs:
-            if props and key not in props:
-                return False, f"Unknown parameter: {key}"
-        action = kwargs.get("action")
-        if action not in ("create", "edit"):
-            return False, f"Invalid value for 'action': {action}"
-        return _validate_chart_action(kwargs, doc_type)
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
         doc = ctx.doc
@@ -1322,7 +1303,7 @@ class UpsertChart(ToolBaseDummy):
     def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         data_range = cast("str", kwargs.get("data_range"))
-        # Missing data_range is rejected by UpsertChart.validate for calc create.
+        # Missing data_range is rejected by ManageCharts.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
         if target_sheet_name:

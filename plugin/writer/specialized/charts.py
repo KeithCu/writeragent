@@ -22,14 +22,11 @@ tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only mo
 Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.charts``.
 """
 
-import logging
 from typing import ClassVar
 
 from ..specialized_base import ToolWriterChartBase
 from plugin.calc.charts import ManageCharts as CalcManageCharts
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-
-log = logging.getLogger("writeragent.writer")
 
 # Union services: same name as Calc/Draw ``manage_charts``; last registration wins, so include
 # all chart-capable document services (cf. ``plugin.writer.specialized.shapes``).

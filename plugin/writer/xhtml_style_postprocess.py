@@ -83,49 +83,23 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
     return bool(_BODY_AUTOSTYLE_RE.search(body))
 
 
-_FODT_STYLE_RE = re.compile(r"<style:style\b([^>]*?)/?>", re.IGNORECASE)
-
-
-@deal.post(lambda result: isinstance(result, dict))
-def extract_autostyle_parents_from_fodt(fodt: str) -> dict[str, str]:
-    """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
-    flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
-    often matches no named rule (the common case after a StarWriter HTML import); the flat ODF
-    keeps ``style:parent-style-name``, and the automatic style name (``Pn``) is identical to the
-    XHTML ``paragraph-Pn`` class suffix — a reliable, order-independent join. Parent values may
-    still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
-    """
-    # FODT regex finditer on unbounded XML hangs deep check.
+def _split_decls(decl: str) -> list[str]:
     # crosshair: off
-    out = {}
-    text = fodt if type(fodt) is str else ""
-    for m in _FODT_STYLE_RE.finditer(text):
-        attrs = m.group(1)
-        fam = re.search(r'style:family="([^"]*)"', attrs)
-        if not fam or fam.group(1) != "paragraph":
-            continue
-        name = re.search(r'style:name="([^"]*)"', attrs)
-        parent = re.search(r'style:parent-style-name="([^"]*)"', attrs)
-        if name and parent and _AUTOSTYLE_RE.match(name.group(1)):
-            # XML attribute values are entity-escaped (a style named "A & B" -> "A &amp; B").
-            out[name.group(1)] = _html.unescape(parent.group(1))
-    return out
+    return [p.strip() for p in decl.split(";") if p.strip()]
 
 
 def _clean_decl_ordered(decl: str) -> str:
     """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
     # crosshair: off
     # CSS decl tokenization (cover-all 35546602462: ~18m xhtml module). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
-    parts = [p.strip() for p in decl.split(";") if p.strip()]
-    return "; ".join(parts)
+    return "; ".join(_split_decls(decl))
 
 
 def _normalize_decl(decl: str) -> str:
     """Order-independent fingerprint of a declaration set (for autostyle matching)."""
     # crosshair: off
     # CSS decl normalize/sort (cover-all 35546602462). Doable later with closed decl alphabet.
-    parts = [p.strip() for p in decl.split(";") if p.strip()]
-    return ";".join(sorted(parts))
+    return ";".join(sorted(_split_decls(decl)))
 
 
 # Direct paragraph overrides surfaced to the agent as read-only ``data-lo-para``. v1 dropped them
@@ -191,6 +165,40 @@ def _fodt_override_css(style_block: str) -> str:
     return "; ".join(parts)
 
 
+def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
+    # crosshair: off
+    # FODT autostyle extraction over unbounded XML.
+    parents: dict[str, str] = {}
+    overrides: dict[str, str] = {}
+    text = fodt if type(fodt) is str else ""
+    for m in _FODT_PARA_STYLE_RE.finditer(text):
+        head = (m.group(1) or "") + (m.group(2) or "")
+        name = re.search(r'style:name="([^"]*)"', head)
+        if not name or not _AUTOSTYLE_RE.match(name.group(1)):
+            continue
+        style_name = name.group(1)
+        parent = re.search(r'style:parent-style-name="([^"]*)"', head)
+        if parent:
+            parents[style_name] = _html.unescape(parent.group(1))
+        css = _fodt_override_css(head + (m.group(3) or ""))
+        if css:
+            overrides[style_name] = css
+    return parents, overrides
+
+
+@deal.post(lambda result: isinstance(result, dict))
+def extract_autostyle_parents_from_fodt(fodt: str) -> dict[str, str]:
+    """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
+    flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
+    often matches no named rule (the common case after a StarWriter HTML import); the flat ODF
+    keeps ``style:parent-style-name``, and the automatic style name (``Pn``) is identical to the
+    XHTML ``paragraph-Pn`` class suffix — a reliable, order-independent join. Parent values may
+    still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
+    """
+    # crosshair: off
+    return _parse_fodt_autostyles(fodt)[0]
+
+
 def extract_autostyle_overrides_from_fodt(fodt: str) -> dict[str, str]:
     """Map automatic paragraph style name (``P1``, ...) -> its DIRECT overrides as CSS text.
 
@@ -199,18 +207,7 @@ def extract_autostyle_overrides_from_fodt(fodt: str) -> dict[str, str]:
     is exactly the hand-set formatting — the thing the XHTML projection cannot express.
     """
     # crosshair: off
-    # FODT override extraction over unbounded XML (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
-    out = {}
-    text = fodt if type(fodt) is str else ""
-    for m in _FODT_PARA_STYLE_RE.finditer(text):
-        head = (m.group(1) or "") + (m.group(2) or "")
-        name = re.search(r'style:name="([^"]*)"', head)
-        if not name or not _AUTOSTYLE_RE.match(name.group(1)):
-            continue
-        css = _fodt_override_css(head + (m.group(3) or ""))
-        if css:
-            out[name.group(1)] = css
-    return out
+    return _parse_fodt_autostyles(fodt)[1]
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
@@ -271,7 +268,34 @@ def _attr_value(attrs: list[tuple[str, str | None]], key: str) -> str:
     return ""
 
 
-class _SemanticTransformer(HTMLParser):
+class _HtmlPassthroughParser(HTMLParser):
+    _table_depth: int
+    _out: list[str]
+
+    def __init__(self) -> None:
+        # crosshair: off
+        HTMLParser.__init__(self, convert_charrefs=False)
+        self._table_depth = 0
+        self._out = []
+
+    def handle_data(self, data: str) -> None:
+        # crosshair: off
+        self._out.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        # crosshair: off
+        self._out.append("&%s;" % name)
+
+    def handle_charref(self, name: str) -> None:
+        # crosshair: off
+        self._out.append("&#%s;" % name)
+
+    def handle_comment(self, data: str) -> None:
+        # crosshair: off
+        self._out.append("<!--%s-->" % data)
+
+
+class _SemanticTransformer(_HtmlPassthroughParser):
     """Rewrite LO XHTML body into the agent-facing semantic HTML.
 
     Top-level paragraph blocks get ``data-lo-style="<compact token>"`` (named styles only;
@@ -292,7 +316,7 @@ class _SemanticTransformer(HTMLParser):
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
         # HTMLParser transformer state (cover-all 35546602462). Doable later with closed style maps.
-        super().__init__(convert_charrefs=False)
+        super().__init__()
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
         self._autostyle_overrides = autostyle_overrides or {}
@@ -317,8 +341,6 @@ class _SemanticTransformer(HTMLParser):
         # rather than emit a token that would silently resolve to the wrong style.
         self._colliding_tokens = {t for t, names in token_names.items() if len(names) > 1}
         self._norm = norm_map
-        self._table_depth = 0
-        self._out: list[str] = []
 
     def _paragraph_token(self, suffix: str) -> str | None:
         """Compact ``data-lo-style`` token for a ``paragraph-<suffix>`` class, or ``None``.
@@ -428,26 +450,6 @@ class _SemanticTransformer(HTMLParser):
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
-
-    def handle_data(self, data: str) -> None:
-        # crosshair: off
-        # HTMLParser data (cover-all 35546602462). Engine-hostile over symbolic HTML.
-        self._out.append(data)
-
-    def handle_entityref(self, name: str) -> None:
-        # crosshair: off
-        # HTMLParser entityref (cover-all 35546602462). Engine-hostile over symbolic HTML.
-        self._out.append("&%s;" % name)
-
-    def handle_charref(self, name: str) -> None:
-        # crosshair: off
-        # HTMLParser charref (cover-all 35546602462). Engine-hostile over symbolic HTML.
-        self._out.append("&#%s;" % name)
-
-    def handle_comment(self, data: str) -> None:
-        # crosshair: off
-        # HTMLParser comment (cover-all 35546602462). Engine-hostile over symbolic HTML.
-        self._out.append("<!--%s-->" % data)
 
     def result(self) -> str:
         # crosshair: off

@@ -856,7 +856,7 @@ def test_download_over_cap_is_not_cached(tmp_path, monkeypatch):
     from plugin.writer.images import images as images_mod
 
     monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-    monkeypatch.setattr("plugin.writer.images.images._IMAGE_DOWNLOAD_MAX_BYTES", 4)
+    monkeypatch.setattr("plugin.writer.images.images.IMAGE_DOWNLOAD_MAX_BYTES", 4)
 
     opens = 0
 
@@ -894,7 +894,7 @@ def test_download_over_cap_is_not_cached(tmp_path, monkeypatch):
     assert opens == 2
 
     # Cover Content-Length: 999999 with the real cap: read must not be called, directory stays empty.
-    monkeypatch.setattr("plugin.writer.images.images._IMAGE_DOWNLOAD_MAX_BYTES", 32 * 1024 * 1024)
+    monkeypatch.setattr("plugin.writer.images.images.IMAGE_DOWNLOAD_MAX_BYTES", 32 * 1024 * 1024)
     read_called = False
 
     class _CLResp:

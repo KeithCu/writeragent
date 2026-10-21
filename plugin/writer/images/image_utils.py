@@ -35,7 +35,6 @@ from plugin.framework.errors import NetworkError, ToolExecutionError
 
 log = logging.getLogger(__name__)
 
-TRIM_IMAGES_IN_LOG = True
 IMAGE_DOWNLOAD_MAX_BYTES: int = 32 * 1024 * 1024
 IMAGE_CONTENT_TYPE_DENYLIST: tuple[str, ...] = ("text/html", "text/plain", "application/xhtml+xml", "application/json")
 
@@ -140,11 +139,6 @@ def resolve_generation_size(
     return final_w, final_h, wire_ratio
 
 
-class ImageProvider:
-    def generate(self, prompt: str, **kwargs: Any) -> tuple[list[str], str]:
-        raise NotImplementedError()
-
-
 def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
     is_stopped = False
     if isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED":
@@ -156,17 +150,27 @@ def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
 
 
-class EndpointImageProvider(ImageProvider):
+def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
+    _unlink_temp_paths(paths)
+    _reraise_if_stopped(stop_checker, exc)
+    log.exception(log_message)
+    return [], str(exc)
+
+
+def _extract_b64(text: str) -> str | None:
+    match = re.search(r"base64,([A-Za-z0-9+/=]+)", text)
+    return match.group(1) if match else None
+
+
+class EndpointImageProvider:
     """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
 
     client: LlmClient
     model: str
-    ctx: Any
 
     def __init__(self, api_config: Any, ctx: Any) -> None:
         self.client = LlmClient(api_config, ctx)
         self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
-        self.ctx = ctx
 
     def _save_b64(self, b64_data: str) -> list[str]:
         if len(b64_data) > (IMAGE_DOWNLOAD_MAX_BYTES * 4) // 3 + 4:
@@ -195,6 +199,32 @@ class EndpointImageProvider(ImageProvider):
             raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
         suffix = validated_image_suffix(body)
         return [write_temp_image(body, suffix=suffix)]
+
+    def _run_image_completion(
+        self,
+        prompt: str,
+        model: str,
+        width: int,
+        height: int,
+        steps: int | None,
+        source_image: str | None,
+        wire: dict[str, Any],
+        stop_checker: Any,
+        log_message: str,
+    ) -> tuple[list[str], str]:
+        valid_steps = steps if (steps is not None and steps > 0) else None
+        paths: list[str] = []
+        try:
+            b64_list = self.client.image_completion(
+                prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire
+            )
+            for b64 in b64_list:
+                paths.extend(self._save_b64(b64))
+            if paths:
+                return paths, ""
+            return [], "No image data returned from provider"
+        except Exception as e:
+            return _abandon_image_paths(paths, stop_checker, e, log_message)
 
     def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
@@ -232,20 +262,10 @@ class EndpointImageProvider(ImageProvider):
                     use_dedicated = True
 
                 if use_dedicated:
-                    valid_steps = steps if (steps is not None and steps > 0) else None
-                    paths: list[str] = []
-                    try:
-                        b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire)
-                        for b64 in b64_list:
-                            paths.extend(self._save_b64(b64))
-                        if paths:
-                            return paths, ""
-                        return [], "No image data returned from provider"
-                    except Exception as e:
-                        _unlink_temp_paths(paths)
-                        _reraise_if_stopped(stop_checker, e)
-                        log.exception("OpenRouter dedicated image generation failed")
-                        return [], str(e)
+                    return self._run_image_completion(
+                        prompt, model, width, height, steps, source_image, wire, stop_checker,
+                        "OpenRouter dedicated image generation failed",
+                    )
 
                 _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
                 body_dict = json.loads(body)
@@ -291,54 +311,38 @@ class EndpointImageProvider(ImageProvider):
                             continue
 
                         if "data:image" in url:
-                            match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
-                            if match:
-                                paths.extend(self._save_b64(match.group(1)))
+                            b64 = _extract_b64(url)
+                            if b64:
+                                paths.extend(self._save_b64(b64))
                         elif url.startswith("http"):
                             paths.extend(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
                 except Exception as e:
-                    _unlink_temp_paths(paths)
-                    _reraise_if_stopped(stop_checker, e)
-                    log.exception("OpenRouter image processing failed")
-                    return [], str(e)
+                    return _abandon_image_paths(paths, stop_checker, e, "OpenRouter image processing failed")
 
                 if paths:
                     return paths, ""
             else:
                 # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
-                valid_steps = steps if (steps is not None and steps > 0) else None
-                paths = []
-                try:
-                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"), **wire)
-                    for b64 in b64_list:
-                        paths.extend(self._save_b64(b64))
-                    if paths:
-                        return paths, ""
-                    return [], "No image data returned from provider"
-                except Exception as e:
-                    _unlink_temp_paths(paths)
-                    _reraise_if_stopped(stop_checker, e)
-                    log.exception("Image generation failed")
-                    return [], str(e)
+                return self._run_image_completion(
+                    prompt, model, width, height, steps, source_image, wire, stop_checker,
+                    "Image generation failed",
+                )
 
             # Fallback: image in content string (some endpoints)
             if isinstance(fallback_content, str) and fallback_content:
                 paths = []
                 try:
                     if "data:image" in fallback_content:
-                        match = re.search(r"base64,([A-Za-z0-9+/=]+)", fallback_content)
-                        if match:
-                            paths.extend(self._save_b64(match.group(1)))
+                        b64 = _extract_b64(fallback_content)
+                        if b64:
+                            paths.extend(self._save_b64(b64))
                     stripped = fallback_content.strip()
                     if not paths and stripped.startswith("http"):
                         paths.extend(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
                     if paths:
                         return paths, ""
                 except Exception as e:
-                    _unlink_temp_paths(paths)
-                    _reraise_if_stopped(stop_checker, e)
-                    log.exception("Image fallback content processing failed")
-                    return [], str(e)
+                    return _abandon_image_paths(paths, stop_checker, e, "Image fallback content processing failed")
 
             return [], ""
         finally:
@@ -352,7 +356,6 @@ class ImageService:
     def __init__(self, ctx: Any, config: Any) -> None:
         self.ctx = ctx
         self.config = config
-        self.providers: dict[str, Any] = {}
 
     def get_provider(self, name: str | None = None) -> Any | None:
         if name and name not in ("endpoint", "openrouter"):

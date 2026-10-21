@@ -26,6 +26,45 @@ from plugin.doc.visual_helpers import anchor_type_index
 from ..specialized_base import ToolWriterTextFramesBase
 
 
+def _frame_size_fields(size: Any) -> dict[str, Any]:
+    return {
+        "width_mm": size.Width / 100.0,
+        "height_mm": size.Height / 100.0,
+        "width_100mm": size.Width,
+        "height_100mm": size.Height,
+    }
+
+
+def _frame_text(frame: Any, limit: int | None = None) -> str:
+    frame_text = frame.getText()
+    cursor = frame_text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    full_text = cursor.getString()
+    if limit is not None and len(full_text) > limit:
+        return full_text[:limit] + "..."
+    return full_text
+
+
+def _frame_or_error(tool: Any, ctx: Any, name: str) -> Any:
+    if not name:
+        return tool._tool_error("name is required.")
+    return tool.get_item(
+        ctx.doc,
+        "getTextFrames",
+        name,
+        missing_msg="Document does not support text frames.",
+        not_found_msg="Text frame '%s' not found." % name,
+    )
+
+
+def text_content_anchor(index: int) -> Any | None:
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
+
+    anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
+    return anchor_map.get(index)
+
+
 class FrameList(ToolWriterTextFramesBase):
     """List all text frames in the document."""
 
@@ -43,19 +82,8 @@ class FrameList(ToolWriterTextFramesBase):
         for name in text_frames.getElementNames():
             frame = text_frames.getByName(name)
             size = frame.getPropertyValue("Size")
-
-            # Text content preview (first 200 chars)
-            frame_text = frame.getText()
-            cursor = frame_text.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            full_text = cursor.getString()
-            if len(full_text) > 200:
-                content_preview = full_text[:200] + "..."
-            else:
-                content_preview = full_text
-
-            frames.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview})
+            content_preview = _frame_text(frame, limit=200)
+            frames.append({"name": name, **_frame_size_fields(size), "content_preview": content_preview})
 
         return {"status": "ok", "frames": frames, "count": len(frames)}
 
@@ -74,10 +102,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name", "")
-        if not frame_name:
-            return self._tool_error("name is required.")
-
-        frame = self.get_item(ctx.doc, "getTextFrames", frame_name, missing_msg="Document does not support text frames.", not_found_msg="Text frame '%s' not found." % frame_name)
+        frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
 
@@ -85,12 +110,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
         hori_orient = int(frame.getPropertyValue("HoriOrient"))
         vert_orient = int(frame.getPropertyValue("VertOrient"))
-
-        frame_text = frame.getText()
-        cursor = frame_text.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        content = cursor.getString()
+        content = _frame_text(frame)
 
         anchor = frame.getAnchor()
         doc_svc = ctx.services.document
@@ -101,10 +121,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         return {
             "status": "ok",
             "frame_name": frame_name,
-            "width_mm": size.Width / 100.0,
-            "height_mm": size.Height / 100.0,
-            "width_100mm": size.Width,
-            "height_100mm": size.Height,
+            **_frame_size_fields(size),
             "anchor_type": anchor_type,
             "hori_orient": hori_orient,
             "vert_orient": vert_orient,
@@ -139,10 +156,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name", "")
-        if not frame_name:
-            return self._tool_error("name is required.")
-
-        frame = self.get_item(ctx.doc, "getTextFrames", frame_name, missing_msg="Document does not support text frames.", not_found_msg="Text frame '%s' not found." % frame_name)
+        frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
 
@@ -164,11 +178,9 @@ class FrameSetProperties(ToolWriterTextFramesBase):
         # Anchor type
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
-            from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
-
-            anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
-            if anchor_type in anchor_map:
-                frame.setPropertyValue("AnchorType", anchor_map[anchor_type])
+            anchor_val = text_content_anchor(anchor_type)
+            if anchor_val is not None:
+                frame.setPropertyValue("AnchorType", anchor_val)
                 updated.append("anchor_type")
 
         # Orientation

@@ -20,15 +20,12 @@ merge fields, listing document merge fields, and executing mail merge operations
 using LibreOffice's com.sun.star.text.MailMerge and DatabaseContext services.
 """
 
-import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from ..specialized_base import ToolWriterMailMergeBase
 from ..target_resolver import resolve_target_cursor
-
-log = logging.getLogger("writeragent.writer.specialized.mail_merge")
 
 import uno
 
@@ -50,6 +47,25 @@ def _to_file_url(path_or_url: str) -> str:
     return Path(os.path.abspath(path_or_url)).as_uri()
 
 
+_COMMAND_TYPES = {"table": 0, "query": 1, "command": 2}  # default 0
+_OUTPUT_TYPES = {"printer": 1, "file": 2, "mail": 3}      # default 2
+
+
+def _create_global_service(ctx: Any, service_name: str) -> Any:
+    comp_ctx = None
+    if hasattr(ctx, "get_ctx"):
+        comp_ctx = ctx.get_ctx()
+    elif hasattr(ctx, "ctx"):
+        comp_ctx = ctx.ctx
+
+    if comp_ctx and hasattr(comp_ctx, "getServiceManager"):
+        smgr = comp_ctx.getServiceManager()
+        if hasattr(smgr, "createInstanceWithContext"):
+            return smgr.createInstanceWithContext(service_name, comp_ctx)
+
+    return None
+
+
 def _get_database_context(ctx: Any) -> Any:
     """Obtain ``com.sun.star.sdb.DatabaseContext`` from the global service manager.
 
@@ -60,18 +76,7 @@ def _get_database_context(ctx: Any) -> Any:
     ``ServiceNotRegisteredException: unknown service``. Only
     ``getServiceManager().createInstanceWithContext`` creates it.
     """
-    comp_ctx = None
-    if hasattr(ctx, "get_ctx"):
-        comp_ctx = ctx.get_ctx()
-    elif hasattr(ctx, "ctx"):
-        comp_ctx = ctx.ctx
-
-    if comp_ctx and hasattr(comp_ctx, "getServiceManager"):
-        smgr = comp_ctx.getServiceManager()
-        if hasattr(smgr, "createInstanceWithContext"):
-            return smgr.createInstanceWithContext("com.sun.star.sdb.DatabaseContext", comp_ctx)
-
-    return None
+    return _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
 
 
 class ListDataSources(ToolWriterMailMergeBase):
@@ -292,11 +297,7 @@ class InsertField(ToolWriterMailMergeBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        if not cursor:
-            return self._tool_error("Failed to resolve target cursor location.")
-
-        cmd_type_map = {"table": 0, "query": 1, "command": 2}
-        cmd_type_val = cmd_type_map.get(command_type_str.lower(), 0)
+        cmd_type_val = _COMMAND_TYPES.get(command_type_str.lower(), 0)
 
         # 1. Create or retrieve Database FieldMaster
         master = None
@@ -516,12 +517,6 @@ class RunMerge(ToolWriterMailMergeBase):
         if not data_source_name or not table_name:
             return self._tool_error("data_source_name and table_name are required.")
 
-        comp_ctx = None
-        if hasattr(ctx, "get_ctx"):
-            comp_ctx = ctx.get_ctx()
-        elif hasattr(ctx, "ctx"):
-            comp_ctx = ctx.ctx
-
         doc = getattr(ctx, "doc", None)
 
         # Resolve document URL
@@ -538,21 +533,13 @@ class RunMerge(ToolWriterMailMergeBase):
         # MailMerge is SwXMailMerge on the global service manager, not a document-factory
         # service. doc.createInstance raises ServiceNotRegisteredException (same class of
         # bug as ShapeCollection / DatabaseContext).
-        mail_merge = None
-        if comp_ctx and hasattr(comp_ctx, "getServiceManager"):
-            smgr = comp_ctx.getServiceManager()
-            if hasattr(smgr, "createInstanceWithContext"):
-                mail_merge = smgr.createInstanceWithContext("com.sun.star.text.MailMerge", comp_ctx)
-
+        mail_merge = _create_global_service(ctx, "com.sun.star.text.MailMerge")
         if not mail_merge:
             return self._tool_error("Failed to instantiate com.sun.star.text.MailMerge service.")
 
         # Map types
-        cmd_map = {"table": 0, "query": 1, "command": 2}
-        cmd_type = cmd_map.get(command_type_str.lower(), 0)
-
-        out_map = {"printer": 1, "file": 2, "mail": 3}
-        out_type = out_map.get(output_type_str.lower(), 2)
+        cmd_type = _COMMAND_TYPES.get(command_type_str.lower(), 0)
+        out_type = _OUTPUT_TYPES.get(output_type_str.lower(), 2)
 
         # Configure MailMerge properties
         mail_merge.DocumentURL = doc_url

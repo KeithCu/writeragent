@@ -120,10 +120,6 @@ class OutlineSnapshot:
         self.look = dict(look) if look else {}
 
 
-def empty_snapshot() -> OutlineSnapshot:
-    return OutlineSnapshot([], "", "", "", True, "")
-
-
 def _prop(obj: Any, name: str) -> str:
     value = obj.getPropertyValue(name)
     return value if isinstance(value, str) else ""

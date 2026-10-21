@@ -669,7 +669,7 @@ class ApplyDocumentContent(ToolBase):
             # What was wrong: a failed capture with no hyperlink_url still replaced
             # the text on an empty snapshot, so the outline URL was not restored.
             # With hyperlink_url, a closed document was HYPERLINK_UPDATE_FAILED.
-            # How it happened: the except used empty_snapshot() unless override was set.
+            # How it happened: the except used an empty snapshot unless override was set.
             # Why this fixes it: disposal propagates before the text change; any
             # other failure refuses the edit with HYPERLINK_UPDATE_FAILED.
             reraise_if_disposed(exc)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import reraise_if_disposed
@@ -10,7 +9,11 @@ from .format import plain_text_if_markup
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.writer")
+
+def cursor_spanning_range(rng: Any) -> Any:
+    cursor = rng.getText().createTextCursorByRange(rng.getStart())
+    cursor.gotoRange(rng.getEnd(), True)
+    return cursor
 
 
 def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
@@ -66,9 +69,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         # RuntimeException that escapes callers expecting ValueError. Same pattern as the search
         # branch below.
         try:
-            scursor = rng.getText().createTextCursorByRange(rng.getStart())
-            scursor.gotoRange(rng.getEnd(), True)
-            return scursor
+            return cursor_spanning_range(rng)
         except Exception as e:
             reraise_if_disposed(e)
             raise ValueError("Could not span the current selection (%s). Use target='search' "
@@ -82,8 +83,6 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         return cursor
 
     # target == "search" or fallback to search if old_content is provided
-
-    # target == "search"
 
     search_string = str(old_content).strip() if old_content is not None else ""
     search_string = plain_text_if_markup(search_string, ctx.ctx, config_svc)
@@ -103,7 +102,4 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py
     # documents this). createTextCursorByRange on found.getText() keeps the cursor in-scope.
-    ftext = found.getText()
-    fcursor = ftext.createTextCursorByRange(found.getStart())
-    fcursor.gotoRange(found.getEnd(), True)
-    return fcursor
+    return cursor_spanning_range(found)

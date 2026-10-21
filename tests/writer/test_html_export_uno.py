@@ -40,7 +40,7 @@ def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None
 
     from plugin.writer.html_export import _range_to_content_via_temp_doc
 
-    html = _range_to_content_via_temp_doc(doc, ctx, 0, 16, None, None)
+    html = _range_to_content_via_temp_doc(doc, ctx, 0, 16, None)
     assert "BOLD" in html, html
     compact = html.lower().replace(" ", "")
     has_emphasis = (
@@ -201,7 +201,7 @@ def test_selection_export_returns_the_outline_entry_uno(ctx: Any, doc: Any) -> N
     # scope=range still uses offsets. The second paragraph starts after the
     # body text plus the paragraph break.
     start = len(body) + 1
-    ranged = _range_to_content_via_temp_doc(doc, ctx, start, start + len(toc), None, None)
+    ranged = _range_to_content_via_temp_doc(doc, ctx, start, start + len(toc), None)
     assert "TOC_ENTRY_TITLE" in ranged, ranged
     assert body not in ranged, ranged
     assert "|outline" in ranged or "%7Coutline" in ranged, ranged

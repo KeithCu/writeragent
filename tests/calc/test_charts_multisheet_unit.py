@@ -877,16 +877,11 @@ def test_position_contracts_and_schema():
 
 
 def test_schema_symmetry_across_apps():
-    # ManageCharts and UpsertChart expose matching properties for each doc_type
+    # ManageCharts exposes properties for each doc_type
     mc = ManageCharts()
-    uc = UpsertChart()
     for dt in ("calc", "writer", "draw", "impress"):
         mc_params = mc.get_parameters(dt)
-        uc_params = uc.get_parameters(dt)
-        assert mc_params is not None and uc_params is not None
-        mc_props = set(mc_params["properties"].keys())
-        uc_props = set(uc_params["properties"].keys())
-        assert mc_props == uc_props
+        assert mc_params is not None
 
     # Calc missing data_range
     ok, err = mc.validate(doc_type="calc", action="create", chart_type="bar")

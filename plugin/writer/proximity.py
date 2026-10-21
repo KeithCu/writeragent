@@ -23,17 +23,37 @@ Operates on the cached heading tree and bookmark map from TreeService.
 from __future__ import annotations
 
 import bisect
-import logging
-import typing
 from typing import Any
 
+from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
-from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint, heading_ref
 
 
-log = logging.getLogger("writeragent.writer.nav.proximity")
+def _collect_anchored(
+    container: Any,
+    doc_svc: Any,
+    para_ranges: Any,
+    text_obj: Any,
+    entries: Any,
+    start_idx: int,
+    end_idx: int,
+    builder: Any,
+) -> list[dict[str, Any]]:
+    items = []
+    for name in container.getElementNames():
+        try:
+            obj = container.getByName(name)
+            anchor = obj.getAnchor()
+            raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+            pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+            if pi is not None and start_idx <= pi <= end_idx:
+                items.append(builder(obj, name, pi))
+        except Exception:
+            pass
+    return items
 
 
 class ProximityService(ServiceBase):
@@ -113,21 +133,21 @@ class ProximityService(ServiceBase):
     # Heading context (binary search)
     # ==================================================================
 
-    def _find_heading_context(self, flat: list[Any], para_index: int) -> tuple[int | None, dict[str, Any]]:
+    def _find_heading_context(self, flat: list[Any], para_index: int) -> tuple[int | None, bool]:
         if not flat:
-            return None, {"was_heading": False}
+            return None, False
 
         para_indexes = [e["node"]["para_index"] for e in flat]
         pos = bisect.bisect_right(para_indexes, para_index) - 1
 
         if pos < 0:
-            return None, {"was_heading": False}
+            return None, False
 
         entry = flat[pos]
         node = entry["node"]
         was_heading = node["para_index"] == para_index
 
-        return pos, {"was_heading": was_heading, "heading_node": node, "heading_text": node.get("text", ""), "heading_level": node.get("level", 0)}
+        return pos, was_heading
 
     def _get_heading_chain(self, flat: list[Any], ctx_idx: int | None, bookmark_map: dict[Any, Any]) -> list[dict[str, Any]]:
         chain = []
@@ -161,16 +181,16 @@ class ProximityService(ServiceBase):
         if not flat:
             return {"error": "Document has no headings"}
 
-        ctx_idx, ctx_info = self._find_heading_context(flat, para_index)
+        ctx_idx, was_heading = self._find_heading_context(flat, para_index)
 
-        from_info = {"para_index": para_index, "was_heading": ctx_info["was_heading"]}
+        from_info = {"para_index": para_index, "was_heading": was_heading}
         if ctx_idx is not None:
             ctx_node = flat[ctx_idx]["node"]
             from_info["context_heading"] = ctx_node["text"]
             from_info["context_level"] = ctx_node["level"]
             from_info["context_bookmark"] = bookmark_map.get(ctx_node["para_index"])
 
-        target_entry = typing.cast("typing.Optional[typing.Dict[str, typing.Any]]", None)
+        target_entry: dict[str, Any] | None = None
         error_msg = None
 
         if direction == "next":
@@ -183,7 +203,7 @@ class ProximityService(ServiceBase):
         elif direction == "previous":
             if ctx_idx is None:
                 error_msg = "No previous heading — position is before any heading"
-            elif not ctx_info["was_heading"] and ctx_idx >= 0:
+            elif not was_heading:
                 target_entry = flat[ctx_idx]
             elif ctx_idx > 0:
                 target_entry = flat[ctx_idx - 1]
@@ -322,58 +342,39 @@ class ProximityService(ServiceBase):
                 paragraphs.append(entry)
             result["paragraphs"] = paragraphs
 
-        from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
-
         entries = None
         if any(k in include for k in ("images", "tables", "frames", "comments")):
             entries = paragraph_entries(para_ranges)
 
         if "images" in include:
-            images = []
-            graphics = doc.getGraphicObjects()
-            for name in graphics.getElementNames():
-                try:
-                    g = graphics.getByName(name)
-                    anchor = g.getAnchor()
-                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                    if pi is not None and start_idx <= pi <= end_idx:
-                        size = g.getPropertyValue("Size")
-                        images.append({"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100})
-                except Exception:
-                    pass
-            result["images"] = images
+            def _image_entry(g: Any, name: str, pi: int) -> dict[str, Any]:
+                size = g.getPropertyValue("Size")
+                return {"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100}
+
+            result["images"] = _collect_anchored(
+                doc.getGraphicObjects(), self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, _image_entry
+            )
 
         if "tables" in include:
-            tables = []
-            text_tables = doc.getTextTables()
-            for name in text_tables.getElementNames():
-                try:
-                    t = text_tables.getByName(name)
-                    anchor = t.getAnchor()
-                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                    if pi is not None and start_idx <= pi <= end_idx:
-                        tables.append({"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
-                except Exception:
-                    pass
-            result["tables"] = tables
+            result["tables"] = _collect_anchored(
+                doc.getTextTables(),
+                self._doc_svc,
+                para_ranges,
+                text_obj,
+                entries,
+                start_idx,
+                end_idx,
+                lambda t, name, pi: {"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()},
+            )
 
         if "frames" in include:
-            frames = []
-            text_frames = doc.getTextFrames()
-            for fname in text_frames.getElementNames():
-                try:
-                    fr = text_frames.getByName(fname)
-                    anchor = fr.getAnchor()
-                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                    if pi is not None and start_idx <= pi <= end_idx:
-                        size = fr.getPropertyValue("Size")
-                        frames.append({"name": fname, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
-                except Exception:
-                    pass
-            result["frames"] = frames
+            def _frame_entry(fr: Any, name: str, pi: int) -> dict[str, Any]:
+                size = fr.getPropertyValue("Size")
+                return {"name": name, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100}
+
+            result["frames"] = _collect_anchored(
+                doc.getTextFrames(), self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, _frame_entry
+            )
 
         if "comments" in include:
             from plugin.framework.uno_context import uno_same

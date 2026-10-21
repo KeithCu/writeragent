@@ -82,7 +82,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         ),
     ):
         html = _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
     return html, temp_cursor
 
@@ -436,7 +436,7 @@ def test_range_export_raises_when_scratch_missing():
         patch("plugin.writer.html_export.new_blank_writer", return_value=None),
         pytest.raises(ToolExecutionError, match="no scratch document"),
     ):
-        _range_to_content_via_temp_doc(MagicMock(), MagicMock(), 0, 5, None, None)
+        _range_to_content_via_temp_doc(MagicMock(), MagicMock(), 0, 5, None)
 
 
 def test_range_offset_failure_is_not_a_successful_slice():
@@ -465,7 +465,7 @@ def test_range_offset_failure_is_not_a_successful_slice():
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         pytest.raises(ToolExecutionError, match="offset"),
     ):
-        _range_to_content_via_temp_doc(model, MagicMock(), 0, 5, None, None)
+        _range_to_content_via_temp_doc(model, MagicMock(), 0, 5, None)
     temp.close.assert_called_once_with(True)
 
 
@@ -527,7 +527,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         pytest.raises(DocumentDisposedError),
     ):
         _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
     temp_doc.storeToURL.assert_not_called()
 
@@ -580,7 +580,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         ),
     ):
         html = _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
     assert "Hello" in html
     table.getPropertyValue.assert_not_called()
@@ -795,7 +795,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
         _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
         autostyle_mock.assert_not_called()
         semantic_mock.assert_called_once_with(xhtml_named, {}, {})
@@ -819,8 +819,8 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
         _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
-        autostyle_mock.assert_called_once_with(temp_doc, None)
+        autostyle_mock.assert_called_once_with(temp_doc)
         semantic_mock.assert_called_once_with(xhtml_auto, expected_parents, expected_overrides)
 

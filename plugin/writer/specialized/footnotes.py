@@ -43,30 +43,29 @@ def _cursor_after_nth_match(doc: Any, search: str, occurrence: int, case_sensiti
     return t_cursor
 
 
-def _get_note_supplier(doc: Any, note_type: str) -> Any:
-    if note_type == "footnote":
-        if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-            raise ToolExecutionError("Document does not support footnotes.")
-        return doc.getFootnotes()
-    elif note_type == "endnote":
-        if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-            raise ToolExecutionError("Document does not support endnotes.")
-        return doc.getEndnotes()
-    else:
-        raise ToolExecutionError(f"Invalid note_type '{note_type}'. Must be 'footnote' or 'endnote'.")
+_NOTE_TABLE: dict[str, tuple[str, str, str]] = {
+    "footnote": ("getFootnotes", "getFootnoteSettings", "footnotes"),
+    "endnote": ("getEndnotes", "getEndnoteSettings", "endnotes"),
+}
 
 
-def _get_note_settings(doc: Any, note_type: str) -> Any:
-    if note_type == "footnote":
-        if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-            raise ToolExecutionError("Document does not support footnotes.")
-        return doc.getFootnoteSettings()
-    elif note_type == "endnote":
-        if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-            raise ToolExecutionError("Document does not support endnotes.")
-        return doc.getEndnoteSettings()
-    else:
+def _note_access(doc: Any, note_type: str, kind: str) -> Any:
+    cfg = _NOTE_TABLE.get(note_type)
+    if not cfg:
         raise ToolExecutionError(f"Invalid note_type '{note_type}'. Must be 'footnote' or 'endnote'.")
+    if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
+        raise ToolExecutionError(f"Document does not support {cfg[2]}.")
+    getter = cfg[0] if kind == "supplier" else cfg[1]
+    return getattr(doc, getter)()
+
+
+def _note_at_index(tool: Any, doc: Any, note_type: str, index_val: Any) -> tuple[Any, int] | dict[str, Any]:
+    index = int(index_val) if index_val is not None else -1
+    notes = _note_access(doc, note_type, "supplier")
+    count = notes.getCount()
+    if index < 0 or index >= count:
+        return tool._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
+    return notes.getByIndex(index), index
 
 
 class FootnotesInsert(ToolWriterFootnoteBase):
@@ -170,7 +169,7 @@ class FootnotesList(ToolWriterFootnoteBase):
         note_type = str(kwargs.get("note"))
         doc = ctx.doc
 
-        notes = _get_note_supplier(doc, note_type)
+        notes = _note_access(doc, note_type, "supplier")
         count = notes.getCount()
 
         results = []
@@ -200,18 +199,10 @@ class FootnotesEdit(ToolWriterFootnoteBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         note_type = str(kwargs.get("note"))
-        index_val = kwargs.get("index")
-        index = int(index_val) if index_val is not None else -1
-
-        doc = ctx.doc
-
-        notes = _get_note_supplier(doc, note_type)
-        count = notes.getCount()
-
-        if index < 0 or index >= count:
-            return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
-
-        note = notes.getByIndex(index)
+        res = _note_at_index(self, ctx.doc, note_type, kwargs.get("index"))
+        if isinstance(res, dict):
+            return res
+        note, index = res
 
         if "text" in kwargs:
             note.setString(kwargs["text"])
@@ -234,18 +225,10 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         note_type = str(kwargs.get("note"))
-        index_val = kwargs.get("index")
-        index = int(index_val) if index_val is not None else -1
-
-        doc = ctx.doc
-
-        notes = _get_note_supplier(doc, note_type)
-        count = notes.getCount()
-
-        if index < 0 or index >= count:
-            return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
-
-        note = notes.getByIndex(index)
+        res = _note_at_index(self, ctx.doc, note_type, kwargs.get("index"))
+        if isinstance(res, dict):
+            return res
+        note, index = res
 
         # The note object itself is anchored somewhere.
         # We delete it by removing it from its anchor's text content.
@@ -266,7 +249,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
         note_type = str(kwargs.get("note"))
         doc = ctx.doc
 
-        settings = _get_note_settings(doc, note_type)
+        settings = _note_access(doc, note_type, "settings")
 
         # Common properties
         props = {
@@ -305,7 +288,7 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         props_to_update = kwargs.get("properties", {})
         doc = ctx.doc
 
-        settings = _get_note_settings(doc, note_type)
+        settings = _note_access(doc, note_type, "settings")
 
         updated_props = []
         for prop_name, prop_val in props_to_update.items():

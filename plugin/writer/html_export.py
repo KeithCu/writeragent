@@ -403,7 +403,7 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 
 
-def _export_xhtml(doc: Any, config_svc: Any) -> str:
+def _export_xhtml(doc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     from . import format as format_mod
     with format_mod._with_temp_buffer(ext=format_mod.XHTML_EXTENSION) as (path, file_url):
@@ -414,7 +414,7 @@ def _export_xhtml(doc: Any, config_svc: Any) -> str:
 
 
 
-def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str, str], bool | None]:
+def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | None]:
     """Export *doc* as flat ODF once and return ``(parents, overrides, has_ruby)``.
 
     ``parents`` (Pn -> base style name) lets the read path recover an autostyle paragraph's real
@@ -436,9 +436,8 @@ def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str
             doc.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 fodt = f.read()
-        return (xhtml_post.extract_autostyle_parents_from_fodt(fodt),
-                xhtml_post.extract_autostyle_overrides_from_fodt(fodt),
-                "<text:ruby" in fodt)
+        parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
+        return (parents, overrides, "<text:ruby" in fodt)
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
     return best_effort(read_maps, "_autostyle_maps: flat-ODF export failed", failed)
@@ -739,7 +738,6 @@ def _range_to_content_via_temp_doc(
     start: int,
     end: int,
     max_chars: int | None,
-    config_svc: Any,
     *,
     include_images: bool = False,
     walk_warnings: list[str] | None = None,
@@ -890,9 +888,9 @@ def _range_to_content_via_temp_doc(
             return ""
 
         try:
-            xhtml = _export_xhtml(temp_doc, config_svc)
+            xhtml = _export_xhtml(temp_doc)
             if xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
-                parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
+                parents, overrides, _unused_ruby = _autostyle_maps(temp_doc)
             else:
                 parents, overrides = {}, {}
             content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
@@ -961,7 +959,6 @@ def document_to_content(
     """
     t0 = time.perf_counter()
     log.debug("document_to_content: start scope=%r max_chars=%r include_images=%s", scope, max_chars, include_images)
-    config_svc = services.get("config") if services else None
 
     def _done(content: str, path: str) -> str:
         # Hang diagnosis: if chat stuck on get_document_content, these phase logs name the slow step.
@@ -983,7 +980,7 @@ def document_to_content(
             return _done("", "selection")
         return _done(
             _range_to_content_via_temp_doc(
-                model, ctx, 0, 0, max_chars, config_svc,
+                model, ctx, 0, 0, max_chars,
                 include_images=include_images, walk_warnings=walk_warnings,
                 source_range=source),
             "selection",
@@ -998,7 +995,7 @@ def document_to_content(
         start = max(0, start)
         return _done(
             _range_to_content_via_temp_doc(
-                model, ctx, start, end, max_chars, config_svc,
+                model, ctx, start, end, max_chars,
                 include_images=include_images, walk_warnings=walk_warnings),
             "range",
         )
@@ -1007,7 +1004,7 @@ def document_to_content(
     xhtml_error: Exception | None = None
     try:
         t_phase = time.perf_counter()
-        xhtml = _export_xhtml(model, config_svc)
+        xhtml = _export_xhtml(model)
         log.debug(
             "document_to_content: phase=_export_xhtml elapsed_ms=%.1f xhtml_len=%d",
             (time.perf_counter() - t_phase) * 1000.0,
@@ -1015,7 +1012,7 @@ def document_to_content(
         )
         t_phase = time.perf_counter()
         # Full export always runs _autostyle_maps: fodt_has_ruby skips iter_ruby_spans, and None triggers a portion walk.
-        parents, overrides, fodt_has_ruby = _autostyle_maps(model, config_svc)
+        parents, overrides, fodt_has_ruby = _autostyle_maps(model)
         log.debug(
             "document_to_content: phase=_autostyle_maps elapsed_ms=%.1f parents=%d overrides=%d ruby=%s",
             (time.perf_counter() - t_phase) * 1000.0,

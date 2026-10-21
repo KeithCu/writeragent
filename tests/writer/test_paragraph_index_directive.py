@@ -9,7 +9,8 @@ cite that number to the user (the index is internal and shifts as the document c
 that coverage so a future tool can't quietly start leaking an index without the directive.
 """
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
-from plugin.writer.outline import GetDocumentTree, NavHeadingChildren
+from plugin.writer.navigation import NavHeadingChildren
+from plugin.writer.outline import GetDocumentTree
 from plugin.writer.search import SearchInDocument
 from plugin.writer.structural import GetPageObjects
 

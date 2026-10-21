@@ -51,7 +51,7 @@ from plugin.writer.edit_review import flag_style_unreviewed
 from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
 from .specialized_base import ToolWriterStyleBase
-from .target_resolver import resolve_target_cursor
+from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
 log = logging.getLogger("writeragent.writer")
@@ -1063,9 +1063,7 @@ class ApplyStyle(FrameworkToolBase):
                 exc_to_reraise: Exception | None = None
                 for found in ranges:
                     try:
-                        ftext = found.getText()
-                        c = ftext.createTextCursorByRange(found.getStart())
-                        c.gotoRange(found.getEnd(), True)
+                        c = cursor_spanning_range(found)
                         reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
                         applied += 1
                     except Exception as e:
@@ -1114,9 +1112,7 @@ class ApplyStyle(FrameworkToolBase):
                     )
             else:
                 for found in ranges:
-                    ftext = found.getText()
-                    c = ftext.createTextCursorByRange(found.getStart())
-                    c.gotoRange(found.getEnd(), True)
+                    c = cursor_spanning_range(found)
                     reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
                     applied += 1
 
@@ -1136,9 +1132,6 @@ class ApplyStyle(FrameworkToolBase):
                 # carries a standard error code like other apply_style failures.
                 return {"status": "error", "message": str(ve), "target": "search", "applied": False, "matched": False}
             return self._tool_error(str(ve))
-
-        if not cursor:
-            return self._tool_error("Failed to resolve target location.")
 
         # execute_safe reports a failed apply. This catch hid a closed document
         # as "Could not apply style".

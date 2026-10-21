@@ -21,7 +21,6 @@ import html as html_mod
 import logging
 import re
 import uuid
-from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
@@ -260,7 +259,7 @@ def _strip_data_lo_style(start_tag: str) -> str:
 
 
 
-class _BlockLoStyleExtractor(HTMLParser):
+class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
     """Collect data-lo-style per TOP-LEVEL block (document order) and strip the attribute
     from the HTML, so the StarWriter import sees clean markup and we apply the named styles
     ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
@@ -271,10 +270,8 @@ class _BlockLoStyleExtractor(HTMLParser):
     _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
 
     def __init__(self) -> None:
-        super().__init__(convert_charrefs=False)
-        self._table_depth = 0
+        super().__init__()
         self.styles: list[str | None] = []
-        self._out: list[str] = []
         # Open block-level elements: [tag, first child block already shared this slot?], or
         # [tag, None] for a transparent <div> (no slot of its own).
         self._open: list[list[Any]] = []
@@ -349,18 +346,6 @@ class _BlockLoStyleExtractor(HTMLParser):
                     del self._open[idx:]
                     break
         self._out.append("</%s>" % tag)
-
-    def handle_data(self, data: str) -> None:
-        self._out.append(data)
-
-    def handle_entityref(self, name: str) -> None:
-        self._out.append("&%s;" % name)
-
-    def handle_charref(self, name: str) -> None:
-        self._out.append("&#%s;" % name)
-
-    def handle_comment(self, data: str) -> None:
-        self._out.append("<!--%s-->" % data)
 
     def result(self) -> tuple[str, list[str | None]]:
         return "".join(self._out), self.styles

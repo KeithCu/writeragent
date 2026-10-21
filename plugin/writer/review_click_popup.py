@@ -73,12 +73,9 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         rect.Width = 0
         rect.Height = 0
         choice = popup.execute(source_window, rect, 0)
-        if choice == 1:
-            ok, msg = resolve_change_at_cursor(model, ctx, True, token=token, view=view)
-            if not ok:
-                show_review_message(ctx, msg)
-        elif choice == 2:
-            ok, msg = resolve_change_at_cursor(model, ctx, False, token=token, view=view)
+        accept = {1: True, 2: False}.get(choice)
+        if accept is not None:
+            ok, msg = resolve_change_at_cursor(model, ctx, accept, token=token, view=view)
             if not ok:
                 show_review_message(ctx, msg)
     except Exception:

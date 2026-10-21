@@ -12,7 +12,7 @@ This page records **decisions**, **in-repo ground**, a **v1 UNO sketch**, a **v2
 
 1. **v1 is LibreOffice native UNO, not Zotero.** Citations and the reference list are Writer objects the user can already create from Insert → Table of Contents and Index / Bibliography Entry. No reference-manager process is required for v1.
 2. **Fold bibliography into the existing `indexes` specialized domain.** Fewer domains. Optional parameters that a model can ignore. Do **not** add `domain=bibliography` to the gateway enum or prompt list.
-3. **`mock_domains` `Bibliography*` tools and `ToolWriterBibliographyBase` are not design intent.** They sat in a commented ~30-domain delegation stress test (`specialized_base.py` mock bases + `mock_domains.py`). Do not uncomment them as a product surface. Real work overloads `indexes_*`.
+3. **`Bibliography*` tools and `ToolWriterBibliographyBase` are not design intent.** They sat in a commented ~30-domain delegation stress test (`specialized_base.py` mock bases). Real work overloads `indexes_*`.
 4. **Zotero is roadmap v2: our integration, not their plugin.** Talk to a running Zotero desktop via the local HTTP API (and BBT-style citekeys when present). Do not embed, wrap, or require [zotero-libreoffice-integration](https://github.com/zotero/zotero-libreoffice-integration).
 5. **One cite object in the document.** Zotero (v2) feeds `com.sun.star.text.textfield.Bibliography` `Fields`. No parallel cite path (no Zotero ReferenceMarks / Bookmarks / fieldmarks beside native bib fields).
 
@@ -51,7 +51,7 @@ Module docstring already says “TOC, bibliography.” `ToolWriterIndexBase.spec
 
 ### What must not be productized
 
-[`plugin/writer/specialized/mock_domains.py`](../../plugin/writer/specialized/mock_domains.py) (commented) defines `bibliography_insert_citation`, `bibliography_list_citations`, `bibliography_generate` on `ToolWriterBibliographyBase` (`specialized_domain = "bibliography"`). Same file header: mocks for “testing delegation across 11 new Writer domains.” Combined with the other commented bases in `specialized_base.py` (sections, bibliography, watermark, autotext, toc_enhancement, document_automation, security, document_management, collaboration, customization) this was a **~30-domain stress test** (shipped Writer domains plus mocked ones), not a plan to ship `domain=bibliography`.
+Bibliography tools previously sketched for `ToolWriterBibliographyBase` (`specialized_domain = "bibliography"`) sat in a ~30-domain delegation stress test in `specialized_base.py`. Combined with the other commented bases in `specialized_base.py` (sections, bibliography, watermark, autotext, toc_enhancement, document_automation, security, document_management, collaboration, customization) this was a **~30-domain stress test** (shipped Writer domains plus mocked ones), not a plan to ship `domain=bibliography`.
 
 Status table in [specialized-toolsets.md](specialized-toolsets.md) previously said “No module.” That row now points here: **planned via indexes overload.**
 

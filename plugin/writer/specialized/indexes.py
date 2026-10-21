@@ -1480,9 +1480,6 @@ class IndexesCreate(ToolWriterIndexBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        if not cursor:
-            return self._tool_error("Failed to resolve target location.")
-
         if target == "search" and old_content:
             # What was wrong: setString("") deleted the match before
             # insertTextContent and update(), with no undo context.
@@ -1575,9 +1572,6 @@ class IndexesAddMark(ToolWriterIndexBase):
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
             return self._tool_error(str(ve))
-
-        if not cursor:
-            return self._tool_error("Failed to resolve target location.")
 
         # schema enum.
         if index_kind == "bibliography":

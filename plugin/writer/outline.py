@@ -25,7 +25,6 @@ locator=\"chapter_number:3.1\" matches that paint label.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import best_effort, uno_read
@@ -35,8 +34,6 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions, iter_heading_nodes
-
-log = logging.getLogger("writeragent.writer")
 
 
 class GetDocumentTree(ToolBase):
@@ -85,11 +82,6 @@ class GetDocumentTree(ToolBase):
             page_count=result.get("page_count"),
         )
         return {**result, "stats": stats}
-
-
-# NavHeadingChildren is defined in .navigation alongside other Nav* tools; re-exported here for compatibility
-from .navigation import NavHeadingChildren as NavHeadingChildren  # noqa: F401
-
 
 
 def _count_headings(tree: Any) -> int:

@@ -77,8 +77,6 @@ from .image_tools import (
 
 log = logging.getLogger("writeragent.writer")
 
-# Cap a chat image download. 32 MiB holds a large photo and rejects an unbounded body.
-_IMAGE_DOWNLOAD_MAX_BYTES = IMAGE_DOWNLOAD_MAX_BYTES
 _IMAGE_DOWNLOAD_CHUNK = 64 * 1024
 
 
@@ -953,11 +951,12 @@ class ImageSetProperties(ToolWriterImageBase):
 
                 # Anchor type
                 if anchor_type is not None:
-                    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
+                    from plugin.writer.specialized.textframes import text_content_anchor
 
-                    anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
-                    graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
-                    updated.append("anchor_type")
+                    anchor_val = text_content_anchor(anchor_type)
+                    if anchor_val is not None:
+                        graphic.setPropertyValue("AnchorType", anchor_val)
+                        updated.append("anchor_type")
 
                 # Orientation
                 if resolved_hori is not None:
@@ -1085,6 +1084,15 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         units = kwargs.get("units") or "px"
         width_px: int | None = None
         height_px: int | None = None
+
+        def _invalid_param_error(msg: str) -> dict[str, Any]:
+            extra = {}
+            if width_px is not None:
+                extra["width_px"] = width_px
+            if height_px is not None:
+                extra["height_px"] = height_px
+            return self._tool_error(msg, code="INVALID_PARAMETER", **extra)
+
         try:
             width_px, height_px = image_mark.pixel_size(source)
             if crop_box is not None:
@@ -1093,12 +1101,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                 region = image_mark.visible_region(visual_helpers.safe_get_property(obj, "GraphicCrop"), visual_helpers.safe_get_property(obj, "ActualSize"), source)
             marks = image_mark.parse_marks(highlights, units, width_px, height_px, region)
         except ValueError as e:
-            extra = {}
-            if width_px is not None:
-                extra["width_px"] = width_px
-            if height_px is not None:
-                extra["height_px"] = height_px
-            return self._tool_error(str(e), code="INVALID_PARAMETER", **extra)
+            return _invalid_param_error(str(e))
 
         from com.sun.star.awt import Size
         from com.sun.star.text import GraphicCrop
@@ -1119,12 +1122,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         try:
             baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
         except ValueError as e:
-            extra = {}
-            if width_px is not None:
-                extra["width_px"] = width_px
-            if height_px is not None:
-                extra["height_px"] = height_px
-            return self._tool_error(str(e), code="INVALID_PARAMETER", **extra)
+            return _invalid_param_error(str(e))
 
         with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
             saved_graphic = visual_helpers.safe_get_property(obj, "Graphic")
@@ -1701,8 +1699,8 @@ def _download_image_to_cache(
                 declared = response.headers.get("Content-Length")
                 if declared is not None:
                     try:
-                        if int(declared) > _IMAGE_DOWNLOAD_MAX_BYTES:
-                            raise RuntimeError("image download exceeded %s bytes" % _IMAGE_DOWNLOAD_MAX_BYTES)
+                        if int(declared) > IMAGE_DOWNLOAD_MAX_BYTES:
+                            raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
                     except ValueError:
                         pass
 
@@ -1742,8 +1740,8 @@ def _download_image_to_cache(
                     if len(initial_bytes) < 1024:
                         initial_bytes += chunk[: 1024 - len(initial_bytes)]
                     total += len(chunk)
-                    if total > _IMAGE_DOWNLOAD_MAX_BYTES:
-                        raise RuntimeError("image download exceeded %s bytes" % _IMAGE_DOWNLOAD_MAX_BYTES)
+                    if total > IMAGE_DOWNLOAD_MAX_BYTES:
+                        raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
                     fh.write(chunk)
             if total == 0:
                 raise RuntimeError("empty image download")

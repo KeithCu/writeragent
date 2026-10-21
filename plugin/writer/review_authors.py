@@ -45,12 +45,16 @@ def _author_access(ctx: Any) -> Any:
         "com.sun.star.configuration.ConfigurationUpdateAccess", (node,))
 
 
+def _commit_author(access: Any, given: str, sn: str) -> None:
+    access.setPropertyValue("givenname", given)
+    access.setPropertyValue("sn", sn)
+    access.commitChanges()
+
+
 def _set_office_author(ctx: Any, given: str) -> bool:
     try:
         access = _author_access(ctx)
-        access.setPropertyValue("givenname", given)
-        access.setPropertyValue("sn", "")
-        access.commitChanges()
+        _commit_author(access, given, "")
         return True
     except Exception:
         log.debug("review_authors: could not set office author", exc_info=True)
@@ -71,10 +75,8 @@ def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DEL
     try:
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
-        access.setPropertyValue("givenname", insert_author)
-        access.setPropertyValue("sn", "")
         # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
-        access.commitChanges()
+        _commit_author(access, insert_author, "")
         armed = True
     except Exception:
         log.debug("review_authors.begin failed", exc_info=True)
@@ -99,9 +101,7 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
         return
     try:
         access = _author_access(ctx)
-        access.setPropertyValue("givenname", prior[0])
-        access.setPropertyValue("sn", prior[1])
-        access.commitChanges()
+        _commit_author(access, prior[0], prior[1])
     except Exception:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)
 

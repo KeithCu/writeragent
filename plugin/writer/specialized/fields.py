@@ -317,9 +317,6 @@ class FieldsInsert(ToolWriterFieldBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        if not cursor:
-            return self._tool_error("Failed to resolve target location.")
-
         properties = dict(properties) if properties else {}
         if field_type == "PageNumber":
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.

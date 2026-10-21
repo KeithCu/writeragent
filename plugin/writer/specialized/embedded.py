@@ -34,12 +34,9 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         old_content = kwargs.get("old_content")
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
             return self._tool_error(str(ve))
-
-        if not cursor:
-            return self._tool_error("Failed to resolve target location.")
 
         return self._tool_error("embedded_insert is not implemented yet. Use Insert > Object > OLE Object in LibreOffice Writer.")
 
