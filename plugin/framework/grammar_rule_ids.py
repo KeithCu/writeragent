@@ -9,7 +9,6 @@ Stdlib only; must not import plugin.writer.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 WA_G_RULE_PREFIX = "wa_g_rule||"
@@ -102,44 +101,28 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
     return lang, parts[1]
 
 
-# Exact (lowercase language, upper country) → tag
-_EXACT_PAIR_TO_TAG: dict[tuple[str, str], str] = {}
-for _t in GRAMMAR_REGISTRY_LOCALE_TAGS:
-    _l, _c = bcp47_to_uno_lang_country(_t)
-    _EXACT_PAIR_TO_TAG[(_l.lower(), _c.upper())] = _t
-    if _c == "":
-        _EXACT_PAIR_TO_TAG[(_l.lower(), "")] = _t
+def _build_locale_maps() -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    exact: dict[tuple[str, str], str] = {}
+    canon: dict[str, str] = {}
+    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+        lang, country = bcp47_to_uno_lang_country(tag)
+        exact[(lang.lower(), country.upper())] = tag
+        key = lang.lower()
+        if key not in ("en", "zh", "pt", "nb", "nn", "no") and key not in canon:
+            canon[key] = tag
+    return exact, canon
 
-# One canonical BCP-47 per ISO language when the document country does not match the registry
-# (e.g. ``de-AT`` / ``es-MX``) — ``en`` / ``zh`` / ``pt`` / ``nb``/``nn``/``no`` are handled in code.
-_CANON_BY_LANG_NO_REGION: dict[str, str] = {}
-for _t in GRAMMAR_REGISTRY_LOCALE_TAGS:
-    _l, _c = bcp47_to_uno_lang_country(_t)
-    _key = _l.lower()
-    if _key in ("en", "zh", "pt", "nb", "nn", "no"):
-        continue
-    if _key not in _CANON_BY_LANG_NO_REGION:
-        _CANON_BY_LANG_NO_REGION[_key] = _t
+
+_EXACT_PAIR_TO_TAG, _CANON_BY_LANG_NO_REGION = _build_locale_maps()
 
 # Special country/dialect overrides for multi-region or alias languages
 _LANGUAGE_DIALECT_OVERRIDES: dict[tuple[str, str], str] = {
-    # English regional variants
-    ("en", "GB"): "en-GB",
     ("en", "UK"): "en-GB",
-    ("en", "AU"): "en-AU",
-    ("en", "CA"): "en-CA",
-    ("en", "IN"): "en-IN",
-    # Chinese variants
-    ("zh", "TW"): "zh-TW",
     ("zh", "HK"): "zh-TW",
     ("zh", "MO"): "zh-TW",
-    ("zh", "CN"): "zh-CN",
-    # Norwegian variants
     ("no", "NO"): "nb-NO",
     ("no", ""): "nb-NO",
-    ("nb", "NO"): "nb-NO",
     ("nb", ""): "nb-NO",
-    ("nn", "NO"): "nn-NO",
     ("nn", ""): "nn-NO",
 }
 
@@ -153,6 +136,23 @@ _LANGUAGE_DEFAULT_FALLBACKS: dict[str, str] = {
 }
 
 
+def _normalize_lang_country(lang: str, country: str = "") -> str | None:
+    """Cascade: exact pair -> dialect override -> default fallback -> canon no region."""
+    lang_l = lang.strip().lower()
+    if not lang_l:
+        return None
+    country_u = country.strip().upper()
+    key = (lang_l, country_u)
+
+    if key in _EXACT_PAIR_TO_TAG:
+        return _EXACT_PAIR_TO_TAG[key]
+    if key in _LANGUAGE_DIALECT_OVERRIDES:
+        return _LANGUAGE_DIALECT_OVERRIDES[key]
+    if lang_l in _LANGUAGE_DEFAULT_FALLBACKS:
+        return _LANGUAGE_DEFAULT_FALLBACKS[lang_l]
+    return _CANON_BY_LANG_NO_REGION.get(lang_l)
+
+
 def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
     """Map a document ``Locale`` to our canonical BCP-47, or None if the language is not supported.
 
@@ -160,35 +160,9 @@ def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
     """
     if a_locale is None:
         return None
-    lang = (getattr(a_locale, "Language", None) or "").strip()
-    if not lang:
-        return None
-    country = (getattr(a_locale, "Country", None) or "").strip().upper()
-
-    lang_l = lang.lower()
-    key = (lang_l, country)
-
-    # 1. Exact (lang, country) or (lang, "") matches
-    if key in _EXACT_PAIR_TO_TAG:
-        return _EXACT_PAIR_TO_TAG[key]
-    if (lang_l, "") in _EXACT_PAIR_TO_TAG:
-        return _EXACT_PAIR_TO_TAG[(lang_l, "")]
-
-    # 2. Dialect / territory overrides
-    if key in _LANGUAGE_DIALECT_OVERRIDES:
-        return _LANGUAGE_DIALECT_OVERRIDES[key]
-
-    # 3. Base language default fallbacks
-    if lang_l in _LANGUAGE_DEFAULT_FALLBACKS:
-        return _LANGUAGE_DEFAULT_FALLBACKS[lang_l]
-
-    # 4. Standard regional fallback (e.g. de-AT -> de-DE, es-MX -> es-ES)
-    return _CANON_BY_LANG_NO_REGION.get(lang_l)
-
-
-def _normalize_lang_country(lang: str, country: str = "") -> str | None:
-    """Same registry mapping as a UNO Locale with Language/Country fields."""
-    return normalize_uno_locale_to_bcp47(SimpleNamespace(Language=lang, Country=country))
+    lang = getattr(a_locale, "Language", None) or ""
+    country = getattr(a_locale, "Country", None) or ""
+    return _normalize_lang_country(str(lang), str(country))
 
 
 def normalize_detected_bcp47(tag: str | None) -> str | None:
@@ -196,13 +170,7 @@ def normalize_detected_bcp47(tag: str | None) -> str | None:
     if not tag or not str(tag).strip():
         return None
     raw = str(tag).strip().replace("_", "-")
-    if raw in GRAMMAR_REGISTRY_LOCALES:
-        return raw
-    parts = raw.split("-")
-    lang = parts[0]
-    if not lang:
-        return None
-    country = parts[1].upper() if len(parts) > 1 else ""
+    lang, country = bcp47_to_uno_lang_country(raw)
     return _normalize_lang_country(lang, country)
 
 
@@ -223,69 +191,38 @@ def grammar_english_name_for_bcp47(bcp47: str) -> str:
 # Snowball / ISO language mappings
 # ---------------------------------------------------------------------------
 
-_ISO_TO_SNOWBALL: dict[str, str] = {
-    "ar": "arabic",
-    "hy": "armenian",
-    "eu": "basque",
-    "ca": "catalan",
-    "da": "danish",
-    "nl": "dutch",
-    "en": "english",
-    "eo": "esperanto",
-    "et": "estonian",
-    "fi": "finnish",
-    "fr": "french",
-    "de": "german",
-    "el": "greek",
-    "hi": "hindi",
-    "hu": "hungarian",
-    "id": "indonesian",
-    "ga": "irish",
-    "it": "italian",
-    "lt": "lithuanian",
-    "ne": "nepali",
-    "no": "norwegian",
-    "nb": "norwegian",
-    "nn": "norwegian",
-    "pt": "portuguese",
-    "ro": "romanian",
-    "ru": "russian",
-    "sr": "serbian",
-    "es": "spanish",
-    "sv": "swedish",
-    "ta": "tamil",
-    "tr": "turkish",
-    "yi": "yiddish",
-}
+_SNOWBALL_SPECS: tuple[tuple[str, str | None, tuple[str, ...]], ...] = (
+    ("arabic", "ar", ("ar",)),
+    ("armenian", "hy", ("hy",)),
+    ("basque", "eu", ("eu",)),
+    ("catalan", "ca", ("ca",)),
+    ("danish", "da", ("da",)),
+    ("dutch", "nl", ("nl",)),
+    ("english", "en", ("en",)),
+    ("esperanto", "eo", ("eo",)),
+    ("estonian", "et", ("et",)),
+    ("finnish", "fi", ("fi",)),
+    ("french", "fr", ("fr",)),
+    ("german", "de", ("de",)),
+    ("greek", "el", ("el",)),
+    ("hindi", "hi", ("hi",)),
+    ("hungarian", "hu", ("hu",)),
+    ("indonesian", "id", ("id",)),
+    ("irish", "ga", ("ga",)),
+    ("italian", "it", ("it",)),
+    ("lithuanian", "lt", ("lt",)),
+    ("nepali", None, ("ne",)),
+    ("norwegian", "no", ("no", "nb", "nn")),
+    ("portuguese", "pt", ("pt",)),
+    ("romanian", "ro", ("ro",)),
+    ("russian", "ru", ("ru",)),
+    ("serbian", "hr", ("sr",)),
+    ("spanish", "es", ("es",)),
+    ("swedish", "sv", ("sv",)),
+    ("tamil", "ta", ("ta",)),
+    ("turkish", "tr", ("tr",)),
+    ("yiddish", "yi", ("yi",)),
+)
 
-STOPWORDS_ISO_KEY: dict[str, str] = {
-    "arabic": "ar",
-    "armenian": "hy",
-    "basque": "eu",
-    "catalan": "ca",
-    "danish": "da",
-    "dutch": "nl",
-    "english": "en",
-    "esperanto": "eo",
-    "estonian": "et",
-    "finnish": "fi",
-    "french": "fr",
-    "german": "de",
-    "greek": "el",
-    "hindi": "hi",
-    "hungarian": "hu",
-    "indonesian": "id",
-    "irish": "ga",
-    "italian": "it",
-    "lithuanian": "lt",
-    "norwegian": "no",
-    "portuguese": "pt",
-    "romanian": "ro",
-    "russian": "ru",
-    "serbian": "hr",
-    "spanish": "es",
-    "swedish": "sv",
-    "tamil": "ta",
-    "turkish": "tr",
-    "yiddish": "yi",
-}
+STOPWORDS_ISO_KEY: dict[str, str] = {snow: iso for snow, iso, _keys in _SNOWBALL_SPECS if iso is not None}
+_ISO_TO_SNOWBALL: dict[str, str] = {iso: snow for snow, _iso, keys in _SNOWBALL_SPECS for iso in keys}

@@ -193,6 +193,30 @@ def find_modules(modules_dir, filter_names=None, project_root=None):
     return result
 
 
+def load_sorted_modules(project_root=None, filter_names=None) -> list[dict]:
+    """Silent. find_modules already validates. Does not call an extra topo for cycles.
+    Non-dict plugin.yaml → no framework manifest (the docs script already does this).
+    A mapping is setdefault(name, "main") and prepended.
+    """
+    if project_root is None:
+        project_root = PROJECT_ROOT
+    plugin_dir = os.path.join(project_root, "plugin")
+    plugin_yaml_path = os.path.join(plugin_dir, "plugin.yaml")
+    framework_manifest = None
+    if os.path.isfile(plugin_yaml_path):
+        with open(plugin_yaml_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        if isinstance(loaded, dict):
+            loaded.setdefault("name", "main")
+            framework_manifest = loaded
+
+    manifests = find_modules(plugin_dir, filter_names=filter_names, project_root=project_root)
+    sorted_modules = topo_sort(manifests)
+    if framework_manifest:
+        sorted_modules.insert(0, framework_manifest)
+    return sorted_modules
+
+
 
 import math
 import pprint
@@ -309,29 +333,20 @@ def main():
 
     # Load framework-level plugin.yaml (if present)
     plugin_yaml_path = os.path.join(PROJECT_ROOT, "plugin", "plugin.yaml")
-    framework_manifest = None
     if os.path.isfile(plugin_yaml_path):
-        with open(plugin_yaml_path) as f:
-            framework_manifest = yaml.safe_load(f)
-        framework_manifest.setdefault("name", "main")
         print("  Loaded framework config: plugin/plugin.yaml")
 
     print("Scanning modules in %s..." % modules_dir)
     try:
-        manifests = find_modules(modules_dir, args.modules)
+        sorted_modules = load_sorted_modules(filter_names=args.modules)
     except Exception as e:
         print("ERROR: %s" % e, file=sys.stderr)
         return 1
-    
-    if not manifests:
+
+    if not sorted_modules or not any(m.get("name") != "main" for m in sorted_modules):
         print("  No modules found!")
         return 1
 
-    sorted_modules = topo_sort(manifests)
-
-    # Prepend framework manifest (always first, before all modules)
-    if framework_manifest:
-        sorted_modules.insert(0, framework_manifest)
     names = [m["name"] for m in sorted_modules]
     print("  Module order: %s" % " -> ".join(names))
 

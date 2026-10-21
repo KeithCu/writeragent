@@ -7,8 +7,9 @@
 Pick shipped menu-icon pixel sizes from display scale.
 
 HiDPI (~2×) wants the large assets (26/32). Little/1× screens want 16.
-Probe VCL DPI (preferred), then font, toolbar config, then env scale.
-Probe-miss defaults to the large HiDPI asset (not 16).
+Probes in order: VCL DPI, font, toolbar config, then env scale.
+Only VCL DPI is a strong reading; other probes remain weak until VCL DPI is available.
+Probe miss defaults to 32 px.
 """
 
 from __future__ import annotations
@@ -29,22 +30,32 @@ _HIDPI_PX = 32
 # Shipped menu-icon suffixes we can select (MCP status has 16 + 26).
 _AVAILABLE_PX = (16, 26, 32)
 
-_cached_px: int | None = None
-_cached_scale: float | None = None
-_cached_weak: bool = False
-_filename_cache: dict[tuple[str, int], str] = {}
 
-_logged_strong: bool = False
+class _State:
+    px: int | None
+    scale: float | None
+    weak: bool
+    logged_strong: bool
+    filename_cache: dict[tuple[str, int], str]
+
+    def __init__(self) -> None:
+        self.px = None
+        self.scale = None
+        self.weak = False
+        self.logged_strong = False
+        self.filename_cache = {}
+
+
+_state = _State()
 
 
 def reset_menu_icon_dpi_cache() -> None:
     """Test hook: clear the one-shot cache."""
-    global _cached_px, _cached_scale, _cached_weak, _logged_strong
-    _cached_px = None
-    _cached_scale = None
-    _cached_weak = False
-    _logged_strong = False
-    _filename_cache.clear()
+    _state.px = None
+    _state.scale = None
+    _state.weak = False
+    _state.logged_strong = False
+    _state.filename_cache = {}
 
 
 def _ppm_scale(win: Any) -> float | None:
@@ -234,44 +245,51 @@ def interpolate_menu_icon_px(scale: float, *, one_x: int = _ONE_X_PX) -> int:
     return _nearest_available(int(round(target)))
 
 
+def _toolbar_scale(ctx: Any) -> float | None:
+    cfg_px = probe_toolbar_icon_config_px(ctx)
+    if cfg_px is None:
+        return None
+    return float(cfg_px) / float(_ONE_X_PX)
+
+
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     """One-shot: probe, interpolate, cache. Probe-miss prefers HiDPI large assets."""
-    global _cached_px, _cached_scale, _cached_weak, _logged_strong
-    if _cached_px is not None and not _cached_weak:
-        return _cached_px
+    if _state.px is not None and not _state.weak:
+        return _state.px
 
-    scale = probe_vcl_dpi_scale(ctx)
-    source = "vcl_dpi"
-    if scale is None:
-        scale = probe_menu_font_scale(ctx)
-        source = "font"
-    if scale is None:
-        cfg_px = probe_toolbar_icon_config_px(ctx)
-        if cfg_px is not None:
-            # Config already stores a pixel-ish size; treat 16 as 1×.
-            scale = float(cfg_px) / float(_ONE_X_PX)
-            source = "toolbar_config"
-    if scale is None:
-        scale = probe_env_scale()
-        source = "env_scale"
-    if scale is None:
+    probes = (
+        ("vcl_dpi", probe_vcl_dpi_scale),
+        ("font", probe_menu_font_scale),
+        ("toolbar_config", _toolbar_scale),
+        ("env_scale", lambda _c: probe_env_scale()),
+    )
+
+    scale = None
+    source = None
+    for src, probe in probes:
+        scale = probe(ctx)
+        if scale is not None:
+            source = src
+            break
+
+    if scale is None or source is None:
         # Probe miss is common on Wayland/KDE at startup — assume HiDPI wants big assets.
-        _cached_scale = 2.0
-        _cached_px = _HIDPI_PX
-        _cached_weak = True  # retry when a real window exists
-        log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _cached_px)
-        return _cached_px
+        _state.scale = 2.0
+        _state.px = _HIDPI_PX
+        _state.weak = True  # retry when a real window exists
+        log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _state.px)
+        return _state.px
 
     px = interpolate_menu_icon_px(float(scale))
-    _cached_scale = float(scale)
-    _cached_px = px
+    _state.scale = float(scale)
+    _state.px = px
     # Only vcl_dpi (PixelPerMeterX) is a strong reading. Font, toolbar config,
     # and env used to set _cached_weak False, so a startup call before a real
     # window existed never upgraded when a later window reported ~2x.
-    _cached_weak = source != "vcl_dpi"
-    if not _logged_strong:
+    _state.weak = source != "vcl_dpi"
+    if not _state.logged_strong:
         log.info("menu_icon_dpi source=%s scale=%.3f px=%s", source, scale, px)
-        _logged_strong = True
+        _state.logged_strong = True
     else:
         log.debug("menu_icon_dpi source=%s scale=%.3f px=%s (cache refresh)", source, scale, px)
     return px
@@ -288,30 +306,32 @@ def image_type_for_pixel_size(px: int) -> int:
     return int(ImageType.SIZE_DEFAULT)
 
 
+def pick_shipped_icon(prefix: str, wanted_px: int, candidates: tuple[int, ...], fallback_px: int) -> str:
+    """Pick closest existing icon matching *wanted_px* among *candidates*, or fallback."""
+    from plugin.framework.uno_context import menu_icon_filesystem_paths
+
+    existing: list[int] = []
+    for cand in candidates:
+        name = f"{prefix}_{cand}.png"
+        if any(os.path.isfile(path) for path in menu_icon_filesystem_paths(name)):
+            existing.append(cand)
+    if not existing:
+        return f"{prefix}_{fallback_px}.png"
+    best = min(existing, key=lambda a: (abs(a - wanted_px), -a))
+    return f"{prefix}_{best}.png"
+
+
 def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> str:
     """Return ``{prefix}_{px}.png``, falling back to nearest shipped size."""
     if px is None:
         px = resolve_menu_icon_pixel_size(ctx)
     cache_key = (prefix, px)
-    cached = _filename_cache.get(cache_key)
+    cached = _state.filename_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    from plugin.framework.uno_context import menu_icon_filesystem_paths
-
-    existing: list[int] = []
-    for cand in list(_AVAILABLE_PX) + [16]:
-        name = "%s_%s.png" % (prefix, cand)
-        if any(os.path.isfile(path) for path in menu_icon_filesystem_paths(name)):
-            if cand not in existing:
-                existing.append(cand)
-    if not existing:
-        res = "%s_16.png" % prefix
-        _filename_cache[cache_key] = res
-        return res
-    best = min(existing, key=lambda a: (abs(a - px), -a))
-    res = "%s_%s.png" % (prefix, best)
-    _filename_cache[cache_key] = res
+    res = pick_shipped_icon(prefix, px, _AVAILABLE_PX, fallback_px=16)
+    _state.filename_cache[cache_key] = res
     return res
 
 
@@ -320,4 +340,15 @@ def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> 
     return "assets/" + menu_icon_filename(prefix, px, ctx)
 
 
-__all__ = ["reset_menu_icon_dpi_cache", "probe_vcl_dpi_scale", "probe_menu_font_scale", "probe_toolbar_icon_config_px", "interpolate_menu_icon_px", "resolve_menu_icon_pixel_size", "image_type_for_pixel_size", "menu_icon_filename", "menu_icon_asset_rel"]
+__all__ = [
+    "reset_menu_icon_dpi_cache",
+    "probe_vcl_dpi_scale",
+    "probe_menu_font_scale",
+    "probe_toolbar_icon_config_px",
+    "interpolate_menu_icon_px",
+    "resolve_menu_icon_pixel_size",
+    "image_type_for_pixel_size",
+    "menu_icon_filename",
+    "menu_icon_asset_rel",
+    "pick_shipped_icon",
+]

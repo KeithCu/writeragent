@@ -264,31 +264,9 @@ def render_config_schema_markdown(
 
 
 def load_sorted_modules() -> list[dict[str, Any]]:
-    from generate_manifest import find_modules
-    from plugin.framework.module_graph import topo_sort
+    from generate_manifest import load_sorted_modules as _load_sorted_modules
 
-    try:
-        import yaml
-    except ImportError:
-        print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
-        sys.exit(1)
-
-    plugin_dir = os.path.join(PROJECT_ROOT, "plugin")
-    plugin_yaml_path = os.path.join(plugin_dir, "plugin.yaml")
-    framework_manifest = None
-    if os.path.isfile(plugin_yaml_path):
-        with open(plugin_yaml_path) as f:
-            framework_manifest = yaml.safe_load(f)
-        if isinstance(framework_manifest, dict):
-            framework_manifest.setdefault("name", "main")
-        else:
-            framework_manifest = None
-
-    manifests = find_modules(plugin_dir)
-    sorted_modules = topo_sort(manifests)
-    if framework_manifest:
-        sorted_modules.insert(0, framework_manifest)
-    return sorted_modules
+    return _load_sorted_modules()
 
 
 def main(argv: list[str] | None = None) -> int:

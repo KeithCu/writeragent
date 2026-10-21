@@ -29,25 +29,31 @@ dialogs), and storing that English catalog used to stick for the process.
 
 from __future__ import annotations
 
-import os
 import gettext
 import logging
-from typing import Any, Optional, cast
+import os
+from typing import Any, Optional
 
 from plugin.framework.constants import get_locales_dir
+from plugin.framework.deal_shim import DEAL_MAX_MSGID, deal, str_bounded
 
 log = logging.getLogger("writeragent.i18n")
+
+_DOMAIN = "writeragent"
+# When UNO cannot supply ooLocale (tests, early init), use English catalogs.
+_DEFAULT_LOCALE = "en_US"
 
 # Set by init_i18n(); always non-None after init_i18n() returns.
 _translation: Optional[gettext.NullTranslations] = None
 # LO UI locale tag used for the loaded catalog (for fluff-word cache keys).
-_active_locale: str = "en_US"
-
-# When UNO cannot supply ooLocale (tests, early init), use English catalogs.
-_DEFAULT_LOCALE = "en_US"
+_active_locale: str = _DEFAULT_LOCALE
 
 
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, str_bounded, deal
+def reset_i18n() -> None:
+    """Clear initialized translation and active locale (test hook)."""
+    global _translation, _active_locale
+    _translation = None
+    _active_locale = _DEFAULT_LOCALE
 
 
 @deal.post(lambda result: isinstance(result, str) and len(result) > 0)
@@ -76,14 +82,14 @@ def get_lo_locale(ctx: Any | None = None) -> str:
             from plugin.framework.uno_context import get_ctx
 
             ctx = get_ctx()
-        smgr = cast("Any", ctx).getServiceManager()
+        if ctx is None:
+            return _DEFAULT_LOCALE
+        smgr = ctx.getServiceManager()
         config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         ca = config_provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/L10N"),))
 
         locale = ca.getPropertyValue("ooLocale")
-        if locale:
-            if "Mock" in str(type(locale)):
-                return _DEFAULT_LOCALE
+        if isinstance(locale, str) and locale:
             # Setup.xcs: ooLocale is xs:string (e.g. "ja", "ja-JP").
             # LibreOffice often uses a hyphen; gettext prefers an underscore.
             return locale.replace("-", "_")
@@ -93,7 +99,7 @@ def get_lo_locale(ctx: Any | None = None) -> str:
     return _DEFAULT_LOCALE
 
 
-def _mo_candidates(localedir: str, lang: str, domain: str = "writeragent") -> list[str]:
+def _mo_candidates(localedir: str, lang: str) -> list[str]:
     # crosshair: off  # path join / locale stem combinatorics (cover-all 33569420452: 14810 examples / ~48m module with load_translation). Doable later: closed lang tag set.
     """Likely ``.mo`` paths for *lang* (exact tag, then language stem)."""
     tags = [lang]
@@ -104,7 +110,7 @@ def _mo_candidates(localedir: str, lang: str, domain: str = "writeragent") -> li
         prefix = stem.split("_", 1)[0]
         if prefix not in tags:
             tags.append(prefix)
-    return [os.path.join(localedir, tag, "LC_MESSAGES", "%s.mo" % domain) for tag in tags]
+    return [os.path.join(localedir, tag, "LC_MESSAGES", f"{_DOMAIN}.mo") for tag in tags]
 
 
 def load_translation(languages: list[str], localedir: str | None = None, *, fallback: bool = True) -> gettext.NullTranslations:
@@ -117,7 +123,7 @@ def load_translation(languages: list[str], localedir: str | None = None, *, fall
     explicit catalog path when the stdlib lookup returns a dummy catalog.
     """
     locales_dir = localedir if localedir is not None else get_locales_dir()
-    trans = gettext.translation("writeragent", locales_dir, languages=languages, fallback=True)
+    trans = gettext.translation(_DOMAIN, locales_dir, languages=languages, fallback=True)
     # GNUTranslations subclasses NullTranslations — compare the exact type.
     if type(trans) is not gettext.NullTranslations:
         return trans
@@ -129,7 +135,7 @@ def load_translation(languages: list[str], localedir: str | None = None, *, fall
                 return gettext.GNUTranslations(fh)
     if fallback:
         return gettext.NullTranslations()
-    raise FileNotFoundError("no writeragent.mo for languages %s under %s" % (languages, locales_dir))
+    raise FileNotFoundError("no %s.mo for languages %s under %s" % (_DOMAIN, languages, locales_dir))
 
 
 def init_i18n(ctx: Any | None = None) -> None:
@@ -158,11 +164,7 @@ def init_i18n(ctx: Any | None = None) -> None:
         locale = get_lo_locale(ctx)
         _active_locale = locale
         locales_dir = get_locales_dir()
-        mofiles = gettext.find("writeragent", localedir=locales_dir, languages=[locale], all=True)
-        if not mofiles:
-            mofiles = []
-
-        log.debug("i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s) mofiles=%s", ctx is None, locale, locales_dir, os.path.isdir(locales_dir), mofiles if mofiles else "none")
+        log.debug("i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s)", ctx is None, locale, locales_dir, os.path.isdir(locales_dir))
 
         _translation = load_translation([locale], locales_dir, fallback=True)
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
@@ -185,7 +187,6 @@ def _(message: str) -> str:
     if not isinstance(message, str):
         raise TypeError("gettext msgid must be str")
 
-    global _translation
     if _translation is None:
         init_i18n()
 

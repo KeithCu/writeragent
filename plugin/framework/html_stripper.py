@@ -18,10 +18,10 @@
 from __future__ import annotations
 
 import html
-import os
 import re
+from typing import NamedTuple
 
-from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_HTML_CHUNK, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, deal, str_bounded
 
 # Wider than DEAL_MAX_SOURCE (16 under CrossHair): _feed_chunk() must still
 # reach the 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=4096;
@@ -29,10 +29,6 @@ from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_HTML_CHUNK, ascii
 # @deal.pre — they slice to DEAL_MAX_HTML_CHUNK so long _append_response
 # assistant/tool-result HTML cannot PreContract in debug OXTs.
 _DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
-# Import-time only: pytest keeps Unicode body text (café); CrossHair uses ASCII
-# so SMT is not on 16-char Unicode (strip_html_tags 2:16, check-all 32877875221).
-_HTML_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
-_deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 
 # Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
@@ -67,13 +63,16 @@ _HTML_ELEMENTS = frozenset({
     "var", "video",
     "wbr",
 })
-# The tag-buffer cap (256) does not cover element body. An unclosed
-# ``<script>`` used to drop every later character of the reply. Hold at most
-# this many body chars; past that, or on a blank line, it was prose.
+_TAG_BUFFER_LIMIT = 256
 _DISCARD_BODY_LIMIT = 256
 # Trailing incomplete entity (``&amp`` split across chunks). A finished
 # ``&amp;`` does not match. ``3 & 5`` does not end on the ampersand.
 _INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?\Z")
+_ENTITY_RE = re.compile(r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);")
+
+
+def _unescape_entities(text: str) -> str:
+    return _ENTITY_RE.sub(lambda m: html.unescape(m.group(0)), text)
 
 
 def _split_incomplete_entity(text: str) -> tuple[str, str]:
@@ -86,87 +85,44 @@ def _split_incomplete_entity(text: str) -> tuple[str, str]:
     return text[: matched.start()], matched.group(0)
 
 
-def _tag_name_body(buf: str) -> tuple[str, bool, str]:
-    """Return ``(lower_name, is_close, rest)`` for a tag buffer without ``>``.
+class _Tag(NamedTuple):
+    name: str
+    is_close: bool
+    is_empty: bool
+    is_real: bool
 
-    ``rest`` starts at the first character after the element name. A leading
-    ``/`` and the whitespace after it are the close marker (``</ em>``), not
-    part of the name. ``!`` / ``?`` are declarations, not element names.
-    """
+
+def _parse_tag(buf: str) -> _Tag:
+    """Return parsed tag attributes for a tag buffer without ``>``."""
     inner = buf[1:] if buf.startswith("<") else buf
     if not inner:
-        return "", False, ""
+        return _Tag(name="", is_close=False, is_empty=False, is_real=False)
+    if inner[0] in "!?":
+        return _Tag(name="", is_close=False, is_empty=False, is_real=True)
     is_close = False
     if inner[0] == "/":
         is_close = True
         inner = inner[1:].lstrip()
-    elif inner[0] in "!?":
-        return "", False, ""
-    name: list[str] = []
+    name_chars: list[str] = []
     for char in inner:
         if char.isalnum() or char in "-:":
-            name.append(char.lower())
+            name_chars.append(char.lower())
         else:
             break
-    return "".join(name), is_close, inner[len(name):]
-
-
-def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
-    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
-
-    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
-    """
-    inner = buf[1:] if buf.startswith("<") else buf
-    if not inner or inner[0] in "!?":
-        return "", False, False
-    name, is_close, rest = _tag_name_body(buf)
-    # ``<script/>`` and ``<script />`` have no element body to discard.
-    # The slash closes the tag only when it is its own token. Any buffer
-    # ending in ``/`` is not empty: ``<script src=https://cdn.example.com/>``
-    # would keep the script body.
+    name = "".join(name_chars)
+    rest = inner[len(name):]
     stripped = rest.rstrip()
     is_empty = False
     if not is_close and stripped.endswith("/"):
         before = stripped[:-1]
         is_empty = (not before) or before[-1].isspace()
-    return name, is_close, is_empty
-
-
-def _is_real_html_tag(buf: str) -> bool:
-    """True when a tag buffer (no closing ``>``) should be removed, not shown.
-
-    A letter in the second position is not enough: ``<String>``,
-    ``<https://example.com>``, and ``<user@example.com>`` are prose.
-    ``_html_tag_name`` takes the leading name run and stops at the first
-    other character. Returning true whenever that name is in
-    ``_HTML_ELEMENTS`` deletes ``<a@b.com>`` (name ``a``, next ``@``),
-    ``<b, c>`` (next ``,``), and ``<em@x>`` (next ``@``).
-
-    A completed buffer is a real tag when it names a known element and the
-    next character is a delimiter: end of the buffer (``<b>``, ``</em>``) or
-    whitespace (``<a href="x">``, ``<b >``). A self-closing slash that is its
-    own token (``<br/>``, ``<a/>``) is the empty-element path below, which
-    also keeps ``<widget/>``. A non-space character glued to the name is
-    prose; the brackets stay. ``!`` / ``?`` still start a comment, doctype,
-    or processing instruction.
-    """
-    inner = buf[1:] if buf.startswith("<") else buf
-    if not inner:
-        return False
-    if inner[0] in "!?":
-        return True
-    name, _is_close, is_empty = _html_tag_name(buf)
-    # Unknown names such as ``<widget/>`` are still tags when the slash is
-    # its own token. Require the element set only for the other shapes.
     if is_empty:
-        return True
-    if name not in _HTML_ELEMENTS:
-        return False
-    _name, _close, rest = _tag_name_body(buf)
-    # A generic token like `<a@b.com>` stops the name run at `@`. We check the rest.
-    # Delimiters indicating a tag: end of string (e.g. `<a>`, `</a>`), whitespace (`<a href>`),
-    # or a slash (`<a/>` - handled by `is_empty` above, but `is_empty` also allows `<widget/>`).
-    return (not rest) or rest[0].isspace()
+        is_real = True
+    elif name in _HTML_ELEMENTS and ((not rest) or rest[0].isspace()):
+        is_real = True
+    else:
+        is_real = False
+    return _Tag(name=name, is_close=is_close, is_empty=is_empty, is_real=is_real)
 
 
 @deal.post(lambda result: isinstance(result, str))
@@ -202,7 +158,7 @@ def escape_prose_angle_brackets(text: str) -> str:
             if char == quote:
                 quote = ""
             tag_buffer += char
-            if len(tag_buffer) > 256:
+            if len(tag_buffer) > _TAG_BUFFER_LIMIT:
                 release_buffer(tag_buffer)
                 in_tag = False
                 tag_buffer = ""
@@ -219,7 +175,7 @@ def escape_prose_angle_brackets(text: str) -> str:
             buf = tag_buffer
             tag_buffer = ""
             quote = ""
-            if _is_real_html_tag(buf):
+            if _parse_tag(buf).is_real:
                 out.append(buf + ">")
             else:
                 out.append("&lt;" + buf[1:] + "&gt;")
@@ -231,7 +187,7 @@ def escape_prose_angle_brackets(text: str) -> str:
                     release_buffer(tag_buffer)
                     in_tag = False
                     tag_buffer = ""
-            elif len(tag_buffer) > 256:
+            elif len(tag_buffer) > _TAG_BUFFER_LIMIT:
                 release_buffer(tag_buffer)
                 in_tag = False
                 tag_buffer = ""
@@ -279,11 +235,7 @@ class StreamingHTMLStripper:
             ready, self._entity_tail = _split_incomplete_entity(combined)
         else:
             ready, self._entity_tail = combined, ""
-        return re.sub(
-            r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
-            lambda m: html.unescape(m.group(0)),
-            ready,
-        )
+        return _unescape_entities(ready)
 
     def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
         """Stop buffering a tag. Emit unless we are discarding element text."""
@@ -302,7 +254,7 @@ class StreamingHTMLStripper:
             if not (first_char.isalpha() or first_char in ("/", "!", "?")):
                 self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
                 return
-        if len(self.tag_buffer) > 256:
+        if len(self.tag_buffer) > _TAG_BUFFER_LIMIT:
             # Never-closed '<' used to grow without bound. This cap is only
             # the tag buffer. Element body is bounded in _note_discarded_body.
             self._release_tag_buffer(out, force_emit=True)
@@ -315,30 +267,29 @@ class StreamingHTMLStripper:
         held text so a later release can show it.
         """
         buf = self.tag_buffer
-        name, is_close, is_empty = _html_tag_name(buf)
-        real = _is_real_html_tag(buf)
+        tag = _parse_tag(buf)
         self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
-        if real:
+        if tag.is_real:
             self.dropped_real_tag = True
         if self._discard_until:
-            if real and is_close and name == self._discard_until:
+            if tag.is_real and tag.is_close and tag.name == self._discard_until:
                 self._discard_until = ""
                 self._discard_body = ""
                 return
-            if not real:
+            if not tag.is_real:
                 self._discard_body += buf + ">"
                 if len(self._discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in self._discard_body:
                     out.append(self._discard_body)
                     self._discard_until = ""
                     self._discard_body = ""
             return
-        if not real:
+        if not tag.is_real:
             out.append(buf + ">")
             return
-        if name in _DISCARD_ELEMENTS and not is_close and not is_empty:
-            self._discard_until = name
+        if tag.name in _DISCARD_ELEMENTS and not tag.is_close and not tag.is_empty:
+            self._discard_until = tag.name
 
     @deal.pre(lambda self, chunk: str_bounded(chunk, _DEAL_MAX_HTML_CHUNK))
     @deal.post(lambda result: isinstance(result, str))
@@ -519,6 +470,13 @@ def html_to_search_text(text: str) -> str:
         else:
             lines.append("")
 
+    def add_text(chunk: str) -> None:
+        for c in chunk:
+            if c.isspace():
+                flush_word()
+            else:
+                current_word.append(c)
+
     in_tag = False
     tag_buf: list[str] = []
     quote = ""
@@ -537,11 +495,7 @@ def html_to_search_text(text: str) -> str:
             elif discard_until:
                 discard_body.append(char)
                 if len(discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in "".join(discard_body):
-                    for dc in discard_body:
-                        if dc.isspace():
-                            flush_word()
-                        else:
-                            current_word.append(dc)
+                    add_text("".join(discard_body))
                     discard_until = ""
                     discard_body.clear()
             elif char.isspace():
@@ -552,23 +506,15 @@ def html_to_search_text(text: str) -> str:
             if char == quote:
                 quote = ""
             tag_buf.append(char)
-            if len(tag_buf) > 256:
-                for tc in tag_buf:
-                    if tc.isspace():
-                        flush_word()
-                    else:
-                        current_word.append(tc)
+            if len(tag_buf) > _TAG_BUFFER_LIMIT:
+                add_text("".join(tag_buf))
                 in_tag = False
                 tag_buf.clear()
         elif char in ('"', "'"):
             tag_buf.append(char)
             quote = char
         elif char == "<":
-            for tc in tag_buf:
-                if tc.isspace():
-                    flush_word()
-                else:
-                    current_word.append(tc)
+            add_text("".join(tag_buf))
             tag_buf = ["<"]
             quote = ""
         elif char == ">":
@@ -576,62 +522,41 @@ def html_to_search_text(text: str) -> str:
             in_tag = False
             tag_buf.clear()
             quote = ""
-            real = _is_real_html_tag(buf_str)
-            name, is_close, is_empty = _html_tag_name(buf_str)
+            tag = _parse_tag(buf_str)
             if discard_until:
-                if real and is_close and name == discard_until:
+                if tag.is_real and tag.is_close and tag.name == discard_until:
                     discard_until = ""
                     discard_body.clear()
                 else:
                     discard_body.append(buf_str + ">")
-            elif not real:
-                for tc in (buf_str + ">"):
-                    if tc.isspace():
-                        flush_word()
-                    else:
-                        current_word.append(tc)
-            elif name in _SEARCH_DISCARD_TAGS and not is_close and not is_empty:
-                discard_until = name
+            elif not tag.is_real:
+                add_text(buf_str + ">")
+            elif tag.name in _SEARCH_DISCARD_TAGS and not tag.is_close and not tag.is_empty:
+                discard_until = tag.name
                 discard_body.clear()
-            elif name == "br":
+            elif tag.name == "br":
                 flush_line_break()
-            elif name in _SEARCH_BLOCK_TAGS:
+            elif tag.name in _SEARCH_BLOCK_TAGS:
                 flush_block()
         else:
             tag_buf.append(char)
             if len(tag_buf) == 2:
                 fc = tag_buf[1]
                 if not (fc.isalpha() or fc in ("/", "!", "?")):
-                    for tc in tag_buf:
-                        if tc.isspace():
-                            flush_word()
-                        else:
-                            current_word.append(tc)
+                    add_text("".join(tag_buf))
                     in_tag = False
                     tag_buf.clear()
-            elif len(tag_buf) > 256:
-                for tc in tag_buf:
-                    if tc.isspace():
-                        flush_word()
-                    else:
-                        current_word.append(tc)
+            elif len(tag_buf) > _TAG_BUFFER_LIMIT:
+                add_text("".join(tag_buf))
                 in_tag = False
                 tag_buf.clear()
         i += 1
 
     if in_tag and tag_buf:
-        for tc in tag_buf:
-            if tc.isspace():
-                flush_word()
-            else:
-                current_word.append(tc)
+        add_text("".join(tag_buf))
 
     flush_block()
     out = "\n".join(lines)
-    return re.sub(
-        r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
-        lambda m: html.unescape(m.group(0)),
-        out,
-    )
+    return _unescape_entities(out)
 
 

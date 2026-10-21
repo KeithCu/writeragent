@@ -52,7 +52,7 @@ def test_equivalent_vendor_prefix_omitted() -> None:
 
 
 def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
-    """Deep check-all run 32840960268: Prev 11:29. Split/resolve stay on (~2 min)."""
+    """Split/resolve stay covered while openrouter_model_ids_equivalent is excluded."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

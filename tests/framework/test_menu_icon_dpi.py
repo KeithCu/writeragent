@@ -133,11 +133,11 @@ def test_non_vcl_probe_stays_weak_until_vcl_dpi(monkeypatch):
     monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_env_scale", lambda: None)
     assert m.resolve_menu_icon_pixel_size() == 16
-    assert m._cached_weak is True
+    assert m._state.weak is True
 
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
     assert m.resolve_menu_icon_pixel_size() == 32
-    assert m._cached_weak is False
+    assert m._state.weak is False
     # A strong vcl reading is not replaced by a later probe.
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
     assert m.resolve_menu_icon_pixel_size() == 32
@@ -160,3 +160,23 @@ def test_image_type_for_pixel_size():
     assert image_type_for_pixel_size(32) == 2
     assert image_type_for_pixel_size(24) == 1
     assert image_type_for_pixel_size(16) == 0
+
+
+def test_provider_icon_filename(monkeypatch, tmp_path):
+    from plugin.chatbot.dialog_views import provider_icon_filename
+
+    m.reset_menu_icon_dpi_cache()
+    # Fallback when none found is _48.png
+    monkeypatch.setattr(
+        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        lambda name: [str(tmp_path / name)],
+    )
+    assert provider_icon_filename("openrouter", px=16) == "openrouter_48.png"
+
+    # Candidates 16/32/48 and tie-break
+    (tmp_path / "openrouter_16.png").write_bytes(b"x")
+    (tmp_path / "openrouter_48.png").write_bytes(b"x")
+    assert provider_icon_filename("openrouter", px=16) == "openrouter_16.png"
+    assert provider_icon_filename("openrouter", px=48) == "openrouter_48.png"
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
+    assert provider_icon_filename("openrouter") == "openrouter_48.png"

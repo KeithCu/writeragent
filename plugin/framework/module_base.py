@@ -95,21 +95,6 @@ class ModuleBase(ABC):
         """
         return None
 
-    # ── Dialog helpers ───────────────────────────────────────────────
-
-    def load_dialog(self, dialog_name: str) -> Any:
-        """Load an XDL dialog from this module's directory."""
-        from plugin.chatbot.dialogs import load_module_dialog
-
-        return load_module_dialog(self.name, dialog_name)
-
-    def load_framework_dialog(self, dialog_name: str) -> Any:
-        """Load a reusable framework dialog template."""
-        from plugin.chatbot.dialogs import load_framework_dialog
-
-        return load_framework_dialog(dialog_name)
-
-
 class ModuleLoader:
     """
     Handles discovery, topological sorting, and initialization of plugin modules.
@@ -125,14 +110,6 @@ class ModuleLoader:
         except ImportError as e:
             raise RuntimeError("plugin._manifest is missing or invalid (gitignored; run `make manifest` or `python3 scripts/generate_manifest.py`).") from e
 
-    @staticmethod
-    def topo_sort(modules: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Sorts modules based on their required services.
-        Ensures dependencies are initialized before the modules that require them.
-        """
-        return module_graph.topo_sort(modules)
-
     @classmethod
     def load_modules(cls, services_registry: Any) -> list[ModuleBase]:
         """
@@ -144,7 +121,7 @@ class ModuleLoader:
         module is omitted. The initialize failure is still logged.
         """
         initialized_modules: list[ModuleBase] = []
-        manifests = cls.topo_sort(cls.load_manifest())
+        manifests = module_graph.topo_sort(cls.load_manifest())
 
         for manifest in manifests:
             name = manifest["name"]

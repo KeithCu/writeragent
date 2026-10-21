@@ -196,7 +196,7 @@ def _paint_combo(ctrl: Any, items: list[str], selected: str) -> None:
 
 def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru_key: str, endpoint: str) -> str:
     """Populate combobox from LRU only; no model fetch or text_model fallback."""
-    scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
+    scoped_key = lru_config_key(lru_key, endpoint)
     lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
@@ -276,7 +276,7 @@ def populate_combobox_with_lru(
     effective_key = _effective_api_key(endpoint, api_key_override)
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
 
-    scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
+    scoped_key = lru_config_key(lru_key, endpoint)
     lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []

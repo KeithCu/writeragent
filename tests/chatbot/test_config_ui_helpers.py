@@ -3,59 +3,7 @@ from plugin.chatbot.config_ui_helpers import (
     populate_combobox_with_lru,
     sync_sidebar_text_model,
 )
-from plugin.framework.model_lru import (
-    next_lru_list,
-    update_lru_history,
-)
 import pytest
-
-class TestConfigUiHelpers:
-
-    def setup_method(self):
-        self.ctx = MagicMock()
-        self.config_data = {}
-
-        def mock_get_config(key):
-            return self.config_data.get(key, '')
-
-        def mock_set_config(key, value):
-            self.config_data[key] = value
-
-        self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.get_lru_patcher = patch('plugin.framework.model_lru.get_config', side_effect=mock_get_config)
-        self.set_lru_patcher = patch('plugin.framework.model_lru.set_config', side_effect=mock_set_config)
-        self.mock_get = self.get_patcher.start()
-        self.get_lru_patcher.start()
-        self.mock_lru_set = self.set_lru_patcher.start()
-
-    def teardown_method(self):
-        self.get_patcher.stop()
-        self.get_lru_patcher.stop()
-        self.set_lru_patcher.stop()
-
-    def test_update_lru_history_scoping(self):
-        update_lru_history('item1', 'model_lru', 'http://localhost')
-        assert (self.config_data.get('model_lru@http://localhost')) == (['item1'])
-        update_lru_history('item2', 'prompt_lru', '')
-        assert (self.config_data.get('prompt_lru')) == (['item2'])
-        for i in range(5):
-            update_lru_history(f'item{i}', 'test_lru', 'ep', max_items=3)
-        assert (self.config_data.get('test_lru@ep')) == (['item4', 'item3', 'item2'])
-        update_lru_history('item2', 'test_lru', 'ep', max_items=3)
-        assert (self.config_data.get('test_lru@ep')) == (['item2', 'item4', 'item3'])
-
-    def test_update_lru_history_skips_when_list_unchanged(self):
-        self.config_data['prompt_lru'] = ['first', 'second']
-        self.mock_lru_set.reset_mock()
-        update_lru_history('first', 'prompt_lru', '')
-        self.mock_lru_set.assert_not_called()
-
-    def test_next_lru_list_skips_blank_and_head_and_promotes(self):
-        assert next_lru_list(["first"], "  ", 10) is None
-        assert next_lru_list(["first", "second"], "first", 10) is None
-        assert next_lru_list(["first", "second"], "second", 10) == ["second", "first"]
-        assert next_lru_list("", "new", 10) == ["new"]
-        assert next_lru_list(["a", "b", "c"], "d", 3) == ["d", "a", "b"]
 
 
 class TestSyncSidebarTextModel:

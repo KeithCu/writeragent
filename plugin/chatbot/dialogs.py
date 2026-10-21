@@ -507,7 +507,7 @@ def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     return ()
 
 
-def _translate_model_help_text(model: Any, _name: str = "") -> None:
+def _translate_model_help_text(model: Any) -> None:
     """Translate UNO ``HelpText`` the same way labels are translated.
 
     ``translate_dialog`` walks type-specific captions (Label, Text, Title,
@@ -544,8 +544,6 @@ def translate_dialog(dlg: Any) -> None:
             impl_name = ctrl.getImplementationName()
             short_type = _uno_impl_to_control_type(impl_name)
 
-            name = ctrl.getModel().Name if ctrl.getModel() else "?"
-
             for prop in control_types.get(short_type, ()):
                 if prop == "StringItemList":
                     # ListBox often exposes getStringItemList on the view; ComboBox
@@ -571,7 +569,7 @@ def translate_dialog(dlg: Any) -> None:
                             setattr(model, prop, _(current))
 
             help_model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            _translate_model_help_text(help_model, name)
+            _translate_model_help_text(help_model)
 
             xcc = _xcc(ctrl)
             if xcc:

@@ -133,9 +133,7 @@ class ServiceRegistry:
 
     def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ServiceBase subclasses in a module."""
-        import logging
-
-        log = logging.getLogger("writeragent.services")
+        svc_log = logging.getLogger("writeragent.services")
 
         for obj in iter_named_concrete_subclasses(module, ServiceBase):
             try:
@@ -147,9 +145,9 @@ class ServiceRegistry:
                     svc_instance = obj()
                 self.register(obj.name, svc_instance)
             except (TypeError, ValueError, ImportError):
-                log.exception("Failed to instantiate service %s (TypeError/ValueError/ImportError)", obj.__name__)
+                svc_log.exception("Failed to instantiate service %s (TypeError/ValueError/ImportError)", obj.__name__)
             except Exception:
-                log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
+                svc_log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
 
     def get(self, name: str) -> Any:
         """Get a service by name, or None if not registered."""
@@ -165,40 +163,22 @@ class ServiceRegistry:
     def __contains__(self, name: str) -> bool:
         return name in self._services
 
-    def initialize_all(self, ctx: Any) -> None:
-        """Call ``initialize(ctx)`` on every service that supports it.
-
-        ``register()`` accepts arbitrary objects, not only ServiceBase, so
-        getattr+callable is required (ServiceBase already defines no-op methods).
-
-        The walk is a snapshot. ``initialize`` may ``register`` another
-        service; iterating ``_services`` live raises ``RuntimeError`` outside
-        the per-service try and skips the rest.
-        """
+    def _call_each(self, method_name: str, *args: Any) -> None:
         for name, svc in list(self._services.items()):
-            init = getattr(svc, "initialize", None)
-            if callable(init):
+            func = getattr(svc, method_name, None)
+            if callable(func):
                 try:
-                    init(ctx)
+                    func(*args)
                 except Exception:
-                    # One service must not skip initialize() on the rest.
-                    log.exception("Service %s failed during initialize", name)
+                    log.exception("Service %s failed during %s", name, method_name)
+
+    def initialize_all(self, ctx: Any) -> None:
+        """Call ``initialize(ctx)`` on every service that supports it."""
+        self._call_each("initialize", ctx)
 
     def shutdown_all(self) -> None:
-        """Call ``shutdown()`` on every service that supports it.
-
-        Same getattr guard as initialize_all: non-ServiceBase registrations.
-        Same snapshot as initialize_all: ``shutdown`` may register another
-        service, and a live dict walk would skip the rest.
-        """
-        for name, svc in list(self._services.items()):
-            shutdown = getattr(svc, "shutdown", None)
-            if callable(shutdown):
-                try:
-                    shutdown()
-                except Exception:
-                    # Keep going so later services still shut down, with a traceback.
-                    log.exception("Service %s failed during shutdown", name)
+        """Call ``shutdown()`` on every service that supports it."""
+        self._call_each("shutdown")
 
     @property
     def service_names(self) -> list[str]:

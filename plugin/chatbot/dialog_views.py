@@ -72,23 +72,12 @@ def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) ->
     Picks a shipped size from VCL DPI so 1× buttons are not clipped by a 48px
     mark, while HiDPI keeps the large mark. Probe miss prefers HiDPI large.
     """
-    import os
-
-    from plugin.framework.menu_icon_dpi import resolve_menu_icon_pixel_size
-    from plugin.framework.uno_context import menu_icon_filesystem_paths
+    from plugin.framework.menu_icon_dpi import pick_shipped_icon, resolve_menu_icon_pixel_size
 
     if px is None:
         menu_px = resolve_menu_icon_pixel_size(ctx)
         px = _MENU_PX_TO_PROVIDER.get(int(menu_px), 48)
-    existing = []
-    for cand in _PROVIDER_ICON_PX:
-        name = "%s_%s.png" % (stem, cand)
-        if any(os.path.isfile(path) for path in menu_icon_filesystem_paths(name)):
-            existing.append(cand)
-    if not existing:
-        return "%s_48.png" % stem
-    best = min(existing, key=lambda a: (abs(a - int(px)), -a))
-    return "%s_%s.png" % (stem, best)
+    return pick_shipped_icon(stem, int(px), _PROVIDER_ICON_PX, fallback_px=48)
 
 
 def apply_provider_button_icon(ctrl: Any, ctx: Any, stem: str) -> None:

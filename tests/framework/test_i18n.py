@@ -19,7 +19,12 @@ PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
 class TestI18n:
     def setup_method(self):
         # Reset i18n initialization state
-        i18n_module._translation = None
+        i18n_module.reset_i18n()
+        self._tmp_dirs = []
+
+    def teardown_method(self):
+        for td in getattr(self, "_tmp_dirs", []):
+            td.cleanup()
 
     def test_i18n_fallback(self):
         """With NullTranslations, msgid passes through unchanged."""
@@ -257,7 +262,8 @@ class TestI18n:
         assert (get_backend("Integriert")) is not None
 
     def _ensure_mo(self, lang: str) -> str:
-        """Return locales dir, compiling *lang* from .po when .mo is missing."""
+        """Return locales dir, compiling *lang* from .po into a temporary directory."""
+        import tempfile
         from pathlib import Path
 
         from tests.harness.strip_bundle import skip_if_release_build
@@ -267,11 +273,13 @@ class TestI18n:
 
         localedir = get_locales_dir()
         po = Path(localedir) / lang / "LC_MESSAGES" / "writeragent.po"
-        mo = po.with_suffix(".mo")
-        if not mo.is_file():
-            compile_po(po, mo)
-        assert (mo.is_file()), "compiled catalog missing: %s" % mo
-        return localedir
+        tmp_dir = tempfile.TemporaryDirectory()
+        self._tmp_dirs.append(tmp_dir)
+        target_dir = Path(tmp_dir.name) / lang / "LC_MESSAGES"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        mo = target_dir / "writeragent.mo"
+        compile_po(po, mo)
+        return tmp_dir.name
 
     def test_i18n_translation_loading(self):
         """gettext can load writeragent.mo and translate 'Built-in' to German (Integriert)."""
@@ -308,27 +316,27 @@ class TestI18n:
         assert (len(locale_dirs)) >= (35)
 
         for lang in locale_dirs:
-            self._ensure_mo(lang)
-            translation = i18n_module.load_translation([lang], localedir, fallback=False)
+            lang_localedir = self._ensure_mo(lang)
+            translation = i18n_module.load_translation([lang], lang_localedir, fallback=False)
             translated = translation.gettext("{0}d ago")
             assert (translated), f"Empty translation for {lang}"
             if lang != "en_US.UTF-8":
                 assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
 
         # Spot-check specific languages
-        es_trans = i18n_module.load_translation(["es"], localedir, fallback=False)
+        es_trans = i18n_module.load_translation(["es"], self._ensure_mo("es"), fallback=False)
         assert (es_trans.gettext("{0}d ago")) == ("hace {0}d")
 
-        de_trans = i18n_module.load_translation(["de"], localedir, fallback=False)
+        de_trans = i18n_module.load_translation(["de"], self._ensure_mo("de"), fallback=False)
         assert (de_trans.gettext("{0}d ago")) == ("vor {0} T.")
 
-        fr_trans = i18n_module.load_translation(["fr"], localedir, fallback=False)
+        fr_trans = i18n_module.load_translation(["fr"], self._ensure_mo("fr"), fallback=False)
         assert (fr_trans.gettext("{0}d ago")) == ("il y a {0}j")
 
-        ja_trans = i18n_module.load_translation(["ja"], localedir, fallback=False)
+        ja_trans = i18n_module.load_translation(["ja"], self._ensure_mo("ja"), fallback=False)
         assert (ja_trans.gettext("{0}d ago")) == ("{0}日前")
 
-        zh_trans = i18n_module.load_translation(["zh_CN"], localedir, fallback=False)
+        zh_trans = i18n_module.load_translation(["zh_CN"], self._ensure_mo("zh_CN"), fallback=False)
         assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
 
 

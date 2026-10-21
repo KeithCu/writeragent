@@ -24,11 +24,7 @@ from plugin.framework.module_base import ModuleBase
 class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""
 
-    services: Any
-
     def initialize(self, services: Any) -> None:
-        self.services = services
-
         services.tools.auto_discover_package(__name__)
         from plugin.ppt_master import tools as ppt_master_tools
 

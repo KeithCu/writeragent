@@ -32,27 +32,33 @@ def get_action_handler(command: str) -> Callable[..., Any] | None:
     return _ACTION_HANDLERS.get(command)
 
 
+def _show_error_report(ctx: Any, detail: str, report_title: str, exc: BaseException) -> None:
+    from plugin.framework.uno_context import get_ctx
+
+    try:
+        from plugin.chatbot.dialogs import msgbox_with_report
+        from plugin.framework.i18n import _
+
+        msgbox_with_report(
+            ctx or get_ctx(),
+            _("Error"),
+            detail,
+            box_type=3,
+            reportable=True,
+            report_title=report_title,
+            report_extra=str(exc),
+        )
+    except Exception:
+        log.exception("msgbox_with_report failed")
+
+
 def report_action_failure(command: str, exc: BaseException) -> None:
     """Report an action handler exception via dialog and logging."""
     from plugin.framework.uno_context import get_ctx
 
     log.exception("Action %s failed", command)
     detail = f"{command} failed: {exc}"
-    try:
-        from plugin.chatbot.dialogs import msgbox_with_report
-        from plugin.framework.i18n import _
-
-        msgbox_with_report(
-            get_ctx(),
-            _("Error"),
-            detail,
-            box_type=3,
-            reportable=True,
-            report_title=command,
-            report_extra=str(exc),
-        )
-    except Exception:
-        log.exception("msgbox_with_report failed")
+    _show_error_report(get_ctx(), detail, command, exc)
 
 
 def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: Any, **kwargs: Any) -> None:
@@ -71,13 +77,7 @@ def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: A
         log.exception("%s", error_msg)
         # error_msg is a caller sentence, not a catalog msgid. Do not pass it through _().
         detail = f"{error_msg}: {e}"
-        try:
-            from plugin.chatbot.dialogs import msgbox_with_report
-            from plugin.framework.i18n import _
-
-            msgbox_with_report(get_ctx(), _("Error"), detail, box_type=3, reportable=True, report_title=error_msg, report_extra=str(e))
-        except Exception:
-            log.exception("msgbox_with_report failed")
+        _show_error_report(get_ctx(), detail, error_msg, e)
 
 
 def register_common_handlers() -> None:

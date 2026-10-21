@@ -76,15 +76,13 @@ def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
     return new_lru
 
 
-def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | None = None) -> None:
+def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int = LRU_MAX_ITEMS) -> None:
     """Prepend *val* to an endpoint-scoped LRU list in writeragent.json.
 
     No write when the value is blank or already the first item. Settings OK
     and the sidebar model sync do not call this once per key: they merge
     ``next_lru_list`` into the same ``set_configs`` as the field change.
     """
-    if max_items is None:
-        max_items = LRU_MAX_ITEMS
     scoped_key = lru_config_key(lru_key, endpoint)
     new_lru = next_lru_list(get_config(scoped_key), val, max_items)
     if new_lru is None:

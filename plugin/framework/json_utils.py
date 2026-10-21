@@ -25,9 +25,11 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import UNDER_CROSSHAIR, _profile, deal
 
 log = logging.getLogger(__name__)
+
+_JSON_PARSE_ERRORS = (ValueError, TypeError, RecursionError)
 
 
 def _is_pre_contract_error(exc: BaseException) -> bool:
@@ -157,7 +159,8 @@ _LATEX_CLASH_WORDS = [
 # `\alpha_1` and `\times2`. json.loads (or literal_eval for `\a`) then
 # keeps the control character and drops the backslash.
 # A letter lookahead still rejects `\alphax`.
-_JSON_ESCAPE_STARTS = frozenset("bfnrt")
+_escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
+_JSON_ESCAPE_STARTS = frozenset(_escape_map)
 _LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")(?![A-Za-z])")
 
 
@@ -170,14 +173,11 @@ def _double_latex_clash(match: re.Match[str]) -> str:
     return "\\\\" + word
 
 
-_SILENT_CORRUPTIONS = {}
-_escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
-for _word in _LATEX_CLASH_WORDS:
-    _first = _word[0]
-    if _first in _escape_map:
-        _corrupted = _escape_map[_first] + _word[1:]
-        _repaired = r"\\" + _word
-        _SILENT_CORRUPTIONS[_corrupted] = _repaired
+_SILENT_CORRUPTIONS = {
+    _escape_map[word[0]] + word[1:]: "\\\\" + word
+    for word in _LATEX_CLASH_WORDS
+    if word[0] in _escape_map
+}
 
 
 def _repair_latex_clashes(text: str) -> str:
@@ -232,20 +232,12 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
 _JSON_CHARS = frozenset("{}\n ") if UNDER_CROSSHAIR else frozenset('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}[],": \t\n\r')
 
 
-def _deal_json_text_ok_pytest(text: object) -> bool:
-    # LLM JSON and writeragent.json are external. DEAL_MAX_SOURCE (8192) raised
-    # PreContractError, an AssertionError, so repair was skipped and callers
-    # saw a silent default. Release OXTs strip deal and already repair. The
-    # body returns non-strings unchanged and runs json_repair on any str.
-    # CrossHair keeps the one-character domain. ``text`` is unused.
-    return True
-
-
 def _deal_json_text_ok_crosshair(text: object) -> bool:
     return isinstance(text, str) and len(text) <= 1 and all(c in _JSON_CHARS for c in text)
 
 
-_deal_json_text_ok = _deal_json_text_ok_crosshair if UNDER_CROSSHAIR else _deal_json_text_ok_pytest
+# DEAL_MAX_SOURCE (8192) raised PreContractError on external LLM JSON, so pytest uses True.
+_deal_json_text_ok = _profile(_deal_json_text_ok_crosshair)
 
 
 def _debug_json_stage(stage: str) -> None:
@@ -256,6 +248,25 @@ def _debug_json_stage(stage: str) -> None:
     and document text.
     """
     log.debug("safe_json_loads stage=%s", stage)
+
+
+def _json_repair_call(text: str, *, return_objects: bool) -> Any:
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+    if UNDER_CROSSHAIR:
+        return {} if return_objects else stripped
+    try:
+        import json_repair
+    except ImportError:
+        if return_objects:
+            raise
+        log.warning("json_repair is not installed; leaving JSON unrepaired")
+        return stripped
+    repaired = json_repair.repair_json(stripped, return_objects=return_objects)
+    return repaired if return_objects else str(repaired)
 
 
 @deal.pre(lambda text: _deal_json_text_ok(text))
@@ -273,41 +284,14 @@ def repair_json(text: str) -> str:
         The repaired JSON string.
     """
     # crosshair: off
-    if not isinstance(text, str):
-        return text
-
-    repaired = text.strip()
-    if not repaired:
-        return repaired
-
-    # json_repair under symbolic strings → CrossHairInternal; keep identity for cover/check.
-    if UNDER_CROSSHAIR:
-        return repaired
-
-    try:
-        import json_repair
-    except ImportError:
-        log.warning("json_repair is not installed; leaving JSON unrepaired")
-        return repaired
-
-    return str(json_repair.repair_json(repaired))
+    return str(_json_repair_call(text, return_objects=False))
 
 
 @deal.pre(lambda text, *_unused, **__: _deal_json_text_ok(text))
 def _repair_json_object_bounded(text: str) -> Any:
     """Deal-bounded body of ``repair_json_object``. Callers catch ``PreContractError``."""
     # crosshair: off
-    if not isinstance(text, str):
-        return text
-    stripped = text.strip()
-    if not stripped:
-        return stripped
-
-    if UNDER_CROSSHAIR:
-        return {}
-    import json_repair  # lazy: vendored in plugin/lib or vendor/
-
-    return json_repair.repair_json(stripped, return_objects=True)
+    return _json_repair_call(text, return_objects=True)
 
 
 def repair_json_object(text: str) -> Any:
@@ -369,7 +353,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         try:
             parsed = json.loads(raw_text)
             return parsed
-        except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+        except _JSON_PARSE_ERRORS:
             return default
 
     stripped = raw_text.strip()
@@ -387,7 +371,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     try:
         parsed = json.loads(stripped)
         return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+    except _JSON_PARSE_ERRORS:
         pass
 
     # 2. strict=False attempt (handles bare control characters in non-strict LLM mode)
@@ -395,7 +379,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         parsed = json.loads(stripped, strict=False)
         _debug_json_stage("non-strict")
         return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+    except _JSON_PARSE_ERRORS:
         pass
 
     # 3. ast.literal_eval fallback (handles single quotes and Python-isms)
@@ -458,13 +442,11 @@ def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
 
     # 2. Handle Python-style booleans and None (which JSON calls true/false/null)
     # Case-insensitive checks to handle various LLM formatting quirks robustly
-    lower = stripped.lower()
-    if lower == "true":
-        return True
-    if lower == "false":
-        return False
-    if lower in ("none", "null"):
-        return None
+    if isinstance(stripped, str):
+        mapping = {"true": True, "false": False, "none": None, "null": None}
+        lower = stripped.lower()
+        if lower in mapping:
+            return mapping[lower]
 
     # 3. Handle simple single-quoted string unquoting: 'abc' -> abc
     # This avoids ast.literal_eval for basic string normalization.

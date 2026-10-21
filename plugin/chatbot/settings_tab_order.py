@@ -65,9 +65,7 @@ def _is_settings_tab_module(
 ) -> bool:
     """True when generate_settings_dialog_tabs would emit a tab for this module."""
     name = m["name"]
-    if name in ("ai", "main", "core") or name in inline_set:
-        return False
-    if name == "launcher":
+    if name in ("main", "core") or name in inline_set:
         return False
     # Standalone dialogs are not Settings pages.
     if m.get("settings_tab") is False or m.get("config_dialog"):

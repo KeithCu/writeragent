@@ -24,31 +24,26 @@ from plugin.framework.module_base import ModuleBase
 # UNO / tool-registration imports: skipped under CrossHair so FQN cover of pure
 # submodules (word_diff_split, xhtml_style_postprocess) does not pull format.py's
 # tempfile.gettempdir() probe (auditwall SideEffectDetected). initialize() loads them.
-if "crosshair" not in sys.modules:
+def _import_writer_tools():
     from . import tree, proximity  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from . import content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    from .specialized import bookmarks  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    from .specialized import bookmarks
     # mock_domains: disable tools by wrapping class block in ''' in specialized/mock_domains.py
     from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mail_merge, mock_domains  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    from .locale import linguistic_index  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    from .locale import linguistic_index
     from .locale import ai_grammar_proofreader, grammar_proofread_locale, grammar_work_queue  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    return bookmarks, tree, proximity, linguistic_index
+
+
+if "crosshair" not in sys.modules:
+    _import_writer_tools()
 
 
 class WriterModule(ModuleBase):
     """Registers Writer tools for outline, content, comments, styles, etc."""
 
-    services: Any
-
     def initialize(self, services: Any) -> None:
-        self.services = services
-
-        # Same load order as module import (needed when CrossHair skipped the eager block).
-        from . import tree, proximity
-        from . import content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]
-        from .specialized import bookmarks
-        from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mail_merge, mock_domains  # noqa: F401  # pyright: ignore[reportUnusedImport]
-        from .locale import linguistic_index
-        from .locale import ai_grammar_proofreader, grammar_proofread_locale, grammar_work_queue  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        bookmarks, tree, proximity, linguistic_index = _import_writer_tools()
 
         # Order matters: tree needs bookmarks, proximity/index need tree
         for module in (bookmarks, tree, proximity, linguistic_index):

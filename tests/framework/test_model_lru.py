@@ -55,3 +55,38 @@ class TestModelLru:
             mock_set.reset_mock()
             update_lru_history("m1", "model_lru", "http://localhost")
             mock_set.assert_not_called()
+
+    def test_update_lru_history_scoping(self):
+        config_data = {}
+
+        def mock_get_config(key):
+            return config_data.get(key, "")
+
+        def mock_set_config(key, value):
+            config_data[key] = value
+
+        with patch("plugin.framework.model_lru.get_config", side_effect=mock_get_config), \
+             patch("plugin.framework.model_lru.set_config", side_effect=mock_set_config):
+            update_lru_history("item1", "model_lru", "http://localhost")
+            assert config_data.get("model_lru@http://localhost") == ["item1"]
+            update_lru_history("item2", "prompt_lru", "")
+            assert config_data.get("prompt_lru") == ["item2"]
+            for i in range(5):
+                update_lru_history(f"item{i}", "test_lru", "ep", max_items=3)
+            assert config_data.get("test_lru@ep") == ["item4", "item3", "item2"]
+            update_lru_history("item2", "test_lru", "ep", max_items=3)
+            assert config_data.get("test_lru@ep") == ["item2", "item4", "item3"]
+
+    def test_update_lru_history_skips_when_list_unchanged(self):
+        config_data = {"prompt_lru": ["first", "second"]}
+
+        def mock_get_config(key):
+            return config_data.get(key, "")
+
+        def mock_set_config(key, value):
+            config_data[key] = value
+
+        with patch("plugin.framework.model_lru.get_config", side_effect=mock_get_config), \
+             patch("plugin.framework.model_lru.set_config", side_effect=mock_set_config) as mock_set:
+            update_lru_history("first", "prompt_lru", "")
+            mock_set.assert_not_called()
