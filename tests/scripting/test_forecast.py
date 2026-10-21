@@ -737,4 +737,19 @@ def test_arima_ignores_seasonal_periods():
     assert "seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored" in result["flags"]
 
 
+def test_default_params_match_venv_signatures():
+    import inspect
+    from plugin.scripting.forecast import _DEFAULT_PARAMS
+
+    for helper_name, defaults in _DEFAULT_PARAMS.items():
+        fn = getattr(venv_forecast, helper_name)
+        sig = inspect.signature(fn)
+        for param_name, expected_default in defaults.items():
+            assert param_name in sig.parameters, f"{param_name} not in {helper_name} signature"
+            assert sig.parameters[param_name].default == expected_default, (
+                f"{helper_name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"
+            )
+
+
+
 

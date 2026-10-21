@@ -193,7 +193,7 @@ def test_maybe_convert_skips_non_candidate(tmp_path: Path):
         patch("plugin.doc.text_helpers.get_document_path", return_value=None),
         patch("plugin.doc.udprops.get_document_property", return_value=None),
     ):
-        assert maybe_convert_excel_py_document(MagicMock(), doc) is False
+        assert maybe_convert_excel_py_document(doc) is False
 
     plain = tmp_path / "plain.xlsx"
     _minimal_xlsx(plain)
@@ -201,7 +201,7 @@ def test_maybe_convert_skips_non_candidate(tmp_path: Path):
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(plain)),
         patch("plugin.doc.udprops.get_document_property", return_value=None),
     ):
-        assert maybe_convert_excel_py_document(MagicMock(), doc) is False
+        assert maybe_convert_excel_py_document(doc) is False
 
 
 def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
@@ -237,7 +237,7 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=bad),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
     ):
-        assert maybe_convert_excel_py_document(MagicMock(), doc) is False
+        assert maybe_convert_excel_py_document(doc) is False
         apply_uno.assert_not_called()
         assert doc._close_calls == []
 
@@ -263,7 +263,7 @@ def test_maybe_convert_uno_marks_converted(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]) as apply_uno,
     ):
-        assert maybe_convert_excel_py_document(MagicMock(), doc) is True
+        assert maybe_convert_excel_py_document(doc) is True
         apply_uno.assert_called_once()
         names = [c.args[1] for c in set_prop.call_args_list]
         assert _CONVERTED_PROP in names
@@ -776,7 +776,7 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
     ):
-        result = maybe_convert_excel_py_document(MagicMock(), doc)
+        result = maybe_convert_excel_py_document(doc)
         assert result is False
         from plugin.doc.udprops import get_document_property
         assert get_document_property(doc, _CONVERTED_PROP) is None
@@ -852,7 +852,7 @@ def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
         patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
     ):
-        result = maybe_convert_excel_py_document(MagicMock(), doc)
+        result = maybe_convert_excel_py_document(doc)
         assert result is True
         from plugin.doc.udprops import get_document_property
         assert get_document_property(doc, _CONVERTED_PROP) == "1"

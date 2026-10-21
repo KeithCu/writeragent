@@ -23,13 +23,19 @@ import ast
 import re
 from typing import Any, Sequence, cast
 
-from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
+from plugin.calc.excel_py_convert.models import (
+    BindingInfo,
+    ConvertedCell,
+    ConversionReport,
+    HeaderMode,
+    _as_header_mode,
+)
 from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
     _normalize_excel_placeholders,
     analyze_xl_calls,
 )
-from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
+from plugin.calc.python.formula_edit import parse_python_formula
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
@@ -66,18 +72,16 @@ def _xl_expr(index: int, header_mode: HeaderMode) -> str:
     return f"xl({tok})"
 
 
-def _as_header_mode(value: object) -> HeaderMode:
-    if value == "true":
-        return "true"
-    if value == "false":
-        return "false"
-    return "omit"
-
-
-def _as_dep_role(value: object) -> DepRole:
-    if value == "ordering":
-        return "ordering"
-    return "data"
+def _data_header_modes(bindings: Sequence[BindingInfo], n: int) -> list[HeaderMode]:
+    modes: list[HeaderMode] = []
+    if bindings:
+        for b in bindings:
+            if b.role == "ordering":
+                continue
+            modes.append(_as_header_mode(b.header_mode))
+    while len(modes) < n:
+        modes.append("omit")
+    return modes
 
 
 def _omit_modes(n: int) -> list[HeaderMode]:
@@ -323,12 +327,6 @@ def rewrite_dag_code_to_excel(
     return out, deps, issues, False
 
 
-def excel_formulatext(code: str, return_type: int = 0) -> str:
-    """Build Excel-style ``=PY("…", return_type)`` display string (literals, not %Pn%)."""
-    escaped = escape_code_for_excel_formula(code)
-    return f'=PY("{escaped}",{int(return_type)})'
-
-
 def excel_dep_ref(ref: str) -> str:
     """Normalize a Calc/Excel range token for ``_xlws.PY`` args (``Sheet.A1`` → ``Sheet!A1``)."""
     raw = (ref or "").strip()
@@ -429,18 +427,9 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
     if isinstance(bindings_raw, list):
         for b in bindings_raw:
             if isinstance(b, dict):
-                raw = cast("dict[str, Any]", b)
-                bindings.append(BindingInfo(a1=str(raw.get("a1") or ""), header_mode=_as_header_mode(raw.get("header_mode") or "omit"), role=_as_dep_role(raw.get("role") or "data"), original_indices=list(raw.get("original_indices") or [])))
+                bindings.append(BindingInfo.from_dict(b))
 
-    # Header modes aligned to normalized data_args order
-    modes: list[HeaderMode] = []
-    if bindings:
-        for b in bindings:
-            if b.role == "ordering":
-                continue
-            modes.append(_as_header_mode(b.header_mode))
-    while len(modes) < len(data_args):
-        modes.append("omit")
+    modes = _data_header_modes(bindings, len(data_args))
 
     excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
     if ordering_args:
@@ -505,14 +494,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="excel", original_code=cell.converted_code or cell.original_code, converted_code="", issues=list(cell.issues) + ["skipped: not converted on DAG pass"], converted=False, return_type=cell.return_type, array_ref=cell.array_ref)
             )
             continue
-        modes: list[HeaderMode] = []
-        if cell.bindings:
-            for b in cell.bindings:
-                if b.role == "ordering":
-                    continue
-                modes.append(_as_header_mode(b.header_mode))
-        while len(modes) < len(cell.data_args):
-            modes.append("omit")
+        modes = _data_header_modes(cell.bindings, len(cell.data_args))
         excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
         if cell.ordering_args:
             issues.append("ignored ordering-only deps on reverse export")

@@ -67,7 +67,7 @@ _ILLEGAL_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
     """Render a comma-separated OOXML ``=PY`` formula (script bank ref, no Calc sanitizer)."""
-    return formula_for_converted_cell(cell, separator=",", excel_escape=True, use_script_bank=True)
+    return formula_for_converted_cell(cell, separator=",", excel_escape=True)
 
 
 def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs: set[str]) -> None:
@@ -217,7 +217,7 @@ def _strip_rels_python(data: bytes) -> bytes:
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
-def _strip_python_in_excel_parts(out_path: Path) -> None:  # pyright: ignore[reportUnusedFunction]  # re-exported by convert.py
+def _strip_python_in_excel_parts(out_path: Path) -> None:  # pyright: ignore[reportUnusedFunction]  # tests call _strip_python_in_excel_parts
     """Remove obsolete Python-in-Excel package parts after formula rewrite."""
     drop_prefixes = ("xl/pythonScripts/",)
     drop_exact = {"xl/pythonScripts.xml", "xl/calcChain.xml"}

@@ -840,7 +840,7 @@ def test_ooxml_prefixed_namespace_and_entities(tmp_path: Path):
 </pythonScripts>"""
     path = tmp_path / "ns.xlsx"
     path.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet, workbook_xml=workbook, rels_xml=rels, scripts_xml=scripts))
-    model = load_excel_model(path, prefer_openpyxl_anchors=False)
+    model = load_excel_model(path)
     assert model.sheets[0].title == "Alpha"
     assert model.cells[0].deps == ["B1"]
     assert model.scripts[0] == "xl(%P2%)"
@@ -988,7 +988,7 @@ def test_parse_and_convert_synthetic_workbook_with_table(tmp_path: Path):
         zf.writestr("xl/tables/table1.xml", table)
         zf.writestr("xl/pythonScripts.xml", scripts)
 
-    model = load_excel_model(path, prefer_openpyxl_anchors=False)
+    model = load_excel_model(path)
     assert [s.title for s in model.sheets] == ["Data", "Pivots"]
     assert model.tables["tradeData"] == "Data!A1:AA10"
     assert "A6:B10" in model.anchor_snapshots.get("A6", "") or "A6:B10" in model.anchor_snapshots.get("Pivots!A6", "")
@@ -1102,7 +1102,7 @@ def test_write_excel_python_xlsx_roundtrip(tmp_path: Path):
     out = tmp_path / "excel_native.xlsx"
     write_excel_python_xlsx(src, report, out)
     assert has_excel_python_xlsx(out)
-    model = load_excel_model(out, prefer_openpyxl_anchors=False)
+    model = load_excel_model(out)
     assert model.scripts
     assert "xl(%P2%" in model.scripts[0]
     assert model.cells
@@ -1126,7 +1126,7 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
 def test_single_line_package_files_survive_strip(tmp_path: Path):
     """Single-line [Content_Types].xml and .rels from Excel/LO must survive _strip_python_in_excel_parts."""
     from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.convert import _strip_python_in_excel_parts
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
 
     ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -1493,10 +1493,8 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     """Temporary files (.tmpstrip, .tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
-    from plugin.calc.excel_py_convert.convert import (
-        _strip_python_in_excel_parts,
-        write_excel_python_xlsx,
-    )
+    from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "temp_clean_src.xlsx"
@@ -1991,7 +1989,7 @@ def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
         sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
     ))
 
-    model = load_excel_model(src, prefer_openpyxl_anchors=False)
+    model = load_excel_model(src)
     assert len(model.cells) == 3
     c1, c2, c3 = model.cells
     assert c1.cell == "A1"
@@ -2029,7 +2027,7 @@ def test_shared_xlws_py_group_invalid_dep_refused(tmp_path: Path):
         sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
     ))
 
-    model = load_excel_model(src, prefer_openpyxl_anchors=False)
+    model = load_excel_model(src)
     assert any("si=0" in i and "A2" in i for i in model.issues)
     assert len(model.cells) == 0
     dag_rep = convert_model_to_dag(model)
@@ -2113,7 +2111,7 @@ def test_shared_formula_roundtrip_deps_match(tmp_path: Path):
         sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml, scripts_xml=scripts_xml
     ))
 
-    model1 = load_excel_model(src, prefer_openpyxl_anchors=False)
+    model1 = load_excel_model(src)
     dag_rep = convert_model_to_dag(model1)
     assert dag_rep.ok
 
@@ -2134,7 +2132,7 @@ def test_shared_formula_roundtrip_deps_match(tmp_path: Path):
     out = tmp_path / "roundtrip_out.xlsx"
     write_excel_python_xlsx(src, excel_rep, out)
 
-    model2 = load_excel_model(out, prefer_openpyxl_anchors=False)
+    model2 = load_excel_model(out)
     deps_by_cell = {c.cell: c.deps for c in model2.cells}
     assert deps_by_cell["A1"] == ["B1"]
     assert deps_by_cell["A2"] == ["B2"]

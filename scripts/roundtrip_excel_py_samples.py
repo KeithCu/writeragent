@@ -88,7 +88,7 @@ def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
     excel_path = out_dir / f"{stem}.excel.xlsx"
     report_path = out_dir / f"{stem}.dag.json"
 
-    orig = load_excel_model(src, prefer_openpyxl_anchors=False)
+    orig = load_excel_model(src)
     dag_report = convert_to_dag(src)
     report_path.write_text(
         __import__("json").dumps(dag_report.to_dict(), indent=2) + "\n",
@@ -103,7 +103,7 @@ def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
     if not has_excel_python_xlsx(excel_path):
         return False, ["round-trip xlsx missing pythonScripts / _xlws.PY"]
 
-    back = load_excel_model(excel_path, prefer_openpyxl_anchors=False)
+    back = load_excel_model(excel_path)
     again = convert_model_to_dag(back)
     if not again.ok:
         ok = False

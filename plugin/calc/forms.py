@@ -16,15 +16,9 @@
 """Calc package anchor for form tools.
 
 Implementation and registration live in ``plugin.writer.specialized.forms`` (``ToolWriterFormBase``
-subclasses ``ToolWriterSpecialBase`` and ``ToolCalcSpecialBase``; union ``uno_services`` on concrete tools). Re-export
-with Writer-prefixed aliases for clarity (cf. ``DrawUpsertShape`` in writer/shapes).
+subclasses ``ToolWriterSpecialBase`` and ``ToolCalcSpecialBase``; union ``uno_services`` on concrete tools).
+Imported for side effects so the form tool classes are loaded when ``CalcModule.initialize`` walks subclasses.
 """
 
-from plugin.writer.specialized.forms import FormCreate as WriterFormCreate
-from plugin.writer.specialized.forms import FormCreateControl as WriterFormCreateControl
-from plugin.writer.specialized.forms import FormDeleteControl as WriterFormDeleteControl
-from plugin.writer.specialized.forms import FormEditControl as WriterFormEditControl
-from plugin.writer.specialized.forms import FormGenerate as WriterFormGenerate
-from plugin.writer.specialized.forms import FormListControls as WriterFormListControls
+import plugin.writer.specialized.forms  # noqa: F401  # pyright: ignore[reportUnusedImport]  # load form tool classes for subclass catalog
 
-__all__ = ["WriterFormCreate", "WriterFormCreateControl", "WriterFormDeleteControl", "WriterFormEditControl", "WriterFormGenerate", "WriterFormListControls"]

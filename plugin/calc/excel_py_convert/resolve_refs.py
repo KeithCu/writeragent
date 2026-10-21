@@ -54,22 +54,44 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
     # pick up another sheet's anchor snapshot.
     cleaned = anchor.replace("$", "").strip()
     snaps = model.anchor_snapshots
+    candidates: list[str] = []
     if sheet_hint and "!" not in cleaned:
-        for key in (f"{sheet_hint}!{cleaned}", f"{sheet_hint}!{cleaned}".upper(), f"'{sheet_hint}'!{cleaned}", f"'{sheet_hint}'!{cleaned}".upper()):
-            if key in snaps:
-                return snaps[key]
-    for key in (cleaned, cleaned.upper()):
+        candidates.extend((
+            f"{sheet_hint}!{cleaned}",
+            f"{sheet_hint}!{cleaned}".upper(),
+            f"'{sheet_hint}'!{cleaned}",
+            f"'{sheet_hint}'!{cleaned}".upper(),
+        ))
+    candidates.extend((cleaned, cleaned.upper()))
+
+    for key in candidates:
         if key in snaps:
             return snaps[key]
-    # Case-insensitive scan
+
     lower = {k.lower(): v for k, v in snaps.items()}
-    if sheet_hint and "!" not in cleaned:
-        for variant in (f"{sheet_hint}!{cleaned}", f"'{sheet_hint}'!{cleaned}"):
-            if variant.lower() in lower:
-                return lower[variant.lower()]
-    if cleaned.lower() in lower:
-        return lower[cleaned.lower()]
+    for key in candidates:
+        low = key.lower()
+        if low in lower:
+            return lower[low]
     return None
+
+
+def _unresolved(raw: str, note: str = "") -> ResolvedDep:
+    return ResolvedDep(original=raw, a1="", kind="unresolved", note=note)
+
+
+def _anchor_snapshot(
+    raw: str,
+    anchor: str,
+    model: ExcelWorkbookModel,
+    sheet_hint: str,
+    *,
+    label: str,
+) -> ResolvedDep:
+    snap = _lookup_anchor(model, anchor, sheet_hint=sheet_hint)
+    if snap:
+        return ResolvedDep(original=raw, a1=snap, kind="anchor_snapshot", note=f"{label} → {snap}")
+    return _unresolved(raw, note=f"{label} snapshot unavailable")
 
 
 @deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
@@ -138,7 +160,7 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     # crosshair: off
     raw = (dep or "").strip()
     if not raw:
-        return ResolvedDep(original=raw, a1="", kind="unresolved", note="empty dep")
+        return _unresolved(raw, note="empty dep")
 
     # Gate each regex on a cheap surface shape so CrossHair / junk deps never
     # re.match a character-class pattern (check-all 33940151004 PatternError).
@@ -146,21 +168,14 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
         m_anchor = _ANCHOR_RE.match(raw)
         if m_anchor:
             anchor = m_anchor.group(1).strip().replace("$", "")
-            snap = _lookup_anchor(model, anchor, sheet_hint=sheet_hint)
-            if snap:
-                return ResolvedDep(original=raw, a1=snap, kind="anchor_snapshot", note=f"ANCHORARRAY({anchor}) → {snap}")
-            # Fail closed: do not silently shrink ANCHORARRAY to a single cell.
-            return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"ANCHORARRAY({anchor}) snapshot unavailable")
+            return _anchor_snapshot(raw, anchor, model, sheet_hint, label=f"ANCHORARRAY({anchor})")
 
     if _has_spill_shape(raw):
         spill_src = raw.replace("$", "")
         m_spill = _SPILL_RE.match(spill_src)
         if m_spill:
             anchor = m_spill.group(1)
-            snap = _lookup_anchor(model, anchor, sheet_hint=sheet_hint)
-            if snap:
-                return ResolvedDep(original=raw, a1=snap, kind="anchor_snapshot", note=f"{raw} → {snap}")
-            return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"{raw} snapshot unavailable")
+            return _anchor_snapshot(raw, anchor, model, sheet_hint, label=raw)
 
     if _has_table_all_shape(raw):
         m_table = _TABLE_ALL_RE.match(raw)
@@ -169,13 +184,13 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
             ref = model.tables.get(name)
             if ref:
                 return ResolvedDep(original=raw, a1=ref.replace("$", ""), kind="table_snapshot", note=f"{name}[#All] → {ref}")
-            return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"unknown table {name!r}")
+            return _unresolved(raw, note=f"unknown table {name!r}")
 
     cleaned = raw.replace("$", "")
     if _has_range_shape(cleaned) and _RANGE_RE.match(cleaned):
         return ResolvedDep(original=raw, a1=cleaned, kind="range")
 
-    return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"unrecognized dep {raw!r}")
+    return _unresolved(raw, note=f"unrecognized dep {raw!r}")
 
 
 @deal.pre(lambda deps, model, sheet_hint="": isinstance(deps, list) and len(deps) <= DEAL_MAX_CMD_ARGS and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))

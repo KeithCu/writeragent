@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import logging
 from pathlib import Path
@@ -18,13 +19,6 @@ from plugin.calc.excel_py_convert.to_excel import (
 )
 from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 from plugin.calc.excel_py_convert.xlsx_write import (
-    _clear_spill_xml,
-    _ensure_cell,
-    _patch_content_types,
-    _set_cell_xlws_formula,
-    _strip_content_types_python,
-    _strip_python_in_excel_parts,
-    _strip_rels_python,
     write_dag_formulas_xlsx,
     write_excel_python_xlsx,
 )
@@ -46,13 +40,6 @@ __all__ = [
     "store_dag_meta_on_doc",
     "write_dag_formulas_xlsx",
     "write_excel_python_xlsx",
-    "_clear_spill_xml",
-    "_ensure_cell",
-    "_patch_content_types",
-    "_set_cell_xlws_formula",
-    "_strip_content_types_python",
-    "_strip_python_in_excel_parts",
-    "_strip_rels_python",
 ]
 
 
@@ -102,7 +89,7 @@ def dag_report_to_meta_payload(report: ConversionReport) -> dict[str, Any]:
             "excel_deps": list(c.excel_deps),
             "ordering_args": list(c.ordering_args),
             "array_ref": c.array_ref,
-            "bindings": [{"a1": b.a1, "header_mode": b.header_mode, "role": b.role, "original_indices": list(b.original_indices)} for b in c.bindings],
+            "bindings": [asdict(b) for b in c.bindings],
         }
     return out
 

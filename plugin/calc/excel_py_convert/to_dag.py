@@ -572,51 +572,30 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         new_code = new_code + _OBJECT_SUPPRESS
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
-    if fatal and not best_effort:
-        # Fail closed: converted stays False and the original code is kept.
-        # A missing fatal flag for a bad placeholder, an extra argument, or
-        # a dep mismatch writes a partial formula.
-        return ConvertedCell(
-            sheet=cell.sheet,
-            cell=cell.cell,
-            direction="dag",
-            original_code=original,
-            converted_code=original,
-            return_type=cell.return_type,
-            array_ref=cell.array_ref,
-            script_index=cell.script_index,
-            converted=False,
-            data_args=data_args,
-            excel_deps=excel_deps,
-            ordering_args=[],  # TODO: ordering_args is legacy; converter relies on shared-kernel session
-            bindings=bindings,
-            issues=list(dict.fromkeys(issues)),
-            shared_kernel=shared_kernel,
-            snapshot_deps=snapshot_notes,
-            dag_formula="",
-        )
-
-    base = ConvertedCell(
+    failed = fatal and not best_effort
+    out = ConvertedCell(
         sheet=cell.sheet,
         cell=cell.cell,
         direction="dag",
         original_code=original,
-        converted_code=new_code,
+        converted_code=original if failed else new_code,
         return_type=cell.return_type,
         array_ref=cell.array_ref,
         script_index=cell.script_index,
-        converted=True,
+        converted=not failed,
         data_args=data_args,
         excel_deps=excel_deps,
-        ordering_args=[],  # TODO: ordering_args is legacy; converter relies on shared-kernel session
+        ordering_args=[],
         bindings=bindings,
         issues=list(dict.fromkeys(issues)),
         shared_kernel=shared_kernel,
         snapshot_deps=snapshot_notes,
         dag_formula="",
     )
-    base.dag_formula = formula_for_converted_cell(base, separator=";", use_script_bank=True)
-    return base
+    if failed:
+        return out
+    out.dag_formula = formula_for_converted_cell(out, separator=";")
+    return out
 
 
 @deal.pre(

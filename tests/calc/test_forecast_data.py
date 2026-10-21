@@ -183,7 +183,7 @@ def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
         assert manipulator.write_formula_range.call_args.args[0] == expected
 
 
-@patch("plugin.scripting.forecast.client_run_forecast")
+@patch("plugin.scripting.client.run_forecast")
 @patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Date", "Value"], ["2024-01-01", 1.0]], None))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.framework.thread_guard.on_main_thread", return_value=False)

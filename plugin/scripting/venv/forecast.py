@@ -38,7 +38,7 @@ _MAX_FORECAST_PERIODS = 10_000
 
 
 
-def _require_statsmodels(helper: str) -> Any | None:
+def _require_statsmodels() -> Any | None:
     try:
         import statsmodels  # noqa: F401
 
@@ -579,8 +579,7 @@ def forecast_time_series(
     )
     if err is not None:
         return err
-    if series is None:
-        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
+    assert coerced is not None and series is not None
 
     capped = periods_val > _MAX_FORECAST_PERIODS
     periods_clamped = min(periods_val, _MAX_FORECAST_PERIODS)
@@ -608,7 +607,7 @@ def forecast_time_series(
         if seasonal_periods_val is not None:
             flags.append("seasonal_periods does not apply to moving_average; ignored")
         flags.append("moving_average has no prediction interval")
-    elif _require_statsmodels(helper) is None:
+    elif _require_statsmodels() is None:
         if model_name == "auto":
             forecast_df, _unused_model, metrics = _forecast_moving_average(series, periods=periods_clamped)
             flags.append("statsmodels missing; used moving_average fallback")
@@ -695,7 +694,12 @@ def forecast_time_series(
     flags.extend(_dropped_row_flags(coerced))
 
     table = _table_from_df(forecast_df, name="forecast", max_rows=periods_clamped)
-    return _ok_result(helper, metrics=metrics, tables=[table], flags=flags, metadata=coerced.metadata if coerced else {})
+    return _ok_result(helper, metrics=metrics, tables=[table], flags=flags, metadata=coerced.metadata)
+
+
+def _append_truncation_flag(flags: list[str], table: dict[str, Any], row_count: int, label: str) -> None:
+    if table.get("truncated"):
+        flags.append(f"{label} shows the first {DATA_TABLE_ROWS} of {row_count} rows")
 
 
 def decompose_time_series(
@@ -713,7 +717,7 @@ def decompose_time_series(
     import pandas as pd
 
     helper = "decompose_time_series"
-    if _require_statsmodels(helper) is None:
+    if _require_statsmodels() is None:
         return _missing_package_error(helper, "statsmodels")
 
     decomp_model = str(model or "additive").strip().lower()
@@ -731,8 +735,7 @@ def decompose_time_series(
     )
     if err is not None:
         return err
-    if series is None:
-        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
+    assert coerced is not None and series is not None
 
     season, period_err = _resolve_period(series, period, helper)
     if period_err is not None:
@@ -762,14 +765,13 @@ def decompose_time_series(
         "n_obs": int(len(series)),
     }
     flags = _duplicate_date_flags(coerced) + _dropped_row_flags(coerced)
-    if table["truncated"]:
-        flags.append(f"decomposition table shows the first {DATA_TABLE_ROWS} of {len(decomp_df)} rows")
+    _append_truncation_flag(flags, table, len(decomp_df), "decomposition table")
     return _ok_result(
         helper,
         metrics=metrics,
         tables=[table],
         flags=flags,
-        metadata=coerced.metadata if coerced else {},
+        metadata=coerced.metadata,
     )
 
 
@@ -828,7 +830,7 @@ def anomaly_detection_time_series(
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
-    if _require_statsmodels(helper) is None:
+    if _require_statsmodels() is None:
         return _missing_package_error(helper, "statsmodels")
 
     coerced, series, err = _prepare_time_series(
@@ -842,8 +844,7 @@ def anomaly_detection_time_series(
     )
     if err is not None:
         return err
-    if series is None:
-        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
+    assert coerced is not None and series is not None
 
     season, period_err = _resolve_period(series, period, helper)
     if period_err is not None:
@@ -875,14 +876,12 @@ def anomaly_detection_time_series(
     flags = _duplicate_date_flags(coerced) + _dropped_row_flags(coerced)
 
     anomalies_table = _table_from_df(anomalies_df, name="anomalies", max_rows=DATA_TABLE_ROWS)
-    if anomalies_table["truncated"]:
-        flags.append(f"anomalies table shows the first {DATA_TABLE_ROWS} of {len(anomalies_df)} rows")
+    _append_truncation_flag(flags, anomalies_table, len(anomalies_df), "anomalies table")
     tables = [anomalies_table]
 
     if include_all_val:
         scores_table = _table_from_df(scores_df, name="all_scores", max_rows=DATA_TABLE_ROWS)
-        if scores_table["truncated"]:
-            flags.append(f"all_scores table shows the first {DATA_TABLE_ROWS} of {len(scores_df)} rows")
+        _append_truncation_flag(flags, scores_table, len(scores_df), "all_scores table")
         tables.append(scores_table)
 
     metrics = {
@@ -897,7 +896,7 @@ def anomaly_detection_time_series(
         metrics=metrics,
         tables=tables,
         flags=flags,
-        metadata=coerced.metadata if coerced else {},
+        metadata=coerced.metadata,
     )
 
 
@@ -906,35 +905,14 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
     common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
 
     if name == "forecast_time_series":
-        return forecast_time_series(
-            data,
-            periods=params.get("periods", 12),
-            model=params.get("model", "auto"),
-            date_col=params.get("date_col", "Date"),
-            value_col=params.get("value_col", "Value"),
-            seasonal_periods=params.get("seasonal_periods"),
-            **common,
-        )
+        f_params: dict[str, Any] = {k: params[k] for k in ("periods", "model", "date_col", "value_col", "seasonal_periods") if k in params}
+        return forecast_time_series(data, **f_params, **common)
     if name == "decompose_time_series":
-        return decompose_time_series(
-            data,
-            date_col=params.get("date_col", "Date"),
-            value_col=params.get("value_col", "Value"),
-            model=params.get("model", "additive"),
-            period=params.get("period"),
-            **common,
-        )
+        d_params: dict[str, Any] = {k: params[k] for k in ("date_col", "value_col", "model", "period") if k in params}
+        return decompose_time_series(data, **d_params, **common)
     if name == "anomaly_detection_time_series":
-        return anomaly_detection_time_series(
-            data,
-            date_col=params.get("date_col", "Date"),
-            value_col=params.get("value_col", "Value"),
-            period=params.get("period"),
-            method=params.get("method", "stl_residual"),
-            threshold=params.get("threshold", 3.0),
-            include_all=params.get("include_all", False),
-            **common,
-        )
+        a_params: dict[str, Any] = {k: params[k] for k in ("date_col", "value_col", "period", "method", "threshold", "include_all") if k in params}
+        return anomaly_detection_time_series(data, **a_params, **common)
     return _error_result("UNKNOWN_HELPER", f"Forecast helper {name!r} not found", helper=name)
 
 
