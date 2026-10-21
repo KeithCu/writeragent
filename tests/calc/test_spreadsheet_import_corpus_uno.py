@@ -41,7 +41,6 @@ def test_corpus_income_statement_verify(ctx):
             return
         sheet = sheets.getByName("Income Statement")
         res = run_sheet_conversion(
-            ctx,
             doc,
             sheet,
             scope="sheet",

@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
 from plugin.calc.tabular_egress import _append_blank, _append_table_rows
+from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
-from plugin.writer.images.image_tools import _get_selected_graphic_object
 
 
 def _cell(value: Any) -> Any:
@@ -101,8 +101,6 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
                 note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
                 rows.append([note])
 
-    if len(rows) == 1:
-        rows.append(["(no tabular output)"])
     return rows, merges
 
 
@@ -114,11 +112,7 @@ def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 
 def structure_calc_grid_has_content(grid: list[list[Any]]) -> bool:
     """True when the grid has more than the title row and placeholder."""
-    if len(grid) <= 1:
-        return False
-    if len(grid) == 2 and grid[1] == ["(no tabular output)"]:
-        return False
-    return True
+    return len(grid) > 1
 
 
 def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[int, int]:
@@ -128,8 +122,6 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
     # shape first so the insert uses that graphic's cell anchor, not a second selection lookup.
     name = str(image_name or "").strip()
     if name:
-        from plugin.doc.visual_helpers import get_graphic_object_by_name
-
         obj = get_graphic_object_by_name(doc, name)
         if obj is None:
             raise ToolExecutionError(
@@ -138,12 +130,12 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
                 details={"image_name": name},
             )
     else:
-        obj, _doc_type = _get_selected_graphic_object(doc)
+        obj = selected_graphic_object(doc)
         if obj is None:
             raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
 
     anchor = uno_read(
-        lambda: obj.getPropertyValue("Anchor") if hasattr(obj, "getPropertyValue") else None,
+        lambda: obj.getPropertyValue("Anchor"),
         None,
         object_type="calc",
     )
@@ -166,25 +158,27 @@ def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_nam
     """Paste vision HTML into the cell below the graphic anchor."""
     col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     # *row* is already one below the graphic anchor (see calc_output_anchor_from_graphic).
-    cell_address = f"{index_to_column(col)}{row + 1}"
+    cell_address = format_address(col, row)
     insert_cell_html_rich(doc, uno_ctx, cell_address, html)
 
 
-def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
-    """Write extract_structure blocks/tables as native Calc cells below the graphic anchor."""
-    del uno_ctx
+def insert_vision_structure_into_calc(doc: Any, _uno_ctx: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
+    """Write extract_structure blocks/tables as native Calc cells below the graphic anchor.
+
+    The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
+    """
     col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     grid, merges = _vision_structure_calc_layout(result)
     if not structure_calc_grid_has_content(grid):
         raise ToolExecutionError(_("No structured tables or text blocks to insert."), code="VISION_ERROR", details={"vision_result": result})
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
-    addr = f"{index_to_column(col)}{row + 1}"
+    addr = format_address(col, row)
     # literal_text: setString, so "=..." is not a live formula and "000123" is not float()'d.
     manipulator.write_formula_range(addr, grid, literal_text=True)
     for r1, c1, r2, c2 in merges:
-        start = f"{index_to_column(col + c1)}{row + r1 + 1}"
-        end = f"{index_to_column(col + c2)}{row + r2 + 1}"
+        start = format_address(col + c1, row + r1)
+        end = format_address(col + c2, row + r2)
         if start != end:
             manipulator.merge_cells(f"{start}:{end}", center=False)
     return len(grid)

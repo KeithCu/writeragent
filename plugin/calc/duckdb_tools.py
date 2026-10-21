@@ -10,7 +10,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.calc.address_utils import qualify_a1, split_sheet_prefix
+from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
@@ -357,19 +357,17 @@ def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
 
 
 def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
-    from plugin.calc.spreadsheet_import.ingest import used_range_string_from_address
-
     sheet_idx = int(getattr(addr, "Sheet", 0))
     sheet_name = str(doc.getSheets().getByIndex(sheet_idx).getName())
-    return _sheet_qualified_a1(sheet_name, used_range_string_from_address(addr))
+    return _sheet_qualified_a1(sheet_name, format_range_address(addr, collapse_single=True))
 
 
 def used_range_qualified_a1(sheet: Any) -> str:
     """Sheet used-range as sheet-qualified A1 (resolved now, not stored)."""
-    from plugin.calc.spreadsheet_import.ingest import _used_range_address, used_range_string_from_address
+    from plugin.calc.spreadsheet_import.ingest import _used_range_address
 
     addr = _used_range_address(sheet)
-    return _sheet_qualified_a1(str(sheet.getName()), used_range_string_from_address(addr))
+    return _sheet_qualified_a1(str(sheet.getName()), format_range_address(addr, collapse_single=True))
 
 
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:

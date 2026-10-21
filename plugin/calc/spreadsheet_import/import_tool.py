@@ -48,5 +48,5 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
         vectorize = kwargs.get("vectorize", True)
         verify = kwargs.get("verify", True)
 
-        res = run_sheet_conversion(ctx.ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
+        res = run_sheet_conversion(doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
         return {"status": "ok", **res}

@@ -102,7 +102,6 @@ def convert_spreadsheet(ctx, file_path: Path) -> bool:
             print(f"  Converting sheet '{sheet_name}'...")
             try:
                 res = run_sheet_conversion(
-                    ctx,
                     doc,
                     sheet,
                     scope="sheet",

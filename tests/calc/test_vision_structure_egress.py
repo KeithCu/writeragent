@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.vision_egress import (
     _vision_structure_calc_layout,
     format_vision_structure_for_calc,
     insert_vision_structure_into_calc,
     structure_calc_grid_has_content,
 )
+from plugin.framework.errors import ToolExecutionError
 
 
 def test_format_vision_structure_for_calc_tables_and_blocks():
@@ -180,4 +183,17 @@ def test_vision_structure_preserves_string_cells_without_numeric_coercion():
     # OCR numeric-looking text stays string rather than coerced to float
     assert ["0123"] in grid
     assert [""] in grid
+
+
+@patch("plugin.calc.vision_egress.CellManipulator")
+@patch("plugin.calc.vision_egress.CalcBridge")
+@patch("plugin.calc.vision_egress.calc_output_anchor_from_graphic", return_value=(0, 0))
+def test_insert_vision_structure_title_only_raises_vision_error(mock_anchor, mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    mock_manipulator_cls.return_value = manipulator
+    result = {"helper": "extract_structure"}
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_vision_structure_into_calc(MagicMock(), MagicMock(), result)
+    assert exc_info.value.code == "VISION_ERROR"
+    manipulator.write_formula_range.assert_not_called()
 

@@ -40,6 +40,12 @@ from plugin.calc.analyzer import SheetAnalyzer
 log = logging.getLogger("writeragent.calc")
 
 
+def _sheet_by_name(sheets: Any, name: str) -> Any:
+    if not sheets.hasByName(name):
+        raise UnoObjectError(f"No sheet found named '{name}'.")
+    return sheets.getByName(name)
+
+
 class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
@@ -69,9 +75,7 @@ class SwitchSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheets = doc.getSheets()
-        if not sheets.hasByName(sheet_name):
-            raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-        sheet = sheets.getByName(sheet_name)
+        sheet = _sheet_by_name(sheets, sheet_name)
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
@@ -124,11 +128,9 @@ class RenameSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheets = doc.getSheets()
-        if not sheets.hasByName(old_name):
-            raise UnoObjectError(f"No sheet found named '{old_name}'.")
+        sheet = _sheet_by_name(sheets, old_name)
         if old_name != new_name and sheets.hasByName(new_name):
             return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
-        sheet = sheets.getByName(old_name)
         sheet.setName(new_name)
         from plugin.calc.python.sheet_modify import migrate_sheet_rename
 
@@ -151,8 +153,7 @@ class DeleteSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheets = doc.getSheets()
-        if not sheets.hasByName(sheet_name):
-            raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+        _sheet_by_name(sheets, sheet_name)
         if sheets.getCount() <= 1:
             return self._tool_error("Cannot delete the only sheet in the document.")
         sheets.removeByName(sheet_name)
@@ -176,9 +177,7 @@ class ProtectSheet(ToolCalcSheetBase):
         doc = ctx.doc
         if sheet_name:
             sheets = doc.getSheets()
-            if not sheets.hasByName(sheet_name):
-                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-            sheet = sheets.getByName(sheet_name)
+            sheet = _sheet_by_name(sheets, sheet_name)
         else:
             bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()
@@ -190,7 +189,7 @@ class ProtectSheet(ToolCalcSheetBase):
             sheet.unprotect("")
             msg = f"Sheet '{sheet.getName()}' is now unprotected."
 
-        log.info(msg)
+        log.info("%s", msg)
         return {"status": "ok", "message": msg}
 
 

@@ -102,9 +102,9 @@ def topological_formula_order(graph: dict[str, list[str]]) -> tuple[list[str], l
             if prec not in nodes:
                 continue
             successors[prec].add(dependent)
-            in_degree[dependent] = in_degree.get(dependent, 0) + 1
+            in_degree[dependent] += 1
 
-    queue: deque[str] = deque(sorted(n for n in nodes if in_degree.get(n, 0) == 0))
+    queue: deque[str] = deque(sorted(n for n in nodes if in_degree[n] == 0))
     ordered: list[str] = []
 
     while queue:
@@ -145,7 +145,7 @@ def _extract_cycle_groups(remaining: set[str], graph: dict[str, list[str]]) -> l
                 continue
             component.add(cur)
             for nb in adj[cur]:
-                if nb in unvisited and nb not in component:
+                if nb not in component:
                     stack.append(nb)
         unvisited -= component
         groups.append(sorted(component))

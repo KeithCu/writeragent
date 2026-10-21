@@ -80,6 +80,7 @@ log = logging.getLogger("writeragent.calc")
 CHART_CLSID = "12DCAE36-07DA-43C1-9C17-56A938C64445"
 # Draw/Impress OLE2Shape: add shape to page first, then set CLSID (OOo wiki sample)
 CHART_CLSID_DRAW_OLE = "12DCAE26-281F-416F-A234-C3086127382E"
+_OLE2_SHAPE = "com.sun.star.drawing.OLE2Shape"
 
 # Recognized chart CLSIDs across Calc, Writer, and Draw.
 # 12d37028-... is the runtime Writer shape CLSID asserted in native tests.
@@ -495,6 +496,32 @@ def _chart_step(warnings: list[str], label: str, fn: Callable[[], None]) -> None
         log.warning("Setting chart %s failed: %s", label, exc)
 
 
+def _set_diagram_flag(diagram: Any, prop: str, value: Any, warnings: list[str], debug: str) -> None:
+    if value is None:
+        return
+    if hasattr(diagram, prop):
+        def _apply() -> None:
+            setattr(diagram, prop, value)
+            log.debug(debug, value)
+        _chart_step(warnings, prop, _apply)
+    else:
+        warnings.append(f"Diagram does not support {prop}")
+
+
+def _set_axis_title(diagram: Any, axis: str, value: Any, warnings: list[str]) -> None:
+    if value is None or not hasattr(diagram, f"Has{axis}AxisTitle"):
+        return
+
+    def _set_axis() -> None:
+        setattr(diagram, f"Has{axis}AxisTitle", True)
+        getter = getattr(diagram, f"get{axis}AxisTitle")
+        written = _axis_title_shape_string(getter(), value)
+        if written is not None:
+            log.debug("Set %s axis title: '%s'", axis, written)
+
+    _chart_step(warnings, f"{axis} axis title", _set_axis)
+
+
 def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     """Apply enhanced styling properties to a chart document."""
     warnings: list[str] = []
@@ -516,39 +543,12 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
         log.warning("No diagram found on chart document.")
         return warnings
 
-    # 1. 3D Mode
-    is_3d = kwargs.get("is_3d")
-    if is_3d is not None:
-        if hasattr(diagram, "Dim3D"):
-            def _set_dim3d() -> None:
-                diagram.Dim3D = is_3d
-                log.debug("Set diagram 3D mode: %s", is_3d)
-            _chart_step(warnings, "Dim3D", _set_dim3d)
-        else:
-            warnings.append("Diagram does not support Dim3D")
+    # 1. 3D Mode, Stacking, Percent
+    _set_diagram_flag(diagram, "Dim3D", kwargs.get("is_3d"), warnings, "Set diagram 3D mode: %s")
+    _set_diagram_flag(diagram, "Stacked", kwargs.get("stacked"), warnings, "Set diagram stacked mode: %s")
+    _set_diagram_flag(diagram, "Percent", kwargs.get("percent"), warnings, "Set diagram percent stacked: %s")
 
-    # 2. Stacking
-    stacked = kwargs.get("stacked")
-    if stacked is not None:
-        if hasattr(diagram, "Stacked"):
-            def _set_stacked() -> None:
-                diagram.Stacked = stacked
-                log.debug("Set diagram stacked mode: %s", stacked)
-            _chart_step(warnings, "Stacked", _set_stacked)
-        else:
-            warnings.append("Diagram does not support Stacked")
-
-    percent = kwargs.get("percent")
-    if percent is not None:
-        if hasattr(diagram, "Percent"):
-            def _set_percent() -> None:
-                diagram.Percent = percent
-                log.debug("Set diagram percent stacked: %s", percent)
-            _chart_step(warnings, "Percent", _set_percent)
-        else:
-            warnings.append("Diagram does not support Percent")
-
-    # 3. Bar/Column Orientation
+    # 2. Bar/Column Orientation
     chart_type = kwargs.get("chart_type")
     if chart_type in ["bar", "column"]:
         if hasattr(diagram, "Vertical"):
@@ -559,7 +559,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
         else:
             warnings.append("Diagram does not support Vertical")
 
-    # 4. Titles
+    # 3. Titles
     title = kwargs.get("title")
     if title is not None:
         def _set_title() -> None:
@@ -576,23 +576,8 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
             log.debug("Set chart subtitle: '%s'", subtitle)
         _chart_step(warnings, "subtitle", _set_subtitle)
 
-    x_axis_title = kwargs.get("x_axis_title")
-    if x_axis_title is not None and hasattr(diagram, "HasXAxisTitle"):
-        def _set_x_axis() -> None:
-            diagram.HasXAxisTitle = True
-            written = _axis_title_shape_string(diagram.getXAxisTitle(), x_axis_title)
-            if written is not None:
-                log.debug("Set X axis title: '%s'", written)
-        _chart_step(warnings, "X axis title", _set_x_axis)
-
-    y_axis_title = kwargs.get("y_axis_title")
-    if y_axis_title is not None and hasattr(diagram, "HasYAxisTitle"):
-        def _set_y_axis() -> None:
-            diagram.HasYAxisTitle = True
-            written = _axis_title_shape_string(diagram.getYAxisTitle(), y_axis_title)
-            if written is not None:
-                log.debug("Set Y axis title: '%s'", written)
-        _chart_step(warnings, "Y axis title", _set_y_axis)
+    _set_axis_title(diagram, "X", kwargs.get("x_axis_title"), warnings)
+    _set_axis_title(diagram, "Y", kwargs.get("y_axis_title"), warnings)
 
     # 5. Legend
     # offapi ChartLegend.Alignment is ChartLegendPosition (NONE/LEFT/TOP/RIGHT/BOTTOM).
@@ -864,6 +849,29 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
             yield from _iter_page_shapes(shape, doc, parent=shape)
 
 
+def _named_ole_chart_ref(
+    shape: Any,
+    parent: Any,
+    shape_type: Any,
+    name: str,
+    kind: Literal["writer_draw_page", "draw_page"],
+    page_index: int | None = None,
+) -> ChartRef | None:
+    if isinstance(shape_type, Exception):
+        return None
+    try:
+        if shape_type != _OLE2_SHAPE:
+            return None
+        listed_name = _listed_chart_name(shape)
+        if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
+            return ChartRef(shape, parent, kind, page_index)
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            return None
+        raise
+    return None
+
+
 def _lookup_chart(
     doc: Any,
     name: str,
@@ -889,19 +897,9 @@ def _lookup_chart(
                 raise
         page_obj = doc.getDrawPage()
         for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
-            if isinstance(shape_type, Exception):
-                # Tip: list already records this shape and continues; raising hid later charts with the requested name.
-                continue
-            try:
-                if shape_type != "com.sun.star.drawing.OLE2Shape":
-                    continue
-                listed_name = _listed_chart_name(shape)
-                if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
-                    return ChartLookup(ref=ChartRef(shape, parent, "writer_draw_page", None))
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    continue
-                raise
+            ref = _named_ole_chart_ref(shape, parent, shape_type, name, "writer_draw_page")
+            if ref is not None:
+                return ChartLookup(ref=ref)
         return ChartLookup()
     elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
         draw_pages = doc.getDrawPages()
@@ -911,38 +909,18 @@ def _lookup_chart(
                 return ChartLookup(error=f"Page index {page} is out of range (document has {count} pages).")
             target_page = draw_pages.getByIndex(page)
             for shape, parent, shape_type in _iter_page_shapes(target_page, doc):
-                if isinstance(shape_type, Exception):
-                    # Tip: list already records this shape and continues; raising hid later charts with the requested name.
-                    continue
-                try:
-                    if shape_type != "com.sun.star.drawing.OLE2Shape":
-                        continue
-                    listed_name = _listed_chart_name(shape)
-                    if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
-                        return ChartLookup(ref=ChartRef(shape, parent, "draw_page", page))
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        continue
-                    raise
+                ref = _named_ole_chart_ref(shape, parent, shape_type, name, "draw_page", page)
+                if ref is not None:
+                    return ChartLookup(ref=ref)
             return ChartLookup()
 
         matches: list[ChartRef] = []
         for i in range(count):
             pg = draw_pages.getByIndex(i)
             for shape, parent, shape_type in _iter_page_shapes(pg, doc):
-                if isinstance(shape_type, Exception):
-                    # Tip: list already records this shape and continues; raising hid later charts with the requested name.
-                    continue
-                try:
-                    if shape_type != "com.sun.star.drawing.OLE2Shape":
-                        continue
-                    listed_name = _listed_chart_name(shape)
-                    if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
-                        matches.append(ChartRef(shape, parent, "draw_page", i))
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        continue
-                    raise
+                ref = _named_ole_chart_ref(shape, parent, shape_type, name, "draw_page", i)
+                if ref is not None:
+                    matches.append(ref)
         if len(matches) == 1:
             return ChartLookup(ref=matches[0])
         if len(matches) > 1:
@@ -1020,7 +998,7 @@ class ListCharts(ToolBaseDummy):
                     try:
                         if isinstance(shape_type, Exception):
                             raise shape_type
-                        if shape_type != "com.sun.star.drawing.OLE2Shape":
+                        if shape_type != _OLE2_SHAPE:
                             continue
                         if _is_chart_host(shape, is_embed=False):
                             nm = _listed_chart_name(shape)
@@ -1054,7 +1032,7 @@ class ListCharts(ToolBaseDummy):
                         try:
                             if isinstance(shape_type, Exception):
                                 raise shape_type
-                            if shape_type != "com.sun.star.drawing.OLE2Shape":
+                            if shape_type != _OLE2_SHAPE:
                                 continue
                             if _is_chart_host(shape, is_embed=False):
                                 summary = self._get_summary(shape, _listed_chart_name(shape))
@@ -1649,7 +1627,7 @@ class UpsertChart(ToolBaseDummy):
                     break
 
         # Draw/Impress: add OLE2 shape first, then CLSID (chart2 OLE GUID); chart lives on .Model
-        shape = doc.createInstance("com.sun.star.drawing.OLE2Shape")
+        shape = doc.createInstance(_OLE2_SHAPE)
         page.add(shape)
         name = ""
         try:

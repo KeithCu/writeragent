@@ -116,8 +116,3 @@ def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
     formula_array = cell_range.getFormulaArray()
 
     return ingest_from_arrays(sheet_name=sheet_name, start_col=addr.StartColumn, start_row=addr.StartRow, data_array=data_array, formula_array=formula_array)
-
-
-def used_range_string_from_address(addr: Any) -> str:
-    """Format a UNO ``RangeAddress`` as an A1 range string."""
-    return format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=True)

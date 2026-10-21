@@ -15,7 +15,7 @@ from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
 def test_calc_output_anchor_from_graphic_no_selection():
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(None, None)):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
         assert exc.value.code == "NO_IMAGE_SELECTED"
@@ -27,7 +27,7 @@ def test_calc_output_anchor_from_graphic_returns_row_below():
     anchor.getCellAddress.return_value = MagicMock(Column=2, Row=4)
     shape.getPropertyValue.return_value = anchor
 
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         col, row = calc_output_anchor_from_graphic(MagicMock())
     assert col == 2
     assert row == 5
@@ -47,8 +47,8 @@ def test_calc_output_anchor_uses_named_graphic_not_selection():
     anchor = MagicMock()
     anchor.getCellAddress.return_value = MagicMock(Column=0, Row=1)
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=shape) as by_name, patch(
-        "plugin.calc.vision_egress._get_selected_graphic_object"
+    with patch("plugin.calc.vision_egress.get_graphic_object_by_name", return_value=shape) as by_name, patch(
+        "plugin.calc.vision_egress.selected_graphic_object"
     ) as selected:
         col, row = calc_output_anchor_from_graphic(MagicMock(), image_name="Photo1")
     assert (col, row) == (0, 2)
@@ -57,7 +57,7 @@ def test_calc_output_anchor_uses_named_graphic_not_selection():
 
 
 def test_calc_output_anchor_missing_name_raises_image_not_found():
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None):
+    with patch("plugin.calc.vision_egress.get_graphic_object_by_name", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock(), image_name="Missing")
     assert exc.value.code == "IMAGE_NOT_FOUND"
@@ -69,7 +69,7 @@ def test_calc_anchor_disposed_property_raises_document_disposed():
 
     shape = MagicMock()
     shape.getPropertyValue.side_effect = DisposedException("gone")
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(DocumentDisposedError):
             calc_output_anchor_from_graphic(MagicMock())
 
@@ -82,7 +82,7 @@ def test_calc_anchor_disposed_cell_address_is_not_no_output_anchor():
     anchor = MagicMock()
     anchor.getCellAddress.side_effect = DisposedException("gone")
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(DocumentDisposedError):
             calc_output_anchor_from_graphic(MagicMock())
 
@@ -92,7 +92,7 @@ def test_calc_anchor_ordinary_address_error_stays_no_output_anchor():
     anchor = MagicMock()
     anchor.getCellAddress.side_effect = ValueError("not a cell")
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
     assert exc.value.code == "NO_OUTPUT_ANCHOR"
@@ -104,7 +104,7 @@ def test_calc_anchor_runtime_property_is_not_document_disposed():
 
     shape = MagicMock()
     shape.getPropertyValue.side_effect = RuntimeException("fail")
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
     assert exc.value.code == "NO_OUTPUT_ANCHOR"
@@ -118,7 +118,7 @@ def test_calc_anchor_runtime_cell_address_is_not_document_disposed():
     anchor = MagicMock()
     anchor.getCellAddress.side_effect = RuntimeException("fail")
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
+    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
     assert exc.value.code == "NO_OUTPUT_ANCHOR"

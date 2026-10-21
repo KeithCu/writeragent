@@ -4,8 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from types import SimpleNamespace
 
+import pytest
+
 from plugin.draw.math_insert import (
-    _positive_awt_size,
+    _MAP_ONE_CM,
+    _MAP_ONE_MM,
+    _content_size_hmm,
     _try_ole_shape_content_size_hmm,
     _uno_ctx_from_tool_ctx,
 )
@@ -75,8 +79,20 @@ def test_content_size_is_none_without_draw_size_properties() -> None:
 
 
 def test_positive_awt_size() -> None:
-    assert _positive_awt_size(None) is None
-    assert _positive_awt_size(_AwtSize(0, 10)) is None
-    assert _positive_awt_size(_AwtSize(10, 0)) is None
-    assert _positive_awt_size(_AwtSize(-5, 10)) is None
-    assert _positive_awt_size(_AwtSize(100, 200)) == (100, 200)
+    assert _content_size_hmm(None) is None
+    assert _content_size_hmm(_AwtSize(0, 10)) is None
+    assert _content_size_hmm(_AwtSize(10, 0)) is None
+    assert _content_size_hmm(_AwtSize(-5, 10)) is None
+    assert _content_size_hmm(_AwtSize(100, 200)) == (100, 200)
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "map_unit", "expected"),
+    [
+        (1, 2, _MAP_ONE_MM, (100, 200)),
+        (1, 2, _MAP_ONE_CM, (1000, 2000)),
+        (1, 2, 9999, None),
+    ],
+)
+def test_content_size_hmm_map_units(width: int, height: int, map_unit: int, expected: tuple[int, int] | None) -> None:
+    assert _content_size_hmm(_AwtSize(width, height), map_unit) == expected

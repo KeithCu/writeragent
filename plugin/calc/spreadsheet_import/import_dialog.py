@@ -18,21 +18,13 @@ from plugin.calc.address_utils import parse_range_string, parse_address
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
-from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet
+from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 
 log = logging.getLogger("writeragent.calc.import_dialog")
 
 
-def get_radio_state(ctrl: Any) -> bool:
-    if not ctrl:
-        return False
-    if hasattr(ctrl, "getState"):
-        return ctrl.getState() == 1
-    return ctrl.getModel().State == 1
-
-
-def get_checkbox_state(ctrl: Any) -> bool:
+def _control_is_checked(ctrl: Any) -> bool:
     if not ctrl:
         return False
     if hasattr(ctrl, "getState"):
@@ -74,7 +66,7 @@ def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
     return actual_values
 
 
-def run_sheet_conversion(ctx: Any, doc: Any, source_sheet: Any, *, scope: str = "sheet", output_mode: str = "new_sheet", vectorize: bool = True, verify: bool = True) -> dict[str, Any]:
+def run_sheet_conversion(doc: Any, source_sheet: Any, *, scope: str = "sheet", output_mode: str = "new_sheet", vectorize: bool = True, verify: bool = True) -> dict[str, Any]:
     """Execute the Conversion Pipeline using ingest, emit, apply, and verify."""
     range_addr = None
     if scope == "selection":
@@ -85,8 +77,6 @@ def run_sheet_conversion(ctx: Any, doc: Any, source_sheet: Any, *, scope: str = 
 
     # 1. Ingest Sheet
     model = ingest_sheet(source_sheet, range_addr=range_addr)
-    from plugin.calc.spreadsheet_import.preserve import enrich_number_formats
-
     enrich_number_formats(source_sheet, model)
 
     sheet_bounds: dict[str, tuple[int, int]] = {}
@@ -162,12 +152,12 @@ def show_import_dialog(ctx: Any) -> None:
             def actionPerformed(self, rEvent: Any) -> None:
                 nonlocal _outcome
                 try:
-                    scope = "selection" if get_radio_state(dlg.getControl("ScopeSelection")) else "sheet"
-                    output_mode = "in_place" if get_radio_state(dlg.getControl("ModeReplace")) else "new_sheet"
-                    vectorize = get_checkbox_state(dlg.getControl("OptVector"))
-                    verify = get_checkbox_state(dlg.getControl("OptVerify"))
+                    scope = "selection" if _control_is_checked(dlg.getControl("ScopeSelection")) else "sheet"
+                    output_mode = "in_place" if _control_is_checked(dlg.getControl("ModeReplace")) else "new_sheet"
+                    vectorize = _control_is_checked(dlg.getControl("OptVector"))
+                    verify = _control_is_checked(dlg.getControl("OptVerify"))
 
-                    res = run_sheet_conversion(ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
+                    res = run_sheet_conversion(doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
                     _outcome = res
                     dlg.endDialog(1)
                 except Exception as e:

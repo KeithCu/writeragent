@@ -10,13 +10,11 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.draw.base import ToolDrawSpecialBase
-from plugin.writer.math.math_mml_convert import MATH_CLSID
+from plugin.framework.errors import best_effort, is_disposed_exception
+from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
 log = logging.getLogger("writeragent.draw")
 
-# Fallback when UNO does not report a usable visual size (100ths of mm).
-_FALLBACK_WIDTH_HMM = 5000
-_FALLBACK_HEIGHT_HMM = 2000
 _MIN_W_HMM, _MIN_H_HMM = 500, 400
 _MAX_W_HMM, _MAX_H_HMM = 120_000, 80_000
 
@@ -33,38 +31,35 @@ _MAP_TWIP = 9
 # com.sun.star.embed.Aspects.MSOLE_CONTENT
 _ASPECT_CONTENT = 1
 
+_HMM_SCALE = {
+    _MAP_ONE_10TH_MM: (10, 1),
+    _MAP_ONE_MM: (100, 1),
+    _MAP_ONE_CM: (1000, 1),
+    _MAP_ONE_100TH_INCH: (254, 10),
+    _MAP_POINT: (2540, 72),
+    _MAP_TWIP: (2540, 1440),
+}
 
-def _visual_size_to_hundredth_mm(sz: Any, map_unit: int) -> tuple[int, int] | None:
-    """Convert embed visual Size + EmbedMapUnits to shape units (1/100 mm)."""
+
+def _content_size_hmm(sz: Any, map_unit: int = _MAP_ONE_100TH_MM) -> tuple[int, int] | None:
+    if sz is None:
+        return None
+    mu = int(map_unit)
+    if mu == _MAP_ONE_100TH_MM:
+        w, h = sz.Width, sz.Height
+        if w <= 0 or h <= 0:
+            return None
+        return w, h
     w, h = int(sz.Width), int(sz.Height)
     if w <= 0 or h <= 0:
         return None
-
-    mu = int(map_unit)
-    if mu == _MAP_ONE_100TH_MM:
-        return w, h
-    if mu == _MAP_TWIP:
-        return round(w * 2540 / 1440), round(h * 2540 / 1440)
-    if mu == _MAP_POINT:
-        return round(w * 2540 / 72), round(h * 2540 / 72)
-    if mu == _MAP_ONE_MM:
-        return w * 100, h * 100
-    if mu == _MAP_ONE_100TH_INCH:
-        return round(w * 254 / 10), round(h * 254 / 10)
-    if mu == _MAP_ONE_10TH_MM:
-        return w * 10, h * 10
-    if mu == _MAP_ONE_CM:
-        return w * 1000, h * 1000
-    return None
-
-
-def _positive_awt_size(sz: Any) -> tuple[int, int] | None:
-    if sz is None:
+    spec = _HMM_SCALE.get(mu)
+    if spec is None:
         return None
-    w, h = sz.Width, sz.Height
-    if w <= 0 or h <= 0:
-        return None
-    return w, h
+    num, den = spec
+    if den == 1:
+        return w * num, h * num
+    return round(w * num / den), round(h * num / den)
 
 
 def _read_shape_property(shape: Any, name: str) -> Any:
@@ -87,7 +82,7 @@ def _visible_area_hmm(shape: Any) -> tuple[int, int] | None:
     ``SvxOle2Shape`` ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``)
     converts ``GetOrigObjSize`` with ``Map100thMM``.
     """
-    return _positive_awt_size(_read_shape_property(shape, "VisibleArea"))
+    return _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
 
 
 def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
@@ -116,7 +111,7 @@ def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
         aspect = _ASPECT_CONTENT
         sz = vo.getVisualAreaSize(aspect)
         map_unit = vo.getMapUnit(aspect)
-        out = _visual_size_to_hundredth_mm(sz, map_unit)
+        out = _content_size_hmm(sz, map_unit)
         if out is None:
             log.debug("math_insert: unsupported embed map_unit=%s size=%sx%s", map_unit, getattr(sz, "Width", "?"), getattr(sz, "Height", "?"))
         return out
@@ -170,7 +165,6 @@ class InsertMathDraw(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
-        from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 
@@ -204,40 +198,38 @@ class InsertMathDraw(ToolDrawSpecialBase):
             return self._tool_error("Invalid page.")
         page = pages.getByIndex(page_index)
 
+        shape = None
+        added = False
         try:
             shape = ctx.doc.createInstance("com.sun.star.drawing.OLE2Shape")
             # Draw/Impress OLE: add to page first, then CLSID (see charts OLE path).
             page.add(shape)
-            try:
-                shape.setPosition(Point(x, y))
-                shape.setSize(Size(_MIN_W_HMM, _MIN_H_HMM))
-                shape.CLSID = MATH_CLSID
+            added = True
+            shape.setPosition(Point(x, y))
+            shape.setSize(Size(_MIN_W_HMM, _MIN_H_HMM))
+            shape.CLSID = MATH_CLSID
 
-                model = shape.Model
-                if model is None or not hasattr(model, "Formula"):
-                    raise RuntimeError("Math OLE model is not available on this build.")
-                model.Formula = res.starmath
+            model = shape.Model
+            if model is None or not hasattr(model, "Formula"):
+                raise RuntimeError("Math OLE model is not available on this build.")
+            model.Formula = res.starmath
 
-                wh = _try_ole_shape_content_size_hmm(shape)
-                # A real formula can be narrower than the minimum box (a stacked
-                # fraction is ~499 x 2069 hmm). Discarding that pair because one
-                # side is under the floor replaced it with the length heuristic,
-                # which clips the height and overshoots the width. Clamp below.
-                if wh is None:
-                    wh = _heuristic_size_hmm(res.starmath or formula)
-                w, h = wh
-                w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
-                h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
-                shape.setSize(Size(w, h))
-            except Exception:
-                from plugin.framework.errors import best_effort
-
+            wh = _try_ole_shape_content_size_hmm(shape)
+            # A real formula can be narrower than the minimum box (a stacked
+            # fraction is ~499 x 2069 hmm). Discarding that pair because one
+            # side is under the floor replaced it with the length heuristic,
+            # which clips the height and overshoots the width. Clamp below.
+            if wh is None:
+                wh = _heuristic_size_hmm(res.starmath or formula)
+            w, h = wh
+            w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
+            h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
+            shape.setSize(Size(w, h))
+        except Exception as exc:
+            if added:
                 best_effort(lambda: page.remove(shape), "remove partial math shape")
+            if is_disposed_exception(exc):
                 raise
-        except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Failed to insert math shape: {e}")
+            return self._tool_error(f"Failed to insert math shape: {exc}")
 
         return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": page_index}

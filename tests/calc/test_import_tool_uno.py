@@ -10,11 +10,11 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
 
-def _run_conversion(doc, ctx, **kwargs):
+def _run_conversion(doc, _ctx, **kwargs):
     from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
 
     sheet = doc.getCurrentController().getActiveSheet()
-    return run_sheet_conversion(ctx, doc, sheet, **kwargs)
+    return run_sheet_conversion(doc, sheet, **kwargs)
 
 
 @native_test
