@@ -86,6 +86,31 @@ def test_apply_fill_value_setstring_and_checkbox_state():
     assert box.Control.State == 1
     assert "state" in detail
 
+    # Bad state input expects checkbox/radio in error message
+    bad_box = _CheckShape()
+    ok_bad, detail_bad = apply_fill_value(bad_box, "invalid_val")
+    assert not ok_bad
+    assert "checkbox/radio" in detail_bad
+
+
+def test_apply_fill_value_prefers_text_over_state():
+    class _TextAndStateModel:
+        Text = "original"
+        State = 0
+
+    class _TextAndStateShape:
+        Control = _TextAndStateModel()
+
+        def getShapeType(self):
+            return "com.sun.star.drawing.ControlShape"
+
+    shape = _TextAndStateShape()
+    ok, detail = apply_fill_value(shape, "new text")
+    assert ok
+    assert shape.Control.Text == "new text"
+    assert shape.Control.State == 0
+    assert "text" in detail
+
 
 def test_fill_draw_fields_happy_and_miss_on_mock_page():
     page = MagicMock()

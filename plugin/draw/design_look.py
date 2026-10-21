@@ -45,8 +45,7 @@ import zlib
 from typing import Iterable
 
 from plugin.draw.otp_zip import (
-    MAX_MEMBER_BYTES as _MAX_MEMBER_BYTES,
-    find_member,
+    MAX_MEMBER_BYTES,
     norm_zip_name as _norm_zip_name,
     read_member as _read_member,
 )
@@ -74,6 +73,7 @@ _IMAGE_EXT = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".wmf", ".emf", ".tif", "
 
 # Hue wheel bins in degrees (colorsys h * 360). Red wraps past 330.
 _HUE_BINS: tuple[tuple[float, str], ...] = ((15.0, "red"), (45.0, "orange"), (70.0, "yellow"), (160.0, "green"), (200.0, "teal"), (255.0, "blue"), (290.0, "purple"), (330.0, "pink"), (361.0, "red"))
+_SAMPLES_PER_PIXEL = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
 
 # Rec. 709 luminance. Threshold chosen so Metropolis (~90) and Piano (~103)
 # stay dark while mid-tone blueprint thumbs (~126) stay light.
@@ -97,7 +97,7 @@ def _derive_otp_look_cached(path: str, mtime_ns: int, size: int) -> str:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
             pic_tag = _picture_tag(names)
-            samples = _thumbnail_samples(zf, names)
+            samples = _thumbnail_samples(zf)
             if not samples:
                 samples = _xml_color_samples(zf, names)
             mood, accents = _mood_and_accents(samples)
@@ -139,11 +139,8 @@ def _picture_tag(names: Iterable[str]) -> str:
     return ""
 
 
-def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
-    thumb_name = find_member(zf, "thumbnails/thumbnail.png")
-    if not thumb_name:
-        return []
-    raw = _read_member(zf, thumb_name)
+def _thumbnail_samples(zf: zipfile.ZipFile) -> list[tuple[int, int, int]]:
+    raw = _read_member(zf, "thumbnails/thumbnail.png")
     if not raw:
         return []
     pixels = decode_png_rgb(raw)
@@ -156,7 +153,7 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
     """Fallback when the thumbnail is missing: hex colors only, no invention.
 
     Opening every ``Pictures/*.svg`` (each already capped at
-    ``_MAX_MEMBER_BYTES``) and appending every ``#RRGGBB`` makes
+    ``MAX_MEMBER_BYTES``) and appending every ``#RRGGBB`` makes
     ``_mood_and_accents`` walk that whole list. ``list_designs`` /
     ``apply_design`` call this on the main thread, including
     user-writable template dirs. Eight cap-sized SVG members are
@@ -169,15 +166,12 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
     remaining members are not opened.
     """
     samples: list[tuple[int, int, int]] = []
-    styles_name = find_member(zf, "styles.xml") or ""
     svgs: list[str] = []
     for n in names:
         norm = _norm_zip_name(n)
         if norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
             svgs.append(n)
-    to_read: list[str] = []
-    if styles_name:
-        to_read.append(styles_name)
+    to_read: list[str] = ["styles.xml"]
     to_read.extend(svgs)
     for name in to_read:
         if len(samples) >= _MAX_XML_SAMPLES:
@@ -238,7 +232,7 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
     for bound, name in _HUE_BINS:
         if deg <= bound:
             return name
-    return "red"
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +309,7 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
             trans = chunk
         elif tag == b"IDAT":
             idat.extend(chunk)
-            if len(idat) > _MAX_MEMBER_BYTES:
+            if len(idat) > MAX_MEMBER_BYTES:
                 return None
         elif tag == b"IEND":
             break
@@ -341,7 +335,7 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         return None
     if color_type == 3 and not palette:
         return None
-    spp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
+    spp = _SAMPLES_PER_PIXEL[color_type]
     row_bytes = 1 + (width * bit_depth * spp + 7) // 8
     expected = height * row_bytes
     if expected > _MAX_RAW_PNG:
@@ -474,7 +468,7 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
 
 
 def _unpack_samples(row: bytes | bytearray, width: int, bit_depth: int, color_type: int) -> list[int] | None:
-    spp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
+    spp = _SAMPLES_PER_PIXEL[color_type]
     need = width * spp
     if bit_depth == 8:
         if len(row) < need:
@@ -489,6 +483,4 @@ def _unpack_samples(row: bytes | bytearray, width: int, bit_depth: int, color_ty
             vals.append((byte >> (shift * bit_depth)) & maxv)
             if len(vals) >= need:
                 return vals
-    if len(vals) < need:
-        return None
-    return vals[:need]
+    return None

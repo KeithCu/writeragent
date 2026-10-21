@@ -23,7 +23,6 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
     intent: str | None = "navigate"
     description: str = "List all master slides (master pages) in the document with name and dimensions."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -48,7 +47,6 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
     intent: str | None = "navigate"
     description: str = "Get the master slide assigned to a specific slide. Returns the master slide name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
@@ -65,7 +63,6 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
     intent: str | None = "edit"
     description: str = "Assign a master slide to a specific slide by master name. Use list_master_slides to see available masters."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "master": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master"]}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

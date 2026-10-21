@@ -40,3 +40,30 @@ def test_list_master_slides():
         {"index": 0, "name": "DefaultMaster", "width_mm": 210, "height_mm": 297},
         {"index": 1, "name": "", "width_mm": 280, "height_mm": 210},
     ]
+
+
+def test_inherited_uno_services():
+    from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster, ToolDrawSlideMastersBase
+    from plugin.draw.notes import GetSpeakerNotes, SetSpeakerNotes, ToolDrawSpeakerNotesBase
+    from plugin.draw.transitions import (
+        GetSlideLayout,
+        GetSlideTransition,
+        SetSlideLayout,
+        SetSlideTransition,
+        ToolDrawSlideLayoutBase,
+        ToolDrawSlideTransitionsBase,
+    )
+
+    for cls, base in [
+        (ListMasterSlides, ToolDrawSlideMastersBase),
+        (GetSlideMaster, ToolDrawSlideMastersBase),
+        (SetSlideMaster, ToolDrawSlideMastersBase),
+        (GetSpeakerNotes, ToolDrawSpeakerNotesBase),
+        (SetSpeakerNotes, ToolDrawSpeakerNotesBase),
+        (GetSlideTransition, ToolDrawSlideTransitionsBase),
+        (SetSlideTransition, ToolDrawSlideTransitionsBase),
+        (GetSlideLayout, ToolDrawSlideLayoutBase),
+        (SetSlideLayout, ToolDrawSlideLayoutBase),
+    ]:
+        assert cls.uno_services == base.uno_services
+

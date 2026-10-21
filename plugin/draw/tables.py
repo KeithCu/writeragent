@@ -245,7 +245,6 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
 
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
-    global is_real_disposal
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
     from plugin.draw.layout import coerce_int
@@ -269,8 +268,6 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         # mapping every Exception to a bad index hides disposal.
         # Re-raise disposal; a real bad index still returns the
         # page-index error.
-        from plugin.framework.errors import is_real_disposal
-
         if is_real_disposal(exc):
             raise
         return {"status": "error", "message": "Invalid page index: %s" % actual_idx, "code": "TOOL_EXECUTION_ERROR"}

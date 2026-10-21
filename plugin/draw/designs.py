@@ -49,7 +49,8 @@ from typing import Any, NamedTuple
 
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
 from plugin.draw.design_look import derive_otp_look
-from plugin.draw.otp_zip import extract_member, find_member, read_member
+from plugin.draw.otp_zip import extract_member, read_member
+from plugin.draw.pages import _DRAW_UNO, _is_impress_doc
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.uno_context import get_service_manager, uno_same
@@ -124,10 +125,7 @@ def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
     """Read styles.xml and collect draw:image/@xlink:href for the named master page."""
     import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml  # shipped .otp styles.xml, size-capped by read_member
 
-    styles_name = find_member(zf, "styles.xml")
-    if not styles_name:
-        return None
-    raw_xml = read_member(zf, styles_name)
+    raw_xml = read_member(zf, "styles.xml")
     if raw_xml is None:
         return None
     raw_upper = raw_xml.upper()
@@ -208,16 +206,6 @@ _CLONE_MASTER_PAGE_PROPS = ("BackgroundFullSize", "BorderLeft", "BorderRight", "
 _TEMPLATE_PROP_FALLBACK = ("Template", "Template_internal", "Template_user", "Template_writable")
 
 _OTP_EXT = ".otp"
-
-
-def _is_impress_doc(doc: Any) -> bool:
-    """True for Impress. PyUNO hasattr is unreliable (same as pages._is_impress_doc).
-
-    supportsService raises on a disposed document. Catching that and
-    returning False made apply_design report UNSUPPORTED_DOC_TYPE
-    ("requires an Impress presentation") for a closed deck.
-    """
-    return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
 
 
 def not_impress_error(tool: ToolBase, action: str) -> dict[str, Any]:
@@ -1343,7 +1331,7 @@ class ListDesigns(ToolBase):
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -1377,7 +1365,7 @@ class ApplyDesign(ToolBase):
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     tier: str = "core"
     is_mutation: bool | None = True
 

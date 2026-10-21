@@ -24,6 +24,8 @@ from plugin.framework.tool import ToolBase, ToolContext
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
 _DEFAULT_IMPRESS_LAYOUT = "text"
 
+_DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+
 
 def _is_impress_doc(doc: Any) -> bool:
     """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
@@ -43,7 +45,7 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -123,7 +125,7 @@ class DeleteSlide(ToolBase):
     intent: str | None = "edit"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -152,7 +154,7 @@ class ListPages(ToolBase):
     name: str | None = "list_pages"
     description: str = "Lists all pages (slides). Each entry is that page's Name, or \"Page N\" when Name is missing or blank. The list position is the 0-based page index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
@@ -181,7 +183,7 @@ class ReadSlideText(ToolBase):
     name: str | None = "read_slide_text"
     description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -226,7 +228,7 @@ class GetPresentationInfo(ToolBase):
     name: str | None = "get_presentation_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -265,7 +267,7 @@ class SetActivePage(ToolBase):
     intent: str | None = "navigate"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_UNO
     # View change only. None would still detect a mutation: the name
     # set_active_page is not a read prefix. read_only_target and the MCP
     # document lock both follow detects_mutation.
@@ -289,9 +291,6 @@ class SetActivePage(ToolBase):
         if not bridge.set_current_page_index(idx):
             return self._tool_error("Failed to set active page.")
         return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
-
-
-_DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class DuplicateSlide(ToolBase):

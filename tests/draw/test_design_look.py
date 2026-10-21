@@ -11,13 +11,13 @@ from pathlib import Path
 import pytest
 
 from plugin.draw.design_look import (
-    _MAX_MEMBER_BYTES,
     _MAX_XML_SAMPLES,
     _MAX_XML_SVG_MEMBERS,
     _xml_color_samples,
     decode_png_rgb,
     derive_otp_look,
 )
+from plugin.draw.otp_zip import MAX_MEMBER_BYTES as _MAX_MEMBER_BYTES
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:

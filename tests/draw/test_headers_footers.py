@@ -119,3 +119,96 @@ class TestGetPage:
             assert not isinstance(exc_info.value, WriterAgentException)
 
 
+class TestAccessorsAndCollector:
+    def test_get_text(self):
+        from unittest.mock import MagicMock
+        from plugin.draw.headers_footers import _get_text
+
+        assert _get_text(None) == ""
+        assert _get_text(object()) == ""
+
+        shape = MagicMock()
+        shape.getString.return_value = "hello"
+        assert _get_text(shape) == "hello"
+
+        shape.getString.side_effect = RuntimeError("failed")
+        assert _get_text(shape) == ""
+
+        class DisposedException(Exception):
+            pass
+
+        shape.getString.side_effect = DisposedException("disposed")
+        import pytest
+
+        with pytest.raises(DisposedException):
+            _get_text(shape)
+
+    def test_get_bool_visible_without_fallback(self):
+        from unittest.mock import MagicMock
+        from plugin.draw.headers_footers import _get_bool
+
+        assert _get_bool(None, "Visible", fallback_attr=False) is False
+
+        # When getPropertyValue raises, fallback_attr=False must return False without checking getattr
+        shape = MagicMock()
+        shape.getPropertyValue.side_effect = RuntimeError("unsupported")
+        shape.Visible = True
+        assert _get_bool(shape, "Visible", fallback_attr=False) is False
+
+        # When shape has no getPropertyValue, fallback to getattr
+        plain = MagicMock(spec=["Visible"])
+        plain.Visible = True
+        assert _get_bool(plain, "Visible", fallback_attr=False) is True
+
+    def test_get_bool_fixed_fallback(self):
+        from unittest.mock import MagicMock
+        from plugin.draw.headers_footers import _get_bool
+
+        shape = MagicMock()
+        shape.getPropertyValue.side_effect = RuntimeError("unsupported")
+        shape.IsFixed = True
+        # fallback_attr=True falls back to getattr on failed getPropertyValue
+        assert _get_bool(shape, "IsFixed", fallback_attr=True) is True
+
+    def test_collect_hf_shapes_strict_beats_supported_names(self):
+        from plugin.draw.headers_footers import _SVC_HEADER, _collect_hf_shapes
+
+        class ShapeLoose:
+            def getSupportedServiceNames(self):
+                return ["com.sun.star.presentation.HeaderShape"]
+
+        class ShapeStrict:
+            ShapeType = "com.sun.star.presentation.HeaderShape"
+
+        shape0 = ShapeLoose()
+        shape1 = ShapeStrict()
+
+        class FakePage:
+            def getCount(self):
+                return 2
+
+            def getByIndex(self, i):
+                return [shape0, shape1][i]
+
+        res = _collect_hf_shapes(FakePage())
+        assert res[_SVC_HEADER] is shape1
+
+    def test_tool_parameter_property_names(self):
+        from plugin.draw.headers_footers import GetHeadersFooters, SetHeadersFooters
+
+        assert set(GetHeadersFooters.parameters["properties"].keys()) == {"page", "is_master_page"}
+        assert set(SetHeadersFooters.parameters["properties"].keys()) == {
+            "page",
+            "is_master_page",
+            "header",
+            "footer",
+            "date_time",
+            "header_visible",
+            "footer_visible",
+            "page_number_visible",
+            "date_time_visible",
+            "date_time_fixed",
+        }
+
+
+

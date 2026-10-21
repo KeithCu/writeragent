@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposed_exception, is_real_disposal
+from . import layout
 from .base import ToolDrawShapeBase
 
 if TYPE_CHECKING:
@@ -43,10 +44,6 @@ class DrawError(WriterAgentException):
     """Draw-specific errors."""
 
     code: str = "DRAW_ERROR"
-
-
-def _parse_color(color_str: Any) -> int | None:
-    return parse_color_to_uno_int(color_str)
 
 
 def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
@@ -521,7 +518,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             except Exception:
                 failed_props.append("fill_color")
         else:
-            color = _parse_color(color_str)
+            color = parse_color_to_uno_int(color_str)
             if color is not None:
                 # LineShape doesn't have FillColor, typically LineColor is used instead
                 prop = "LineColor" if "LineShape" in shape.getShapeType() else "FillColor"
@@ -550,7 +547,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Line Color
     if kwargs.get("line_color") and hasattr(shape, "LineColor"):
-        color = _parse_color(kwargs["line_color"])
+        color = parse_color_to_uno_int(kwargs["line_color"])
         if color is not None:
             try:
                 shape.setPropertyValue("LineColor", color)
@@ -1048,7 +1045,7 @@ class AlignShapes(ToolDrawShapeBase):
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
             "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to align"},
-            "alignment": {"type": "string", "enum": ["left", "center_horizontal", "right", "top", "center_vertical", "bottom"], "description": "Alignment axis"},
+            "alignment": {"type": "string", "enum": list(layout.ALIGNMENTS), "description": "Alignment axis"},
         },
         "required": ["indices", "alignment"],
     }
@@ -1088,7 +1085,7 @@ class DistributeShapes(ToolDrawShapeBase):
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
             "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to distribute"},
-            "axis": {"type": "string", "enum": ["horizontal", "vertical"], "description": "Distribution axis"},
+            "axis": {"type": "string", "enum": list(layout.DISTRIBUTE_AXES), "description": "Distribution axis"},
         },
         "required": ["indices", "axis"],
     }
@@ -1126,7 +1123,7 @@ class CreateDiagram(ToolDrawShapeBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "layout": {"type": "string", "enum": ["horizontal_flow", "vertical_flow", "grid", "custom"], "description": "How to place nodes (default: horizontal_flow)"},
+            "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "description": "How to place nodes (default: horizontal_flow)"},
             "nodes": {
                 "type": "array",
                 "items": {
@@ -1172,11 +1169,11 @@ class CreateDiagram(ToolDrawShapeBase):
             if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
 
-        layout = kwargs.get("layout") or "horizontal_flow"
-        page_w = int(getattr(page, "Width", 28000) or 28000)
-        page_h = int(getattr(page, "Height", 15750) or 15750)
+        layout_name = kwargs.get("layout") or "horizontal_flow"
+        page_w = int(getattr(page, "Width", layout.DEFAULT_PAGE_WIDTH) or layout.DEFAULT_PAGE_WIDTH)
+        page_h = int(getattr(page, "Height", layout.DEFAULT_PAGE_HEIGHT) or layout.DEFAULT_PAGE_HEIGHT)
         try:
-            boxes = diagram_node_boxes(nodes, layout, page_width=page_w, page_height=page_h)
+            boxes = diagram_node_boxes(nodes, layout_name, page_width=page_w, page_height=page_h)
         except ValueError as exc:
             return self._tool_error(str(exc))
 

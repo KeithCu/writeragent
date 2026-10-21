@@ -14,20 +14,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.tool import ToolBase, ToolContext
-
-# Presentation object types (from com.sun.star.presentation.PresentationObjectType)
-# Shapes on Impress slides have a "PresObj" property or can be identified
-# by checking the "IsEmptyPresentationObject" and class properties.
-# In practice, the simplest approach is to iterate shapes and check
-# their "PresObj" or "ClassName" property.
-
 from plugin.draw.bridge import DrawBridge
+from plugin.framework.tool import ToolBase, ToolContext
 
 # Specific tokens first so matching is not shape-order / substring-any.
 # "Text" used to be a body pattern: "text" in "titletextshape" returned the
-# title as body. "title" is also a substring of "subtitle" — SubTitle first.
-_CLASS_ROLE_PRIORITY = (("TitleText", "title"), ("SubTitle", "subtitle"), ("Subtitle", "subtitle"), ("Outliner", "body"), ("Outline", "body"), ("Title", "title"), ("Body", "body"), ("Notes", "notes"))
+# title as body. "title" is also a substring of "subtitle" — subtitle first.
+_ROLE_PRIORITY = (
+    ("titletext", "title"),
+    ("subtitle", "subtitle"),
+    ("outliner", "body"),
+    ("outline", "body"),
+    ("title", "title"),
+    ("body", "body"),
+    ("notes", "notes"),
+)
 
 
 def _role_from_label(label: Any) -> str | None:
@@ -35,8 +36,8 @@ def _role_from_label(label: Any) -> str | None:
     if not label:
         return None
     lower = str(label).lower()
-    for token, role in _CLASS_ROLE_PRIORITY:
-        if token.lower() in lower:
+    for token, role in _ROLE_PRIORITY:
+        if token in lower:
             return role
     return None
 
@@ -69,6 +70,18 @@ def _shape_class_name(shape: Any) -> str:
     return ""
 
 
+def _scan_shapes(page: Any) -> list[tuple[int, Any, str, str, bool]]:
+    """Scan page shapes once, recording index, shape, class name, name, and has_text."""
+    out = []
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        name = str(shape.Name) if hasattr(shape, "Name") and shape.Name else ""
+        class_name = _shape_class_name(shape)
+        has_text = hasattr(shape, "getString")
+        out.append((i, shape, class_name, name, has_text))
+    return out
+
+
 def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
     """Find a placeholder shape by role name.
 
@@ -76,41 +89,38 @@ def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
     1. ClassName via the priority class→role map (TitleText→title, …)
     2. Shape Name via the same map
 
-    Untagged text boxes are not guessed by position. That used to write the
-    first text shape as title while list_placeholders left role unset.
+    Untagged text boxes are not guessed by position.
     """
     role_lower = role.lower()
+    scan = _scan_shapes(page)
 
-    # Strategy 1: class → role (deterministic; not substring-any / shape-order)
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if _role_from_label(_shape_class_name(shape)) == role_lower:
+    # Strategy 1: class → role (class hit beats name hit)
+    for i, shape, class_name, _name, _has_text in scan:
+        if _role_from_label(class_name) == role_lower:
             return shape, i
 
     # Strategy 2: match by shape Name using the same map
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        name = shape.Name if hasattr(shape, "Name") else ""
+    for i, shape, _class_name, name, _has_text in scan:
         if name and _role_from_label(name) == role_lower:
             return shape, i
 
     return None, None
 
 
-def _list_placeholders(page: Any) -> list[dict[str, Any]]:
+def _list_placeholders(page: Any, scan: list[tuple[int, Any, str, str, bool]] | None = None) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
+    if scan is None:
+        scan = _scan_shapes(page)
     result = []
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if not hasattr(shape, "getString"):
+    for i, shape, class_name, name, has_text in scan:
+        if not has_text:
             continue
-        entry = {"index": i, "text": shape.getString()}
-        if hasattr(shape, "Name") and shape.Name:
-            entry["name"] = shape.Name
-        class_name = _shape_class_name(shape)
+        entry: dict[str, Any] = {"index": i, "text": shape.getString()}
+        if name:
+            entry["name"] = name
         if class_name:
             entry["class"] = class_name
-        role = _role_from_label(class_name) or _role_from_label(entry.get("name"))
+        role = _role_from_label(class_name) or _role_from_label(name)
         if role:
             entry["role"] = role
         result.append(entry)
@@ -123,54 +133,42 @@ def _list_placeholders(page: Any) -> list[dict[str, Any]]:
 _EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
 
 
-def _shape_text_count(page: Any) -> int:
-    """Count shapes that expose getString (same filter as _list_placeholders)."""
-    count = 0
-    for i in range(page.getCount()):
-        if hasattr(page.getByIndex(i), "getString"):
-            count += 1
-    return count
-
-
-def _fallback_text_shape_indices(page: Any) -> list[dict[str, Any]]:
-    """Read-only hint of text-like shapes when _list_placeholders is empty.
-
-    C1 only — no write. Used when ClassName/Name exist but getString does not
-    (so they never enter available). Empty slide → empty list.
-    """
-    result: list[dict[str, Any]] = []
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if hasattr(shape, "getString"):
-            continue
-        class_name = _shape_class_name(shape)
-        name = ""
-        if hasattr(shape, "Name") and shape.Name:
-            name = str(shape.Name)
-        if not class_name and not name:
-            continue
-        entry: dict[str, Any] = {"index": i}
-        if class_name:
-            entry["class"] = class_name
-        if name:
-            entry["name"] = name
-        result.append(entry)
-    return result
-
-
-def _role_miss_error_kwargs(page: Any) -> dict[str, Any]:
+def _role_miss_error_kwargs(page: Any, scan: list[tuple[int, Any, str, str, bool]] | None = None) -> dict[str, Any]:
     """Details for set_placeholder_text when role lookup fails."""
-    available = _list_placeholders(page)
+    if scan is None:
+        scan = _scan_shapes(page)
+    available = _list_placeholders(page, scan)
     extra: dict[str, Any] = {"available": available}
     if available:
         return extra
     extra["hint"] = _EMPTY_PLACEHOLDER_HINT
     extra["suggest_layout"] = "text"
-    extra["shape_text_count"] = _shape_text_count(page)
-    fallback = _fallback_text_shape_indices(page)
+    extra["shape_text_count"] = sum(1 for _, _, _, _, has_text in scan if has_text)
+    fallback: list[dict[str, Any]] = []
+    for i, _shape, class_name, name, has_text in scan:
+        if not has_text and (class_name or name):
+            item: dict[str, Any] = {"index": i}
+            if class_name:
+                item["class"] = class_name
+            if name:
+                item["name"] = name
+            fallback.append(item)
     if fallback:
         extra["fallback_indices"] = fallback
     return extra
+
+
+def _locate(page: Any, role: str | None, index: int | None) -> tuple[Any | None, int | None, str | None]:
+    if index is not None:
+        if index < 0 or index >= page.getCount():
+            return None, None, "Shape index out of range."
+        return page.getByIndex(index), index, None
+    if role:
+        shape, shape_index = _find_placeholder(page, role)
+        if shape is None:
+            return None, None, "not_found"
+        return shape, shape_index, None
+    return None, None, "Specify role or index."
 
 
 class ListPlaceholders(ToolBase):
@@ -208,16 +206,11 @@ class GetPlaceholderText(ToolBase):
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
 
-        if shape_index is not None:
-            if shape_index < 0 or shape_index >= page.getCount():
-                return self._tool_error("Shape index out of range.")
-            shape = page.getByIndex(shape_index)
-        elif role:
-            shape, shape_index = _find_placeholder(page, role)
-            if shape is None:
-                return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
-        else:
-            return self._tool_error("Specify role or index.")
+        shape, shape_index, err = _locate(page, role, shape_index)
+        if err == "not_found":
+            return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
+        if err or shape is None:
+            return self._tool_error(err or "Shape not found.")
 
         if not hasattr(shape, "getString"):
             return self._tool_error("Shape has no text.")
@@ -251,20 +244,15 @@ class SetPlaceholderText(ToolBase):
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
 
-        if shape_index is not None:
-            if shape_index < 0 or shape_index >= page.getCount():
-                return self._tool_error("Shape index out of range.")
-            shape = page.getByIndex(shape_index)
-        elif role:
-            shape, shape_index = _find_placeholder(page, role)
-            if shape is None:
-                # Named details dict (not **unpack) so mixed list/str values
-                # do not collide with _tool_error's code= parameter.
-                payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
-                payload["details"] = _role_miss_error_kwargs(page)
-                return payload
-        else:
-            return self._tool_error("Specify role or index.")
+        shape, shape_index, err = _locate(page, role, shape_index)
+        if err == "not_found":
+            # Named details dict (not **unpack) so mixed list/str values
+            # do not collide with _tool_error's code= parameter.
+            payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
+            payload["details"] = _role_miss_error_kwargs(page)
+            return payload
+        if err or shape is None:
+            return self._tool_error(err or "Shape not found.")
 
         if not hasattr(shape, "setString"):
             return self._tool_error("Shape does not support text.")

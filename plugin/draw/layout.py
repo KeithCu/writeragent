@@ -24,12 +24,19 @@ def coerce_int(value: Any, default: int) -> int:
 # Box: (x, y, width, height)
 Box = tuple[int, int, int, int]
 
-_ALIGNMENTS = frozenset({"left", "center_horizontal", "right", "top", "center_vertical", "bottom"})
+DEFAULT_PAGE_WIDTH = 28000
+DEFAULT_PAGE_HEIGHT = 15750
+
+ALIGNMENTS = ("left", "center_horizontal", "right", "top", "center_vertical", "bottom")
+DISTRIBUTE_AXES = ("horizontal", "vertical")
+DIAGRAM_LAYOUTS = ("horizontal_flow", "vertical_flow", "grid", "custom")
+
+_AXIS = {"horizontal": (0, 2), "vertical": (1, 3)}
 
 
 def align_boxes(boxes: Sequence[Box], alignment: str) -> list[Box]:
     """Return boxes with the same sizes, shifted onto a shared alignment axis."""
-    if alignment not in _ALIGNMENTS:
+    if alignment not in ALIGNMENTS:
         raise ValueError(f"Unknown alignment: {alignment}")
     if len(boxes) < 2:
         raise ValueError("Need at least two shapes to align")
@@ -66,55 +73,68 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
     and last boxes keep their positions; interiors are spaced so gaps between
     consecutive bounding boxes are equal.
     """
-    if axis not in ("horizontal", "vertical"):
+    if axis not in DISTRIBUTE_AXES:
         raise ValueError(f"Unknown distribute axis: {axis}")
     if len(boxes) < 3:
         raise ValueError("Need at least three shapes to distribute")
 
+    start_idx, extent_idx = _AXIS[axis]
     indexed = list(enumerate(boxes))
-    if axis == "horizontal":
-        indexed.sort(key=lambda item: (item[1][0], item[0]))
-        first = indexed[0][1]
-        last = indexed[-1][1]
-        span_start = first[0]
-        span_end = max(b[0] + b[2] for _, b in indexed)
-        total_w = sum(b[2] for _, b in indexed)
-        gap = (span_end - span_start - total_w) / (len(indexed) - 1)
-        cursor = float(span_start)
-        placed: dict[int, Box] = {}
-        for i, (orig_i, (x, y, w, h)) in enumerate(indexed):
-            if i == 0:
-                placed[orig_i] = (int(span_start), y, w, h)
-                cursor = span_start + w + gap
-            elif i == len(indexed) - 1:
-                placed[orig_i] = (last[0], y, w, h)
-            else:
-                placed[orig_i] = (int(round(cursor)), y, w, h)
-                cursor += w + gap
-        return [placed[i] for i in range(len(boxes))]
-
-    indexed.sort(key=lambda item: (item[1][1], item[0]))
+    indexed.sort(key=lambda item: (item[1][start_idx], item[0]))
     first = indexed[0][1]
     last = indexed[-1][1]
-    span_start = first[1]
-    span_end = max(b[1] + b[3] for _, b in indexed)
-    total_h = sum(b[3] for _, b in indexed)
-    gap = (span_end - span_start - total_h) / (len(indexed) - 1)
+    span_start = first[start_idx]
+    span_end = max(b[start_idx] + b[extent_idx] for _, b in indexed)
+    gap = (span_end - span_start - sum(b[extent_idx] for _, b in indexed)) / (len(indexed) - 1)
     cursor = float(span_start)
-    placed = {}
-    for i, (orig_i, (x, y, w, h)) in enumerate(indexed):
+    placed: dict[int, Box] = {}
+    for i, (orig_i, box) in enumerate(indexed):
+        extent = box[extent_idx]
         if i == 0:
-            placed[orig_i] = (x, int(span_start), w, h)
-            cursor = span_start + h + gap
+            pos = int(span_start)
+            cursor = span_start + extent + gap
         elif i == len(indexed) - 1:
-            placed[orig_i] = (x, last[1], w, h)
+            pos = last[start_idx]
         else:
-            placed[orig_i] = (x, int(round(cursor)), w, h)
-            cursor += h + gap
+            pos = int(round(cursor))
+            cursor += extent + gap
+        placed[orig_i] = (pos, box[1], box[2], box[3]) if start_idx == 0 else (box[0], pos, box[2], box[3])
     return [placed[i] for i in range(len(boxes))]
 
 
-def diagram_node_boxes(nodes: Sequence[dict[str, Any]], layout: str, page_width: int = 28000, page_height: int = 15750, default_width: int = 4000, default_height: int = 2000, margin: int = 1500, gap: int = 800) -> list[Box]:
+def _flow_boxes(
+    sizes: Sequence[tuple[int, int]],
+    vertical: bool,
+    page_width: int,
+    page_height: int,
+    margin: int,
+    gap: int,
+) -> list[Box]:
+    pos = margin
+    boxes: list[Box] = []
+    if vertical:
+        cross0 = max(margin, (page_width - max(w for w, _ in sizes)) // 2)
+        for w, h in sizes:
+            boxes.append((cross0, pos, w, h))
+            pos += h + gap
+    else:
+        cross0 = max(margin, (page_height - max(h for _, h in sizes)) // 2)
+        for w, h in sizes:
+            boxes.append((pos, cross0, w, h))
+            pos += w + gap
+    return boxes
+
+
+def diagram_node_boxes(
+    nodes: Sequence[dict[str, Any]],
+    layout: str,
+    page_width: int = DEFAULT_PAGE_WIDTH,
+    page_height: int = DEFAULT_PAGE_HEIGHT,
+    default_width: int = 4000,
+    default_height: int = 2000,
+    margin: int = 1500,
+    gap: int = 800,
+) -> list[Box]:
     """Compute node bounding boxes for a batch diagram layout.
 
     ``custom`` uses each node's ``x``/``y`` (required). Other layouts ignore
@@ -124,38 +144,22 @@ def diagram_node_boxes(nodes: Sequence[dict[str, Any]], layout: str, page_width:
     if n == 0:
         return []
 
-    def size_of(node: dict[str, Any]) -> tuple[int, int]:
-        w = int(node.get("width") or default_width)
-        h = int(node.get("height") or default_height)
-        return w, h
+    sizes = [(int(node.get("width") or default_width), int(node.get("height") or default_height)) for node in nodes]
 
     if layout == "custom":
         boxes = []
-        for node in nodes:
+        for node, (w, h) in zip(nodes, sizes):
             if "x" not in node or "y" not in node:
                 raise ValueError("custom layout requires x and y on every node")
-            w, h = size_of(node)
             boxes.append((int(node["x"]), int(node["y"]), w, h))
-        return boxes
-
-    if layout == "vertical_flow":
-        boxes = []
-        y = margin
-        max_w = max(size_of(node)[0] for node in nodes)
-        x0 = max(margin, (page_width - max_w) // 2)
-        for node in nodes:
-            w, h = size_of(node)
-            boxes.append((x0, y, w, h))
-            y += h + gap
         return boxes
 
     if layout == "grid":
         cols = max(1, int(ceil(n**0.5)))
-        cell_w = max(size_of(node)[0] for node in nodes)
-        cell_h = max(size_of(node)[1] for node in nodes)
+        cell_w = max(w for w, _ in sizes)
+        cell_h = max(h for _, h in sizes)
         boxes = []
-        for i, node in enumerate(nodes):
-            w, h = size_of(node)
+        for i, (w, h) in enumerate(sizes):
             col = i % cols
             row = i // cols
             x = margin + col * (cell_w + gap)
@@ -163,13 +167,4 @@ def diagram_node_boxes(nodes: Sequence[dict[str, Any]], layout: str, page_width:
             boxes.append((x, y, w, h))
         return boxes
 
-    # horizontal_flow (default)
-    boxes = []
-    x = margin
-    max_h = max(size_of(node)[1] for node in nodes)
-    y0 = max(margin, (page_height - max_h) // 2)
-    for node in nodes:
-        w, h = size_of(node)
-        boxes.append((x, y0, w, h))
-        x += w + gap
-    return boxes
+    return _flow_boxes(sizes, vertical=(layout == "vertical_flow"), page_width=page_width, page_height=page_height, margin=margin, gap=gap)

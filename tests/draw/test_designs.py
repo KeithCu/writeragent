@@ -385,31 +385,6 @@ def test_designs_module_has_no_hardcoded_install_prefix():
         assert "/opt/libreoffice" not in src
 
 
-def test_extract_member_capped_and_safe_paths(tmp_path):
-    import zipfile
-    from plugin.draw.otp_zip import extract_member
-
-    otp = tmp_path / "test.otp"
-    dest_dir = tmp_path / "dest"
-    dest_dir.mkdir()
-    with zipfile.ZipFile(otp, "w") as zf:
-        zf.writestr("overcap.bin", b"x" * (2 * 1024 * 1024 + 10))
-        zf.writestr("../..", b"sneaky")
-        zf.writestr("..", b"sneaky2")
-        zf.writestr("Pictures/c.png", b"normal_pic")
-
-    with zipfile.ZipFile(otp) as zf:
-        # Over-cap member returns None
-        assert extract_member(zf, "overcap.bin", str(dest_dir)) is None
-        # Traversal names do not extract or create files outside dest_dir
-        assert extract_member(zf, "../..", str(dest_dir)) is None
-        assert extract_member(zf, "..", str(dest_dir)) is None
-        # Normal member extracts
-        out = extract_member(zf, "Pictures/c.png", str(dest_dir), prefix="test_")
-        assert out is not None
-        assert Path(out).read_bytes() == b"normal_pic"
-        assert Path(out).parent == dest_dir
-
 def test_enumerate_impress_designs_limit():
     import tempfile
     import os

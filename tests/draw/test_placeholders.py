@@ -222,3 +222,34 @@ def test_placeholder_tool_descriptions_steer_list_then_layout():
 
     assert "before set_placeholder_text" in ListPlaceholders.description
     assert "slide_layouts" in ListPlaceholders.description
+
+
+def test_outline_and_subtitle_shapes():
+    assert _role_from_label("OutlineShape") == "body"
+    assert _role_from_label("SubtitleShape") == "subtitle"
+
+
+def test_name_only_match():
+    page = _FakePage([_FakeShape(name="MyTitle", text="T")])
+    shape, idx = _find_placeholder(page, "title")
+    assert idx == 0
+    assert shape is not None
+
+
+def test_class_on_later_shape_beats_name_on_earlier():
+    page = _FakePage([
+        _FakeShape(name="TitleBox", text="Named Title"),
+        _FakeShape(class_name="TitleTextShape", text="Real Title"),
+    ])
+    shape, idx = _find_placeholder(page, "title")
+    assert idx == 1
+
+
+def test_get_placeholder_miss_has_available_no_details():
+    page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
+        res = GetPlaceholderText().execute(SimpleNamespace(doc=object()), role="body")
+    assert res["status"] == "error"
+    assert "available" in res["details"]
+    assert "hint" not in res["details"]
+

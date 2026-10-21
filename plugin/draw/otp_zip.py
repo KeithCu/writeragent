@@ -27,7 +27,7 @@ def norm_zip_name(name: str) -> str:
     return name.replace("\\", "/").lstrip("./").lower()
 
 
-def find_member(zf: zipfile.ZipFile, name: str) -> str | None:
+def _find_member(zf: zipfile.ZipFile, name: str) -> str | None:
     """Find member name in zipfile matching case-insensitively or with normalized slashes."""
     names = zf.namelist()
     if name in names:
@@ -57,7 +57,7 @@ def read_member(zf: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER_BYTES) -
     ``READ_CHUNK`` as zlib's ``max_length``, and the loop drops
     the member once more than *limit* bytes have been produced.
     """
-    actual_name = find_member(zf, name)
+    actual_name = _find_member(zf, name)
     if actual_name is None:
         return None
     try:
@@ -89,37 +89,21 @@ def extract_member(
     limit: int = MAX_MEMBER_BYTES,
 ) -> str | None:
     """Extract a ZIP member under the member limit into dest_dir."""
-    actual_name = find_member(zf, name)
+    actual_name = _find_member(zf, name)
     if actual_name is None:
-        return None
-    try:
-        info = zf.getinfo(actual_name)
-    except KeyError:
-        return None
-    if info.file_size > limit:
         return None
     # Refuse empty or directory traversal basenames.
     base = os.path.basename(actual_name.replace("\\", "/"))
     if not base or base in (".", ".."):
         return None
+    data = read_member(zf, actual_name, limit)
+    if data is None:
+        return None
     filename = prefix + base
     out = os.path.join(dest_dir, filename)
     try:
-        with zf.open(info, "r") as src, open(out, "wb") as dst:
-            written = 0
-            while written <= limit:
-                piece = src.read(READ_CHUNK)
-                if not piece:
-                    break
-                if written + len(piece) > limit:
-                    dst.close()
-                    try:
-                        os.remove(out)
-                    except OSError:
-                        pass
-                    return None
-                dst.write(piece)
-                written += len(piece)
+        with open(out, "wb") as dst:
+            dst.write(data)
         return out
     except Exception:
         log.debug("extract member failed name=%s", name, exc_info=True)

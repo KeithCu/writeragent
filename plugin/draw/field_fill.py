@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
+from plugin.framework.errors import is_disposed_exception, uno_probe
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -41,6 +42,14 @@ def _flatten_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _pick_unique(hits: list[dict[str, Any]], missing: str, ambiguous: str) -> tuple[dict[str, Any] | None, str | None]:
+    if len(hits) == 1:
+        return hits[0], None
+    if not hits:
+        return None, missing
+    return None, ambiguous
+
+
 def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, index: int | None = None, label_hint: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
     """Pick a tree node for a fill request. Name, then index, then label_hint."""
     flat = _flatten_tree(tree)
@@ -49,11 +58,11 @@ def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, i
         name_hits = [n for n in flat if (n.get("name") or "") == wanted_name]
         if not name_hits:
             name_hits = [n for n in flat if isinstance(n.get("control"), dict) and (n["control"].get("name") or "") == wanted_name]
-        if len(name_hits) == 1:
-            return name_hits[0], None
-        if not name_hits:
-            return None, "No shape named %r on this page." % wanted_name
-        return None, "Several shapes named %r; pass index as well." % wanted_name
+        return _pick_unique(
+            name_hits,
+            "No shape named %r on this page." % wanted_name,
+            "Several shapes named %r; pass index as well." % wanted_name,
+        )
 
     if index is not None:
         try:
@@ -68,37 +77,35 @@ def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, i
     hint = (label_hint or "").strip().lower()
     if hint:
         hint_hits = [n for n in flat if n.get("fillable") and (n.get("label_hint") or "").strip().lower() == hint]
-        if len(hint_hits) == 1:
-            return hint_hits[0], None
-        if not hint_hits:
-            return None, "No fillable shape with label_hint %r." % label_hint
-        return None, "Several fillable shapes match label_hint %r; pass name or index." % label_hint
+        return _pick_unique(
+            hint_hits,
+            "No fillable shape with label_hint %r." % label_hint,
+            "Several fillable shapes match label_hint %r; pass name or index." % label_hint,
+        )
 
     return None, "Each field needs name, index, or label_hint."
 
 
+def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
+    try:
+        fn()
+        return True, ok
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return False, fail % exc
+
+
 def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
     """Write *value* onto a paper-form shape or ControlShape model."""
-    try:
-        shape_type = shape.getShapeType()
-    except Exception as e:
-        from plugin.framework.errors import is_disposed_exception
-        if is_disposed_exception(e):
-            raise
-        shape_type = ""
+    shape_type = uno_probe(lambda: shape.getShapeType(), "")
 
     if is_control_shape_type(shape_type):
         return _apply_control_value(shape, value)
 
     if hasattr(shape, "setString"):
-        try:
-            shape.setString("" if value is None else str(value))
-            return True, "set text"
-        except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
-                raise
-            return False, "setString failed: %s" % exc
+        val = "" if value is None else str(value)
+        return _write(lambda: shape.setString(val), "set text", "setString failed: %s")
     return False, "Shape cannot hold text."
 
 
@@ -106,7 +113,6 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
     try:
         model = shape.Control
     except Exception as exc:
-        from plugin.framework.errors import is_disposed_exception
         if is_disposed_exception(exc):
             raise
         return False, "ControlShape has no model: %s" % exc
@@ -117,47 +123,19 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
         state = coerce_control_state(value)
         if state is None:
             return False, "Could not interpret %r as a checkbox/radio State." % value
-        try:
+        def _set_state() -> None:
             model.State = state
-            return True, "set state"
-        except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
-                raise
-            return False, "Setting State failed: %s" % exc
+        return _write(_set_state, "set state", "Setting State failed: %s")
 
     if hasattr(model, "Text"):
-        try:
-            model.Text = "" if value is None else str(value)
-            return True, "set text"
-        except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
-                raise
-            return False, "Setting Text failed: %s" % exc
-
-    if hasattr(model, "State"):
-        state = coerce_control_state(value)
-        if state is None:
-            return False, "Could not interpret %r as a control State." % value
-        try:
-            model.State = state
-            return True, "set state"
-        except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
-                raise
-            return False, "Setting State failed: %s" % exc
+        val = "" if value is None else str(value)
+        def _set_text() -> None:
+            model.Text = val
+        return _write(_set_text, "set text", "Setting Text failed: %s")
 
     if hasattr(shape, "setString"):
-        try:
-            shape.setString("" if value is None else str(value))
-            return True, "set text"
-        except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
-                raise
-            return False, "setString failed: %s" % exc
+        val = "" if value is None else str(value)
+        return _write(lambda: shape.setString(val), "set text", "setString failed: %s")
     return False, "Control cannot accept a text or State value."
 
 
@@ -213,7 +191,6 @@ class FillDrawFields(ToolDrawShapeBase):
         try:
             page = bridge.get_pages().getByIndex(actual_idx)
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
             return self._tool_error("Invalid page index: %s" % actual_idx)
