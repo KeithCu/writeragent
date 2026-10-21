@@ -10,7 +10,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot import bug_report as br
-from plugin.framework.errors import ConfigError
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 
 
@@ -31,9 +30,9 @@ def test_build_github_issue_url_truncates_long_body():
 
 def test_compose_issue_body_keeps_environment_header_when_traceback_is_long():
     header = "### Environment\n- WriterAgent: 0.8.33\n- OS: Linux\n- Chat model: test-model"
-    template = header + "\n### Debug log\n" + ("instructions " * 50)
+    rest = "### Debug log\n" + ("instructions " * 50)
     extra = ("frame\n" * 4000) + "ValueError: sidebar send failed uniquely"
-    body = br._compose_issue_body(template, extra)
+    body = br._compose_issue_body(header, rest, extra)
     assert body.startswith(header)
     assert "ValueError: sidebar send failed uniquely" in body
     assert len(body) <= br._MAX_BODY_CHARS
@@ -75,12 +74,6 @@ def test_collect_environment_block_librepy_uses_venv_path():
     assert "Chat model:" not in block
     expected_log = os.path.join("/tmp/lo-user", "writeragent_debug.log")
     assert f"LibrePy debug log: `{expected_log}`" in block
-
-
-def test_should_offer_bug_report_denies_config_errors():
-    assert br.should_offer_bug_report(code="CONFIG_ERROR") is False
-    assert br.should_offer_bug_report(exc=ConfigError("bad key")) is False
-    assert br.should_offer_bug_report(code="INTERNAL_ERROR") is True
 
 
 def test_format_lo_version_prefers_about_with_suffix():
@@ -193,10 +186,11 @@ def test_msgbox_with_report_falls_back_without_dialog(mock_msgbox, mock_load):
     mock_msgbox.assert_called_once()
 
 
-@patch("plugin.chatbot.bug_report.open_bug_report_in_browser")
+@patch("plugin.chatbot.bug_report.open_url_in_browser")
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog")
 @patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
-def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_report):
+def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_url):
+    from plugin.chatbot.bug_report import build_github_issue_url
     from plugin.chatbot.dialogs import msgbox_with_report
 
     dlg = MagicMock()
@@ -222,7 +216,8 @@ def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_report
     msgbox_with_report(ctx, "Err", "details", reportable=True, report_title="Err", report_extra="trace")
 
     listeners["report"].on_action_performed(MagicMock())
-    mock_open_report.assert_called_once_with(ctx, title="Err", extra_body="details\n\ntrace")
+    expected_url = build_github_issue_url(title="Err", extra_body="details\n\ntrace", ctx=ctx)
+    mock_open_url.assert_called_once_with(ctx, expected_url)
 
 
 @patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")

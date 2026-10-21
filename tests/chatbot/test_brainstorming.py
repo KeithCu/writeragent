@@ -10,10 +10,9 @@ from plugin.chatbot.brainstorming import (
     BrainstormResearchWeb,
     BrainstormingSessionTool,
     SaveDesignSpec,
-    _normalize_html_content_array,
     collect_brainstorming_tools,
 )
-from plugin.chatbot.smol_examples import get_examples_block
+from plugin.chatbot.smol_examples import get_examples_block, normalize_html_content_array
 from plugin.chatbot.brainstorming import get_brainstorming_sub_agent_instructions
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
@@ -60,10 +59,10 @@ def test_brainstorming_instructions_include_superpowers_self_review():
 
 
 def test_normalize_html_content_array_accepts_list_and_string():
-    assert _normalize_html_content_array(["<p>A</p>", "<p>B</p>"]) == ["<p>A</p>", "<p>B</p>"]
-    assert _normalize_html_content_array("<p>One</p>") == ["<p>One</p>"]
-    assert _normalize_html_content_array([]) is None
-    assert _normalize_html_content_array("   ") is None
+    assert normalize_html_content_array(["<p>A</p>", "<p>B</p>"]) == ["<p>A</p>", "<p>B</p>"]
+    assert normalize_html_content_array("<p>One</p>") == ["<p>One</p>"]
+    assert normalize_html_content_array([]) is None
+    assert normalize_html_content_array("   ") is None
 
 
 class _ApplyDocumentContentStub(ToolBase):

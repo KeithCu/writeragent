@@ -30,7 +30,7 @@ written. ``get_guidance`` resolves the target document's type the same way every
 a Calc session never reads Writer advice."""
 from __future__ import annotations
 
-import logging
+from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.errors import best_effort
@@ -45,8 +45,6 @@ from plugin.framework.prompts import (
     WRITER_REVIEW_MODES_RULES,
     WRITER_SEARCH_RULES,
 )
-
-log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # MCP-only pieces. The HTTP server's concurrency contract: real for every client of the MCP
@@ -66,105 +64,116 @@ _MCP_CONCURRENCY_RULES = (
 )
 
 # ---------------------------------------------------------------------------
-# Writer topics (topic -> shared piece). The agent pulls a section on demand (MCP) or gets them
-# all concatenated (agent backend), so a topic can bundle the related pieces.
-# ---------------------------------------------------------------------------
 # Appended to the editing topic ONLY when it is served alone (get_section): in full_manual the
 # editing-html section follows immediately, so a "go read that topic" pointer would dangle.
+# ---------------------------------------------------------------------------
 _EDITING_HTML_POINTER = (
     "\n\nFor apply_document_content's full contract (targets, the JSON array of HTML "
     "fragments, math, named styles, reach), read the editing-html topic."
 )
 
-MANUAL_SECTIONS: dict[str, str] = {
-    # The one-line opener is this channel's counterpart of the sidebar-only SIDEBAR_VS_DOCUMENT
-    # piece: same rule, phrased without the sidebar mechanics. The editing topic covers the
-    # WORKFLOW (confirmation, patterns, translation); the apply_document_content contract is its
-    # own subdivision (editing-html) so a model can pull just the part it needs.
-    "editing": (
-        "Change the document with tools, not chat.\n\n"
-        + CONFIRM_EDITS_FROM_STRUCTURED_FIELDS.strip()
-        + "\n\n"
-        + TOOL_USAGE_PATTERNS.strip()
-        + "\n\n"
-        + TRANSLATION_RULES.strip()
+
+@dataclass(frozen=True)
+class _Topic:
+    id: str
+    text: str
+    summary: str
+    standalone_suffix: str = ""
+
+
+_WRITER_TOPICS: tuple[_Topic, ...] = (
+    _Topic(
+        "editing",
+        (
+            "Change the document with tools, not chat.\n\n"
+            + CONFIRM_EDITS_FROM_STRUCTURED_FIELDS.strip()
+            + "\n\n"
+            + TOOL_USAGE_PATTERNS.strip()
+            + "\n\n"
+            + TRANSLATION_RULES.strip()
+        ),
+        "edit workflow: confirm by structured fields, patterns, translation",
+        standalone_suffix=_EDITING_HTML_POINTER,
     ),
-    "editing-html": WRITER_APPLY_DOCUMENT_HTML_RULES,
-    "review-modes": WRITER_REVIEW_MODES_RULES,
-    "search": WRITER_SEARCH_RULES,
-    "navigation": WRITER_NAVIGATION_RULES,
-    "images": WRITER_IMAGES_RULES,
-    "concurrency": _MCP_CONCURRENCY_RULES,
+    _Topic(
+        "editing-html",
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        "apply_document_content contract: targets, HTML array, math, styles, reach",
+    ),
+    _Topic(
+        "review-modes",
+        WRITER_REVIEW_MODES_RULES,
+        "tracked changes off/record/wait; never resolve your own",
+    ),
+    _Topic(
+        "search",
+        WRITER_SEARCH_RULES,
+        "find text anywhere (body, tables, boxes, shapes, headers, comments) + where it is",
+    ),
+    _Topic(
+        "navigation",
+        WRITER_NAVIGATION_RULES,
+        "map-first reading of large documents",
+    ),
+    _Topic(
+        "images",
+        WRITER_IMAGES_RULES,
+        "insert/replace/resize/crop, highlight passages on a picture + how a vision model sees images",
+    ),
+    _Topic(
+        "concurrency",
+        _MCP_CONCURRENCY_RULES,
+        "same-document edits serialize; retry on HTTP 429; multi-document targeting",
+    ),
+)
+
+_GENERIC_TOPICS: tuple[_Topic, ...] = (
+    _Topic(
+        "editing",
+        GENERIC_EDIT_CONFIRMATION_RULES,
+        "use the tools, confirm edits by structured fields, re-read before targeted edits",
+    ),
+    _Topic(
+        "concurrency",
+        _MCP_CONCURRENCY_RULES,
+        "same-document edits serialize; retry on HTTP 429; multi-document targeting",
+    ),
+)
+
+_MANUALS: dict[str, tuple[_Topic, ...]] = {
+    "writer": _WRITER_TOPICS,
+    "calc": _GENERIC_TOPICS,
+    "draw": _GENERIC_TOPICS,
+    "generic": _GENERIC_TOPICS,
 }
 
-# Stable display order + one-line summaries for the Writer index.
-_TOPIC_SUMMARY: list[tuple[str, str]] = [
-    ("editing", "edit workflow: confirm by structured fields, patterns, translation"),
-    ("editing-html", "apply_document_content contract: targets, HTML array, math, styles, reach"),
-    ("review-modes", "tracked changes off/record/wait; never resolve your own"),
-    ("search", "find text anywhere (body, tables, boxes, shapes, headers, comments) + where it is"),
-    ("navigation", "map-first reading of large documents"),
-    ("images", "insert/replace/resize/crop, highlight passages on a picture + how a vision model sees images"),
-    ("concurrency", "same-document edits serialize; retry on HTTP 429; multi-document targeting"),
-]
+MANUAL_SECTIONS: dict[str, str] = {topic.id: topic.text for topic in _WRITER_TOPICS}
 
-# ---------------------------------------------------------------------------
-# Generic sections for document types without app-specific prose yet (Calc, Draw). Honest minimum:
-# only rules that genuinely apply everywhere. NO Writer advice leaks into a Calc/Draw session.
-# ---------------------------------------------------------------------------
-_GENERIC_SECTIONS: dict[str, str] = {
-    # Same object the Calc/Draw sidebar prompts embed (constants) — single source there too.
-    "editing": GENERIC_EDIT_CONFIRMATION_RULES,
-    "concurrency": _MCP_CONCURRENCY_RULES,
+# Common aliases -> canonical topic, grouped by canonical id.
+_ALIASES_BY_TOPIC: dict[str, tuple[str, ...]] = {
+    "editing": ("edit", "edits", "translation", "translate"),
+    "editing-html": ("apply", "apply-document-content", "html", "html-rules", "styles", "math"),
+    "review-modes": ("tracked-changes", "redlines", "review", "review-mode", "review-modes"),
+    "search": ("find", "search-in-document"),
+    "navigation": ("navigate", "outline", "large-documents"),
+    "images": ("image", "crop", "vision", "highlight"),
+    "concurrency": ("429", "rate-limit", "documents", "multi-document", "document-url"),
 }
 
-_GENERIC_TOPIC_SUMMARY: list[tuple[str, str]] = [
-    ("editing", "use the tools, confirm edits by structured fields, re-read before targeted edits"),
-    ("concurrency", "same-document edits serialize; retry on HTTP 429; multi-document targeting"),
-]
-
-_SECTIONS_BY_APP: dict[str, dict[str, str]] = {
-    "writer": MANUAL_SECTIONS,
-    "calc": _GENERIC_SECTIONS,
-    "draw": _GENERIC_SECTIONS,
-    # No document open: only the always-true generic rules are safe to serve.
-    "generic": _GENERIC_SECTIONS,
-}
-
-_SUMMARY_BY_APP: dict[str, list[tuple[str, str]]] = {
-    "writer": _TOPIC_SUMMARY,
-    "calc": _GENERIC_TOPIC_SUMMARY,
-    "draw": _GENERIC_TOPIC_SUMMARY,
-    "generic": _GENERIC_TOPIC_SUMMARY,
-}
-
-# Common aliases -> canonical topic.
-_ALIASES = {
-    "edit": "editing", "edits": "editing", "translation": "editing", "translate": "editing",
-    "apply": "editing-html", "apply_document_content": "editing-html",
-    "html": "editing-html", "html-rules": "editing-html", "styles": "editing-html", "math": "editing-html",
-    "tracked-changes": "review-modes", "tracked_changes": "review-modes", "redlines": "review-modes",
-    "review": "review-modes", "review_modes": "review-modes", "review-mode": "review-modes",
-    "find": "search", "search_in_document": "search",
-    "navigate": "navigation", "outline": "navigation", "large-documents": "navigation",
-    "image": "images", "crop": "images", "vision": "images", "highlight": "images",
-    "429": "concurrency", "rate-limit": "concurrency", "rate_limit": "concurrency",
-    "documents": "concurrency", "multi-document": "concurrency", "document-url": "concurrency",
-    "document_url": "concurrency",
+_ALIASES: dict[str, str] = {
+    alias: canon
+    for canon, aliases in _ALIASES_BY_TOPIC.items()
+    for alias in aliases
 }
 
 
 def _app(doc_type: str | None) -> str:
     if doc_type is None:
-        return "generic"  # no document open -> only the generic rules apply
-    # Strip and lower the label before the lookup. Callers pass display
-    # labels ("Impress", " IMPRESS "); an exact "impress" match misses
-    # those and opens the Writer manual. Impress is a Draw model; an
-    # unknown label still uses Writer.
+        return "generic"
     label = str(doc_type).strip().lower()
     if label == "impress":
         return "draw"
-    return label if label in _SECTIONS_BY_APP else "writer"
+    return label if label in _MANUALS else "writer"
 
 
 def doc_type_of(doc: Any) -> str | None:
@@ -188,29 +197,32 @@ def doc_type_of(doc: Any) -> str | None:
 
 def list_topics(doc_type: str | None = "writer") -> list[str]:
     """Canonical topic ids in display order for a document type."""
-    return [t for t, _unused in _SUMMARY_BY_APP[_app(doc_type)]]
+    return [t.id for t in _MANUALS[_app(doc_type)]]
 
 
 def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str | None:
     """Map a raw topic string (aliases/case/spacing) to a canonical topic of that app, else None."""
     if not topic:
         return None
-    sections = _SECTIONS_BY_APP[_app(doc_type)]
+    manual = _MANUALS[_app(doc_type)]
+    valid_ids = {t.id for t in manual}
     key = topic.strip().lower().replace(" ", "-").replace("_", "-")
-    if key in sections:
+    if key in valid_ids:
         return key
-    alias = _ALIASES.get(key) or _ALIASES.get(key.replace("-", "_"))
-    return alias if alias in sections else None
+    alias = _ALIASES.get(key)
+    return alias if alias in valid_ids else None
 
 
 def get_section(topic: str | None, doc_type: str | None = "writer") -> str | None:
     """The manual section for a topic (alias-aware) in that app's manual, or None if unknown."""
     app = _app(doc_type)
     canon = normalize_topic(topic, doc_type)
-    text = _SECTIONS_BY_APP[app].get(canon) if canon else None
-    if text is not None and canon == "editing" and app == "writer":
-        text += _EDITING_HTML_POINTER  # served alone -> point to the subdivision
-    return text
+    if not canon:
+        return None
+    for t in _MANUALS[app]:
+        if t.id == canon:
+            return f"{t.text}{t.standalone_suffix}" if t.standalone_suffix else t.text
+    return None
 
 
 def manual_index(doc_type: str | None = "writer") -> str:
@@ -223,10 +235,10 @@ def manual_index(doc_type: str | None = "writer") -> str:
             "WriterAgent how-to topics — call get_guidance(topic) to read one. No document is open; "
             "topics follow the open document's type (writer, calc, draw). Available now:"
         ]
-        lines += ["- %s: %s" % (t, s) for t, s in _GENERIC_TOPIC_SUMMARY]
+        lines += [f"- {t.id}: {t.summary}" for t in _GENERIC_TOPICS]
         return "\n".join(lines)
     lines = ["WriterAgent how-to topics — call get_guidance(topic) to read one:"]
-    lines += ["- %s: %s" % (t, s) for t, s in _SUMMARY_BY_APP[_app(doc_type)]]
+    lines += [f"- {t.id}: {t.summary}" for t in _MANUALS[_app(doc_type)]]
     return "\n".join(lines)
 
 
@@ -236,9 +248,7 @@ def full_manual(doc_type: str | None = "writer") -> str:
     This is what the AGENT-BACKEND path injects into its system prompt (send_handlers) — it talks
     to the MCP HTTP server, so it takes the shared pieces AND the MCP extras in one string. The
     sidebar does not use this: its template assembles the shared pieces directly (constants)."""
-    app = _app(doc_type)
-    sections = _SECTIONS_BY_APP[app]
-    parts = [sections[t] for t, _unused in _SUMMARY_BY_APP[app]]
+    parts = [t.text for t in _MANUALS[_app(doc_type)]]
     return "HOW TO WORK WITH THE DOCUMENT:\n\n" + "\n\n".join(parts)
 
 

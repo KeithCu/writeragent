@@ -120,7 +120,7 @@ def test_send_state_mutual_exclusion_oracle() -> None:
 
 
 def test_audio_error_always_reports_error_status() -> None:
-    for status in ("idle", "initializing", "recording", "stopping", "error"):
+    for status in ("idle", "initializing", "recording", "error"):
         tr = audio_next_state(AudioRecorderState(status=status), ErrorOccurredEvent("boom"))
         assert tr.state.status == "error"
         assert any(isinstance(e, ReportErrorEffect) for e in tr.effects)
@@ -183,11 +183,10 @@ def test_hypothesis_send_state_invariants(state: SendButtonState, event: SendEve
 @given(state=audio_recorder_states(), event=audio_recorder_events())
 @settings(max_examples=_hyp_n("audio"), deadline=None)
 def test_hypothesis_audio_recorder_invariants(state: AudioRecorderState, event) -> None:
+    from plugin.chatbot.audio_recorder_state import _audio_transition_invariants
+
     tr = audio_next_state(state, event)
-    assert tr.state.status in ("idle", "initializing", "recording", "stopping", "error")
-    if isinstance(event, ErrorOccurredEvent):
-        assert tr.state.status == "error"
-        assert any(isinstance(e, ReportErrorEffect) for e in tr.effects)
+    assert _audio_transition_invariants(state, event, tr)
 
 
 @given(state=tool_loop_states(), event=tool_loop_events())

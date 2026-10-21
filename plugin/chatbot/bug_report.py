@@ -42,28 +42,6 @@ BUG_REPORT_ISSUES_URL = f"https://github.com/{BUG_REPORT_REPO}/issues/new"
 # Practical URL length limit for issue body query param.
 _MAX_BODY_CHARS = 7500
 
-# Exception codes that are user/config mistakes, not extension bugs.
-_NON_REPORTABLE_CODES = frozenset(
-    {
-        "CONFIG_ERROR",
-        "CONFIG_KEY_NOT_FOUND",
-        "CONFIG_DIR_ERROR",
-        "INVALID_API_KEY",
-    }
-)
-
-
-def should_offer_bug_report(*, exc: BaseException | None = None, code: str | None = None) -> bool:
-    """Heuristic for whether a Report bug affordance makes sense."""
-    if code and code in _NON_REPORTABLE_CODES:
-        return False
-    if exc is not None:
-        from plugin.framework.errors import WriterAgentException
-
-        if isinstance(exc, WriterAgentException) and exc.code in _NON_REPORTABLE_CODES:
-            return False
-    return True
-
 
 def _config_has_property(ca: Any, name: str) -> bool:
     """Return True when *name* exists on a ConfigurationAccess node."""
@@ -113,22 +91,17 @@ def _get_lo_product_info(ctx: Any) -> dict[str, str]:
 
 def _format_lo_version(product: dict[str, str]) -> str:
     about = product.get("about", "").strip()
-    suffix = product.get("suffix", "").strip()
     if about:
-        return f"{about} {suffix}".strip() if suffix else about
+        suffix = product.get("suffix", "").strip()
+        return f"{about} {suffix}".strip()
     name = product.get("name", "").strip()
     version = product.get("version", "").strip()
-    if name and version:
-        return f"{name} {version}"
-    if version:
-        return version
-    if name:
-        return name
-    return "unknown"
+    nv = " ".join(part for part in (name, version) if part)
+    return nv or "unknown"
 
 
-def collect_environment_block(ctx: Any | None = None) -> str:
-    """Plain-text environment block for a GitHub issue body."""
+def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
+    """Return (header, rest) sections for environment and issue body."""
     from plugin.framework.config import get_config_str, get_current_endpoint, user_config_dir
     from plugin.framework.i18n import get_lo_locale
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
@@ -167,28 +140,40 @@ def collect_environment_block(ctx: Any | None = None) -> str:
         lines.append(f"- Endpoint: {endpoint}")
         lines.append(f"- Chat model: {model}")
 
+    header = "\n".join(lines)
+
+    rest_lines = []
     log_dir = best_effort(user_config_dir, "bug_report: user_config_dir")
     if log_dir:
         log_path = os.path.join(log_dir, "writeragent_debug.log")
-        lines.extend(
+        rest_lines.extend(
             [
-                "",
                 "### Debug log",
                 f"{product_label} debug log: `{log_path}`",
                 "If you can, open that file and skim it for errors or stack traces from around the time of the bug; paste anything useful under Additional context below.",
+                "",
             ]
         )
 
-    lines.append("")
-    lines.append("### Description")
-    lines.append("(Please describe the bug)")
-    lines.append("")
-    lines.append("### Steps to reproduce")
-    lines.append("1.")
-    lines.append("")
-    lines.append("### Additional context")
+    rest_lines.extend(
+        [
+            "### Description",
+            "(Please describe the bug)",
+            "",
+            "### Steps to reproduce",
+            "1.",
+            "",
+            "### Additional context",
+        ]
+    )
+    rest = "\n".join(rest_lines)
+    return header, rest
 
-    return "\n".join(lines)
+
+def collect_environment_block(ctx: Any | None = None) -> str:
+    """Plain-text environment block for a GitHub issue body."""
+    header, rest = _issue_sections(ctx)
+    return f"{header}\n\n{rest}"
 
 
 def _truncate_body(body: str) -> str:
@@ -198,16 +183,7 @@ def _truncate_body(body: str) -> str:
     return body[: _MAX_BODY_CHARS - len(suffix)] + suffix
 
 
-def _environment_header(template: str) -> str:
-    """The short Environment bullet list, before the debug-log instructions."""
-    for mark in ("\n### Debug log", "\n### Description"):
-        idx = template.find(mark)
-        if idx != -1:
-            return template[:idx].rstrip()
-    return template
-
-
-def _compose_issue_body(template: str, extra_body: str) -> str:
+def _compose_issue_body(header: str, rest: str, extra_body: str) -> str:
     """Keep the environment header, then the exception tail.
 
     A long traceback used to fill the whole 7500-character budget, so version,
@@ -216,20 +192,20 @@ def _compose_issue_body(template: str, extra_body: str) -> str:
     the template (description prompts) is included only when both fit.
     """
     extra = (extra_body or "").strip()
-    template = template or ""
+    header = (header or "").strip()
+    rest = (rest or "").strip()
+    template = f"{header}\n\n{rest}".strip() if (header or rest) else ""
     if not extra:
         return _truncate_body(template)
-    if not template:
+    if not header and not rest:
         return _truncate_body(extra)
-    header = _environment_header(template)
     suffix = "\n\n[truncated]"
     room = _MAX_BODY_CHARS - len(suffix)
     if len(header) >= room:
         return header[:room] + suffix
     extra_room = room - len(header) - 1
-    rest = template[len(header):].lstrip("\n")
     if len(extra) <= extra_room:
-        body = f"{header}\n{extra}"
+        body = f"{header}\n{extra}" if header else extra
         leftover = _MAX_BODY_CHARS - len(body) - 1
         if rest and leftover > 0:
             if len(rest) <= leftover:
@@ -241,7 +217,8 @@ def _compose_issue_body(template: str, extra_body: str) -> str:
 
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:
     """Build a GitHub new-issue URL with title and pre-filled body."""
-    body = _compose_issue_body(collect_environment_block(ctx), extra_body)
+    header, rest = _issue_sections(ctx)
+    body = _compose_issue_body(header, rest, extra_body)
 
     params: dict[str, str] = {"body": body}
     title_clean = (title or "").strip()

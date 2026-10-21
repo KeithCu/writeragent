@@ -13,7 +13,7 @@ from plugin.chatbot.audio_recorder_state import (
 )
 
 def test_happy_path_transitions():
-    """Test the normal idle -> initializing -> recording -> stopping sequence."""
+    """Test the normal idle -> initializing -> recording -> idle sequence."""
 
     # 1. idle -> initializing
     state = AudioRecorderState(status='idle')
@@ -33,7 +33,7 @@ def test_happy_path_transitions():
     assert len(step.effects) == 1
     assert isinstance(step.effects[0], StartRecordingEffect)
 
-    # 3. recording -> stopping -> idle
+    # 3. recording -> idle
     state = step.state
     event = StopRequestedEvent()
     step = next_state(state, event)

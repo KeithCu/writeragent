@@ -25,7 +25,6 @@ from plugin.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState, next_st
 class SidebarEventKind(str, Enum):
     SEND = "send"
     TOOL_LOOP = "tool_loop"
-    AUDIO = "audio"
 
 
 @dataclass(frozen=True)
@@ -60,8 +59,5 @@ def sidebar_next_state(composite: SidebarCompositeState, event: SidebarEvent) ->
                 return FsmTransition(composite, [LogSidebarEffect(message="Ignoring tool_loop event: no active session")])
             tool_loop_tr = tool_loop_next_state(composite.tool_loop, cast("ToolLoopEvent", event.payload))
             return FsmTransition(SidebarCompositeState(send=composite.send, tool_loop=tool_loop_tr.state, audio=composite.audio), list(tool_loop_tr.effects))
-        case SidebarEventKind.AUDIO:
-            # Strategy A: hardware stays in AudioRecorder; composite.audio is mirrored in the shell.
-            return FsmTransition(composite, [])
         case _:
             return FsmTransition(composite, [])

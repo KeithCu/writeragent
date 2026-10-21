@@ -24,6 +24,7 @@ the area gotchas.
 - `eval_dashboard_ui.py` — prompt-optimization eval dashboard XDL (`show_eval_dashboard`).
 - `bug_report.py` — GitHub issue URL builder / browser launcher (`msgbox_with_report`, Report bug menu). LibrePy bundles this.
 - `agent_manual.py` — `get_guidance` topic map + `full_manual_for_model` (sidebar hybrid prompt and MCP).
+- `selection.py` — Extend/Edit selection actions, input prompt, and streaming completion runners.
 
 ## Legal imports
 

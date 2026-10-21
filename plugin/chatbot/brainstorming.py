@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, ClassVar
 
 from plugin.doc.document_research import DOC_RESEARCH_DISCOVERY_TOOL_NAMES, filter_document_research_discovery_tools
@@ -18,8 +17,6 @@ from plugin.chatbot.smol_examples import normalize_html_content_array
 from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES, get_chat_response_format_instructions
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.writer.specialized_base import ToolWriterSpecialBase
-
-log = logging.getLogger(__name__)
 
 BRAINSTORMING_SUB_AGENT_INSTRUCTIONS = """BRAINSTORMING MODE:
 You help turn ideas into fully formed designs through collaborative dialogue before any implementation.
@@ -76,9 +73,6 @@ def get_brainstorming_sub_agent_instructions(ctx: Any | None = None) -> str:
         get_chat_response_format_instructions(ctx),
     ]
     return "\n\n".join(parts)
-
-
-_normalize_html_content_array = normalize_html_content_array
 
 
 def collect_brainstorming_tools(ctx: ToolContext) -> list[ToolBase]:

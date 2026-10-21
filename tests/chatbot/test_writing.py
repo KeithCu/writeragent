@@ -10,7 +10,6 @@ from plugin.chatbot.writing import (
     WritingResearchWeb,
     WritingPlanSessionTool,
     WriteDocumentSection,
-    _normalize_html_content_array,
     collect_writing_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
@@ -31,13 +30,6 @@ def test_writing_instructions_content():
     assert "WRITING PLAN MODE" in text
     assert "write_document_section" in text
     assert "writing_research_web" in text
-
-
-def test_normalize_html_content_array_accepts_list_and_string():
-    assert _normalize_html_content_array(["<p>A</p>", "<p>B</p>"]) == ["<p>A</p>", "<p>B</p>"]
-    assert _normalize_html_content_array("<p>One</p>") == ["<p>One</p>"]
-    assert _normalize_html_content_array([]) is None
-    assert _normalize_html_content_array("   ") is None
 
 
 class _ApplyDocumentContentStub(ToolBase):

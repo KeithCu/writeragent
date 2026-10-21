@@ -1,7 +1,6 @@
 name: chatbot
 title: Sidebar
 requires: [document, config, events]
-tools:
 
 actions:
   extend_selection:

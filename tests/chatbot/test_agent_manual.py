@@ -5,7 +5,7 @@
 """The shared agent manual (single source of truth read by BOTH agents) and the get_guidance tool.
 
 R3/T4 introduced the sectioned manual for the MCP agent; R4 unified it; R5 re-homed the source:
-the pieces of the original chat system prompt (constants.py) — updated in place and extended —
+the pieces of the original chat system prompt (prompts.py) — updated in place and extended —
 ARE the manual now. The sidebar template assembles them directly; agent_manual maps topic -> piece
 for the MCP channel (get_guidance) and the agent-backend path, adding the MCP-only extras; and the
 sections are per document type so a Calc session never reads Writer advice. No LibreOffice required."""
@@ -207,7 +207,6 @@ def test_full_manual_impress_uses_draw_sections():
 
 
 def test_full_manual_for_model_switches_per_app():
-    assert "review-modes" in " ".join(list_topics("writer")) or True  # sanity
     assert "TRACKED CHANGES" in full_manual_for_model(WRITER_DOC)
     calc_manual = full_manual_for_model(CALC_DOC)
     assert "TRACKED CHANGES" not in calc_manual
@@ -267,3 +266,17 @@ def test_multidoc_guidance_reaches_mcp_topic():
     assert "document_url" in sec and "list_open_documents" in sec
     assert normalize_topic("multi-document") == "concurrency"
     assert normalize_topic("document_url") == "concurrency"
+
+
+def test_alias_targets_exist_and_no_duplicate_aliases():
+    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC, _MANUALS
+
+    all_topic_ids = {topic.id for manual in _MANUALS.values() for topic in manual}
+    for canon in _ALIASES_BY_TOPIC:
+        assert canon in all_topic_ids
+    seen: set[str] = set()
+    for aliases in _ALIASES_BY_TOPIC.values():
+        for alias in aliases:
+            assert alias not in seen, f"Duplicate alias: {alias}"
+            seen.add(alias)
+

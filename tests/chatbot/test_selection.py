@@ -249,3 +249,30 @@ def test_prompt_for_edit_instructions_long_error_does_not_raise_contract_error()
         assert result is None
         mock_msgbox.assert_called_once_with(ctx, "Title", format_error_message(long_err))
 
+
+def test_initialize_auto_discovers_expected_tools() -> None:
+    from plugin.chatbot import ChatbotModule
+    from plugin.framework.tool import ToolRegistry
+
+    services = SimpleNamespace()
+    registry = ToolRegistry(services)
+    services.tools = registry
+
+    ChatbotModule().initialize(services)
+    expected = {
+        "web_research",
+        "upsert_memory",
+        "librarian_onboarding",
+        "brainstorming_session",
+        "brainstorm_research_web",
+        "save_design_spec",
+        "writing_plan_session",
+        "writing_research_web",
+        "write_document_section",
+        "deep_research_web",
+        "deep_research_session",
+        "ppt_master_session",
+    }
+    assert set(registry.tool_names) == expected
+
+

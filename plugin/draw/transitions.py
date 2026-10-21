@@ -47,6 +47,15 @@ _FADE_EFFECTS = {
     "random": "RANDOM",
 }
 
+_ADVANCE_MODES: dict[int, str] = {0: "on_click", 1: "auto", 2: "semi_auto"}
+_SPEED_ENUM: dict[str, str] = {"slow": "SLOW", "medium": "MEDIUM", "fast": "FAST"}
+
+
+def _fade_effect(enum_name: str) -> Any:
+    from com.sun.star.presentation import FadeEffect
+
+    return getattr(FadeEffect, enum_name)
+
 # Friendly name → AutoLayout constant in AUTOLAYOUT_ID.
 # Impress ``page.Layout`` is the LibreOffice AutoLayout enum
 # (include/xmloff/autolayout.hxx), not PowerPoint PpSlideLayout
@@ -168,7 +177,15 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
         transition_duration = uno_read(lambda: page.getPropertyValue("TransitionDuration"), None)
         change = uno_read(lambda: page.getPropertyValue("Change"), 0)
 
-        return {"status": "ok", "page": page_idx, "effect": effect, "speed": speed, "duration": duration, "transition_duration": transition_duration, "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click")}
+        return {
+            "status": "ok",
+            "page": page_idx,
+            "effect": effect,
+            "speed": speed,
+            "duration": duration,
+            "transition_duration": transition_duration,
+            "advance": _ADVANCE_MODES.get(change, "on_click"),
+        }
 
 
 class SetSlideTransition(ToolDrawSlideTransitionsBase):
@@ -191,7 +208,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         "properties": {
             "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
             "effect": {"type": "string", "description": ("Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive.")},
-            "speed": {"type": "string", "enum": ["slow", "medium", "fast"], "description": "Transition speed (default: medium)."},
+            "speed": {"type": "string", "enum": list(_SPEED_ENUM), "description": "Transition speed (default: medium)."},
             "duration": {"type": "integer", "description": "Auto-advance duration in seconds (0 = manual advance)."},
             "transition_duration": {"type": "number", "description": "Transition animation time in seconds (e.g. 1.5)."},
             "advance": {"type": "string", "enum": ["on_click", "auto"], "description": "How to advance: on_click (default) or auto."},
@@ -209,70 +226,16 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         effect_name = kwargs.get("effect")
         if effect_name is not None:
             effect_key = effect_name.strip().lower()
-            uno_name = _FADE_EFFECTS.get(effect_key, effect_key.upper())
             try:
-                from com.sun.star.presentation.FadeEffect import (
-                    NONE,
-                    FADE_FROM_LEFT,
-                    FADE_FROM_TOP,
-                    FADE_FROM_RIGHT,
-                    FADE_FROM_BOTTOM,
-                    FADE_TO_CENTER,
-                    FADE_FROM_CENTER,
-                    MOVE_FROM_LEFT,
-                    MOVE_FROM_TOP,
-                    MOVE_FROM_RIGHT,
-                    MOVE_FROM_BOTTOM,
-                    ROLL_FROM_LEFT,
-                    ROLL_FROM_TOP,
-                    ROLL_FROM_RIGHT,
-                    ROLL_FROM_BOTTOM,
-                    UNCOVER_TO_LEFT,
-                    UNCOVER_TO_TOP,
-                    UNCOVER_TO_RIGHT,
-                    UNCOVER_TO_BOTTOM,
-                    OPEN_VERTICAL,
-                    OPEN_HORIZONTAL,
-                    CLOSE_VERTICAL,
-                    CLOSE_HORIZONTAL,
-                    DISSOLVE,
-                    RANDOM,
-                )
-
-                effects_map = {
-                    "NONE": NONE,
-                    "FADE_FROM_LEFT": FADE_FROM_LEFT,
-                    "FADE_FROM_TOP": FADE_FROM_TOP,
-                    "FADE_FROM_RIGHT": FADE_FROM_RIGHT,
-                    "FADE_FROM_BOTTOM": FADE_FROM_BOTTOM,
-                    "FADE_TO_CENTER": FADE_TO_CENTER,
-                    "FADE_FROM_CENTER": FADE_FROM_CENTER,
-                    "MOVE_FROM_LEFT": MOVE_FROM_LEFT,
-                    "MOVE_FROM_TOP": MOVE_FROM_TOP,
-                    "MOVE_FROM_RIGHT": MOVE_FROM_RIGHT,
-                    "MOVE_FROM_BOTTOM": MOVE_FROM_BOTTOM,
-                    "ROLL_FROM_LEFT": ROLL_FROM_LEFT,
-                    "ROLL_FROM_TOP": ROLL_FROM_TOP,
-                    "ROLL_FROM_RIGHT": ROLL_FROM_RIGHT,
-                    "ROLL_FROM_BOTTOM": ROLL_FROM_BOTTOM,
-                    "UNCOVER_TO_LEFT": UNCOVER_TO_LEFT,
-                    "UNCOVER_TO_TOP": UNCOVER_TO_TOP,
-                    "UNCOVER_TO_RIGHT": UNCOVER_TO_RIGHT,
-                    "UNCOVER_TO_BOTTOM": UNCOVER_TO_BOTTOM,
-                    "OPEN_VERTICAL": OPEN_VERTICAL,
-                    "OPEN_HORIZONTAL": OPEN_HORIZONTAL,
-                    "CLOSE_VERTICAL": CLOSE_VERTICAL,
-                    "CLOSE_HORIZONTAL": CLOSE_HORIZONTAL,
-                    "DISSOLVE": DISSOLVE,
-                    "RANDOM": RANDOM,
-                }
-                if uno_name in effects_map:
-                    page.setPropertyValue("Effect", effects_map[uno_name])
-                    updated.append("effect")
-                else:
-                    return self._tool_error("Unknown effect: %s" % effect_name, available=sorted(_FADE_EFFECTS.keys()))
+                _fade_effect("NONE")
             except ImportError:
                 return self._tool_error("FadeEffect enum not available.")
+
+            if effect_key in _FADE_EFFECTS:
+                page.setPropertyValue("Effect", _fade_effect(_FADE_EFFECTS[effect_key]))
+                updated.append("effect")
+            else:
+                return self._tool_error("Unknown effect: %s" % effect_name, available=sorted(_FADE_EFFECTS.keys()))
 
         # Speed and TransitionDuration are one LibreOffice double.
         # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
@@ -291,13 +254,12 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
                     raise
                 return self._tool_error("Could not set transition_duration: %s" % exc)
         elif speed is not None:
-            from com.sun.star.presentation.AnimationSpeed import SLOW, MEDIUM, FAST
-
-            speed_map = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
             speed_key = str(speed).lower()
-            if speed_key not in speed_map:
-                return self._tool_error("Unknown speed: %s" % speed, available=sorted(speed_map.keys()))
-            page.setPropertyValue("Speed", speed_map[speed_key])
+            if speed_key not in _SPEED_ENUM:
+                return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM.keys()))
+            from com.sun.star.presentation import AnimationSpeed
+
+            page.setPropertyValue("Speed", getattr(AnimationSpeed, _SPEED_ENUM[speed_key]))
             updated.append("speed")
 
         # Auto-advance duration

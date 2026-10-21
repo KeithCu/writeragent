@@ -105,6 +105,16 @@ _COLLABORA_AUTOLAYOUT_NAMES = (
 )
 AUTOLAYOUT_BY_NAME: dict[str, int] = {name: AUTOLAYOUT_ID[name] for name in _COLLABORA_AUTOLAYOUT_NAMES}
 
+_LAYOUT_BLURBS = {
+    "AUTOLAYOUT_TITLE": "title + subtitle",
+    "AUTOLAYOUT_TITLE_CONTENT": "title + one content area",
+    "AUTOLAYOUT_TITLE_2CONTENT": "title + two content areas side by side",
+}
+_LAYOUT_BULLETS = "\n".join(
+    f"- {name} (id={AUTOLAYOUT_ID[name]})" + (f" - {_LAYOUT_BLURBS[name]}" if name in _LAYOUT_BLURBS else "")
+    for name in _COLLABORA_AUTOLAYOUT_NAMES
+)
+
 # Embedded for the LLM tool description (from Collabora TRANSFORM_PARAM_DESCRIPTION).
 TRANSFORM_PARAM_DESCRIPTION = (
     r"""JSON transformation commands. The top-level object can contain "Transforms" and/or "UnoCommand" objects in any order.
@@ -132,22 +142,9 @@ Layout (applied to current slide):
 - {"ChangeLayoutByName": "name"} - set layout by name
 - {"ChangeLayout": N} - set layout by numeric ID
 Available layouts (use ChangeLayoutByName with these names):
-- AUTOLAYOUT_TITLE (id=0) - title + subtitle
-- AUTOLAYOUT_TITLE_CONTENT (id=1) - title + one content area
-- AUTOLAYOUT_TITLE_2CONTENT (id=3) - title + two content areas side by side
-- AUTOLAYOUT_TITLE_CONTENT_2CONTENT (id=12)
-- AUTOLAYOUT_TITLE_CONTENT_OVER_CONTENT (id=14)
-- AUTOLAYOUT_TITLE_2CONTENT_CONTENT (id=15)
-- AUTOLAYOUT_TITLE_2CONTENT_OVER_CONTENT (id=16)
-- AUTOLAYOUT_TITLE_4CONTENT (id=18)
-- AUTOLAYOUT_TITLE_ONLY (id=19)
-- AUTOLAYOUT_NONE (id=20)
-- AUTOLAYOUT_ONLY_TEXT (id=32)
-- AUTOLAYOUT_TITLE_6CONTENT (id=34)
-- AUTOLAYOUT_VTITLE_VCONTENT (id=28)
-- AUTOLAYOUT_VTITLE_VCONTENT_OVER_VCONTENT (id=27)
-- AUTOLAYOUT_TITLE_VCONTENT (id=29)
-- AUTOLAYOUT_TITLE_2VTEXT (id=30)
+"""
+    + _LAYOUT_BULLETS
+    + r"""
 
 Text content:
 - {"SetText.N": "text"} - set text of shape object index N on current slide (a stock title layout has the title at 0 only because it is object 0). Use \n for paragraph breaks.

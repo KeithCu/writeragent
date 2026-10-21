@@ -23,10 +23,10 @@ surfaced with type/name/value/state so the main agent can see widgets
 without a forms delegation.
 
 Neighbor heuristic (documented for callers): among sibling nodes with
-non-empty text, prefer the nearest whose bbox is strictly left with
-roughly aligned vertical centers, else the nearest strictly above with
-roughly aligned horizontal centers. Left wins a distance tie. Gap slack
-is 200 units (2 mm) so PDF→Draw imports that barely overlap still match.
+non-empty text, prefer any matching label strictly to the left (priority 0)
+over a label strictly above (priority 1), sorting by distance within each
+group. Left always beats above (not only on equal distance). Gap slack is
+200 units (2 mm) so PDF→Draw imports that barely overlap still match.
 This is a hint, not a reading-order parser.
 """
 
@@ -193,27 +193,24 @@ def _cy(g: dict[str, int]) -> float:
     return g["y"] + g["height"] / 2.0
 
 
-def _is_left_of(label_g: dict[str, int], blank_g: dict[str, int]) -> bool:
-    return label_g["x"] + label_g["width"] <= blank_g["x"] + _LABEL_ALIGN_SLACK and abs(_cy(label_g) - _cy(blank_g)) <= max(label_g["height"], blank_g["height"], 1)
+def _gap_left(label_g: dict[str, int], blank_g: dict[str, int]) -> int | None:
+    if label_g["x"] + label_g["width"] <= blank_g["x"] + _LABEL_ALIGN_SLACK and abs(_cy(label_g) - _cy(blank_g)) <= max(label_g["height"], blank_g["height"], 1):
+        return max(0, blank_g["x"] - (label_g["x"] + label_g["width"]))
+    return None
 
 
-def _is_above(label_g: dict[str, int], blank_g: dict[str, int]) -> bool:
-    return label_g["y"] + label_g["height"] <= blank_g["y"] + _LABEL_ALIGN_SLACK and abs(_cx(label_g) - _cx(blank_g)) <= max(label_g["width"], blank_g["width"], 1)
-
-
-def _left_gap(label_g: dict[str, int], blank_g: dict[str, int]) -> int:
-    return blank_g["x"] - (label_g["x"] + label_g["width"])
-
-
-def _above_gap(label_g: dict[str, int], blank_g: dict[str, int]) -> int:
-    return blank_g["y"] - (label_g["y"] + label_g["height"])
+def _gap_above(label_g: dict[str, int], blank_g: dict[str, int]) -> int | None:
+    if label_g["y"] + label_g["height"] <= blank_g["y"] + _LABEL_ALIGN_SLACK and abs(_cx(label_g) - _cx(blank_g)) <= max(label_g["width"], blank_g["width"], 1):
+        return max(0, blank_g["y"] - (label_g["y"] + label_g["height"]))
+    return None
 
 
 def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) -> str | None:
     """Return text of the nearest left-or-above labeled sibling, or None.
 
     *candidates* should already be filtered to nodes with non-empty text.
-    Left-of wins a distance tie so a side label beats a heading above.
+    Left is priority 0, above is priority 1 (left beats above even with a
+    larger gap).
     """
     blank_g = blank.get("geometry")
     if not blank_g:
@@ -227,12 +224,15 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
         geom = cand.get("geometry")
         if not text or not geom:
             continue
-        if _is_left_of(geom, blank_g):
-            key = (0, max(0, _left_gap(geom, blank_g)))
-        elif _is_above(geom, blank_g):
-            key = (1, max(0, _above_gap(geom, blank_g)))
+        gap = _gap_left(geom, blank_g)
+        if gap is not None:
+            key = (0, gap)
         else:
-            continue
+            gap = _gap_above(geom, blank_g)
+            if gap is not None:
+                key = (1, gap)
+            else:
+                continue
         if best_key is None or key < best_key:
             best_key = key
             best_text = text
@@ -242,13 +242,11 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
 def attach_label_hints(nodes: list[dict[str, Any]]) -> None:
     """Set ``label_hint`` on fillable siblings; recurse into groups."""
     labeled = [n for n in nodes if (n.get("text") or "").strip() and not n.get("fillable")]
-    for blank in nodes:
-        if not blank.get("fillable"):
-            continue
-        hint = nearest_label_hint(blank, labeled)
-        if hint:
-            blank["label_hint"] = hint
     for node in nodes:
+        if node.get("fillable"):
+            hint = nearest_label_hint(node, labeled)
+            if hint:
+                node["label_hint"] = hint
         children = node.get("children")
         if children:
             attach_label_hints(children)

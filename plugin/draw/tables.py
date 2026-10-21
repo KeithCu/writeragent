@@ -11,6 +11,12 @@ import re
 from typing import Any, cast
 
 from plugin.framework.errors import is_real_disposal
+from plugin.writer.table_helpers import (
+    _set_cell_string,
+    edit_table_band,
+    fill_table_cells,
+    table_dims,
+)
 
 log = logging.getLogger("writeragent.draw")
 
@@ -36,7 +42,13 @@ def _table_model(shape: Any) -> Any | None:
         return None
 
 
-from plugin.writer.table_helpers import _set_cell_string, fill_table_cells
+def _remove_half_built(page_obj: Any, shape_obj: Any) -> None:
+    try:
+        page_obj.remove(shape_obj)
+    except Exception as remove_exc:
+        if is_real_disposal(remove_exc):
+            raise
+        log.debug("Failed to remove half-built table shape: %s", remove_exc)
 
 
 def _cell_string(cell: Any) -> str:
@@ -70,12 +82,6 @@ def _is_table_shape(shape: Any) -> bool:
         return False
 
 
-def _model_dims(model: Any) -> tuple[int, int]:
-    rows = model.getRows().getCount()
-    cols = model.getColumns().getCount()
-    return int(rows), int(cols)
-
-
 def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
     """Grow a TableShape model to at least ``rows`` x ``columns``.
 
@@ -83,7 +89,7 @@ def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
     properties on a detached shape are often ignored, so insert uses the
     same ``insertByIndex`` path as ``manage_draw_structure``. Does not shrink.
     """
-    nrows, ncols = _model_dims(model)
+    nrows, ncols = table_dims(model)
     band = model.getRows()
     while nrows < rows:
         band.insertByIndex(nrows, 1)
@@ -109,7 +115,7 @@ def iter_table_shapes(doc: Any) -> list[dict[str, Any]]:
             rows = cols = 0
             if model is not None:
                 try:
-                    rows, cols = _model_dims(model)
+                    rows, cols = table_dims(model)
                 except Exception:
                     pass
             name = ""
@@ -169,11 +175,28 @@ def list_draw_tables(doc: Any) -> list[dict[str, Any]]:
     return out
 
 
-def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
+def _model_or_raise(entry: dict[str, Any]) -> Any:
     model = entry.get("model")
     if model is None:
         raise ValueError("Table cell model is unavailable.")
-    rows, cols = _model_dims(model)
+    return model
+
+
+def _cell_or_raise(entry: dict[str, Any], cell_raw: str) -> Any:
+    model = _model_or_raise(entry)
+    parsed = parse_a1(cell_raw)
+    if parsed is None:
+        raise ValueError("Cell '%s' is not A1-style (e.g. B2)." % cell_raw)
+    col, row = parsed
+    nrows, ncols = table_dims(model)
+    if col < 0 or row < 0 or col >= ncols or row >= nrows:
+        raise ValueError("Cell '%s' out of range (%s rows x %s cols)." % (cell_raw, nrows, ncols))
+    return model.getCellByPosition(col, row)
+
+
+def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
+    model = _model_or_raise(entry)
+    rows, cols = table_dims(model)
     matrix = []
     for r in range(rows):
         row = []
@@ -193,54 +216,22 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
 
 def get_draw_cell(entry: dict[str, Any], cell_raw: str) -> str:
     """One Draw cell by spreadsheet A1 (``parse_a1``). Shared schema with Writer ``cell=``."""
-    model = entry.get("model")
-    if model is None:
-        raise ValueError("Table cell model is unavailable.")
-    parsed = parse_a1(cell_raw)
-    if parsed is None:
-        raise ValueError("Cell '%s' is not A1-style (e.g. B2)." % cell_raw)
-    col, row = parsed
-    nrows, ncols = _model_dims(model)
-    if col < 0 or row < 0 or col >= ncols or row >= nrows:
-        raise ValueError("Cell '%s' out of range (%s rows x %s cols)." % (cell_raw, nrows, ncols))
-    return _cell_string(model.getCellByPosition(col, row))
+    return _cell_string(_cell_or_raise(entry, cell_raw))
 
 
 def set_draw_cell(entry: dict[str, Any], cell_raw: str, text: str) -> tuple[str, str]:
-    model = entry.get("model")
-    if model is None:
-        raise ValueError("Table cell model is unavailable.")
-    parsed = parse_a1(cell_raw)
-    if parsed is None:
-        raise ValueError("Cell '%s' is not A1-style (e.g. B2)." % cell_raw)
-    col, row = parsed
-    nrows, ncols = _model_dims(model)
-    if col < 0 or row < 0 or col >= ncols or row >= nrows:
-        raise ValueError("Cell '%s' out of range (%s rows x %s cols)." % (cell_raw, nrows, ncols))
-    cell = model.getCellByPosition(col, row)
+    cell = _cell_or_raise(entry, cell_raw)
     old = _cell_string(cell)
     _set_cell_string(cell, text)
     return old, text
 
 
 def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx: int) -> tuple[int, int]:
-    model = entry.get("model")
-    if model is None:
-        raise ValueError("Table cell model is unavailable.")
+    model = _model_or_raise(entry)
     axis = "rows" if axis_arg == "row" else "columns"
     band = model.getRows() if axis == "rows" else model.getColumns()
-    count = band.getCount()
-    if action == "insert":
-        if idx > count:
-            raise ValueError("index %d out of range (table has %d %s; use 0..%d)." % (idx, count, axis, count))
-        band.insertByIndex(idx, 1)
-    else:
-        if idx >= count:
-            raise ValueError("index %d out of range (table has %d %s; use 0..%d)." % (idx, count, axis, count - 1))
-        if count <= 1:
-            raise ValueError("Cannot remove the last %s of a table." % axis[:-1])
-        band.removeByIndex(idx, 1)
-    return _model_dims(model)
+    edit_table_band(band, action, idx, axis)
+    return table_dims(model)
 
 
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -274,22 +265,17 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     if page is None:
         return {"status": "error", "message": "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
 
-    added = False
-
-    def _remove_half_built(page_obj: Any, shape_obj: Any) -> None:
-        try:
-            page_obj.remove(shape_obj)
-        except Exception as remove_exc:
-            if is_real_disposal(remove_exc):
-                raise
-            log.debug("Failed to remove half-built table shape: %s", remove_exc)
-
     x = coerce_int(kwargs.get("x"), 3000)
     y = coerce_int(kwargs.get("y"), 4000)
     width = coerce_int(kwargs.get("width"), 20000)
     height = coerce_int(kwargs.get("height"), 10000)
 
+    data = kwargs.get("data")
+    added = False
     shape: Any = None
+    written = 0
+    stage = "create table"
+
     try:
         shape = ctx.doc.createInstance("com.sun.star.drawing.TableShape")
         for prop, val in (("Rows", rows), ("Columns", columns)):
@@ -301,6 +287,23 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         added = True
         shape.setSize(Size(width, height))
         shape.setPosition(Point(x, y))
+
+        table = _table_model(shape)
+        if table is None:
+            if data:
+                return {
+                    "status": "ok",
+                    "message": "Table inserted but cell model was unavailable; data not filled",
+                    "page": actual_idx,
+                    "index": page.getCount() - 1,
+                    "warning": "table_model_unavailable",
+                }
+        else:
+            stage = "size table"
+            _ensure_table_dims(table, rows, columns)
+            if data:
+                stage = "fill table cells"
+                written = fill_table_cells(table, data)
     except Exception as exc:
         if is_real_disposal(exc):
             raise
@@ -310,42 +313,17 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             # Remove it, then report the original error. A closed document
             # is re-raised and is not rewritten as a tool error.
             _remove_half_built(page, shape)
-        return {"status": "error", "message": "Failed to create table: %s" % exc, "code": "TOOL_EXECUTION_ERROR"}
+        return {"status": "error", "message": f"Failed to {stage}: {exc}", "code": "TOOL_EXECUTION_ERROR"}
 
-    written = 0
-    data = kwargs.get("data")
-    table = _table_model(shape)
-    if table is None:
-        if data:
-            return {"status": "ok", "message": "Table inserted but cell model was unavailable; data not filled", "page": actual_idx, "index": page.getCount() - 1, "warning": "table_model_unavailable"}
-    else:
-        try:
-            _ensure_table_dims(table, rows, columns)
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            if added:
-                # page.add already inserted the shape. Returning the size/fill
-                # error used to leave that half-built table on the page.
-                # Remove it, then report the original error. A closed document
-                # is re-raised and is not rewritten as a tool error.
-                _remove_half_built(page, shape)
-            return {"status": "error", "message": "Failed to size table: %s" % exc, "code": "TOOL_EXECUTION_ERROR"}
-        if data:
-            try:
-                written = fill_table_cells(table, data)
-            except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
-                if added:
-                    # page.add already inserted the shape. Returning the size/fill
-                    # error used to leave that half-built table on the page.
-                    # Remove it, then report the original error. A closed document
-                    # is re-raised and is not rewritten as a tool error.
-                    _remove_half_built(page, shape)
-                return {"status": "error", "message": "Failed to fill table cells: %s" % exc, "code": "TOOL_EXECUTION_ERROR"}
-
-    return {"status": "ok", "message": "Table inserted", "page": actual_idx, "index": page.getCount() - 1, "rows": rows, "columns": columns, "cells_written": written}
+    return {
+        "status": "ok",
+        "message": "Table inserted",
+        "page": actual_idx,
+        "index": page.getCount() - 1,
+        "rows": rows,
+        "columns": columns,
+        "cells_written": written,
+    }
 
 
 def delete_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any = None) -> dict[str, Any]:

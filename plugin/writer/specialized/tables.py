@@ -15,7 +15,7 @@ from plugin.framework.errors import is_disposed_exception, uno_probe
 
 from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
-from ..table_helpers import fill_table_cells
+from ..table_helpers import edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     _cell_hosted_table_names,
     _container_xtext,
@@ -58,10 +58,6 @@ def _get_table(doc: Any, name: str) -> Any:
         listing = ", ".join(names) if names else "none"
         raise ValueError("No table named '%s'. Open tables (call table_list): %s." % (name, listing))
     return tables.getByName(name)
-
-
-def _dims(table: Any) -> tuple[int, int]:
-    return int(table.getRows().getCount()), int(table.getColumns().getCount())
 
 
 def _resolve_cell_name(table: Any, raw: str) -> str | None:
@@ -488,7 +484,7 @@ class TableList(ToolWriterTableBase):
         for name in tables.getElementNames():
             try:
                 table_obj = tables.getByName(name)
-                rows, cols = _dims(table_obj)
+                rows, cols = table_dims(table_obj)
             except Exception as exc:
                 # One bad or corrupt table must not fail the entire table_list
                 # call. _dims(tables.getByName(name)) raises inside the iteration.
@@ -566,7 +562,7 @@ class TableGetCells(ToolWriterTableBase):
             if not name:
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
-            rows, cols = _dims(table)
+            rows, cols = table_dims(table)
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
             all_cell_names = _writer_named_cells(table)
@@ -771,24 +767,7 @@ class ManageTableStructure(ToolWriterTableBase):
             table = _get_table(ctx.doc, name)
             band = table.getRows() if axis == "rows" else table.getColumns()
             count = band.getCount()
-            # insertByIndex(idx, n) inserts BEFORE idx (idx==count appends). removeByIndex needs a real
-            # index, and removing the last row/column of a table is not allowed.
-            if insert:
-                if idx > count:
-                    return self._tool_error(
-                        "index %d out of range (table has %d %s; use 0..%d)."
-                        % (idx, count, axis, count)
-                    )
-                band.insertByIndex(idx, 1)
-            else:
-                if idx >= count:
-                    return self._tool_error(
-                        "index %d out of range (table has %d %s; use 0..%d)."
-                        % (idx, count, axis, count - 1)
-                    )
-                if count <= 1:
-                    return self._tool_error("Cannot remove the last %s of a table." % axis[:-1])
-                # removeByIndex destroys nested tables anchored in the deleted band.
+            if not insert and idx < count and count > 1:
                 nested = _hosted_in_band(table, axis_arg, idx)
                 if nested:
                     return self._tool_error(
@@ -796,8 +775,8 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
-                band.removeByIndex(idx, 1)
-            rows, cols = _dims(table)
+            edit_table_band(band, str(action), idx, axis)
+            rows, cols = table_dims(table)
             return {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
         except ValueError as ve:
             return self._tool_error(str(ve))

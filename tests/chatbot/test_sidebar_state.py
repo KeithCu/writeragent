@@ -71,13 +71,6 @@ def test_router_tool_loop_with_session_forwards_effects():
     assert tr.effects == direct.effects
 
 
-def test_router_audio_kind_noop():
-    c = _composite()
-    tr = sidebar_next_state(c, SidebarEvent(kind=SidebarEventKind.AUDIO, payload=None))
-    assert tr.state == c
-    assert tr.effects == []
-
-
 def test_integration_send_record_tool_loop_lifecycle_slices():
     """Send → record → tool session → stop tool event → clear session (mirrors wiring)."""
     comp = _composite()

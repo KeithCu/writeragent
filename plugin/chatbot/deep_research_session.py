@@ -10,13 +10,10 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, ClassVar
 
 from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES, get_chat_response_format_instructions
 from plugin.framework.tool import ToolBase, ToolContext
-
-log = logging.getLogger(__name__)
 
 DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
 You perform multi-step public web research and write formatted results into the active Writer document when appropriate.

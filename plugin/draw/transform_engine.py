@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.transform_schema import (
-    AUTOLAYOUT_ID,
     EDIT_TEXT_RE,
     MOVE_SLIDE_RE,
     SET_TEXT_RE,
@@ -36,10 +35,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_SET_TEXT_RE = SET_TEXT_RE
-_EDIT_TEXT_RE = EDIT_TEXT_RE
-_MOVE_SLIDE_RE = MOVE_SLIDE_RE
-_VALID_LAYOUT_IDS = frozenset(AUTOLAYOUT_ID.values())
 _PARAGRAPH_BREAK = 0
 
 
@@ -437,6 +432,10 @@ class SlideCommandEngine:
             res["failed_at"] = failed_at
         return res
 
+    def _fail(self, msg: str) -> str:
+        self.warnings.append(msg)
+        return msg
+
     def apply(self, transform_obj: dict[str, Any]) -> dict[str, Any]:
         val_err, failed_at = validate_slide_commands(transform_obj)
         if val_err is not None:
@@ -492,42 +491,30 @@ class SlideCommandEngine:
     def _apply_command(self, cmd: dict[str, Any]) -> str | None:
         for key, value in cmd.items():
             if is_deferred_command_key(key):
-                msg = "%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key
-                self.warnings.append(msg)
-                return msg
+                return self._fail("%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key)
             if key == "JumpToSlide":
                 idx = _parse_slide_index(value, self.current_slide, self._page_count())
                 if idx is not None:
                     self.current_slide = idx
                     self.applied.append("JumpToSlide:%d" % idx)
                 else:
-                    msg = "Invalid JumpToSlide: %r" % value
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("Invalid JumpToSlide: %r" % value)
             elif key == "JumpToSlideByName":
                 if not isinstance(value, str):
-                    msg = "%s requires a string" % key
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("%s requires a string" % key)
                 found = self._jump_to_name(value)
                 if found is None:
-                    msg = "JumpToSlideByName: slide not found: %r" % value
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("JumpToSlideByName: slide not found: %r" % value)
             elif key == "InsertMasterSlide":
                 master_idx = coerce_int(value)
                 if master_idx is None:
-                    msg = "Invalid InsertMasterSlide index: %r" % value
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("Invalid InsertMasterSlide index: %r" % value)
                 err = self._insert_master(master_index=master_idx)
                 if err is not None:
                     return err
             elif key == "InsertMasterSlideByName":
                 if not isinstance(value, str):
-                    msg = "%s requires a string" % key
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("%s requires a string" % key)
                 err = self._insert_master(master_name=value)
                 if err is not None:
                     return err
@@ -542,23 +529,17 @@ class SlideCommandEngine:
             elif key == "MoveSlide":
                 to_idx = coerce_int(value)
                 if to_idx is None:
-                    msg = "Invalid MoveSlide index: %r" % value
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("Invalid MoveSlide index: %r" % value)
                 err = self._move_slide(self.current_slide, to_idx)
                 if err is not None:
                     return err
             elif key == "RenameSlide":
                 if not isinstance(value, str):
-                    msg = "%s requires a string" % key
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("%s requires a string" % key)
                 if self.bridge.rename_slide(self.current_slide, value):
                     self.applied.append("RenameSlide:%s" % value)
                 else:
-                    msg = "RenameSlide failed"
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("RenameSlide failed")
             elif key in ("ChangeLayout", "ChangeLayoutByName"):
                 err = self._set_layout(resolve_layout_id(value), key)
                 if err is not None:
@@ -569,38 +550,33 @@ class SlideCommandEngine:
                     return err
                 self.applied.append("UnoCommand:%s" % value)
             else:
-                m = _SET_TEXT_RE.match(key)
+                m = SET_TEXT_RE.match(key)
                 if m:
                     err = self._set_text_index(int(m.group(1)), str(value))
                     if err is not None:
                         return err
                     continue
-                m = _EDIT_TEXT_RE.match(key)
+                m = EDIT_TEXT_RE.match(key)
                 if m:
                     if isinstance(value, list):
                         err = self._edit_text_object(int(m.group(1)), value)
                         if err is not None:
                             return err
                     else:
-                        msg = "%s requires an array of sub-commands" % key
-                        self.warnings.append(msg)
-                        return msg
+                        return self._fail("%s requires an array of sub-commands" % key)
                     continue
-                m = _MOVE_SLIDE_RE.match(key)
+                m = MOVE_SLIDE_RE.match(key)
                 if m:
                     from_idx = int(m.group(1))
                     to_idx = coerce_int(value)
                     if to_idx is None:
-                        msg = "Invalid MoveSlide index: %r" % value
-                        self.warnings.append(msg)
-                        return msg
+                        return self._fail("Invalid MoveSlide index: %r" % value)
                     err = self._move_slide(from_idx, to_idx)
                     if err is not None:
                         return err
                     continue
-                msg = "Unknown or unsupported command key: %s" % key
-                self.warnings.append(msg)
-                return msg
+                return self._fail("Unknown or unsupported command key: %s" % key)
+        return None
         return None
 
     def _jump_to_name(self, name: str) -> int | None:
@@ -632,20 +608,14 @@ class SlideCommandEngine:
         except Exception as e:
             if is_disposed_exception(e):
                 raise
-            msg = f"InsertMasterSlide: {e}"
-            self.warnings.append(msg)
-            return msg
+            return self._fail(f"InsertMasterSlide: {e}")
 
     def _delete_slide(self, val: Any) -> str | None:
         idx = _parse_slide_index(val, self.current_slide, self._page_count(), clamp=False)
         if idx is None:
-            msg = "Invalid DeleteSlide: %r (no such slide)" % val
-            self.warnings.append(msg)
-            return msg
+            return self._fail("Invalid DeleteSlide: %r (no such slide)" % val)
         if self._page_count() <= 1:
-            msg = "Cannot delete the only slide"
-            self.warnings.append(msg)
-            return msg
+            return self._fail("Cannot delete the only slide")
         self.bridge.delete_slide(idx)
         self.pages = self.bridge.get_pages()
         self.current_slide = _current_after_delete(self.current_slide, idx, self._page_count())
@@ -655,17 +625,13 @@ class SlideCommandEngine:
     def _duplicate_slide(self, val: Any) -> str | None:
         idx = _parse_slide_index(val, self.current_slide, self._page_count(), clamp=False)
         if idx is None:
-            msg = "Invalid DuplicateSlide: %r (no such slide)" % val
-            self.warnings.append(msg)
-            return msg
+            return self._fail("Invalid DuplicateSlide: %r (no such slide)" % val)
         try:
             self.bridge.duplicate_slide(idx, switch=True)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            msg = "DuplicateSlide failed: %s" % exc
-            self.warnings.append(msg)
-            return msg
+            return self._fail("DuplicateSlide failed: %s" % exc)
         self.pages = self.bridge.get_pages()
         self.current_slide = min(idx + 1, self._page_count() - 1)
         self.applied.append("DuplicateSlide:%d" % idx)
@@ -678,17 +644,12 @@ class SlideCommandEngine:
             self.applied.append("MoveSlide:%d->%d" % (from_idx, to_idx))
             return None
         else:
-            msg = "MoveSlide failed %d -> %d" % (from_idx, to_idx)
-            self.warnings.append(msg)
-            return msg
+            return self._fail("MoveSlide failed %d -> %d" % (from_idx, to_idx))
 
     def _set_layout(self, layout_id: int | None, key: str) -> str | None:
-        # Upstream falls back to AUTOLAYOUT_TITLE_CONTENT on unknown layouts;
-        # WriterAgent errors on unrecognized ids. Notes and handout ids remain valid.
-        if layout_id is None or layout_id not in _VALID_LAYOUT_IDS:
-            msg = "Unknown layout in %s" % key
-            self.warnings.append(msg)
-            return msg
+        # Unknown/invalid layout ids are rejected by validate_slide_commands before this runs.
+        if layout_id is None:
+            return self._fail("Unknown layout in %s" % key)
         page = self._current_page()
         page.Layout = layout_id
         self.applied.append("%s:%d" % (key, layout_id))
@@ -698,35 +659,25 @@ class SlideCommandEngine:
         page = self._current_page()
         count = page.getCount() if hasattr(page, "getCount") and callable(getattr(page, "getCount", None)) else 0
         if shape_index < 0 or shape_index >= count:
-            msg = "SetText.%d: shape index out of range (have %d shapes)" % (shape_index, count)
-            self.warnings.append(msg)
-            return msg
+            return self._fail("SetText.%d: shape index out of range (have %d shapes)" % (shape_index, count))
         shape = page.getByIndex(shape_index)
         if not hasattr(shape, "getText") or not callable(getattr(shape, "getText", None)):
-            msg = "SetText.%d: shape has no callable getText" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("SetText.%d: shape has no callable getText" % shape_index)
         if _set_shape_text(shape, text):
             _clear_empty_pres_obj(shape)
             self.applied.append("SetText.%d" % shape_index)
             return None
         else:
-            msg = "SetText.%d: failed to set text" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("SetText.%d: failed to set text" % shape_index)
 
     def _edit_text_object(self, shape_index: int, subcmds: list[Any]) -> str | None:
         page = self._current_page()
         count = page.getCount() if hasattr(page, "getCount") and callable(getattr(page, "getCount", None)) else 0
         if shape_index < 0 or shape_index >= count:
-            msg = "EditTextObject.%d: shape index out of range" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("EditTextObject.%d: shape index out of range" % shape_index)
         shape = page.getByIndex(shape_index)
         if not hasattr(shape, "getText") or not callable(getattr(shape, "getText", None)):
-            msg = "EditTextObject.%d: shape has no callable getText" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("EditTextObject.%d: shape has no callable getText" % shape_index)
         cursor = None
         xtext = None
         try:
@@ -736,27 +687,19 @@ class SlideCommandEngine:
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            msg = "EditTextObject.%d: no text: %s" % (shape_index, exc)
-            self.warnings.append(msg)
-            return msg
+            return self._fail("EditTextObject.%d: no text: %s" % (shape_index, exc))
         if cursor is None or xtext is None:
-            msg = "EditTextObject.%d: failed to create text cursor" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("EditTextObject.%d: failed to create text cursor" % shape_index)
 
         if not subcmds:
-            msg = "EditTextObject.%d: sub-commands list cannot be empty" % shape_index
-            self.warnings.append(msg)
-            return msg
+            return self._fail("EditTextObject.%d: sub-commands list cannot be empty" % shape_index)
 
         selection_mode: str = "none"
         recognized_count = 0
 
         for sub in subcmds:
             if not isinstance(sub, dict):
-                msg = "EditTextObject.%d: sub-command must be an object: %r" % (shape_index, sub)
-                self.warnings.append(msg)
-                return msg
+                return self._fail("EditTextObject.%d: sub-command must be an object: %r" % (shape_index, sub))
             for sk, sv in sub.items():
                 if sk == "SelectText":
                     recognized_count += 1
@@ -781,9 +724,7 @@ class SlideCommandEngine:
                     except Exception as exc:
                         if is_disposed_exception(exc):
                             raise
-                        msg = "InsertText failed: %s" % exc
-                        self.warnings.append(msg)
-                        return msg
+                        return self._fail("InsertText failed: %s" % exc)
                     # Upstream FuTransformDocumentStructure (drviews2.cxx) leaves inserted text selected.
                     if not inserted:
                         selection_mode = "caret"
@@ -805,50 +746,36 @@ class SlideCommandEngine:
                             if left_norm == inserted:
                                 selection_mode = "range"
                             else:
-                                msg = "InsertText could not select inserted text"
-                                self.warnings.append(msg)
-                                return msg
+                                return self._fail("InsertText could not select inserted text")
                         else:
-                            msg = "InsertText could not select inserted text"
-                            self.warnings.append(msg)
-                            return msg
+                            return self._fail("InsertText could not select inserted text")
                 elif sk == "UnoCommand":
                     recognized_count += 1
                     err = self._dispatch_uno_string(sv, cursor=cursor, shape=shape, selection_mode=selection_mode)
                     if err is not None:
                         return err
                 else:
-                    msg = "Unknown EditTextObject sub-command: %s" % sk
-                    self.warnings.append(msg)
-                    return msg
+                    return self._fail("Unknown EditTextObject sub-command: %s" % sk)
 
         if recognized_count > 0:
             self.applied.append("EditTextObject.%d" % shape_index)
             return None
-        msg = "EditTextObject.%d: sub-commands list cannot be empty" % shape_index
-        self.warnings.append(msg)
-        return msg
+        return self._fail("EditTextObject.%d: sub-commands list cannot be empty" % shape_index)
 
     def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> tuple[Any, str | None, str | None]:
         if cursor is None or xtext is None:
-            msg = "SelectText: cursor or text is missing"
-            self.warnings.append(msg)
-            return cursor, None, msg
+            return cursor, None, self._fail("SelectText: cursor or text is missing")
         if spec == [] or spec is None:
             cursor.gotoStart(False)
             cursor.gotoEnd(True)
             return cursor, "all", None
         if not isinstance(spec, list):
-            msg = "SelectText requires a list or empty array: %r" % spec
-            self.warnings.append(msg)
-            return cursor, None, msg
+            return cursor, None, self._fail("SelectText requires a list or empty array: %r" % spec)
         int_spec: list[int] = []
         for item in spec:
             coerced = coerce_int(item)
             if coerced is None:
-                msg = "Invalid non-int element in SelectText: %r" % item
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("Invalid non-int element in SelectText: %r" % item)
             int_spec.append(coerced)
 
         n = len(int_spec)
@@ -859,42 +786,29 @@ class SlideCommandEngine:
         if n == 1:
             para = int_spec[0]
             if para < 0:
-                msg = "SelectText: negative paragraph index %d" % para
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("SelectText: negative paragraph index %d" % para)
         elif n == 2:
             para, char = int_spec[0], int_spec[1]
             if para < 0 or char < 0:
-                msg = "SelectText: negative index [%d, %d]" % (para, char)
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("SelectText: negative index [%d, %d]" % (para, char))
         elif n == 3:
             para, char, end_para = int_spec[0], int_spec[1], int_spec[2]
             if para < 0 or char < 0 or end_para < 0 or end_para < para:
-                msg = "SelectText: negative or invalid span [%d, %d, %d]" % (para, char, end_para)
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("SelectText: negative or invalid span [%d, %d, %d]" % (para, char, end_para))
         elif n >= 4:
             para, start, end_para, end_char = int_spec[0], int_spec[1], int_spec[2], int_spec[3]
             if para < 0 or start < 0 or end_para < 0 or end_char < 0:
-                msg = "SelectText: negative coordinates [%d, %d, %d, %d]" % (para, start, end_para, end_char)
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("SelectText: negative coordinates [%d, %d, %d, %d]" % (para, start, end_para, end_char))
             if end_para < para or (end_para == para and end_char < start):
-                msg = "SelectText: negative span [%d, %d] to [%d, %d]" % (para, start, end_para, end_char)
-                self.warnings.append(msg)
-                return cursor, None, msg
+                return cursor, None, self._fail("SelectText: negative span [%d, %d] to [%d, %d]" % (para, start, end_para, end_char))
 
         raw_text = _cursor_string(xtext)
         if raw_text is None:
-            msg = "SelectText: failed to read text from shape"
-            self.warnings.append(msg)
-            return cursor, None, msg
+            return cursor, None, self._fail("SelectText: failed to read text from shape")
 
         span_res = _calculate_text_selection_span(raw_text, int_spec)
         if isinstance(span_res, str):
-            self.warnings.append(span_res)
-            return cursor, None, span_res
+            return cursor, None, self._fail(span_res)
         start, end, mode = span_res
 
         cursor.gotoStart(False)
@@ -919,24 +833,18 @@ class SlideCommandEngine:
     def _select_paragraph(self, xtext: Any, cursor: Any, para_index: Any) -> tuple[Any, str | None, str | None]:
         val = coerce_int(para_index)
         if val is None:
-            msg = "Invalid SelectParagraph index: %r" % para_index
-            self.warnings.append(msg)
-            return cursor, None, msg
+            return cursor, None, self._fail("Invalid SelectParagraph index: %r" % para_index)
         return self._select_text(xtext, cursor, [val])
 
     def _apply_top_level_uno(self, uno_spec: Any) -> str | None:
         if isinstance(uno_spec, dict):
             raw_name = uno_spec.get("name") if "name" in uno_spec else uno_spec.get("Name")
             if not isinstance(raw_name, str) or not raw_name.strip():
-                msg = "Invalid UnoCommand specification: %r" % uno_spec
-                self.warnings.append(msg)
-                return msg
+                return self._fail("Invalid UnoCommand specification: %r" % uno_spec)
             name = raw_name
             raw_args = uno_spec.get("arguments") if "arguments" in uno_spec else uno_spec.get("Arguments")
             if raw_args is not None and not isinstance(raw_args, dict):
-                msg = "Invalid UnoCommand specification: %r" % uno_spec
-                self.warnings.append(msg)
-                return msg
+                return self._fail("Invalid UnoCommand specification: %r" % uno_spec)
             args = raw_args or {}
             err = self._dispatch_uno_named(name, args)
             if err is not None:
@@ -950,17 +858,13 @@ class SlideCommandEngine:
             self.applied.append("UnoCommand")
             return None
         else:
-            msg = "Invalid UnoCommand specification: %r" % uno_spec
-            self.warnings.append(msg)
-            return msg
+            return self._fail("Invalid UnoCommand specification: %r" % uno_spec)
 
     def _execute_uno(self, name: str, props: tuple[Any, ...]) -> str | None:
         try:
             controller = self.doc.getCurrentController()
             if controller is None:
-                msg = "UnoCommand %s failed: document has no active controller" % name
-                self.warnings.append(msg)
-                return msg
+                return self._fail("UnoCommand %s failed: document has no active controller" % name)
             frame = controller.getFrame()
             smgr = self.tctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
@@ -969,51 +873,36 @@ class SlideCommandEngine:
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            msg = "UnoCommand %s failed: %s" % (name, exc)
-            self.warnings.append(msg)
-            return msg
+            return self._fail("UnoCommand %s failed: %s" % (name, exc))
 
     def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None, selection_mode: str = "none") -> str | None:
         if not isinstance(cmd, str):
-            msg = "UnoCommand requires a string: %r" % (cmd,)
-            self.warnings.append(msg)
-            return msg
+            return self._fail("UnoCommand requires a string: %r" % (cmd,))
         res = split_uno_command(cmd)
         if isinstance(res, str):
-            self.warnings.append(res)
-            return res
+            return self._fail(res)
         uno_name, parsed = res
         if selection_mode == "caret":
-            msg = "UnoCommand %s cannot be applied to a collapsed caret selection" % uno_name
-            self.warnings.append(msg)
-            return msg
+            return self._fail("UnoCommand %s cannot be applied to a collapsed caret selection" % uno_name)
         # Range-scoped formatting must hit the SelectText cursor; selecting the
         # shape and dispatching would format every character.
         if selection_mode == "range":
             if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
                 return None
-            msg = "UnoCommand %s was not applied to the text selection" % uno_name
-            self.warnings.append(msg)
-            return msg
+            return self._fail("UnoCommand %s was not applied to the text selection" % uno_name)
         if selection_mode == "all":
             if _cursor_format_pairs(uno_name, parsed) is not None:
                 if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
                     return None
-                msg = "UnoCommand %s was not applied to the text selection" % uno_name
-                self.warnings.append(msg)
-                return msg
+                return self._fail("UnoCommand %s was not applied to the text selection" % uno_name)
         if selection_mode == "none":
             is_partial = _text_cursor_is_partial_selection(cursor, shape)
             if is_partial is None:
-                msg = "UnoCommand %s failed to read text cursor" % uno_name
-                self.warnings.append(msg)
-                return msg
+                return self._fail("UnoCommand %s failed to read text cursor" % uno_name)
             if is_partial:
                 if _apply_cursor_uno_format(cursor, uno_name, parsed, warnings=self.warnings):
                     return None
-                msg = "UnoCommand %s was not applied to the text selection" % uno_name
-                self.warnings.append(msg)
-                return msg
+                return self._fail("UnoCommand %s was not applied to the text selection" % uno_name)
         props = self._uno_props_from_dict(parsed) if parsed else ()
         if cursor is not None and shape is not None:
             try:

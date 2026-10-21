@@ -351,36 +351,11 @@ class AlignShapes(ToolDrawShapeBase):
 
 #### 5.2.3 Tables (`domain="tables"`)
 
-**Problem:** Draw/Impress had no table tools. This is a slide table, not a Writer text table (`table_list` / `table_set_cell` / `manage_table_structure`). Those Writer tools are not reused here.
+**Design:** Slide table manipulation uses the specialized table tools in [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableInsert`, `TableDelete`, `TableList`, `TableGetCells`, `TableSetCell`, `ManageTableStructure`), which branch on `_is_draw_doc(ctx.doc)` to delegate to Draw TableShape helpers in [`plugin/draw/tables.py`](../../plugin/draw/tables.py).
 
-**Design:** Create a specialized domain `domain="tables"` (`plugin/draw/tables.py`):
-```python
-class InsertTable(ToolDrawSpecialBase):
-    name = "table_insert"
-    specialized_domain = "tables"
-    description = "Insert a table onto the slide with specified rows and columns."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page": {"type": "integer", "description": "0-based slide index"},
-            "rows": {"type": "integer", "description": "Number of rows"},
-            "columns": {"type": "integer", "description": "Number of columns"},
-            "x": {"type": "integer", "description": "X position in 1/100mm (default: 3000)"},
-            "y": {"type": "integer", "description": "Y position in 1/100mm (default: 4000)"},
-            "width": {"type": "integer", "description": "Table width in 1/100mm (default: 20000)"},
-            "height": {"type": "integer", "description": "Table height in 1/100mm (default: 10000)"},
-            "data": {
-                "type": "array",
-                "items": {"type": "array", "items": {"type": "string"}},
-                "description": "2D array of cell strings: [[row0_col0, row0_col1], [row1_col0, ...]]"
-            }
-        },
-        "required": ["rows", "columns"]
-    }
-```
 **Implementation:**
-- Create instance of `com.sun.star.drawing.TableShape`.
-- After `page.add`, grow the TableShape model with row/column `insertByIndex` (Rows/Columns properties on a detached shape are unreliable), then populate cells via `getCellByPosition(col, row)`.
+- `insert_draw_table`: creates an instance of `com.sun.star.drawing.TableShape`.
+- After `page.add`, grows the TableShape model with row/column `insertByIndex` (Rows/Columns properties on a detached shape are unreliable), then populates cells via `getCellByPosition(col, row)`.
 
 ---
 

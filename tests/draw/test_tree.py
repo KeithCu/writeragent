@@ -44,6 +44,14 @@ def test_nearest_label_hint_prefers_left_over_above():
     assert nearest_label_hint(blank, [left, above]) == "Name:"
 
 
+def test_nearest_label_hint_left_priority_over_smaller_above_gap():
+    blank = {"geometry": {"x": 5000, "y": 2000, "width": 4000, "height": 800}}
+    left = {"text": "Name:", "geometry": {"x": 100, "y": 2000, "width": 3000, "height": 800}}  # gap = 1900
+    above = {"text": "Heading", "geometry": {"x": 5000, "y": 1500, "width": 4000, "height": 400}}  # gap = 100
+    assert nearest_label_hint(blank, [left, above]) == "Name:"
+
+
+
 def test_attach_label_hints_marks_fillable_only():
     nodes = [
         {"text": "Product:", "geometry": {"x": 100, "y": 1000, "width": 2000, "height": 400}},

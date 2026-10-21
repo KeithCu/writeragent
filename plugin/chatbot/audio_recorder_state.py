@@ -1,18 +1,18 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, assert_never
 
 from plugin.framework.service import BaseState, FsmTransition
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
-_VALID_AUDIO_STATUSES = ("idle", "initializing", "recording", "stopping", "error")
+_VALID_AUDIO_STATUSES = ("idle", "initializing", "recording", "error")
 
 # --- State ---
 
 
 @dataclass(frozen=True)
 class AudioRecorderState(BaseState):
-    status: str  # 'idle', 'initializing', 'recording', 'stopping', 'error'
+    status: str  # 'idle', 'initializing', 'recording', 'error'
     error_message: Optional[str] = None
 
 
@@ -63,6 +63,22 @@ AudioRecorderEffect = InitializeDeviceEffect | StartRecordingEffect | StopRecord
 # --- Pure Transition Function ---
 
 
+def _audio_transition_invariants(
+    state: AudioRecorderState,
+    event: AudioRecorderEvent,
+    result: FsmTransition[AudioRecorderState],
+) -> bool:
+    # crosshair: off
+    if result.state.status not in _VALID_AUDIO_STATUSES:
+        return False
+    if isinstance(event, ErrorOccurredEvent):
+        if result.state.status != "error":
+            return False
+        if not any(isinstance(e, ReportErrorEffect) for e in result.effects):
+            return False
+    return True
+
+
 @deal.pre(
     lambda state, event: state.status in _VALID_AUDIO_STATUSES
     and (
@@ -70,14 +86,7 @@ AudioRecorderEffect = InitializeDeviceEffect | StartRecordingEffect | StopRecord
         or str_bounded(event.error_message, DEAL_MAX_SOURCE)
     )
 )
-@deal.post(lambda result: result.state.status in _VALID_AUDIO_STATUSES)
-@deal.ensure(
-    lambda state, event, result: not isinstance(event, ErrorOccurredEvent) or result.state.status == "error"
-)
-@deal.ensure(
-    lambda state, event, result: not isinstance(event, ErrorOccurredEvent)
-    or any(isinstance(e, ReportErrorEffect) for e in result.effects)
-)
+@deal.ensure(_audio_transition_invariants)
 def next_state(state: AudioRecorderState, event: AudioRecorderEvent) -> FsmTransition[AudioRecorderState]:
     """Pure state transition for the audio recorder - NO SIDE EFFECTS"""
 
@@ -108,4 +117,4 @@ def next_state(state: AudioRecorderState, event: AudioRecorderEvent) -> FsmTrans
                 return FsmTransition(AudioRecorderState(status="idle"), effects)
             return FsmTransition(state, effects)
 
-    return FsmTransition(state, effects)
+    assert_never(event)

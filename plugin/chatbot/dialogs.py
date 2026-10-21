@@ -431,6 +431,21 @@ class _CopyListener(BaseActionListener):
             self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
 
 
+class _DismissDialogListener(unohelper.Base, XActionListener):
+    """Dismiss a dialog with status code 1."""
+
+    _dlg: Any
+
+    def __init__(self, dialog: Any) -> None:
+        self._dlg = dialog
+
+    def actionPerformed(self, rEvent: ActionEvent) -> None:
+        self._dlg.endDialog(1)
+
+    def disposing(self, Source: EventObject) -> None:
+        pass
+
+
 # ── Message box with Copy button ─────────────────────────────────────
 
 
@@ -456,15 +471,9 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
         if copy_btn is not None:
             copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_text))
 
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                dlg.endDialog(1)
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
         ok_btn = dlg.getControl("OKBtn")
         if ok_btn is not None:
-            ok_btn.addActionListener(_OkListener())
+            ok_btn.addActionListener(_DismissDialogListener(dlg))
 
         dlg.execute()
         dlg.dispose()
@@ -482,7 +491,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, message)
         return
     try:
-        from plugin.chatbot.bug_report import build_github_issue_url, open_bug_report_in_browser
+        from plugin.chatbot.bug_report import build_github_issue_url, open_url_in_browser
 
         dlg = load_writeragent_dialog("ErrorReportDialog", ctx)
         if dlg is None:
@@ -512,32 +521,23 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
 
         class _ReportListener(BaseActionListener):
             _ctx: Any
-            _title: str
-            _extra: str
+            _url: str
 
-            def __init__(self, context: Any, dlg_title: str, dlg_extra: str) -> None:
+            def __init__(self, context: Any, url: str) -> None:
                 self._ctx = context
-                self._title = dlg_title
-                self._extra = dlg_extra
+                self._url = url
 
             def on_action_performed(self, rEvent: Any) -> None:
-                open_bug_report_in_browser(self._ctx, title=self._title, extra_body=self._extra)
+                open_url_in_browser(self._ctx, self._url)
 
         report_btn = dlg.getControl("ReportBtn")
         if report_btn is not None:
             report_btn.getModel().Label = _("Report bug...")
-            report_btn.addActionListener(_ReportListener(ctx, issue_title, extra))
-
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                dlg.endDialog(1)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
+            report_btn.addActionListener(_ReportListener(ctx, report_url))
 
         ok_btn = dlg.getControl("OKBtn")
         if ok_btn is not None:
-            ok_btn.addActionListener(_OkListener())
+            ok_btn.addActionListener(_DismissDialogListener(dlg))
 
         dlg.execute()
         dlg.dispose()
