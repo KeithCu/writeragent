@@ -89,6 +89,25 @@ def test_control_snapshot_reads_state_and_text():
     assert snap["label"] == "I agree"
 
 
+def test_control_snapshot_listbox_and_shared_control_map():
+    from plugin.draw.tree import CONTROL_TYPE_MAP
+    import plugin.writer.specialized.forms as forms
+
+    assert forms.CONTROL_TYPE_MAP is CONTROL_TYPE_MAP
+
+    class _ListBoxModel:
+        Name = "Options"
+        Label = "Select one"
+
+        def supportsService(self, svc):
+            return "ListBox" in svc
+
+    snap = control_snapshot(_ListBoxModel())
+    assert snap["type"] == "listbox"
+    assert snap["name"] == "Options"
+    assert snap["label"] == "Select one"
+
+
 def test_safe_attr_reraises_disposed():
     import pytest
     from plugin.draw.tree import _safe_attr

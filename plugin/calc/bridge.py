@@ -23,9 +23,9 @@ plugin framework.
 """
 
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import UnoObjectError, uno_read
 from plugin.calc.address_utils import (
     parse_address,
     parse_range_string,
@@ -51,16 +51,65 @@ def filter_agent_sheet_names(names: Any) -> list[str]:
     return [n for n in names if is_agent_visible_sheet(n)]
 
 
-def _referred_cells(container: Any, name: str) -> Any | None:
-    if container is None:
+class NamedRangeHit(NamedTuple):
+    container: Any
+    scope: str  # sheet name, or "global"
+    sheet: Any | None
+    named_range: Any
+
+
+def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
+    """Resolve a Calc named range in documented priority order.
+
+    Order:
+    1. If sheet-prefixed (e.g. ``Sheet1.Name`` or ``'Sheet1'!Name``) and the
+       prefix matches an existing sheet, look only in that sheet's NamedRanges.
+    2. Active sheet local NamedRanges.
+    3. Workbook global NamedRanges.
+    4. Other visible sheets (in sheet index order; skips active and ``_``-prefixed sheets).
+    """
+    clean_name = name.strip()
+    if not clean_name:
         return None
-    nr_coll = getattr(container, "NamedRanges", None)
-    if nr_coll is not None and hasattr(nr_coll, "hasByName") and nr_coll.hasByName(name):
-        nr = nr_coll.getByName(name)
-        if hasattr(nr, "getReferredCells"):
-            cells = nr.getReferredCells()
-            if cells is not None:
-                return cells
+
+    prefix, bare_name = split_sheet_prefix(clean_name)
+    if prefix:
+        sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
+        if sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
+            target_sheet = sheets.getByName(prefix)
+            nrs = getattr(target_sheet, "NamedRanges", None)
+            if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(bare_name):
+                return NamedRangeHit(nrs, prefix, target_sheet, nrs.getByName(bare_name))
+            return None
+
+    # 1. Active sheet
+    active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
+    if active_sheet is not None:
+        nrs = getattr(active_sheet, "NamedRanges", None)
+        if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(clean_name):
+            scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
+            return NamedRangeHit(nrs, scope, active_sheet, nrs.getByName(clean_name))
+
+    # 2. Workbook global
+    global_nrs = getattr(doc, "NamedRanges", None)
+    if global_nrs is not None and hasattr(global_nrs, "hasByName") and global_nrs.hasByName(clean_name):
+        return NamedRangeHit(global_nrs, "global", None, global_nrs.getByName(clean_name))
+
+    # 3. Other visible sheets in index order
+    sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
+    if sheets is not None and hasattr(sheets, "getCount"):
+        active_name = active_sheet.getName() if (active_sheet is not None and hasattr(active_sheet, "getName")) else None
+        for idx in range(sheets.getCount()):
+            sheet = sheets.getByIndex(idx)
+            s_name = sheet.getName() if hasattr(sheet, "getName") else ""
+            if sheet is active_sheet or (active_name is not None and s_name == active_name):
+                continue
+            if not is_agent_visible_sheet(s_name):
+                continue
+            nrs = getattr(sheet, "NamedRanges", None)
+            if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(clean_name):
+                return NamedRangeHit(nrs, s_name, sheet, nrs.getByName(clean_name))
+
     return None
 
 
@@ -99,12 +148,13 @@ class CalcBridge:
         """Return a sheet by name.
 
         Raises:
-            ValueError: no such sheet, listing the ones that exist.
+            UnoObjectError: no such sheet, listing the visible sheets that exist.
         """
         sheets = self.doc.getSheets()
         if not sheets.hasByName(name):
             available = filter_agent_sheet_names(sheets.getElementNames())
-            raise ValueError("No sheet named '%s'. Available: %s" % (name, ", ".join(available)))
+            # Sheet tools propagate this UnoObjectError; execute_safe keeps WriterAgentException text.
+            raise UnoObjectError("No sheet named '%s'. Available: %s" % (name, ", ".join(available)))
         return sheets.getByName(name)
 
     def resolve(self, ref: str, sheet_name: str | None = None) -> tuple[Any, str]:
@@ -154,25 +204,11 @@ class CalcBridge:
         workbook resolves to the sheet-local range, matching Calc.
         """
         range_or_address = range_or_address.strip()
-        prefix, bare_name = split_sheet_prefix(range_or_address)
-
-        if prefix and hasattr(self.doc, "getSheets"):
-            sheets = self.doc.getSheets()
-            if hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
-                cells = _referred_cells(sheets.getByName(prefix), bare_name)
-                if cells is not None:
-                    return cells
-
-        # Calc formula lookup lets a sheet-local name shadow a same-spelled
-        # global name on that sheet.
-        active_sheet = uno_read(self.get_active_sheet, None)
-        cells = _referred_cells(active_sheet, range_or_address)
-        if cells is not None:
-            return cells
-
-        cells = _referred_cells(self.doc, range_or_address)
-        if cells is not None:
-            return cells
+        hit = find_named_range(self.doc, range_or_address)
+        if hit is not None and hasattr(hit.named_range, "getReferredCells"):
+            cells = hit.named_range.getReferredCells()
+            if cells is not None:
+                return cells
 
         sheet, address = self.resolve(range_or_address)
 

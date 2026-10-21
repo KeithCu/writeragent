@@ -23,6 +23,7 @@ from typing import Any, Tuple, cast
 import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import UnoObjectError, uno_read
 
 # What was wrong: When generating tool proxies without LibreOffice, com.sun.star.table
@@ -48,10 +49,7 @@ except (ImportError, AttributeError):
 def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
     """Return the target sheet (by name or active)."""
     if sheet_name:
-        sheets = doc.getSheets()
-        if not sheets.hasByName(sheet_name):
-            raise UnoObjectError("Sheet not found: %s" % sheet_name)
-        return cast("Any", sheets.getByName(sheet_name))
+        return CalcBridge(doc).get_sheet(sheet_name)
     controller = doc.getCurrentController()
     if hasattr(controller, "getActiveSheet"):
         active = controller.getActiveSheet()

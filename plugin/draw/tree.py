@@ -129,18 +129,21 @@ def control_snapshot(model: Any) -> dict[str, Any]:
     return info
 
 
+# Shared form control mapping. Forms and the draw tree share this table; it
+# lives here so the tree path does not import writer.forms (which imports UNO Point/Size).
+CONTROL_TYPE_MAP: dict[str, str] = {
+    "checkbox": "com.sun.star.form.component.CheckBox",
+    "text": "com.sun.star.form.component.TextField",
+    "radio": "com.sun.star.form.component.RadioButton",
+    "date": "com.sun.star.form.component.DateField",
+    "combobox": "com.sun.star.form.component.ComboBox",
+    "button": "com.sun.star.form.component.CommandButton",
+    "listbox": "com.sun.star.form.component.ListBox",
+}
+
+
 def _readable_control_type(model: Any) -> str:
-    # Local map avoids importing writer.forms (UNO-heavy) from the tree path.
-    mapping = (
-        ("checkbox", "com.sun.star.form.component.CheckBox"),
-        ("text", "com.sun.star.form.component.TextField"),
-        ("radio", "com.sun.star.form.component.RadioButton"),
-        ("date", "com.sun.star.form.component.DateField"),
-        ("combobox", "com.sun.star.form.component.ComboBox"),
-        ("button", "com.sun.star.form.component.CommandButton"),
-        ("listbox", "com.sun.star.form.component.ListBox"),
-    )
-    for type_str, service in mapping:
+    for type_str, service in CONTROL_TYPE_MAP.items():
         try:
             if model is not None and model.supportsService(service):
                 return type_str

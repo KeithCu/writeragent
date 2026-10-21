@@ -476,11 +476,42 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
 
 
 def test_form_create_and_control_schemas_match_control_type_map():
-    from plugin.writer.specialized.forms import _CONTROL_TYPE_MAP
+    from plugin.draw.tree import CONTROL_TYPE_MAP
 
-    expected_keys = sorted(_CONTROL_TYPE_MAP.keys())
+    expected_keys = sorted(CONTROL_TYPE_MAP.keys())
     assert sorted(FormCreateControl.parameters["properties"]["control"]["enum"]) == expected_keys
     assert sorted(FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]) == expected_keys
+
+
+def test_form_create_control_listbox():
+    doc = MagicMock()
+    model = MagicMock()
+    shape = MagicMock()
+    instances = []
+
+    def fake_create(service):
+        instances.append(service)
+        if "ListBox" in service:
+            return model
+        return shape
+
+    doc.createInstance.side_effect = fake_create
+
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    selection = MagicMock()
+    anchor = MagicMock()
+    anchor.getText.return_value = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = anchor
+    controller.getSelection.return_value = selection
+
+    ctx = SimpleNamespace(doc=doc)
+    res = FormCreateControl()._execute_main(ctx, control="listbox", name="Choice", items=["a", "b"])
+
+    assert res["status"] == "ok"
+    assert any("ListBox" in s for s in instances)
+    assert model.StringItemList == ("a", "b")
 
 
 def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):

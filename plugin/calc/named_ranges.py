@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import column_to_index, format_range_address, index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
-from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
-from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed, uno_read
+from plugin.calc.bridge import CalcBridge, find_named_range, is_agent_visible_sheet
+from plugin.framework.errors import UnoObjectError, best_effort, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
 
@@ -176,30 +176,6 @@ def _iter_named_range_sheets(doc: Any, *, agent_visible_only: bool) -> Any:
         yield sheet, s_name
 
 
-def _find_named_range(doc: Any, bridge: CalcBridge, name: str) -> tuple[Any, str, Any | None, Any] | None:
-    """Resolve an unqualified name, preferring the active sheet's local range.
-
-    Calc formula lookup and CalcBridge.resolve_range_or_address let a
-    sheet-local name shadow a same-spelled global name. Searching the
-    workbook container first made named_range_get_info (and edit/delete
-    with no scope) target the global range while cell tools used the local one.
-    Hidden sheets are not a fallback; pass scope to address them.
-    """
-    with suppress_disposed("search active sheet named ranges", logger=log):
-        active_sheet = bridge.get_active_sheet()
-        if hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(name):
-            scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
-            return active_sheet.NamedRanges, scope, active_sheet, active_sheet.NamedRanges.getByName(name)
-
-    if hasattr(doc, "NamedRanges") and doc.NamedRanges.hasByName(name):
-        return doc.NamedRanges, "global", None, doc.NamedRanges.getByName(name)
-
-    for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
-        if sheet.NamedRanges.hasByName(name):
-            return sheet.NamedRanges, s_name, sheet, sheet.NamedRanges.getByName(name)
-    return None
-
-
 def _resolve_named_range_target(
     tool: ToolCalcRangeBase,
     doc: Any,
@@ -212,7 +188,7 @@ def _resolve_named_range_target(
     """Return ``(container, scope, sheet, named_range)`` or a tool error dict.
 
     An explicit scope (including ``global``) uses only that container.
-    An omitted scope uses :func:`_find_named_range`.
+    An omitted scope uses :func:`find_named_range`.
     """
     scope_text = "" if scope is None else str(scope).strip()
     if scope_text:
@@ -221,7 +197,7 @@ def _resolve_named_range_target(
             return tool._tool_error(not_found.format(name=name, scope=effective_scope), code="NAMED_RANGE_NOT_FOUND")
         return container, effective_scope, sheet_obj, container.getByName(name)
 
-    found = _find_named_range(doc, bridge, name)
+    found = find_named_range(doc, name)
     if found is None:
         return tool._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
     return found
@@ -365,7 +341,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
             info = _extract_range_info(nr, effective_scope, doc)
             return {"status": "ok", "result": info}
 
-        found = _find_named_range(doc, bridge, name)
+        found = find_named_range(doc, name)
         if found is None:
             return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
         _container, effective_scope, _sheet, nr = found

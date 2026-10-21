@@ -14,7 +14,7 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import CalcError, ToolExecutionError, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, is_disposed_exception, uno_probe
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
@@ -78,7 +78,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     "type": "object",
                     "properties": {
                         "sheet": {"type": "string", "description": "Sheet name: register that sheet's used range (resolved at read time)."},
-                        "named_range": {"type": "string", "description": "Calc named range or database range; current referred bounds at read time."},
+                        "named_range": {"type": "string", "description": "Calc named range or database range; current referred bounds at read time. Resolves active sheet, then workbook, then other visible sheets; Sheet.Name forces that sheet; database range is still accepted."},
                         "range": {"type": "string", "description": "Frozen absolute A1 (e.g. 'Sales.A1:F500'). Does not grow with inserts."},
                         "file": {"type": "string", "description": "Sibling workbook basename, optionally #SheetName (budget.xlsx#Sales)."},
                         "headers": {"type": "boolean"},
@@ -311,40 +311,6 @@ def _available_named_sources(doc: Any) -> str:
     return "; ".join(parts)
 
 
-def _lookup_named_range_object(doc: Any, name: str) -> Any | None:
-    """Find a Calc NamedRange by name (global, sheet-qualified, or active-sheet local)."""
-    prefix, bare = split_sheet_prefix(name)
-
-    if prefix and hasattr(doc, "getSheets"):
-        sheets = doc.getSheets()
-        if sheets.hasByName(prefix):
-            sheet = sheets.getByName(prefix)
-            nrs = getattr(sheet, "NamedRanges", None)
-            if nrs is not None and nrs.hasByName(bare):
-                return nrs.getByName(bare)
-
-    nrs = getattr(doc, "NamedRanges", None)
-    if nrs is not None:
-        if nrs.hasByName(name):
-            return nrs.getByName(name)
-        if bare != name and nrs.hasByName(bare):
-            return nrs.getByName(bare)
-
-    def _active_named_ranges() -> Any:
-        controller = doc.getCurrentController()
-        if controller is not None and hasattr(controller, "getActiveSheet"):
-            sheet = controller.getActiveSheet()
-            local = getattr(sheet, "NamedRanges", None)
-            if local is not None:
-                if local.hasByName(name):
-                    return local.getByName(name)
-                if local.hasByName(bare):
-                    return local.getByName(bare)
-        return None
-
-    return uno_probe(_active_named_ranges, None)
-
-
 def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
     dbrs = getattr(doc, "DatabaseRanges", None)
     if dbrs is None or not hasattr(dbrs, "hasByName"):
@@ -389,7 +355,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.bridge import CalcBridge, find_named_range
 
     kind = parsed.get("kind")
     if kind == "sheet":
@@ -398,7 +364,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
         if sheet_name:
             try:
                 target = bridge.get_sheet(str(sheet_name))
-            except ValueError as exc:
+            except UnoObjectError as exc:
                 raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
         else:
             sheets = model.getSheets()
@@ -409,9 +375,9 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
 
     if kind == "named_range":
         name = str(parsed.get("named_range") or "")
-        nr = _lookup_named_range_object(model, name)
-        if nr is not None:
-            return _named_object_to_qualified_a1(model, nr, label=f"Named range {name!r}")
+        hit = find_named_range(model, name)
+        if hit is not None:
+            return _named_object_to_qualified_a1(model, hit.named_range, label=f"Named range {name!r}")
         dbr = _lookup_database_range_object(model, name)
         if dbr is not None:
             return _named_object_to_qualified_a1(model, dbr, label=f"Database range {name!r}")

@@ -22,6 +22,7 @@ from plugin.calc.duckdb_tools import (
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
 from plugin.framework.errors import ToolExecutionError
+import pytest
 
 
 def _mk_ctx():
@@ -58,14 +59,18 @@ def _fake_addr(start_col: int = 2, start_row: int = 4, end_col: int = 3, end_row
     return SimpleNamespace(StartColumn=start_col, StartRow=start_row, EndColumn=end_col, EndRow=end_row)
 
 
-def _fake_sheet(name: str = "Actuals", addr=None):
+def _fake_sheet(name: str = "Actuals", addr=None, named_ranges=None):
     addr = addr or _fake_addr()
     cursor = SimpleNamespace(
         gotoStartOfUsedArea=lambda expand: None,
         gotoEndOfUsedArea=lambda expand: None,
         getRangeAddress=lambda: addr,
     )
-    return SimpleNamespace(getName=lambda: name, createCursor=lambda: cursor)
+    return SimpleNamespace(
+        getName=lambda: name,
+        createCursor=lambda: cursor,
+        NamedRanges=named_ranges if named_ranges is not None else _named_container(),
+    )
 
 
 def _fake_sheets(names: tuple[str, ...] = ("Actuals", "Summary"), addr=None):
@@ -614,6 +619,71 @@ def test_named_range_identity_missing_errors():
         assert "Nope" in str(exc)
     else:
         raise AssertionError("missing named range must fail loud")
+
+
+def test_named_range_identity_local_shadows_global():
+    local_addr = _fake_addr(2, 4, 3, 5)  # C5:D6
+    global_addr = _fake_addr(0, 0, 1, 1)  # A1:B2
+    local_nr = _fake_named_range(local_addr, sheet_idx=0)
+    global_nr = _fake_named_range(global_addr, sheet_idx=0)
+
+    sheet0 = _fake_sheet("Actuals", addr=local_addr, named_ranges=_named_container({"SalesData": local_nr}))
+    sheets_obj = SimpleNamespace(
+        hasByName=lambda name: name == "Actuals",
+        getByName=lambda name: sheet0,
+        getByIndex=lambda idx: sheet0,
+        getElementNames=lambda: ("Actuals",),
+        getCount=lambda: 1,
+    )
+    model = _fake_model(
+        sheets=sheets_obj,
+        named_ranges=_named_container({"SalesData": global_nr}),
+    )
+    parsed = parse_table_source_spec({"named_range": "SalesData"})
+    resolved = resolve_table_source_a1(model, parsed)
+    assert resolved.endswith("C5:D6")
+
+
+def test_named_range_identity_non_active_visible_sheet_resolves():
+    other_addr = _fake_addr(2, 4, 3, 5)
+    other_nr = _fake_named_range(other_addr, sheet_idx=1)
+    sheet0 = _fake_sheet("Actuals")
+    sheet1 = _fake_sheet("Summary", addr=other_addr, named_ranges=_named_container({"SalesData": other_nr}))
+
+    sheets_dict = {"Actuals": sheet0, "Summary": sheet1}
+    sheets_names = ("Actuals", "Summary")
+    sheets_obj = SimpleNamespace(
+        hasByName=lambda name: name in sheets_dict,
+        getByName=lambda name: sheets_dict[name],
+        getByIndex=lambda idx: sheets_dict[sheets_names[idx]],
+        getElementNames=lambda: sheets_names,
+        getCount=lambda: len(sheets_names),
+    )
+    model = _fake_model(sheets=sheets_obj)
+    parsed = parse_table_source_spec({"named_range": "SalesData"})
+    resolved = resolve_table_source_a1(model, parsed)
+    assert resolved == "Summary.C5:D6"
+
+
+def test_named_range_identity_qualified_missing_does_not_fall_back_to_global():
+    global_addr = _fake_addr(0, 0, 1, 1)
+    global_nr = _fake_named_range(global_addr, sheet_idx=0)
+    sheet0 = _fake_sheet("Actuals")
+    sheets_obj = SimpleNamespace(
+        hasByName=lambda name: name == "Actuals",
+        getByName=lambda name: sheet0,
+        getByIndex=lambda idx: sheet0,
+        getElementNames=lambda: ("Actuals",),
+        getCount=lambda: 1,
+    )
+    model = _fake_model(
+        sheets=sheets_obj,
+        named_ranges=_named_container({"SalesData": global_nr}),
+    )
+    parsed = parse_table_source_spec({"named_range": "Actuals.SalesData"})
+    with pytest.raises(ToolExecutionError) as exc_info:
+        resolve_table_source_a1(model, parsed)
+    assert "No named range or database range named 'Actuals.SalesData'" in str(exc_info.value)
 
 
 def test_frozen_range_identity_is_not_used_range():

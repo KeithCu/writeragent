@@ -32,7 +32,7 @@ from ..specialized_base import ToolWriterFormBase
 from plugin.doc.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
-from plugin.draw.tree import coerce_control_state
+from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state
 from plugin.framework import thread_guard
 from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import run_on_main
@@ -45,19 +45,10 @@ from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 # One registration per tool name; union services for Writer + Calc + Draw/Impress (see AGENTS.md shared tools).
 _FORM_DOC_SERVICES = list(ALL_DOCUMENT_SERVICES)
 
-_CONTROL_TYPE_MAP = {
-    "checkbox": "com.sun.star.form.component.CheckBox",
-    "text": "com.sun.star.form.component.TextField",
-    "radio": "com.sun.star.form.component.RadioButton",
-    "date": "com.sun.star.form.component.DateField",
-    "combobox": "com.sun.star.form.component.ComboBox",
-    "button": "com.sun.star.form.component.CommandButton",
-}
-
 
 def _get_readable_type(model: Any) -> str:
     """Maps a UNO model back to a human-friendly type string."""
-    for type_str, service in _CONTROL_TYPE_MAP.items():
+    for type_str, service in CONTROL_TYPE_MAP.items():
         if model.supportsService(service):
             return type_str
     return "unknown"
@@ -356,11 +347,11 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
 
 
 _CONTROL_PROPERTIES: dict[str, Any] = {
-    "control": {"type": "string", "enum": list(_CONTROL_TYPE_MAP.keys()), "description": "The type of form control to create."},
+    "control": {"type": "string", "enum": list(CONTROL_TYPE_MAP.keys()), "description": "The type of form control to create."},
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
     "name": {"type": "string", "description": "Internal name/key for the control."},
     "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
-    "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox."},
+    "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
     "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
     "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
@@ -377,7 +368,7 @@ class FormCreateControl(ToolWriterFormBase):
     name: str | None = "form_create_control"
     uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
-        "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) "
+        "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
         "Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). "
         "Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets."
@@ -400,8 +391,8 @@ class FormCreateControl(ToolWriterFormBase):
         name = kwargs.get("name", "Field")
         label = kwargs.get("label", "")
 
-        if control_type not in _CONTROL_TYPE_MAP:
-            legal = ", ".join(_CONTROL_TYPE_MAP.keys())
+        if control_type not in CONTROL_TYPE_MAP:
+            legal = ", ".join(CONTROL_TYPE_MAP.keys())
             return self._tool_error(f"Unknown control type '{control_type}'. Allowed types: {legal}")
 
         if control_type == "date" and kwargs.get("default_value"):
@@ -415,7 +406,7 @@ class FormCreateControl(ToolWriterFormBase):
         if items_err:
             return items_err
 
-        full_comp_name = _CONTROL_TYPE_MAP[control_type]
+        full_comp_name = CONTROL_TYPE_MAP[control_type]
 
         try:
             # Create control model
@@ -453,7 +444,7 @@ class FormCreateControl(ToolWriterFormBase):
                     if hasattr(model, "DefaultDate"):
                         model.DefaultDate = date_long
 
-            if control_type == "combobox" and coerced_items is not None:
+            if control_type in ("combobox", "listbox") and coerced_items is not None:
                 model.StringItemList = tuple(coerced_items)
 
             # Create the shape
@@ -617,6 +608,7 @@ Available Field Types:
 - radio: {FIELD:control='radio',name='optionKey',group_name='groupKey',label='Option'}
 - date: {FIELD:control='date',name='key',default_value='DD.MM.YYYY'}
 - combobox: {FIELD:control='combobox',name='key',items='opt1,opt2',label='Choose'}
+- listbox: {FIELD:control='listbox',name='key',items='opt1,opt2',label='Choose'}
 - button: {FIELD:control='button',name='key',label='Submit'}
 
 Output ONLY the HTML content. No explanations. No Markdown like # Header.
@@ -729,7 +721,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         params: dict[str, Any] = dict(pairs)
         if "control" not in params or "name" not in params:
             return None
-        if params["control"] not in _CONTROL_TYPE_MAP:
+        if params["control"] not in CONTROL_TYPE_MAP:
             return None
         if "items" in params:
             coerced = _coerce_items(params["items"])
@@ -822,7 +814,7 @@ class FormEditControl(ToolWriterFormBase):
             "label": {"type": "string", "description": "New label text."},
             "text": {"type": "string", "description": "New text value (for text fields)."},
             "state": {"type": "integer", "description": "Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted)."},
-            "items": {"type": "array", "items": {"type": "string"}, "description": "New item list (for comboboxes)."},
+            "items": {"type": "array", "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
             "x": {"type": "integer"},
             "y": {"type": "integer"},
             "width": {"type": "integer"},

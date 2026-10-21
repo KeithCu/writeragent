@@ -10,10 +10,11 @@
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+import pytest
 
-from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
-from plugin.calc.sheets import GetSheetSummary, ListSheets
+from plugin.calc.sheets import DeleteSheet, GetSheetSummary, ListSheets, ProtectSheet, RenameSheet, SwitchSheet
 
 
 def test_is_agent_visible_sheet_hides_leading_underscore():
@@ -115,3 +116,75 @@ def test_list_sheets_disposal_is_document_disposed():
     res = tool.execute_safe(ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def _make_doc_with_sheets():
+    doc = MagicMock()
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Data", "_hidden")
+    sheets.getElementNames.return_value = ("Sheet1", "Data", "_hidden")
+    doc.getSheets.return_value = sheets
+    return doc, sheets
+
+
+def test_switch_sheet_missing_name_raises_uno_object_error():
+    doc, _ = _make_doc_with_sheets()
+    ctx = SimpleNamespace(doc=doc)
+    tool = SwitchSheet()
+    with pytest.raises(UnoObjectError) as exc_info:
+        tool.execute(ctx, sheet="NoSuchSheet")
+    err_msg = str(exc_info.value)
+    assert "No sheet named 'NoSuchSheet'." in err_msg
+    assert "Available: Sheet1, Data" in err_msg
+    assert "_hidden" not in err_msg
+
+    res = tool.execute_safe(ctx, sheet="NoSuchSheet")
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "No sheet named 'NoSuchSheet'." in res["message"]
+    assert "Available: Sheet1, Data" in res["message"]
+    assert "_hidden" not in res["message"]
+
+
+def test_rename_sheet_missing_old_name_raises_uno_object_error():
+    doc, _ = _make_doc_with_sheets()
+    ctx = SimpleNamespace(doc=doc)
+    tool = RenameSheet()
+    with pytest.raises(UnoObjectError) as exc_info:
+        tool.execute(ctx, old_name="NoSuchSheet", new_name="NewName")
+    err_msg = str(exc_info.value)
+    assert "No sheet named 'NoSuchSheet'." in err_msg
+    assert "Available: Sheet1, Data" in err_msg
+    assert "_hidden" not in err_msg
+
+
+def test_rename_sheet_duplicate_new_name_returns_tool_error():
+    doc, _ = _make_doc_with_sheets()
+    ctx = SimpleNamespace(doc=doc)
+    res = RenameSheet().execute(ctx, old_name="Sheet1", new_name="Data")
+    assert res["status"] == "error"
+    assert "already exists" in res["message"]
+
+
+def test_delete_sheet_missing_name_raises_uno_object_error():
+    doc, _ = _make_doc_with_sheets()
+    ctx = SimpleNamespace(doc=doc)
+    tool = DeleteSheet()
+    with pytest.raises(UnoObjectError) as exc_info:
+        tool.execute(ctx, sheet="NoSuchSheet")
+    err_msg = str(exc_info.value)
+    assert "No sheet named 'NoSuchSheet'." in err_msg
+    assert "Available: Sheet1, Data" in err_msg
+    assert "_hidden" not in err_msg
+
+
+def test_protect_sheet_missing_name_raises_uno_object_error():
+    doc, _ = _make_doc_with_sheets()
+    ctx = SimpleNamespace(doc=doc)
+    tool = ProtectSheet()
+    with pytest.raises(UnoObjectError) as exc_info:
+        tool.execute(ctx, sheet="NoSuchSheet")
+    err_msg = str(exc_info.value)
+    assert "No sheet named 'NoSuchSheet'." in err_msg
+    assert "Available: Sheet1, Data" in err_msg
+    assert "_hidden" not in err_msg

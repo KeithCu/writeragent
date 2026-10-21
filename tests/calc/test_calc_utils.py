@@ -110,11 +110,12 @@ class TestSheetAndCellResolution:
     def test_resolve_sheet_by_name_not_found(self):
         mock_sheets = MagicMock()
         mock_sheets.hasByName.return_value = False
+        mock_sheets.getElementNames.return_value = ("Sheet1", "Sheet2")
 
         doc = MagicMock()
         doc.getSheets.return_value = mock_sheets
 
-        with pytest.raises(UnoObjectError, match="Sheet not found"):
+        with pytest.raises(UnoObjectError, match="No sheet named 'NonExistent'"):
             resolve_sheet(doc, "NonExistent")
 
     def test_resolve_sheet_and_cell_valid(self):

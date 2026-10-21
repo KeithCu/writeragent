@@ -148,7 +148,6 @@ class CreatePivotTable(ToolCalcPivotBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         bridge = CalcBridge(doc)
-        sheets_coll = doc.getSheets()
         pivot_name = (kwargs.get("name") or "").strip()
         if not pivot_name:
             return self._tool_error("name is required.")
@@ -159,18 +158,14 @@ class CreatePivotTable(ToolCalcPivotBase):
 
         src_sheet_name = kwargs.get("source_sheet")
         if src_sheet_name:
-            if not sheets_coll.hasByName(src_sheet_name):
-                return self._tool_error(f"No sheet named '{src_sheet_name}'.")
-            src_sheet = sheets_coll.getByName(src_sheet_name)
+            src_sheet = bridge.get_sheet(src_sheet_name)
         else:
             src_sheet = bridge.get_active_sheet()
         src_idx = _sheet_index_by_name(doc, src_sheet.getName())
 
         dest_sheet_name = kwargs.get("destination_sheet")
         if dest_sheet_name:
-            if not sheets_coll.hasByName(dest_sheet_name):
-                return self._tool_error(f"No sheet named '{dest_sheet_name}'.")
-            dest_sheet = sheets_coll.getByName(dest_sheet_name)
+            dest_sheet = bridge.get_sheet(dest_sheet_name)
         else:
             dest_sheet = bridge.get_active_sheet()
         dest_idx = _sheet_index_by_name(doc, dest_sheet.getName())
@@ -226,10 +221,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
         sheet_name = kwargs.get("sheet")
 
         if sheet_name:
-            sh = doc.getSheets()
-            if not sh.hasByName(sheet_name):
-                return self._tool_error(f"No sheet named '{sheet_name}'.")
-            sheet = sh.getByName(sheet_name)
+            sheet = CalcBridge(doc).get_sheet(sheet_name)
             dp_tables = _get_dp_tables(sheet)
             if not dp_tables.hasByName(name):
                 return self._tool_error(f"Pivot table '{name}' not found on sheet '{sheet_name}'.")
@@ -263,8 +255,7 @@ class ListPivotTables(ToolCalcPivotBase):
         out: list[dict[str, Any]] = []
 
         if only_sheet:
-            if not sh.hasByName(only_sheet):
-                return self._tool_error(f"No sheet named '{only_sheet}'.")
+            CalcBridge(doc).get_sheet(only_sheet)
             sheet_names = [only_sheet]
         else:
             sheet_names = list(sh.getElementNames())

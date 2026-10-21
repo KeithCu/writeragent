@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+import pytest
 
+from plugin.framework.errors import UnoObjectError
 from plugin.calc.pivot import ListPivotTables
 
 
@@ -56,12 +58,19 @@ def test_list_pivot_tables_sheet_not_found():
     sheets = MagicMock()
     doc.getSheets.return_value = sheets
     sheets.hasByName.return_value = False
+    sheets.getElementNames.return_value = ("Sheet1", "Data")
 
     ctx = MagicMock()
     ctx.doc = doc
 
     tool = ListPivotTables()
-    res = tool.execute(ctx, sheet="NoSuchSheet")
+    with pytest.raises(UnoObjectError) as exc_info:
+        tool.execute(ctx, sheet="NoSuchSheet")
+    assert "No sheet named 'NoSuchSheet'." in str(exc_info.value)
+    assert "Available: Sheet1, Data" in str(exc_info.value)
 
+    res = tool.execute_safe(ctx, sheet="NoSuchSheet")
     assert res["status"] == "error"
-    assert "No sheet named 'NoSuchSheet'" in res["message"]
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "No sheet named 'NoSuchSheet'." in res["message"]
+    assert "Available: Sheet1, Data" in res["message"]

@@ -8,7 +8,7 @@
 from unittest.mock import MagicMock
 
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 import pytest
 
 
@@ -75,12 +75,10 @@ def test_get_sheet_error_lists_available_sheets():
     doc.getSheets.return_value = sheets
 
     bridge = CalcBridge(doc)
-    try:
+    with pytest.raises(UnoObjectError) as exc_info:
         bridge.get_sheet("NonExistent")
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "No sheet named 'NonExistent'" in str(e)
-        assert "Available: Summary, Sources, Data" in str(e)
+    assert "No sheet named 'NonExistent'" in str(exc_info.value)
+    assert "Available: Summary, Sources, Data" in str(exc_info.value)
 
 
 def test_resolve_range_or_address_unqualified_name_prefers_sheet_local():
@@ -125,13 +123,12 @@ def test_get_sheet_error_omits_leading_underscore_sheets():
     doc.getSheets.return_value = sheets
 
     bridge = CalcBridge(doc)
-    try:
+    with pytest.raises(UnoObjectError) as exc_info:
         bridge.get_sheet("NonExistent")
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "Available: Summary, Data" in str(e)
-        assert "_foo" not in str(e)
-        assert "__Anonymous_Sheet_DB__0" not in str(e)
+    err_msg = str(exc_info.value)
+    assert "Available: Summary, Data" in err_msg
+    assert "_foo" not in err_msg
+    assert "__Anonymous_Sheet_DB__0" not in err_msg
     assert not is_agent_visible_sheet("__Anonymous_Sheet_DB__0")
 
 
@@ -182,5 +179,82 @@ def test_resolve_range_or_address_global_only_named_range():
     bridge = CalcBridge(doc)
     assert bridge.resolve_range_or_address("GlobalTotal") is global_cells
     doc.NamedRanges.getByName.assert_called_once_with("GlobalTotal")
+
+
+def test_resolve_range_or_address_other_visible_sheet_wins():
+    doc = MagicMock()
+    doc.NamedRanges.hasByName.return_value = False
+
+    active = _sheet("Sheet1")
+    active.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+
+    sheet2 = _sheet("Sheet2")
+    sheet2_named = MagicMock()
+    sheet2_cells = object()
+    sheet2_named.getReferredCells.return_value = sheet2_cells
+    sheet2.NamedRanges.hasByName.side_effect = lambda name: name == "OtherTotal"
+    sheet2.NamedRanges.getByName.return_value = sheet2_named
+
+    sheets = MagicMock()
+    sheets.getCount.return_value = 2
+    sheets.getByIndex.side_effect = lambda idx: [active, sheet2][idx]
+    sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Sheet2")
+    sheets.getByName.side_effect = lambda name: {"Sheet1": active, "Sheet2": sheet2}[name]
+    doc.getSheets.return_value = sheets
+
+    bridge = CalcBridge(doc)
+    assert bridge.resolve_range_or_address("OtherTotal") is sheet2_cells
+    sheet2.NamedRanges.getByName.assert_called_once_with("OtherTotal")
+
+
+def test_resolve_range_or_address_hidden_sheet_is_not_fallback():
+    doc = MagicMock()
+    doc.NamedRanges.hasByName.return_value = False
+
+    active = _sheet("Sheet1")
+    active.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+
+    hidden = _sheet("__Anonymous_Sheet_DB__0")
+    hidden_named = MagicMock()
+    hidden_named.getReferredCells.return_value = object()
+    hidden.NamedRanges.hasByName.side_effect = lambda name: name == "InternalName"
+    hidden.NamedRanges.getByName.return_value = hidden_named
+
+    sheets = MagicMock()
+    sheets.getCount.return_value = 2
+    sheets.getByIndex.side_effect = lambda idx: [active, hidden][idx]
+    doc.getSheets.return_value = sheets
+
+    bridge = CalcBridge(doc)
+    # Falls through past named-range search to A1 resolve (which raises or uses getCellRangeByName)
+    active.getCellRangeByName.return_value = object()
+    bridge.resolve_range_or_address("InternalName")
+    hidden.NamedRanges.getByName.assert_not_called()
+
+
+def test_resolve_range_or_address_qualified_missing_does_not_fall_back_to_global():
+    doc = MagicMock()
+    global_named = MagicMock()
+    global_named.getReferredCells.return_value = object()
+    doc.NamedRanges.hasByName.side_effect = lambda name: name == "Missing"
+    doc.NamedRanges.getByName.return_value = global_named
+
+    data_sheet = _sheet("Data")
+    data_sheet.NamedRanges.hasByName.return_value = False
+
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda name: name == "Data"
+    sheets.getByName.side_effect = lambda name: data_sheet
+    sheets.getCount.return_value = 1
+    sheets.getByIndex.return_value = data_sheet
+    doc.getSheets.return_value = sheets
+
+    bridge = CalcBridge(doc)
+    data_sheet.getCellRangeByName.return_value = object()
+    bridge.resolve_range_or_address("Data.Missing")
+    # Must NOT return or call global named range for "Missing"
+    doc.NamedRanges.getByName.assert_not_called()
 
 

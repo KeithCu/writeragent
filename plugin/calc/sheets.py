@@ -26,7 +26,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import UnoObjectError
 from plugin.framework.prompts import get_sheets_create_completion_instruction
 from plugin.framework.tool import ToolBase
 
@@ -38,12 +37,6 @@ from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_vi
 from plugin.calc.analyzer import SheetAnalyzer
 
 log = logging.getLogger("writeragent.calc")
-
-
-def _sheet_by_name(sheets: Any, name: str) -> Any:
-    if not sheets.hasByName(name):
-        raise UnoObjectError(f"No sheet found named '{name}'.")
-    return sheets.getByName(name)
 
 
 class ListSheets(ToolCalcSheetBase):
@@ -74,8 +67,7 @@ class SwitchSheet(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
 
         doc = ctx.doc
-        sheets = doc.getSheets()
-        sheet = _sheet_by_name(sheets, sheet_name)
+        sheet = CalcBridge(doc).get_sheet(sheet_name)
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
@@ -127,8 +119,8 @@ class RenameSheet(ToolCalcSheetBase):
         new_name = kwargs["new_name"]
 
         doc = ctx.doc
+        sheet = CalcBridge(doc).get_sheet(old_name)
         sheets = doc.getSheets()
-        sheet = _sheet_by_name(sheets, old_name)
         if old_name != new_name and sheets.hasByName(new_name):
             return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
         sheet.setName(new_name)
@@ -152,8 +144,8 @@ class DeleteSheet(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
 
         doc = ctx.doc
+        CalcBridge(doc).get_sheet(sheet_name)
         sheets = doc.getSheets()
-        _sheet_by_name(sheets, sheet_name)
         if sheets.getCount() <= 1:
             return self._tool_error("Cannot delete the only sheet in the document.")
         sheets.removeByName(sheet_name)
@@ -175,11 +167,10 @@ class ProtectSheet(ToolCalcSheetBase):
         should_protect = kwargs.get("protect", True)
 
         doc = ctx.doc
+        bridge = CalcBridge(doc)
         if sheet_name:
-            sheets = doc.getSheets()
-            sheet = _sheet_by_name(sheets, sheet_name)
+            sheet = bridge.get_sheet(sheet_name)
         else:
-            bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()
 
         if should_protect:

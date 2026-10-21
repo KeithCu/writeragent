@@ -499,3 +499,17 @@ def test_list_all_and_get_info_skip_hidden_sheets():
     fallback = NamedRangeGetInfo().execute(ctx, name="Other")
     assert fallback["status"] == "ok"
     assert fallback["result"]["scope"] == "Sheet2"
+
+
+def test_get_info_bare_sheet_qualified_name_resolves_sheet_scope():
+    """NamedRangeGetInfo on 'Data.LocalName' with no scope returns the Data sheet's range."""
+    local = _nr("LocalName", "$Data.$A$1")
+    data_sheet = _sheet("Data", {"LocalName": local})
+    sheet1 = _sheet("Sheet1", {})
+    ctx = _workbook("Sheet1", [sheet1, data_sheet], {})
+
+    info = NamedRangeGetInfo().execute(ctx, name="Data.LocalName")
+    assert info["status"] == "ok"
+    assert info["result"]["scope"] == "Data"
+    assert info["result"]["name"] == "LocalName"
+    assert info["result"]["content"] == "$Data.$A$1"
