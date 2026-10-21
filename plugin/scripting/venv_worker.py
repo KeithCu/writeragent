@@ -1442,6 +1442,7 @@ def run_code_in_user_venv(
 def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
+    A missing or exited child returns {"status": "ok"} and does not spawn.
     *uno_ctx* is unused. Config is process-global; the argument stays so
     existing callers can keep passing a context.
     """
@@ -1451,6 +1452,22 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
     manager, err = _get_worker_manager()
     if manager is None:
         return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
+
+    # What was wrong: OnUnload calls reset_python_session on the UNO thread,
+    # which holds the SolarMutex. With no live child, execute() warmed a new
+    # worker and blocked in _start_child's job.done.wait() on venv-worker-spawn.
+    # How it happened: every Calc open registers this listener
+    # (auto_open._geometric_open_job), and reset always called execute().
+    # _ensure_warmed_unlocked then spawns via a prime request (action is None)
+    # whenever _proc is missing or already exited. The spawn thread's Popen
+    # can GC a leftover Calc cell-range proxy; that destructor blocks on the
+    # SolarMutex the waiting main thread still holds.
+    # Why this change: the sandbox session lives only in the child. A dead
+    # child has nothing to drop, so return ok and do not call execute().
+    # A live child still resets in place; _ensure_running does not call
+    # _start_child when poll() is None.
+    if not manager._is_worker_alive():
+        return {"status": "ok"}
 
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)

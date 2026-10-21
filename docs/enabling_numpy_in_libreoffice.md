@@ -415,7 +415,7 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 | **Reset Python Session** (namespace + session DuckDB) | F9 / automatic / partial recalc                   |
 | Worker subprocess restart or crash              | Names from cells that did not recalc this pass    |
 | Init script hash change (re-seed)               | Until user resets (matches Excel: no reset on F9) |
-| Document close (`OnUnload`)                     |                                                   |
+| Document close (`OnUnload` — sends `reset_session` only when pool child is alive) | No child means kernel is already gone; close does not start one |
 
 
 

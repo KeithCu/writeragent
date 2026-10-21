@@ -248,6 +248,11 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
+        # OnUnload must finish a live reset before it returns. A background
+        # reset races a reopen of the same calc: URL and wipes the new kernel.
+        # reset_python_session returns without spawning when no child is alive,
+        # so this thread waits only for in-place IPC on a worker that already
+        # exists (_ensure_running does not call _start_child in that case).
         for sid in session_ids:
             if not sid:
                 continue

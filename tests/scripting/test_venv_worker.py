@@ -2059,6 +2059,41 @@ def test_run_code_and_reset_session_missing_inputs_include_code():
     assert "details" in empty_sid
 
 
+def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OnUnload calls reset on the UNO thread. A dead child must not execute().
+
+    execute() warms via _ensure_running -> _start_child, and the caller blocks
+    on venv-worker-spawn. Before the guard this records one reset_session call.
+    """
+    from plugin.scripting import venv_worker as venv_worker_module
+
+    calls: list[str | None] = []
+
+    def _execute(self: PythonWorkerManager, *args: object, **kwargs: object) -> dict[str, object]:
+        del self, args
+        action = kwargs.get("action")
+        calls.append(action if isinstance(action, str) else None)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(PythonWorkerManager, "execute", _execute)
+
+    dead = PythonWorkerManager("/tmp/python-dead", {"PATH": "/usr/bin"})
+    assert dead._is_worker_alive() is False
+    monkeypatch.setattr(venv_worker_module, "_get_worker_manager", lambda pool="default": (dead, None))
+
+    res = reset_python_session(None, "calc:file:///closed.ods")
+    assert res["status"] == "ok"
+    assert calls == []
+
+    alive = PythonWorkerManager("/tmp/python-alive", {"PATH": "/usr/bin"})
+    alive._proc = _MockProc(None)  # poll() is None -> _is_worker_alive is True
+    monkeypatch.setattr(venv_worker_module, "_get_worker_manager", lambda pool="default": (alive, None))
+
+    res_live = reset_python_session(None, "calc:file:///live.ods")
+    assert res_live["status"] == "ok"
+    assert calls == ["reset_session"]
+
+
 def test_worker_read_rejects_oversize_length_prefix():
     mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
     mgr._proc = MagicMock(poll=MagicMock(return_value=None))
