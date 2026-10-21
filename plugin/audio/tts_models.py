@@ -196,9 +196,7 @@ def _resolve_kokoro_model_files(
     A failure is remembered for the generation so subsequent sentences in the same
     utterance do not re-attempt the download.
     """
-    model_path, voices_path = resolve_kokoro_model_paths(
-        KOKORO_MODEL_FILENAME, KOKORO_VOICES_FILENAME,
-    )
+    model_path, voices_path = resolve_kokoro_model_paths()
     model_s = os.fspath(model_path)
     voices_s = os.fspath(voices_path)
 
@@ -244,6 +242,25 @@ def _resolve_kokoro_model_files(
     return model_s, voices_s
 
 
+_PIPER_RELEASE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+
+def _download_piper_pair(
+    voice_id: str,
+    onnx: str,
+    json_path: str,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
+    rel_onnx, rel_json = PIPER_VOICE_MODELS[voice_id][0], PIPER_VOICE_MODELS[voice_id][1]
+    ok = _download_to(f"{_PIPER_RELEASE_BASE}/{rel_onnx}", onnx, timeout=60.0, cancelled=cancelled)
+    ok = ok and _download_to(f"{_PIPER_RELEASE_BASE}/{rel_json}", json_path, timeout=30.0, cancelled=cancelled)
+    if not ok:
+        for path in (onnx, json_path):
+            with contextlib.suppress(OSError):
+                os.remove(path)
+    return ok
+
+
 def _resolve_piper_model_file(
     voice: str,
     on_status: Callable[[str], None] | None = None,
@@ -274,22 +291,15 @@ def _resolve_piper_model_file(
     short = voice_short_name(clean_v)
 
     if clean_v in PIPER_VOICE_MODELS and not is_download_failed(generation, clean_v):
-        rel_onnx, rel_json = PIPER_VOICE_MODELS[clean_v][0], PIPER_VOICE_MODELS[clean_v][1]
-        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
         _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
         log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
-        ok_onnx = _download_to(f"{base_url}/{rel_onnx}", voice_s, timeout=60.0, cancelled=cancelled)
-        ok_json = ok_onnx and _download_to(f"{base_url}/{rel_json}", json_s, timeout=30.0, cancelled=cancelled)
-        if ok_onnx and ok_json:
+        if _download_piper_pair(clean_v, voice_s, json_s, cancelled):
             _clear_tts_status(on_status)
             return voice_s
 
         download_failed = True
         remember_download_failed(generation, clean_v)
         log.warning("Could not auto-download Piper voice '%s'", clean_v)
-        for p in (voice_s, json_s):
-            with contextlib.suppress(OSError):
-                os.remove(p)
 
     default_voice_file, default_json = resolve_piper_voice_paths(PIPER_FALLBACK_VOICE)
     default_voice_s = os.fspath(default_voice_file)
@@ -304,8 +314,6 @@ def _resolve_piper_model_file(
         return default_voice_s
 
     if not is_download_failed(generation, PIPER_FALLBACK_VOICE):
-        rel_onnx, rel_json = PIPER_VOICE_MODELS[PIPER_FALLBACK_VOICE][0], PIPER_VOICE_MODELS[PIPER_FALLBACK_VOICE][1]
-        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
         if download_failed and other_voice:
             _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
             _clear_tts_status(on_status)
@@ -313,17 +321,17 @@ def _resolve_piper_model_file(
             fallback_short = voice_short_name(PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
-        ok_onnx = _download_to(f"{base_url}/{rel_onnx}", default_voice_s, timeout=60.0, cancelled=cancelled)
-        ok_json = ok_onnx and _download_to(f"{base_url}/{rel_json}", default_json_s, timeout=30.0, cancelled=cancelled)
-        if ok_onnx and ok_json:
+        if _download_piper_pair(PIPER_FALLBACK_VOICE, default_voice_s, default_json_s, cancelled):
             _clear_tts_status(on_status)
             return default_voice_s
 
         remember_download_failed(generation, PIPER_FALLBACK_VOICE)
         log.warning("Could not auto-download Piper default voice model")
-        for p in (default_voice_s, default_json_s):
-            with contextlib.suppress(OSError):
-                os.remove(p)
+
+    failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
+    _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
+    _clear_tts_status(on_status)
+    return None
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
     _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)

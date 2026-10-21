@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from pathlib import Path
+import tempfile
+
+from plugin.framework.errors import best_effort
 
 log = logging.getLogger(__name__)
 
@@ -26,12 +28,10 @@ log = logging.getLogger(__name__)
 KOKORO_MODEL_FILENAME = "kokoro-v1.0.onnx"
 KOKORO_VOICES_FILENAME = "voices-v1.0.bin"
 
-# First existing file wins. Downloads target the first entry unless a later
-# directory already holds one of the Kokoro pair and can take the sibling.
-# Pipecat's tree is a probe hit, not the dump location: a fresh download in
-# ``pipecat/`` would be invisible to apps that only look in ``kokoro/``.
-_KOKORO_PROBE: tuple[tuple[str, ...], ...] = (("kokoro",), ("kokoro-tts",), ("pipecat", "kokoro-onnx"))
-_PIPER_PROBE: tuple[tuple[str, ...], ...] = (("piper",), ("pipecat", "piper"))
+_KOKORO_CANONICAL = ("kokoro",)
+_PIPER_CANONICAL = ("piper",)
+_KOKORO_PROBE: tuple[tuple[str, ...], ...] = (_KOKORO_CANONICAL, ("kokoro-tts",), ("pipecat", "kokoro-onnx"))
+_PIPER_PROBE: tuple[tuple[str, ...], ...] = (_PIPER_CANONICAL, ("pipecat", "piper"))
 
 _KOKORO_ENV_FILES: dict[str, str] = {"KOKORO_MODEL_PATH": KOKORO_MODEL_FILENAME, "KOKORO_VOICES_PATH": KOKORO_VOICES_FILENAME}
 
@@ -54,7 +54,7 @@ def kokoro_probe_dirs() -> tuple[Path, ...]:
 
 def kokoro_download_dir() -> Path:
     """Canonical Kokoro dump: ``<cache>/kokoro``."""
-    return kokoro_probe_dirs()[0]
+    return shared_cache_root().joinpath(*_KOKORO_CANONICAL)
 
 
 def piper_probe_dirs() -> tuple[Path, ...]:
@@ -64,10 +64,10 @@ def piper_probe_dirs() -> tuple[Path, ...]:
 
 def piper_download_dir() -> Path:
     """Canonical Piper dump: ``<cache>/piper``."""
-    return piper_probe_dirs()[0]
+    return shared_cache_root().joinpath(*_PIPER_CANONICAL)
 
 
-def resolve_kokoro_model_paths(model_filename: str = KOKORO_MODEL_FILENAME, voices_filename: str = KOKORO_VOICES_FILENAME) -> tuple[Path, Path]:
+def resolve_kokoro_model_paths() -> tuple[Path, Path]:
     """Return the Kokoro model and voices paths to use or to download into.
 
     A non-empty ``KOKORO_MODEL_PATH`` / ``KOKORO_VOICES_PATH`` locks that file:
@@ -88,12 +88,12 @@ def resolve_kokoro_model_paths(model_filename: str = KOKORO_MODEL_FILENAME, voic
     if model_path is None or voices_path is None:
         for directory in kokoro_probe_dirs():
             if model_path is None:
-                candidate = directory / model_filename
+                candidate = directory / KOKORO_MODEL_FILENAME
                 if candidate.is_file():
                     model_path = candidate
                     model_found = directory
             if voices_path is None:
-                candidate = directory / voices_filename
+                candidate = directory / KOKORO_VOICES_FILENAME
                 if candidate.is_file():
                     voices_path = candidate
                     voices_found = directory
@@ -101,21 +101,18 @@ def resolve_kokoro_model_paths(model_filename: str = KOKORO_MODEL_FILENAME, voic
                 break
 
     if model_path is None:
-        model_path = _kokoro_missing_target(voices_found) / model_filename
+        model_path = _kokoro_missing_target(voices_found) / KOKORO_MODEL_FILENAME
     if voices_path is None:
-        voices_path = _kokoro_missing_target(model_found) / voices_filename
+        voices_path = _kokoro_missing_target(model_found) / KOKORO_VOICES_FILENAME
     return model_path, voices_path
 
 
 def kokoro_should_download(path: Path, env_var: str) -> bool:
     """Whether a missing Kokoro path should be fetched.
 
-    An explicit env path is downloaded only when it is the canonical cache
-    file. The previous resolver used ``path == default and not exists`` for
-    the same reason: ``KOKORO_MODEL_PATH=/tmp/missing.onnx`` was returned
-    unchanged and did not trigger a download or a search of ``~/.cache``.
-    A path chosen by probing (including a sibling beside a file we already
-    found) is a download target.
+    An env override is downloaded only when os.fspath(path) equals both the
+    override and kokoro_download_dir() / filename. Compare strings, do not resolve().
+    A probed path is a download target.
     """
     if path.is_file():
         return False
@@ -126,8 +123,6 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
     if override is None:
         return True
     canonical = kokoro_download_dir() / filename
-    # Exact string match, not ``resolve()``: the old code compared the env
-    # string to the expanded default and did not fold ``..`` or symlinks.
     return os.fspath(override) == os.fspath(path) and os.fspath(path) == os.fspath(canonical)
 
 
@@ -159,9 +154,7 @@ def _under_cache(relative: tuple[tuple[str, ...], ...]) -> tuple[Path, ...]:
 def _env_override(name: str) -> Path | None:
     """Set env path, or None when the variable is missing or blank.
 
-    A blank value is treated like unset (``os.environ.get(name) or default``).
-    The path is not expanded: an override of ``~/models/x`` used to be taken
-    literally, and a missing file must stay that literal path.
+    A blank variable is unset. Do not expanduser; a missing override stays literal.
     """
     raw = os.environ.get(name)
     if not raw:
@@ -185,15 +178,10 @@ def _directory_is_writable(directory: Path) -> bool:
     """
     if not directory.is_dir():
         return False
-    # Unique per call so two resolves in one process do not share the probe name.
-    probe = directory / f".writeragent-write-probe-{uuid.uuid4().hex}"
     try:
-        fd = os.open(os.fspath(probe), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        fd, probe_path = tempfile.mkstemp(prefix=".writeragent-write-probe-", dir=directory)
     except OSError:
         return False
     os.close(fd)
-    try:
-        probe.unlink()
-    except OSError:
-        log.debug("Could not remove cache write probe %s", probe, exc_info=True)
+    best_effort(Path(probe_path).unlink, "Could not remove cache write probe")
     return True
