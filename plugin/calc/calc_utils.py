@@ -25,14 +25,20 @@ import uno
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.framework.errors import UnoObjectError, uno_read
 
+# What was wrong: When generating tool proxies without LibreOffice, com.sun.star.table
+#   is mocked via MockFinder returning MockBase for CellContentType. Accessing
+#   CellContentType.EMPTY raised AttributeError (not caught by except ImportError),
+#   crashing imports of all calc modules importing calc_utils.
+# Why this change: Use getattr with fallback defaults and catch AttributeError so
+#   calc modules import cleanly in live LibreOffice, unit tests, and mock environments.
 try:
     from com.sun.star.table import CellContentType
 
-    EMPTY = CellContentType.EMPTY
-    VALUE = CellContentType.VALUE
-    TEXT = CellContentType.TEXT
-    FORMULA = CellContentType.FORMULA
-except ImportError:
+    EMPTY = getattr(CellContentType, "EMPTY", cast("Any", 0))
+    VALUE = getattr(CellContentType, "VALUE", cast("Any", 1))
+    TEXT = getattr(CellContentType, "TEXT", cast("Any", 2))
+    FORMULA = getattr(CellContentType, "FORMULA", cast("Any", 3))
+except (ImportError, AttributeError):
     EMPTY = cast("Any", 0)
     VALUE = cast("Any", 1)
     TEXT = cast("Any", 2)
