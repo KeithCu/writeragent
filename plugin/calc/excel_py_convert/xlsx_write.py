@@ -35,6 +35,7 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     _col_row,
     _shared_formula_map,
     _sheet_rels_path,
+    col_index_to_letters,
     shift_xlws_py_formula,
 )
 from plugin.calc.formula_fill import adjust_a1_formula
@@ -61,7 +62,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_RE_A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 _ILLEGAL_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
@@ -240,14 +240,10 @@ def _strip_python_in_excel_parts(out_path: Path) -> None:  # pyright: ignore[rep
 
 def _a1_row_col(a1: str) -> tuple[int, int] | None:
     """Return (row_1_based, col_1_based) for an A1 reference."""
-    m = _RE_A1.match((a1 or "").replace("$", "").strip())
-    if not m:
+    row, col = _col_row(a1)
+    if row == 0 and col == 0:
         return None
-    col_str, row_str = m.group(1).upper(), m.group(2)
-    col = 0
-    for ch in col_str:
-        col = col * 26 + (ord(ch) - 64)
-    return int(row_str), col
+    return row, col
 
 
 def _ensure_sheet_data(ws_root: ET.Element) -> ET.Element:
@@ -367,11 +363,7 @@ class _WorksheetCellIndex:
         if target_col in row_cells:
             return row_cells[target_col]
 
-        col_str = ""
-        n = target_col
-        while n > 0:
-            n, rem = divmod(n - 1, 26)
-            col_str = chr(65 + rem) + col_str
+        col_str = col_index_to_letters(target_col)
         a1_canonical = f"{col_str}{target_row}"
 
         c_tag = f"{{{SSML_NS}}}c" if row_el.tag.startswith("{") else "c"

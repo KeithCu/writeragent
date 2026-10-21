@@ -50,8 +50,6 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         user_input, extra_instructions = edit_request
 
     area = selection.getRangeAddress()
-    col_range = range(area.StartColumn, area.EndColumn + 1)
-    row_range = range(area.StartRow, area.EndRow + 1)
 
     extend_sys = get_config_str("extend_selection_system_prompt")
     extend_max = get_config_int("extend_selection_max_tokens")

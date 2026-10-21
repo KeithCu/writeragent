@@ -38,7 +38,7 @@ FLAT_CSV_EXTS = (".csv", ".tsv")
 FLAT_PARQUET_EXTS = (".parquet",)
 FLAT_JSON_EXTS = (".json", ".jsonl", ".ndjson")
 FLAT_FILE_EXTS = FLAT_CSV_EXTS + FLAT_PARQUET_EXTS + FLAT_JSON_EXTS
-_OFFICE_HINT_EXTS = (".xlsx", ".xls", ".ods")
+OFFICE_FILE_EXTS = (".xlsx", ".xls", ".ods")
 
 _READONLY_VIOLATION_MESSAGE = "SQL contains write, attach, or path escape"
 
@@ -99,7 +99,7 @@ def _flat_ext(path: str) -> str:
 def unsupported_flat_type_message(filename: str, ext: str) -> str:
     shown = ext or "(no extension)"
     direct = ", ".join(FLAT_FILE_EXTS)
-    office = ", ".join(_OFFICE_HINT_EXTS)
+    office = ", ".join(OFFICE_FILE_EXTS)
     return (
         f"Unsupported folder file type {shown} for {filename!r}. "
         f"Direct DuckDB reads: {direct}. "

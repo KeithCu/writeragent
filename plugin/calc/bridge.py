@@ -26,7 +26,12 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import uno_read
-from plugin.calc.address_utils import parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import (
+    parse_address,
+    parse_range_string,
+    split_sheet_and_name,
+    split_sheet_prefix,
+)
 
 log = logging.getLogger("writeragent.calc")
 
@@ -109,10 +114,7 @@ class CalcBridge:
         prefix on the reference wins over *sheet_name*; disagreeing is an
         error rather than a silent choice.
         """
-        prefix, address = split_sheet_prefix(ref)
-        if prefix is not None and sheet_name and prefix != sheet_name:
-            raise ValueError("Reference names sheet '%s' but sheet_name says '%s' — pass one or the other." % (prefix, sheet_name))
-        name = prefix or sheet_name
+        address, name = split_sheet_and_name(ref, sheet_name)
         sheet = self.get_sheet(name) if name else self.get_active_sheet()
         return sheet, address
 

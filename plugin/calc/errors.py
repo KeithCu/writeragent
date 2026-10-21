@@ -23,7 +23,6 @@ CellInspector, and ErrorDetector per call using ``ctx.doc``.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcErrorBase
@@ -34,8 +33,6 @@ from plugin.calc.error_detector import ErrorDetector
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("writeragent.calc")
 
 
 class DetectErrors(ToolCalcErrorBase):

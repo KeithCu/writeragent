@@ -11,7 +11,6 @@ from plugin.framework.deal_shim import (
     ascii_bounded,
     str_bounded,
 )
-
 # Identifier / placeholder / xl() alphabet. Pytest keeps Unicode ``str_bounded``
 # so real Excel scripts stay legal; CrossHair's unrestricted Unicode of length 16
 # is how regular cover synthesized ~193 junk examples of ``_normalize_excel_placeholders``.

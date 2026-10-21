@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Apply a DAG conversion report to an open Calc document via UNO.
-
-Used when openpyxl is unavailable in the LibreOffice host. Parks code on a visible
-``py_code_<Sheet>`` bank sheet when code is longer than 1000 characters (one per
-source worksheet) at the caller A1; shorter scripts stay inline. Formulas use
-Calc ``;`` separators. Spill ranges are cleared before rewrite.
-"""
+"""In-place UNO apply of a DAG report on OnLoadFinished, ; separators, spill clear before rewrite."""
 
 from __future__ import annotations
 
@@ -24,13 +18,9 @@ from plugin.calc.excel_py_convert.script_bank import (
 from plugin.framework.errors import best_effort
 
 if TYPE_CHECKING:
-    from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
+    from plugin.calc.excel_py_convert.models import ConversionReport
 
 log = logging.getLogger(__name__)
-
-
-def _calc_formula_for_cell(cell: ConvertedCell) -> str:
-    return formula_for_converted_cell(cell, separator=";")
 
 
 def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
@@ -45,22 +35,18 @@ def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
 
 
 def _rect_to_a1(c1: int, r1: int, c2: int, r2: int) -> str:
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_index_to_str
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import col_index_to_letters
 
     if c1 == c2 and r1 == r2:
-        return f"{_col_index_to_str(c1)}{r1}"
-    return f"{_col_index_to_str(c1)}{r1}:{_col_index_to_str(c2)}{r2}"
+        return f"{col_index_to_letters(c1)}{r1}"
+    return f"{col_index_to_letters(c1)}{r1}:{col_index_to_letters(c2)}{r2}"
 
 
 def _clear_range_object(rng: Any) -> None:
-    if hasattr(rng, "clearContents"):
-        try:
-            rng.clearContents(511)
-        except Exception:
-            rng.clearContents(0)
-    else:
-        rng.setFormula("")
-        rng.setString("")
+    try:
+        rng.clearContents(511)
+    except Exception:
+        rng.clearContents(0)
 
 
 def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
@@ -136,7 +122,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             errors.append(f"unmapped sheet {cell.sheet!r} for cell {cell.cell}")
             continue
         try:
-            formula = _calc_formula_for_cell(cell)
+            formula = formula_for_converted_cell(cell, separator=";")
         except Exception as exc:
             errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
             continue
@@ -228,6 +214,5 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             _rollback()
             return errors
 
-    if hasattr(doc, "calculateAll"):
-        best_effort(doc.calculateAll, "calculateAll after Excel PY apply")
+    best_effort(doc.calculateAll, "calculateAll after Excel PY apply")
     return []

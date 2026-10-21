@@ -409,7 +409,6 @@
         "tool": "deal+hypothesis",
         "functions_contracted": [
           "_unwrap_cell",
-          "normalize_python_data_shape",
           "finalize_python_data",
           "calc_addin_data_to_python"
         ],

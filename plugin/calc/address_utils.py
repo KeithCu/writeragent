@@ -159,6 +159,17 @@ def _parse_a1(text: str, label: str) -> tuple[int, int]:
     return column_to_index(match.group(1)), row_num - 1
 
 
+def split_sheet_and_name(ref: str, sheet_name: str | None) -> tuple[str, str | None]:
+    """Return ``(address, sheet)``. A prefix on *ref* wins over *sheet_name*."""
+    prefix, address = split_sheet_prefix(ref)
+    if prefix is not None and sheet_name and prefix != sheet_name:
+        raise ValueError(
+            "Reference names sheet '%s' but sheet_name says '%s' — pass one or the other."
+            % (prefix, sheet_name)
+        )
+    return address, (prefix or sheet_name)
+
+
 @deal.pre(lambda address: ascii_bounded(address, DEAL_MAX_CELL_REF, min_len=1))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
 @deal.raises(ValueError)

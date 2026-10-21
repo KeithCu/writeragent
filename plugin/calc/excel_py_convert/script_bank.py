@@ -20,6 +20,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Callable
 
+from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
@@ -98,13 +99,6 @@ def resolve_bank_cell_reference(
     return lookup_fn(sheet, a1)
 
 
-def _col_letters_to_index(col: str) -> int:
-    n = 0
-    for ch in col.upper():
-        n = n * 26 + (ord(ch) - 64)
-    return n
-
-
 def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
     """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
     raw = (ref or "").replace("$", "").strip()
@@ -116,14 +110,14 @@ def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
         m = _A1_SPAN_CELL_RE.match(raw)
         if not m:
             return None
-        c, r = _col_letters_to_index(m.group(1)), int(m.group(2))
+        c, r = letters_to_col_index(m.group(1)), int(m.group(2))
         return ((c, r), (c, r))
     left, right = raw.split(":", 1)
     m1, m2 = _A1_SPAN_CELL_RE.match(left.strip()), _A1_SPAN_CELL_RE.match(right.strip())
     if not m1 or not m2:
         return None
-    c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
-    c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
+    c1, r1 = letters_to_col_index(m1.group(1)), int(m1.group(2))
+    c2, r2 = letters_to_col_index(m2.group(1)), int(m2.group(2))
     return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
 
 

@@ -34,6 +34,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
     _normalize_excel_placeholders,
     analyze_xl_calls,
+    format_python_syntax_issue,
 )
 from plugin.calc.python.formula_edit import parse_python_formula
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
@@ -82,8 +83,6 @@ def _data_header_modes(bindings: Sequence[BindingInfo], n: int) -> list[HeaderMo
     while len(modes) < n:
         modes.append("omit")
     return modes
-
-
 def _omit_modes(n: int) -> list[HeaderMode]:
     return ["omit" for _unused in range(max(n, 0))]
 
@@ -278,13 +277,7 @@ def rewrite_dag_code_to_excel(
     try:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
-        msg = getattr(exc, "msg", str(exc))
-        lineno = getattr(exc, "lineno", None)
-        offset = getattr(exc, "offset", None)
-        loc = f"line {lineno}" if lineno is not None else "unknown line"
-        if offset is not None:
-            loc = f"{loc}:{offset}"
-        issues.append(f"Python syntax error at {loc}: {msg}")
+        issues.append(format_python_syntax_issue(exc))
         return code, deps, issues, True
 
     line_starts = line_starts_exact(text)

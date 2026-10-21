@@ -109,10 +109,6 @@ class RewriteResult:
     fatal: bool = False
     used: list[str] = field(default_factory=list)
 
-    def __iter__(self):
-        """Enable tuple unpacking (code, issues, used, header_modes) for backward compatibility."""
-        return iter((self.code, self.issues, self.used, self.header_modes))
-
 
 @dataclass
 class _XlAnalysis:
@@ -252,6 +248,17 @@ def _p_num_from_arg(arg0: ast.AST) -> tuple[int | None, str | None, bool]:
     return None, None, True
 
 
+def format_python_syntax_issue(exc: BaseException) -> str:
+    """Format an AST parse exception as a stable issue string with line/col location."""
+    msg = getattr(exc, "msg", str(exc))
+    lineno = getattr(exc, "lineno", None)
+    offset = getattr(exc, "offset", None)
+    loc = f"line {lineno}" if lineno is not None else "unknown line"
+    if offset is not None:
+        loc = f"{loc}:{offset}"
+    return f"Python syntax error at {loc}: {msg}"
+
+
 @deal.pre(lambda code, *_unused, **__: _deal_excel_src_ok(code or ""))
 def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
@@ -265,13 +272,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
         # Fail closed — do not guess call sites with a hand-rolled scanner.
-        msg = getattr(exc, "msg", str(exc))
-        lineno = getattr(exc, "lineno", None)
-        offset = getattr(exc, "offset", None)
-        loc = f"line {lineno}" if lineno is not None else "unknown line"
-        if offset is not None:
-            loc = f"{loc}:{offset}"
-        issues.append(f"Python syntax error at {loc}: {msg}")
+        issues.append(format_python_syntax_issue(exc))
         return [], issues
 
     line_starts = line_starts_exact(src)
@@ -395,9 +396,7 @@ def rewrite_excel_code(code: str, *, num_deps: int, index_map: dict[int, int] | 
     """Normalize ``xl(...)`` bindings to runnable ``xl("%Pn%", …)``; leave other code intact.
 
     *index_map* maps original 0-based dep index → normalized binding index after dedup.
-    Returns a ``RewriteResult`` dataclass that also unpacks as
-    ``(new_code, issues, used_original_indices, header_modes_by_original_index)``
-    for backward compatibility.
+    Returns a ``RewriteResult`` dataclass.
 
     Statement-form ``xl`` (e.g. under ``if``) is kept and quoted like any other
     binding site. Literal / dynamic ``xl(...)`` is reported and fail-closed by

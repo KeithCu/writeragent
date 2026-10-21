@@ -26,15 +26,29 @@ _RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
+def letters_to_col_index(col: str) -> int:
+    """1-based. ``A`` → 1. Empty → 0."""
+    n = 0
+    for ch in (col or "").upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n
+
+
+def col_index_to_letters(col: int) -> str:
+    """1-based. ``1`` → ``A``. Zero or negative → ``""``."""
+    s = ""
+    while col > 0:
+        col, rem = divmod(col - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
 def _col_row(a1: str) -> tuple[int, int]:
     m = _RE_A1_CELL.match(a1.replace("$", "").strip())
     if not m:
         return 0, 0
-    col_s, row_s = m.group(1).upper(), m.group(2)
-    col = 0
-    for ch in col_s:
-        col = col * 26 + (ord(ch) - 64)
-    return int(row_s), col
+    col = letters_to_col_index(m.group(1))
+    return int(m.group(2)), col
 
 
 def split_top_level_args(tail: str) -> list[str]:
@@ -124,14 +138,6 @@ _RE_ANCHORARRAY = re.compile(r"^((?:_xlfn\.)?ANCHORARRAY\s*\()(.*)(\))$", re.IGN
 _RE_DEFINED_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 
-def _col_index_to_str(col: int) -> str:
-    s = ""
-    while col > 0:
-        col, rem = divmod(col - 1, 26)
-        s = chr(65 + rem) + s
-    return s
-
-
 def _shift_single_coord(coord: str, delta_row: int, delta_col: int) -> str | None:
     m = _RE_COORD.match(coord.strip())
     if not m:
@@ -146,7 +152,7 @@ def _shift_single_coord(coord: str, delta_row: int, delta_col: int) -> str | Non
     new_r = r if row_locked else r + delta_row
     if new_c < 1 or new_r < 1 or new_c > 16384 or new_r > 1048576:
         return None
-    new_col_str = _col_index_to_str(new_c)
+    new_col_str = col_index_to_letters(new_c)
     col_prefix = "$" if col_locked else ""
     row_prefix = "$" if row_locked else ""
     return f"{col_prefix}{new_col_str}{row_prefix}{new_r}"
@@ -505,4 +511,3 @@ def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
                 c.row, c.col = _col_row(c.cell)
         return model
     return parse_excel_xlsx(path)
-

@@ -120,6 +120,14 @@ def test_address_utils():
             parse_range_string(whole_col)
     assert parse_range_string(split_sheet_prefix("Sheet1.$A$1:$B$2")[1]) == ((0, 0), (1, 1))
 
+    from plugin.calc.address_utils import split_sheet_and_name
+
+    assert split_sheet_and_name("Summary.B3", None) == ("B3", "Summary")
+    with pytest.raises(ValueError) as excinfo:
+        split_sheet_and_name("Summary.B3", "Other")
+    assert "Summary" in str(excinfo.value)
+    assert "Other" in str(excinfo.value)
+
 
 def test_quote_sheet_name_and_qualify_a1():
     from plugin.calc.address_utils import qualify_a1, quote_sheet_name
@@ -153,4 +161,3 @@ def test_format_range_and_format_range_address():
     single_cell_addr = SimpleNamespace(StartColumn=2, StartRow=3, EndColumn=2, EndRow=3)
     assert format_range_address(single_cell_addr) == "C4:C4"
     assert format_range_address(single_cell_addr, collapse_single=True) == "C4"
-

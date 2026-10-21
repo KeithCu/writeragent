@@ -19,7 +19,7 @@ import hypothesis.strategies as st
 from hypothesis import strategies
 
 import plugin.scripting.payload_codec as pc
-from plugin.calc.calc_addin_data import normalize_python_data_shape
+from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     ForceBinary,
@@ -327,7 +327,7 @@ def all_ab_grid_cases() -> list[AbGridCase]:
 def prepare_grid(case: AbGridCase) -> list[Any] | list[list[Any]]:
     grid = case.grid
     if case.calc_shape and grid and isinstance(grid[0], list):
-        shaped = normalize_python_data_shape([list(row) for row in grid])
+        shaped = ensure_rectangular_2d([list(row) for row in grid])
         return shaped
     return grid
 

@@ -17,7 +17,11 @@ from plugin.doc.document_research import get_document_directory, resolve_listing
 from plugin.framework.errors import CalcError, ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.venv.duckdb_sql import FLAT_FILE_EXTS, unsupported_flat_type_message
+from plugin.scripting.venv.duckdb_sql import (
+    FLAT_FILE_EXTS,
+    MAX_TABLE_ROWS,
+    unsupported_flat_type_message,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,7 +33,6 @@ log = logging.getLogger("writeragent.calc.duckdb")
 from plugin.calc.ods_cache import EXCEL_EXTENSIONS
 
 OFFICE_EXTS = EXCEL_EXTENSIONS + (".ods",)
-
 
 class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
@@ -53,13 +56,13 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         "Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. "
         'Optional tables file="budget.xlsx" reads that sibling instead of the active doc. '
         "Host prepares all UNO data + validates. "
-        "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
+        f"Results cap at {MAX_TABLE_ROWS} rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
         "when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "sql": {"type": "string", "description": ("Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.")},
+            "sql": {"type": "string", "description": (f"Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than {MAX_TABLE_ROWS} rows are truncated and flagged.")},
             "files": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
@@ -173,7 +176,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     # (None, None) skip used to append the basename to direct_files
                     # so SQL ran without the table and looked like a missing FROM.
                     try:
-                        _tbl, office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
+                        office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
                     except ToolExecutionError as exc:
                         return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                     use_name = name_hint or bn
@@ -188,7 +191,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
             # Enforce the same data size limit used for analysis / =PY()
             max_cells = configured_python_max_data_cells()
             for name, entry in list(preloaded.items()):
-                g = entry.get("grid") if isinstance(entry, dict) and "grid" in entry else entry
+                g = entry["grid"]
                 if g:
                     size_err = check_python_data_size(g, max_cells=max_cells)
                     if size_err:
@@ -233,13 +236,6 @@ def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:
             if cell is not None and cell != "":
                 return True
     return False
-
-
-def _sanitize_sql_table_name(raw: str) -> str:
-    tbl_name = "".join(c if c.isalnum() or c in "_$" else "_" for c in raw)
-    if not tbl_name or tbl_name[0].isdigit():
-        return "sheet_" + tbl_name
-    return tbl_name
 
 
 def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[str, Any]:
@@ -455,7 +451,7 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
     full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
     if not os.path.isfile(full_path):
         raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
-    _tbl, grid = _read_sibling_office_file_as_grid(ctx, full_path, sheet_hint=parsed.get("sheet"), named_range=parsed.get("named_range"), range_a1=parsed.get("range"))
+    grid = _read_sibling_office_file_as_grid(ctx, full_path, sheet_hint=parsed.get("sheet"), named_range=parsed.get("named_range"), range_a1=parsed.get("range"))
     return grid
 
 
@@ -553,13 +549,13 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
         log.exception("Failed to write ODS cache for %s", full_path)
 
 
-def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None, *, named_range: str | None = None, range_a1: str | None = None) -> tuple[str, list[list[Any]]]:
+def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None, *, named_range: str | None = None, range_a1: str | None = None) -> list[list[Any]]:
     """Open a sibling .xlsx/.ods hidden+readonly and read a table identity.
 
     Default / ``#SheetName`` is that sheet's used range (same
     ``createCursor`` + ``gotoStart/EndOfUsedArea`` path as ``SheetAnalyzer``).
     ``named_range`` and ``range_a1`` are the same identities as the ``tables``
-    catalog. Returns ``(table_name, grid)``. Raises ``ToolExecutionError`` on
+    catalog. Returns ``grid``. Raises ``ToolExecutionError`` on
     open, missing sheet/name, or empty/unusable used-range — never ``(None, None)``.
 
     Sibling ``.xlsx``/``.xls`` reuse ``writeragent_ods_cache/`` when the
@@ -605,8 +601,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
 
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
 
-        tbl_name = _sanitize_sql_table_name(os.path.splitext(os.path.basename(full_path))[0])
-        return tbl_name, grid
+        return grid
     except ToolExecutionError:
         raise
     except Exception as exc:

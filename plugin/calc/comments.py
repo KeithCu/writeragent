@@ -7,21 +7,14 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcCommentBase
-from plugin.calc.address_utils import format_address, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import format_address, parse_address, split_sheet_and_name
 from plugin.calc.calc_utils import resolve_sheet
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("writeragent.calc")
-
-
-def _cell_label(col: int, row: int) -> str:
-    return format_address(col, row)
 
 
 def _annotation_date(dt: Any) -> str:
@@ -39,19 +32,6 @@ def _annotation_date(dt: Any) -> str:
     if not dt:
         return ""
     return "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
-
-
-def _parse_cell_ref(cell_ref: str) -> tuple[int, int]:
-    """Parse 'B3' into (col, row) 0-based tuple."""
-    return parse_address(cell_ref)
-
-
-def _split_cell_sheet(cell_ref: str, sheet_name: str | None) -> tuple[str, str | None]:
-    """Let a sheet-qualified cell reference pick the sheet."""
-    prefix, address = split_sheet_prefix(cell_ref)
-    if prefix is not None and sheet_name and prefix != sheet_name:
-        raise ValueError("Reference names sheet '%s' but sheet_name says '%s' — pass one or the other." % (prefix, sheet_name))
-    return address, (prefix or sheet_name)
 
 
 def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
@@ -103,7 +83,7 @@ class ListCellComments(ToolCalcCommentBase):
             date_str = _annotation_date(cell_ann.getDate())
             comments.append(
                 {
-                    "cell": _cell_label(pos.Column, pos.Row),
+                    "cell": format_address(pos.Column, pos.Row),
                     "author": ann.getAuthor(),
                     # .xlsx has no date field on a comment element, so an
                     # empty date there is the format, not a failure.
@@ -135,7 +115,7 @@ class AddCellComment(ToolCalcCommentBase):
             return self._tool_error("cell and text are required.")
 
         try:
-            cell_ref, sheet_name = _split_cell_sheet(cell_ref, kwargs.get("sheet"))
+            cell_ref, sheet_name = split_sheet_and_name(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
             return self._tool_error(str(e))
 
@@ -143,7 +123,7 @@ class AddCellComment(ToolCalcCommentBase):
         sheet = resolve_sheet(doc, sheet_name)
 
         try:
-            col, row = _parse_cell_ref(cell_ref)
+            col, row = parse_address(cell_ref)
         except ValueError as e:
             return self._tool_error(str(e))
 
@@ -183,7 +163,7 @@ class DeleteCellComment(ToolCalcCommentBase):
             return self._tool_error("cell is required.")
 
         try:
-            cell_ref, sheet_name = _split_cell_sheet(cell_ref, kwargs.get("sheet"))
+            cell_ref, sheet_name = split_sheet_and_name(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
             return self._tool_error(str(e))
 
@@ -191,7 +171,7 @@ class DeleteCellComment(ToolCalcCommentBase):
         sheet = resolve_sheet(doc, sheet_name)
 
         try:
-            col, row = _parse_cell_ref(cell_ref)
+            col, row = parse_address(cell_ref)
         except ValueError as e:
             return self._tool_error(str(e))
 

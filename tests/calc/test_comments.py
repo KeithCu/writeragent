@@ -8,7 +8,7 @@
 import json
 from unittest.mock import MagicMock
 
-from plugin.calc.comments import ListCellComments, _annotation_date, _annotation_text, _split_cell_sheet
+from plugin.calc.comments import ListCellComments, _annotation_date, _annotation_text
 
 
 def test_annotation_text_uses_get_string_when_present():
@@ -45,20 +45,6 @@ def test_annotation_text_falls_back_to_annotation_shape():
     assert text == "from shape"
     ann.getAnnotationShape.assert_called_once()
 
-
-def test_split_cell_sheet_prefix_wins():
-    address, sheet = _split_cell_sheet("Summary.B3", None)
-    assert address == "B3"
-    assert sheet == "Summary"
-
-
-def test_split_cell_sheet_conflict_raises():
-    try:
-        _split_cell_sheet("Summary.B3", "Other")
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "Summary" in str(e)
-        assert "Other" in str(e)
 
 def _list_one_comment(date_value):
     """Run list_cell_comments against one mocked annotation."""

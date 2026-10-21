@@ -57,20 +57,6 @@ def _is_row_sequence(value: Any) -> bool:
     return True
 
 
-@deal.post(lambda result: isinstance(result, list))
-def normalize_python_data_shape(grid: list[list[Any]], *, as_column: bool = False) -> list[list[Any]]:
-    """Preserve rectangular 2D orientation for every Calc range.
-
-    - True 2D block → row-major ``list[list]``
-    - Single row → ``[[v1, v2, …]]``
-    - Single column → ``[[v1], [v2], …]`` when *as_column* or input was columnar
-    - Empty → ``[]``
-    """
-    if not grid:
-        return []
-    return ensure_rectangular_2d(grid)
-
-
 @deal.post(lambda result: result is None or isinstance(result, list))
 def finalize_python_data(raw: Any) -> list[list[Any]] | None:
     """Normalize tool/API ``data`` that may already be a nested list from the LLM."""

@@ -235,7 +235,7 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
 ):
     """Office files are preloaded on host; #SheetName is forwarded; CSV stays flat."""
     mock_resolve.return_value = "/tmp/project"
-    mock_read_office.return_value = ("budget", [["Region", "Sales"], ["North", 100]])
+    mock_read_office.return_value = [["Region", "Sales"], ["North", 100]]
     mock_run.return_value = {"status": "ok", "total_rows": 1}
     mock_exec.side_effect = lambda fn: fn()
 
@@ -371,7 +371,7 @@ def test_read_sibling_used_range_skips_giant_padding(mock_open, mock_read, _mock
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    _tbl, grid = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
 
     requested = mock_read.call_args[0][0]
     assert "AK2000" not in requested
@@ -393,7 +393,7 @@ def test_read_sibling_ods_used_range(mock_open, mock_read, _mock_close, tmp_path
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    _tbl, grid = _read_sibling_office_file_as_grid(object(), str(ods))
+    grid = _read_sibling_office_file_as_grid(object(), str(ods))
 
     requested = mock_read.call_args[0][0]
     assert "AK2000" not in requested
@@ -727,7 +727,7 @@ def test_execute_tables_file_sheet_identity(
 ):
     """tables={name: {file, sheet}} uses the sibling used-range path; catalog name is the key."""
     mock_resolve.return_value = "/tmp/project"
-    mock_read_office.return_value = ("budget", [["Region", "Sales"], ["North", 100]])
+    mock_read_office.return_value = [["Region", "Sales"], ["North", 100]]
     mock_run.return_value = {"status": "ok"}
     mock_exec.side_effect = lambda fn: fn()
 
@@ -769,7 +769,7 @@ def test_xlsx_cache_miss_then_hit_mtime_invalidates(
     mock_open.side_effect = _open
     mock_read.side_effect = _grid_for_requested_range
 
-    _tbl, grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
     assert grid1[0] == ["Region", "Sales"]
     assert opened[0] == os.path.normpath(str(xlsx))
     entry = cache_entry(str(xlsx))
@@ -778,13 +778,13 @@ def test_xlsx_cache_miss_then_hit_mtime_invalidates(
     assert cached_ods.is_file()
     assert meta_path.is_file()
 
-    _tbl, grid2 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid2 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
     assert grid2[0] == ["Region", "Sales"]
     assert opened[1] == os.path.normpath(str(cached_ods))
 
     st = os.stat(xlsx)
     os.utime(xlsx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
-    _tbl, grid3 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid3 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
     assert grid3[0] == ["Region", "Sales"]
     assert opened[2] == os.path.normpath(str(xlsx))
 
