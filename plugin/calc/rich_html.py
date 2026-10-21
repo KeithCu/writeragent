@@ -24,7 +24,8 @@ import sys
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, best_effort, uno_probe
-from plugin.framework.uno_context import _read_runtime_uid, clear_writer_body, get_desktop
+from plugin.framework.scratch_writer import clear_writer_body
+from plugin.framework.uno_context import _read_runtime_uid, get_desktop
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support

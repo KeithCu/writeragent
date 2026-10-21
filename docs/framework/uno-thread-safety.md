@@ -112,7 +112,7 @@ def assert_main_thread(what: str) -> None:
         raise RuntimeError(msg)
     log.warning(msg, stack_info=True)
 ```
-- Decorates primary UNO entry points (`get_desktop`, `get_active_document`, `clear_writer_body`, `confirm_unsaved_cell_edit`, etc.).
+- Decorates primary UNO entry points (`get_desktop`, `get_active_document`, `clear_writer_body` in `scratch_writer`, `confirm_unsaved_cell_edit`, etc.).
 - One process-wide dialog: the popup is `post_to_main_thread(..., bound_scope=None)` so Stop must not drop it. `WRITERAGENT_TESTING=1` still `log.error`s with `stack_info` and does not post. The flag clears only when the dialog callback finishes or the post itself fails. `set_background_task(None)` does not clear the flag.
 - **Dev Builds (`GUARD_ON=1`)**: Displays a deduplicated modal error box on the UI thread and raises `RuntimeError`.
 - **Dev Builds with Guard Disabled (`GUARD_ON=0`)**: Logs `log.warning(msg, stack_info=True)` so call sites are captured in logs without crashing user sessions.

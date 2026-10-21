@@ -19,6 +19,8 @@ Experiments: docs/chat/sidebar-hscroll-experiments.md
 
 from __future__ import annotations
 
+from typing import Any
+
 _XDL_APPFONT_LEAK_PX = 180
 # (180, 312) is a real column parent. (180, 1115) is a stuck ChildFrame.
 _XDL_LEAK_PARENT_MAX = _XDL_APPFONT_LEAK_PX * 2
@@ -39,3 +41,12 @@ def sidebar_column_width(n_width: int, parent_w: int, min_w: int = 180) -> int:
     if parent_w > 0:
         return parent_w
     return min_w
+
+
+def property_arg(args: Any, name: str) -> Any:
+    """Extract PropertyValue from args by Name."""
+    for pv in args or ():
+        if hasattr(pv, "Name") and pv.Name == name:
+            return pv.Value
+    return None
+

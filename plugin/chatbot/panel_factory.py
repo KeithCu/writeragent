@@ -62,6 +62,8 @@ except ImportError:
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled
+from plugin.framework.queue_executor import run_on_main
+from plugin.framework.sidebar_column import property_arg
 from plugin.framework.uno_context import get_extension_url, get_extension_path
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
@@ -206,31 +208,6 @@ _PRE_NEGOTIATION_PANEL_WIDTH = 320
 DEFAULT_SYSTEM_PROMPT_FALLBACK = "You are a helpful assistant."
 
 
-def _get_arg(args: Any, name: str) -> Any:
-    """Extract PropertyValue from args by Name."""
-    for pv in args:
-        if hasattr(pv, "Name") and pv.Name == name:
-            return pv.Value
-    return None
-
-
-def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Run *fn* on the VCL thread.
-
-    URP dispatch of WriterAgentDeck calls ``ChatPanelElement.getRealInterface``
-    off the VCL thread (Dummy-N). ``get_extension_url`` (PackageInformationProvider)
-    is ``@main_thread_only``; without this hop, thread_guard aborts ChatPanel
-    create. QA used to set ``WRITERAGENT_UNO_THREAD_GUARD=0``; this marshal is
-    the product fix so the panel opens with the guard on.
-    """
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
-
-    if on_main_thread():
-        return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, **kwargs)
-
-
 _paths_initialized = False
 
 
@@ -274,7 +251,7 @@ def _initialize_extension_paths(ctx: Any) -> None:
     # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
     # execute_on_main_thread on Dummy-N, and a self-call would recurse.
     # get_extension_path → get_extension_url (PIP) is @main_thread_only.
-    _run_on_main_thread(_impl)
+    run_on_main(_impl)
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +504,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         self.toolpanel = None
                         raise
 
-                _run_on_main_thread(_create_panel)
+                run_on_main(_create_panel)
             except Exception as e:
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
@@ -1449,8 +1426,8 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         log.debug("createUIElement: %s" % resource_url)
         if "ChatPanel" not in resource_url:
             raise NoSuchElementException("Unknown resource: " + resource_url)
-        frame = _get_arg(args, "Frame")
-        parent_window = _get_arg(args, "ParentWindow")
+        frame = property_arg(args, "Frame")
+        parent_window = property_arg(args, "ParentWindow")
         log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")

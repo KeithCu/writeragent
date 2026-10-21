@@ -450,26 +450,6 @@ def get_toolkit(ctx: Any | None = None) -> Any:
     return _guard_returned_uno(tk)
 
 
-def clear_writer_body(doc: Any) -> bool:
-    """Empty *doc* of everything a template can put in it. True when something was removed.
-
-    Delegates to :func:`~plugin.framework.scratch_writer.clear_writer_body`.
-    """
-    from plugin.framework.scratch_writer import clear_writer_body as _clear_writer_body
-
-    return _clear_writer_body(doc)
-
-
-def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
-    """Hidden, **empty** Writer used as a scratch buffer.
-
-    Delegates to :func:`~plugin.framework.scratch_writer.new_blank_writer`.
-    """
-    from plugin.framework.scratch_writer import new_blank_writer as _new_blank_writer
-
-    return _new_blank_writer(ctx, target=target, flags=flags, extra_props=extra_props)
-
-
 def _doc_identity_url(url: Any) -> str:
     """Comparison key for resolve-by-URL.
 

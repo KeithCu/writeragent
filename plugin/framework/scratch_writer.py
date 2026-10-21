@@ -16,6 +16,7 @@ from typing import Any
 
 from plugin.framework.errors import _uno_disposal_message, reraise_if_disposed
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import create_property_value, get_desktop
 
 log = logging.getLogger("writeragent.scratch_writer")
 
@@ -96,18 +97,7 @@ def clear_writer_body(doc: Any) -> bool:
     return removed
 
 
-def _get_clear_writer_body_fn() -> Any:
-    import sys
-
-    uno_ctx_mod = sys.modules.get("plugin.framework.uno_context")
-    if uno_ctx_mod is not None:
-        fn = getattr(uno_ctx_mod, "clear_writer_body", None)
-        if fn is not None:
-            return fn
-    return clear_writer_body
-
-
-def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
+def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
     """Hidden, **empty** Writer used as a scratch buffer.
 
     ``private:factory/swriter`` is the only way to get a Writer with the
@@ -121,15 +111,12 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
 
     Returns None when the desktop is unavailable (no-VCL helper processes).
     """
-    from plugin.framework.uno_context import get_desktop
-
     desktop = get_desktop(ctx)
     if desktop is None:
         return None
-    import uno
 
-    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-    doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
+    hidden = create_property_value("Hidden", True)
+    doc = desktop.loadComponentFromURL("private:factory/swriter", target, 0, (hidden,))
     if doc is None:
         return None
     # clear_writer_body logs and returns False on a non-disposal error.
@@ -137,8 +124,7 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
     # string is a failure. Returning the scratch Writer anyway would hand
     # the caller the default-template text this function exists to drop.
     # Disposal still raises.
-    clear_fn = _get_clear_writer_body_fn()
-    if not clear_fn(doc):
+    if not clear_writer_body(doc):
         try:
             leftover = doc.getText().getString()
         except Exception as e:

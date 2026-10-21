@@ -22,7 +22,6 @@ if _root not in sys.path:
 
 MODEL = "x-ai/grok-4.1-fast"
 
-from plugin.framework.stream_delta import accumulate_delta
 from plugin.main import get_tools
 try:
     WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
@@ -104,27 +103,18 @@ def run_streaming_with_tools(prompt: str):
     client = LlmClient(config, None) # None for ctx as it's not needed for basic logging
     
     message_snapshot = {}
-    
-    def on_delta(delta):
-        accumulate_delta(message_snapshot, delta)
 
     print("Streaming from endpoint using LlmClient...\n")
     print("--- Content ---")
 
     try:
-        last_finish_reason = client.stream_request_with_tools(
+        result = client.stream_request_with_tools(
             messages,
             max_tokens=2048,
             tools=WRITER_TOOLS,
             append_callback=on_content,
             append_thinking_callback=on_thinking,
-            # We don't need on_delta here as stream_request_with_tools handles it,
-            # but we can pass it if we want to monitor raw deltas.
         )
-        # Note: stream_request_with_tools returns the final message dict, 
-        # but we also accumulate into message_snapshot via its internal logic (if we could tap it).
-        # Actually, stream_request_with_tools returns the result. Let's use it.
-        result = last_finish_reason
         message_snapshot["content"] = result["content"]
         message_snapshot["tool_calls"] = result["tool_calls"]
         last_finish_reason = result["finish_reason"]

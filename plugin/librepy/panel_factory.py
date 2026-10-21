@@ -36,7 +36,8 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
-from plugin.framework.sidebar_column import sidebar_column_width
+from plugin.framework.queue_executor import run_on_main
+from plugin.framework.sidebar_column import property_arg, sidebar_column_width
 from plugin.framework.uno_context import get_extension_url, get_ctx
 
 if TYPE_CHECKING:
@@ -56,28 +57,6 @@ _PRE_NEGOTIATION_PANEL_WIDTH = 220
 _IMPL_NAME = "org.extension.librepy.PythonPanelFactory"
 
 
-def _get_arg(args: Any, name: str) -> Any:
-    for pv in args:
-        if hasattr(pv, "Name") and pv.Name == name:
-            return pv.Value
-    return None
-
-
-def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Run *fn* on the VCL thread.
-
-    URP dispatch calls ``PythonPanelElement.getRealInterface`` off the VCL
-    thread (Dummy-N). ``get_extension_url`` is ``@main_thread_only``. Creating
-    the AWT window off-main is a UNO thread violation and leaves black menus.
-    """
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
-
-    if on_main_thread():
-        return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, **kwargs)
-
-
 def _ensure_paths(ctx: Any) -> None:
     try:
         from plugin.framework.uno_context import get_extension_path
@@ -95,14 +74,12 @@ def _ensure_paths(ctx: Any) -> None:
 class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
-    ctx: Any
     PanelWindow: Any
     Window: Any
     parent_window: Any
     resize_listener: Any
 
-    def __init__(self, panel_window: Any, parent_window: Any, ctx: Any) -> None:
-        self.ctx = ctx
+    def __init__(self, panel_window: Any, parent_window: Any) -> None:
         self.PanelWindow = panel_window
         self.Window = panel_window
         self.parent_window = parent_window
@@ -143,7 +120,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
     def getMinimalWidth(self) -> int:
-        return 220
+        return _PRE_NEGOTIATION_PANEL_WIDTH
 
 
 class PythonPanelElement(unohelper.Base, XUIElement):
@@ -152,7 +129,6 @@ class PythonPanelElement(unohelper.Base, XUIElement):
     ctx: Any
     xFrame: Any
     xParentWindow: Any
-    m_panelRootWindow: Any
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
@@ -164,7 +140,6 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         self.Frame: Any = frame
         self.Type: Any = TOOLPANEL
         self.toolpanel: Any = None
-        self.m_panelRootWindow = None
         self.controller: Any = None
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -177,14 +152,14 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                 def _create_panel() -> None:
                     _ensure_paths(self.ctx)
                     root_window = self._getOrCreatePanelRootWindow()
-                    self.toolpanel = PythonToolPanel(root_window, self.xParentWindow, self.ctx)
+                    self.toolpanel = PythonToolPanel(root_window, self.xParentWindow)
                     from plugin.librepy.python_sidebar import PythonSidebarController
 
                     self.controller = PythonSidebarController(self.ctx, root_window, self.xFrame)
                     self.toolpanel.resize_listener = getattr(self.controller, "resize_listener", None)
                     log.info("[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)", root_window.getPosSize().Width)
 
-                _run_on_main_thread(_create_panel)
+                run_on_main(_create_panel)
             except Exception as e:
                 # Publish toolpanel only after the controller finishes. A
                 # failure before that leaves nothing latched, so the next
@@ -209,8 +184,8 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         if ctx is None:
             ctx = get_ctx()
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
-        self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
-        if not self.m_panelRootWindow:
+        panel_root_window = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
+        if not panel_root_window:
             # ContainerWindowProvider returns null when the XDL URL cannot be
             # loaded. Raise before anything is published so the next
             # getRealInterface can retry; latching null treats a missing
@@ -220,15 +195,15 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                 "LibrePy createContainerWindow returned no window",
                 details={"dialog_url": dialog_url},
             )
-        if hasattr(self.m_panelRootWindow, "setVisible"):
+        if hasattr(panel_root_window, "setVisible"):
             with suppress_disposed("setVisible", logger=log):
-                self.m_panelRootWindow.setVisible(True)
+                panel_root_window.setVisible(True)
         with suppress_disposed("constrain panel", logger=log):
             parent_rect = self.xParentWindow.getPosSize()
             target_h = parent_rect.Height if parent_rect.Height > 0 else 400
-            if self.m_panelRootWindow is not None:
-                self.m_panelRootWindow.setPosSize(0, 0, 220, target_h, 15)
-        return self.m_panelRootWindow
+            if panel_root_window is not None:
+                panel_root_window.setPosSize(0, 0, _PRE_NEGOTIATION_PANEL_WIDTH, target_h, 15)
+        return panel_root_window
 
     def disposing(self, Source: Any = None) -> None:
         # LibreOffice does not call this. PythonPanelElement is XUIElement
@@ -255,8 +230,8 @@ class PythonPanelFactory(unohelper.Base, XUIElementFactory):
         resource_url = ResourceURL
         if "PythonPanel" not in resource_url:
             raise NoSuchElementException("Unknown resource: " + resource_url)
-        frame = _get_arg(Args, "Frame")
-        parent_window = _get_arg(Args, "ParentWindow")
+        frame = property_arg(Args, "Frame")
+        parent_window = property_arg(Args, "ParentWindow")
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
         return PythonPanelElement(self.ctx, frame, parent_window, resource_url)

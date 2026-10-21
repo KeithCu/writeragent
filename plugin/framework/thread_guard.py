@@ -56,6 +56,7 @@ log = logging.getLogger("writeragent.threadguard")
 # Release bundles replace this file with a stub (GUARD_ON = False).
 # Opt out in dev: WRITERAGENT_UNO_THREAD_GUARD=0
 GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD", "1") == "1"
+THREAD_VIOLATION_MARK = "UNO thread violation"
 
 # Thread-local storage for background task identity (set at birth in run_in_background).
 _bg = threading.local()
@@ -249,7 +250,7 @@ def assert_main_thread(what: str) -> None:
     if on_main_thread():
         return
     task = get_background_task_name() or threading.current_thread().name
-    msg = "UNO thread violation: %r touched UNO from background task %r; marshal via execute_on_main_thread()." % (what, task)
+    msg = "%s: %r touched UNO from background task %r; marshal via execute_on_main_thread()." % (THREAD_VIOLATION_MARK, what, task)
     if GUARD_ON:
         _notify_thread_violation(msg)
         raise RuntimeError(msg)

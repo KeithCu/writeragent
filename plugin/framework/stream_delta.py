@@ -18,7 +18,6 @@
 
 ``accumulate_delta`` and ``coalesce_split_tool_calls`` run inside the LLM
 client while it builds an assistant message. The UI drain never calls them.
-Re-exported from ``async_stream``.
 """
 
 from __future__ import annotations
@@ -110,6 +109,15 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     return acc
 
 
+def _arguments_string(fn: dict[str, Any]) -> str:
+    args = fn.get("arguments")
+    if args is None:
+        return ""
+    if not isinstance(args, str):
+        return str(args)
+    return args
+
+
 def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
     """Merge provider stream-split phantom tool_calls into the prior real call.
 
@@ -145,18 +153,8 @@ def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
             continue
         if not kept:
             continue
-        args = fn.get("arguments")
-        if args is None:
-            args = ""
-        elif not isinstance(args, str):
-            args = str(args)
         prev_fn = kept[-1]["function"]
-        prev_args = prev_fn.get("arguments")
-        if prev_args is None:
-            prev_args = ""
-        elif not isinstance(prev_args, str):
-            prev_args = str(prev_args)
-        prev_fn["arguments"] = prev_args + args
+        prev_fn["arguments"] = _arguments_string(prev_fn) + _arguments_string(fn)
     for i, tc in enumerate(kept):
         tc["index"] = i
     return kept

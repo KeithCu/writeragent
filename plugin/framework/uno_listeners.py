@@ -32,11 +32,9 @@ import logging
 from typing import Any, NoReturn, TYPE_CHECKING
 
 from plugin.framework.errors import is_real_disposal
+from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
 
 log = logging.getLogger(__name__)
-
-# Same prefix as ``assert_main_thread``. A bare RuntimeError is not this.
-_THREAD_VIOLATION_MARK = "UNO thread violation"
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
 _unohelper: Any = None
@@ -226,7 +224,7 @@ class ListenerBoundary(BaseException):
 
 
 def _is_thread_violation(exc: BaseException) -> bool:
-    return isinstance(exc, RuntimeError) and _THREAD_VIOLATION_MARK in str(exc)
+    return isinstance(exc, RuntimeError) and THREAD_VIOLATION_MARK in str(exc)
 
 
 def _is_bridge_veto(exc: BaseException) -> bool:

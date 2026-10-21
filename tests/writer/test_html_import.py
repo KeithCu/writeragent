@@ -826,7 +826,7 @@ def test_full_document_refuses_before_deleting_anything():
 def test_html_to_plain_text_pure_does_not_call_scratch_writer():
     from plugin.writer.html_import import html_to_plain_text
 
-    with patch("plugin.framework.uno_context.new_blank_writer") as mock_new_writer:
+    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
         assert html_to_plain_text("<b>foo</b>", MagicMock()) == "foo"
         mock_new_writer.assert_not_called()
 
@@ -841,7 +841,7 @@ def test_html_to_plain_text_pure_does_not_call_scratch_writer():
 def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch_doc():
     from plugin.writer.html_import import html_to_plain_text
 
-    with patch("plugin.framework.uno_context.new_blank_writer") as mock_new_writer:
+    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
         res = html_to_plain_text("  plain text search  ", MagicMock())
         assert res == "plain text search"
         mock_new_writer.assert_not_called()

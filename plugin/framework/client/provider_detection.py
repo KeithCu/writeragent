@@ -52,7 +52,7 @@ import urllib.parse
 from typing import Optional
 
 from plugin.framework.errors import ConfigError
-from plugin.framework.url_utils import get_url_hostname, normalize_endpoint_url
+from plugin.framework.url_utils import get_url_hostname, host_matches, normalize_endpoint_url
 
 
 def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
@@ -83,7 +83,7 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
     def _host_is(*names: str) -> bool:
         # Hostname equality, not a substring of the whole URL. "ollama" inside
         # notollama.example and "z.ai" inside z.ai.example used to match.
-        return any(host == name or host.endswith("." + name) for name in names)
+        return host_matches(host, *names)
 
     # Order matters for some overlaps (e.g. openrouter before generic openai-compatible)
     if _host_is("openrouter.ai"):

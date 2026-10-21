@@ -306,9 +306,8 @@ def test_python_tool_panel_get_height_for_width_handles_all_sizes():
     panel_win.getPosSize.return_value = SimpleNamespace(Width=300, Height=400)
     parent_win = MagicMock()
     parent_win.getPosSize.return_value = SimpleNamespace(Width=300, Height=400)
-    ctx = MagicMock()
 
-    panel = PythonToolPanel(panel_win, parent_win, ctx)
+    panel = PythonToolPanel(panel_win, parent_win)
     listener = MagicMock()
     panel.resize_listener = listener
 

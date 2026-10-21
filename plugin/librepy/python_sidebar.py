@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import Any, Callable
 
@@ -39,12 +40,8 @@ _CONTROL_GAP = 4
 _BOTTOM_MARGIN = 20
 _RIGHT_MARGIN = 12
 _MIN_FLEX_HEIGHT = 16
-_MIN_CONTROL_WIDTH = 20
 _FLEX_CONTROLS = ("status", "cells_list", "diag_list", "diag_detail")
 _CONTROL_IDS = (*HEADER_BUTTON_IDS, "status_label", "status", "btn_refresh", "btn_edit_cell", "btn_run_script", "cells_label", "cells_list", "filter_label", "filter_combo", "diag_label", "diag_list", "diag_detail", "btn_edit_init", "btn_reset", "btn_settings")
-
-_ROW3_BUTTONS = ("btn_refresh", "btn_edit_cell", "btn_run_script")
-_ROW2_BUTTONS = ("btn_edit_init", "btn_reset")
 
 # Calc =PY() browser; hidden in Writer so the header + venv status remain.
 _CALC_ONLY_IDS = ("btn_refresh", "btn_edit_cell", "btn_run_script", "cells_label", "cells_list", "filter_label", "filter_combo", "diag_label", "diag_list", "diag_detail", "btn_edit_init")
@@ -147,9 +144,6 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
         elif name in HEADER_BUTTON_IDS:
             nx = origin_x
             nw = origin_w
-        elif name in ("status_label", "status", "cells_label", "cells_list", "diag_label", "diag_list", "diag_detail", "btn_settings"):
-            nx = left_margin
-            nw = content_width
         else:
             nx = left_margin
             nw = content_width
@@ -520,7 +514,7 @@ class PythonSidebarController:
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
             if not entry.address and entry.code in code_to_addr:
-                enriched.append(DiagnosticEntry(workbook_key=entry.workbook_key, code=entry.code, status=entry.status, message=entry.message, stdout=entry.stdout, traceback=entry.traceback, timestamp=entry.timestamp, sheet=entry.sheet, address=code_to_addr[entry.code]))
+                enriched.append(replace(entry, address=code_to_addr[entry.code]))
             else:
                 enriched.append(entry)
         self._diags = enriched

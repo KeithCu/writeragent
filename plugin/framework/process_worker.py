@@ -260,7 +260,7 @@ class Child:
         write: that thread's ``end_io`` does the close and the wait.
         """
         self._signaled = True
-        self._signal_proc()
+        self.managed.kill_tree()
         me = threading.get_ident()
         # Two loads of _io_owner. The flag is already set, and end_io reads
         # it after clearing the mark, so the owner still finishes if we
@@ -291,20 +291,6 @@ class Child:
             return ""
         return text[-_STDERR_SNIPPET:]
 
-    def _signal_proc(self) -> None:
-        # close() would SIGTERM and wait 3s on this thread. The non-owner
-        # thread is only allowed to signal. kill_tree is the group SIGKILL.
-        self.managed.kill_tree()
-
-    def _close_stdio(self) -> None:
-        self.managed.close_stdio()
-
-    def _wait_once(self) -> bool:
-        return self.managed.wait_once()
-
-    def _join_drain(self) -> None:
-        self.managed.join_stderr(1.0)
-
     def _finish(self) -> bool:
         """Close stdio and wait once. True when the slot should drop this child.
 
@@ -320,11 +306,11 @@ class Child:
             me = threading.get_ident()
             if self._io_owner not in (None, me):
                 return False
-            self._close_stdio()
-            reaped = self._wait_once()
+            self.managed.close_stdio()
+            reaped = self.managed.wait_once()
             self._settled = True
             if reaped:
-                self._join_drain()
+                self.managed.join_stderr(1.0)
                 self.managed.unregister()
                 return True
             self._abandoned = True
@@ -362,15 +348,12 @@ class BaseProcessWorker:
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
-        # Kokoro's venv interpreter and PYTHONPATH. Compute uses this
-        # process's Python and a scrubbed copy of the parent environment.
         self.executable = sys.executable if executable is None else executable
         self._child_env = env
-        # Kokoro passes 20s. None copies the module constant here, in
-        # __init__. Patching it after this returns does not change the handshake.
+        # None copies the module constant here, in __init__. Patching it after
+        # this returns does not change the handshake.
         self._ready_timeout_sec = _SPAWN_READY_TIMEOUT_SEC if ready_timeout_sec is None else ready_timeout_sec
-        # Compute passes the restricted unpickler. None is stock pickle,
-        # which is what Kokoro's plain dict frames use.
+        # None is stock pickle.
         self._unpacker = unpacker
         self.child = None
         self.lock = threading.Lock()
@@ -390,8 +373,7 @@ class BaseProcessWorker:
         # while it reads the flag, and adopt holds this lock, so the read
         # stays unlocked.
         self._shutting_down = False
-        # Kokoro publishes the object before the handshake so Stop can kill
-        # it. Compute and direct callers spawn here.
+        # start=True spawns in __init__.
         if start:
             self.respawn()
 

@@ -95,7 +95,7 @@ def _cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str
 def create_hidden_html_writer(ctx: Any) -> Any | None:
     """Load a hidden Writer document for HTML import + direct copy."""
     try:
-        from plugin.framework.uno_context import new_blank_writer
+        from plugin.framework.scratch_writer import new_blank_writer
 
         return new_blank_writer(ctx)
     except Exception:

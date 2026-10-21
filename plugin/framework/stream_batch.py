@@ -59,6 +59,13 @@ class StreamQueueKind(str, Enum):
     TOOL_RESULT = "tool_result"
 
 
+def split_stream_item(item: Any) -> tuple[Any, Any]:
+    """Kind and payload. A bare kind or a length-1 tuple has no payload."""
+    if isinstance(item, (list, tuple)):
+        return (item[0] if item else None, item[1] if len(item) > 1 else None)
+    return (item, None)
+
+
 class _ReusableBurstTimer:
     """One daemon thread for a batcher. ``arm`` sets the deadline; it does not start a new thread.
 
@@ -75,7 +82,6 @@ class _ReusableBurstTimer:
     _stopped: bool
 
     def __init__(self, owner: "BatchingStreamQueue", interval: float) -> None:
-        # crosshair: off
         self._interval = interval
         # Weak so a finished send can drop the batcher. The thread would
         # otherwise keep it alive through the flush callback.
@@ -87,7 +93,6 @@ class _ReusableBurstTimer:
 
     def arm(self) -> None:
         """Start the interval if idle. A live deadline is left alone."""
-        # crosshair: off
         with self._cv:
             if self._stopped or self._deadline is not None:
                 return
@@ -101,21 +106,18 @@ class _ReusableBurstTimer:
 
     def cancel(self) -> None:
         """Drop the deadline. The thread stays for the next burst."""
-        # crosshair: off
         with self._cv:
             self._deadline = None
             self._cv.notify()
 
     def stop(self) -> None:
         """Wake the thread so it exits. Used when the batcher is released."""
-        # crosshair: off
         with self._cv:
             self._stopped = True
             self._deadline = None
             self._cv.notify()
 
     def _run(self) -> None:
-        # crosshair: off
         # Catch here: run_in_background ends the thread on Exception, and a
         # later burst would then have no timer.
         while True:
@@ -193,7 +195,6 @@ class BatchingStreamQueue:
     _dropped: bool
 
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
-        # crosshair: off
         self._raw = raw_q
         self._interval = batch_interval
         # Contiguous runs in arrival order. Emitting every CHUNK buffer before
@@ -204,7 +205,6 @@ class BatchingStreamQueue:
         self._dropped = False
 
     def __del__(self) -> None:
-        # crosshair: off
         # The timer thread holds only a weakref, and only while flushing.
         # Stop it when this batcher is released so a chat send does not leave
         # a waiting thread behind.
@@ -217,14 +217,12 @@ class BatchingStreamQueue:
             return
 
     def _cancel_timer(self) -> None:
-        # crosshair: off
         # Clear the deadline only. Dropping the timer object used to force
         # the next burst to construct a new threading.Timer.
         if self._timer is not None:
             self._timer.cancel()
 
     def _schedule_timer(self) -> None:
-        # crosshair: off
         # One deadline per burst. The first CHUNK and the first THINKING each
         # called this, and cancel-then-restart moved the 250 ms mark when the
         # other kind arrived. Leave an armed deadline alone. Caller holds _lock.
@@ -234,13 +232,11 @@ class BatchingStreamQueue:
         self._timer.arm()
 
     def _timer_flush(self) -> None:
-        # crosshair: off
         # Timer callback — runs in its own (daemon) thread
         self.flush()
 
     def _append_display_locked(self, kind: StreamQueueKind, data: str) -> None:
         """Append one display fragment. Caller holds lock. Arms the burst timer once."""
-        # crosshair: off
         is_first = not self._runs
         if self._runs and self._runs[-1][0] == kind:
             self._runs[-1][1].append(data)
@@ -251,7 +247,6 @@ class BatchingStreamQueue:
 
     def _emit_pending_locked(self) -> None:
         """Emit each contiguous display run, in arrival order. Caller holds lock."""
-        # crosshair: off
         # Bugfix: a later "".join used to leave earlier runs in _runs after
         # they were already put, so the next flush duplicated them. Snapshot-first
         # makes emit atomic wrt _runs.
@@ -274,17 +269,15 @@ class BatchingStreamQueue:
         - The timer firing, an explicit flush(), or any boundary control item
           causes the accumulated text (one joined string per kind) to be emitted.
         """
-        # crosshair: off
         # Fast path for the two display kinds.
         # Bugfix: StreamQueueKind is a str enum, so "chunk" == StreamQueueKind.CHUNK
         # evaluated to True. Bare string tags were batched into display runs instead of
         # falling through to the boundary/raw queue, causing a mismatch with the drain
         # which requires isinstance(kind, StreamQueueKind). Requiring isinstance here
         # lets bare strings fall through so the drain's existing TypeError path reports them.
-        if isinstance(item, (list, tuple)) and len(item) >= 1:
-            kind = item[0]
+        if isinstance(item, (list, tuple)) and item:
+            kind, data = split_stream_item(item)
             if isinstance(kind, StreamQueueKind) and (kind is StreamQueueKind.CHUNK or kind is StreamQueueKind.THINKING):
-                data = item[1] if len(item) > 1 else ""
                 with self._lock:
                     # Abort discarded this batcher. A later put must not arm the timer.
                     if self._dropped:
@@ -307,7 +300,6 @@ class BatchingStreamQueue:
 
     def flush(self) -> None:
         """Force immediate emission of any pending display text (one joined string per kind)."""
-        # crosshair: off
         with self._lock:
             if self._dropped:
                 return
@@ -322,7 +314,6 @@ class BatchingStreamQueue:
         queue. Discard under the same lock as emit, and stay dropped so a
         later ``put`` cannot arm the timer again.
         """
-        # crosshair: off
         with self._lock:
             self._dropped = True
             self._runs.clear()
@@ -331,8 +322,6 @@ class BatchingStreamQueue:
     # Convenience factories so existing lambda sites become one-liners
     def content_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_callback=... that feeds through the batcher."""
-
-        # crosshair: off
         def cb(text: str) -> None:
             self.put((StreamQueueKind.CHUNK, text))
 
@@ -340,8 +329,6 @@ class BatchingStreamQueue:
 
     def thinking_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_thinking_callback=..."""
-
-        # crosshair: off
         def cb(text: str) -> None:
             self.put((StreamQueueKind.THINKING, text))
 
@@ -350,11 +337,9 @@ class BatchingStreamQueue:
     @property
     def raw(self) -> queue.Queue[Any]:
         """The underlying raw queue (for the rare legacy direct use or for the drain loop itself)."""
-        # crosshair: off
         return self._raw
 
     def __repr__(self) -> str:
-        # crosshair: off
         with self._lock:
             pending_content = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.CHUNK)
             pending_thinking = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.THINKING)

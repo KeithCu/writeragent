@@ -291,29 +291,6 @@ def test_disposing_swallows_disposed_remove_window_listener():
     root.removeWindowListener.assert_called_once()
 
 
-def test_run_on_main_thread_inline_on_vcl():
-    from unittest.mock import patch
-    from plugin.chatbot.panel_factory import _run_on_main_thread
-
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread"
-    ) as exe:
-        assert _run_on_main_thread(lambda: 42) == 42
-    exe.assert_not_called()
-
-
-def test_run_on_main_thread_marshals_off_vcl():
-    from unittest.mock import patch
-    from plugin.chatbot.panel_factory import _run_on_main_thread
-
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
-        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ) as exe:
-        assert _run_on_main_thread(lambda: 42) == 42
-    exe.assert_called_once()
-
-
 def test_initialize_extension_paths_hops_impl_not_self():
     """Dummy-N path init hops the body; must not self-call (TESTING=1 inline)."""
     from unittest.mock import patch
@@ -321,7 +298,7 @@ def test_initialize_extension_paths_hops_impl_not_self():
 
     pf._paths_initialized = False
     try:
-        with patch.object(pf, "_run_on_main_thread") as hop:
+        with patch.object(pf, "run_on_main") as hop:
             hop.return_value = None
             pf._initialize_extension_paths(object())
         hop.assert_called_once()
@@ -339,7 +316,7 @@ def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
     pf._paths_initialized = False
     try:
         with patch.object(
-            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
         ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
             pf, "init_logging"
         ), patch(
@@ -360,7 +337,7 @@ def test_initialize_extension_paths_inline_hop_does_not_recurse():
     try:
         with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
             "plugin.framework.queue_executor.execute_on_main_thread",
-            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
         ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
             pf, "init_logging"
         ), patch(
@@ -447,7 +424,7 @@ def test_get_real_interface_create_goes_through_main_thread_hop():
         el.toolpanel = panel
         return None
 
-    with patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=fake_hop):
+    with patch("plugin.chatbot.panel_factory.run_on_main", side_effect=fake_hop):
         result = el.getRealInterface()
     assert result is panel
 
@@ -463,7 +440,7 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     panel = MagicMock()
 
     with patch(
-        "plugin.chatbot.panel_factory._run_on_main_thread",
+        "plugin.chatbot.panel_factory.run_on_main",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -483,7 +460,7 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     el = _thin_panel_element()
     existing = MagicMock()
     el.toolpanel = existing
-    with patch("plugin.chatbot.panel_factory._run_on_main_thread") as hop:
+    with patch("plugin.chatbot.panel_factory.run_on_main") as hop:
         result = el.getRealInterface()
     hop.assert_not_called()
     assert result is existing
@@ -911,7 +888,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
             raise RuntimeError("first build fails")
 
     with (
-        patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.chatbot.panel_factory.run_on_main", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
@@ -1315,7 +1292,7 @@ def test_get_real_interface_second_queued_create_keeps_first_panel():
         fn(*args, **kwargs)
 
     with (
-        patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=run_twice),
+        patch("plugin.chatbot.panel_factory.run_on_main", side_effect=run_twice),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
@@ -1395,7 +1372,7 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
     try:
         mock_init_logging = MagicMock(side_effect=RuntimeError("logging fail"))
         with patch.object(
-            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
         ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
             pf, "init_logging", mock_init_logging
         ), patch(
@@ -1416,7 +1393,7 @@ def test_initialize_extension_paths_handler_still_inits_logging():
     try:
         mock_init_logging = MagicMock()
         with patch.object(
-            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
         ), patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")), patch.object(
             pf, "init_logging", mock_init_logging
         ):

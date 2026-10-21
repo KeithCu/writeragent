@@ -29,7 +29,8 @@ from plugin.doc.text_helpers import (
     _visible_portions as _shared_visible_portions,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import new_blank_writer, uno_same
+from plugin.framework.scratch_writer import new_blank_writer
+from plugin.framework.uno_context import uno_same
 from plugin.writer.math.math_mml_export import (
     _OBJECT_REPLACEMENT,
     portion_math_embed,

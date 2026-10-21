@@ -33,39 +33,18 @@ def _root_window():
     return root
 
 
-def test_run_on_main_thread_inline_on_vcl():
-    from plugin.librepy.panel_factory import _run_on_main_thread
-
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread"
-    ) as exe:
-        assert _run_on_main_thread(lambda: 42) == 42
-    exe.assert_not_called()
-
-
-def test_run_on_main_thread_marshals_off_vcl():
-    from plugin.librepy.panel_factory import _run_on_main_thread
-
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
-        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ) as exe:
-        assert _run_on_main_thread(lambda: 42) == 42
-    exe.assert_called_once()
-
-
 def test_get_real_interface_create_goes_through_main_thread_hop():
     """getRealInterface must hop create so Dummy-N never calls get_extension_url."""
     from plugin.librepy.panel_factory import PythonToolPanel
 
     el = _element()
-    panel = PythonToolPanel(_root_window(), el.xParentWindow, el.ctx)
+    panel = PythonToolPanel(_root_window(), el.xParentWindow)
 
     def fake_hop(fn, *args, **kwargs):
         el.toolpanel = panel
         return None
 
-    with patch("plugin.librepy.panel_factory._run_on_main_thread", side_effect=fake_hop), patch(
+    with patch("plugin.librepy.panel_factory.run_on_main", side_effect=fake_hop), patch(
         "plugin.librepy.panel_factory.get_extension_url"
     ) as url:
         result = el.getRealInterface()
@@ -82,7 +61,7 @@ def test_get_real_interface_create_runs_on_hop():
     controller.resize_listener = MagicMock(name="resize")
 
     with patch(
-        "plugin.librepy.panel_factory._run_on_main_thread",
+        "plugin.librepy.panel_factory.run_on_main",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ) as hop, patch("plugin.librepy.panel_factory._ensure_paths") as ensure, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -104,7 +83,7 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     el = _element()
     existing = MagicMock(name="existing")
     el.toolpanel = existing
-    with patch("plugin.librepy.panel_factory._run_on_main_thread") as hop:
+    with patch("plugin.librepy.panel_factory.run_on_main") as hop:
         result = el.getRealInterface()
     hop.assert_not_called()
     assert result is existing
@@ -126,7 +105,7 @@ def test_get_real_interface_clears_toolpanel_and_retries():
         return ctrl
 
     with patch(
-        "plugin.librepy.panel_factory._run_on_main_thread",
+        "plugin.librepy.panel_factory.run_on_main",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -159,7 +138,7 @@ def test_get_real_interface_disposes_controller_when_create_fails_late():
     controller = MagicMock(name="controller")
 
     with patch(
-        "plugin.librepy.panel_factory._run_on_main_thread",
+        "plugin.librepy.panel_factory.run_on_main",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -186,7 +165,7 @@ def test_null_create_container_window_raises_and_retries():
     controller.resize_listener = None
 
     with patch(
-        "plugin.librepy.panel_factory._run_on_main_thread",
+        "plugin.librepy.panel_factory.run_on_main",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
         "plugin.librepy.panel_factory.get_extension_url", return_value="file:///ext"

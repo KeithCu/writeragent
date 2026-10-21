@@ -336,8 +336,8 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document 
 
 ### Shared hidden Writer factory
 
-**Done (Writer side):** [`new_blank_writer(ctx, *, target=...)`](../../plugin/framework/uno_context.py) in
-`uno_context.py` is the shared factory. `create_hidden_html_writer`, the range export
+**Done (Writer side):** [`new_blank_writer(ctx, *, target=...)`](../../plugin/framework/scratch_writer.py) in
+`scratch_writer.py` is the shared factory. `create_hidden_html_writer`, the range export
 (`_range_to_content_via_temp_doc`), `xtext_to_content`'s hidden Writer and `html_to_plain_text` all
 go through it.
 

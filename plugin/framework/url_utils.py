@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.deal_shim import DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_URL, _profile, ascii_bounded, deal
 
 
 def _deal_url_ok_pytest(url: object) -> bool:
@@ -34,7 +34,7 @@ def _deal_url_ok_crosshair(url: object) -> bool:
     return url is None or ascii_bounded(url, DEAL_MAX_URL)
 
 
-_deal_url_ok = _deal_url_ok_crosshair if UNDER_CROSSHAIR else _deal_url_ok_pytest
+_deal_url_ok = _profile(_deal_url_ok_crosshair, _deal_url_ok_pytest)
 
 LIBREPY_DISPATCH_PROTOCOL = EXTENSION_ID_LIBREPY + ":"
 
@@ -69,17 +69,20 @@ def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPAT
     return complete
 
 
+def host_matches(host: str, *domains: str) -> bool:
+    """True when host equals any domain or is a subdomain of it."""
+    h = (host or "").lower()
+    return any(h == domain or h.endswith("." + domain) for domain in domains)
+
+
 def _is_zai_host(url: Any) -> bool:
     """True when URL targets Z.ai (general or coding-plan API)."""
-    host = get_url_hostname(url).lower()
-    return host == "z.ai" or host.endswith(".z.ai")
+    return host_matches(get_url_hostname(url), "z.ai")
 
 
 def _is_google_host(url: Any) -> bool:
     """True when URL targets Google Gemini API (generativelanguage.googleapis.com)."""
-    host = get_url_hostname(url).lower()
-    name = "generativelanguage.googleapis.com"
-    return host == name or host.endswith("." + name)
+    return host_matches(get_url_hostname(url), "generativelanguage.googleapis.com")
 
 
 def _zai_url_path(url: Any) -> str:
@@ -154,17 +157,26 @@ def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
     return url
 
 
+def _parse(url: Any) -> urllib.parse.ParseResult | None:
+    if type(url) is not str:
+        return None
+    try:
+        return urllib.parse.urlparse(url)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:
     """Return hostname from URL safely."""
-    if type(url) is not str:
+    parsed = _parse(url)
+    if parsed is None:
         return ""
     try:
-        parsed = urllib.parse.urlparse(url)
         return parsed.hostname or ""
     except (ValueError, TypeError, AttributeError):
-        # urlparse rejects non-str (TypeError); keep "safely" for CrossHair/fuzz inputs.
+        # ParseResult.hostname raises ValueError for invalid ports.
         return ""
 
 
@@ -185,55 +197,43 @@ def get_url_domain(url: Any) -> str:
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path(url: Any) -> str:
     """Return path from URL safely."""
-    if type(url) is not str:
+    parsed = _parse(url)
+    if parsed is None:
         return ""
-    try:
-        parsed = urllib.parse.urlparse(url)
-        return parsed.path or ""
-    except (ValueError, TypeError, AttributeError):
-        return ""
+    return parsed.path or ""
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url: Any) -> dict[str, list[str]]:
     """Return query parameters as dict (values are lists)."""
-    if type(url) is not str or not url:
+    parsed = _parse(url)
+    if parsed is None:
         return {}
-    try:
-        parsed = urllib.parse.urlparse(url)
-        return urllib.parse.parse_qs(parsed.query)
-    except (ValueError, TypeError, AttributeError):
-        return {}
+    return urllib.parse.parse_qs(parsed.query)
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path_and_query(url: Any) -> str:
     """Return path + query string from URL."""
-    if type(url) is not str:
+    parsed = _parse(url)
+    if parsed is None:
         return "/"
-    try:
-        parsed = urllib.parse.urlparse(url)
-        path = parsed.path or "/"
-        if parsed.query:
-            return f"{path}?{parsed.query}"
-        return path
-    except (ValueError, TypeError, AttributeError):
-        return "/"
+    path = parsed.path or "/"
+    if parsed.query:
+        return f"{path}?{parsed.query}"
+    return path
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url: Any) -> bool:
     """Check for .pdf in the URL path safely."""
-    if type(url) is not str:
+    parsed = _parse(url)
+    if parsed is None:
         return False
-    try:
-        parsed = urllib.parse.urlparse(url)
-        return (parsed.path or "").lower().endswith(".pdf")
-    except (ValueError, TypeError, AttributeError):
-        return False
+    return (parsed.path or "").lower().endswith(".pdf")
 
 
 # ---------------------------------------------------------------------------

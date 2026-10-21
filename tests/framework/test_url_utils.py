@@ -3,7 +3,12 @@ from plugin.framework.url_utils import (
     _is_zai_host,
     dispatch_command_from_url,
     get_api_version_suffix,
+    get_url_hostname,
+    get_url_path,
+    get_url_path_and_query,
     get_url_query_dict,
+    host_matches,
+    is_pdf_url,
     matches_extension_dispatch_url,
     normalize_endpoint_url,
     path_to_file_url,
@@ -171,3 +176,49 @@ class TestPathToFileUrl:
         url = path_to_file_url("/home/user/Writing/Test.odt")
         assert url.startswith("file:///")
         assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
+
+
+class TestHostMatches:
+    def test_exact_match(self):
+        assert host_matches("z.ai", "z.ai") is True
+        assert host_matches("openrouter.ai", "openrouter.ai") is True
+
+    def test_subdomain_match(self):
+        assert host_matches("api.z.ai", "z.ai") is True
+        assert host_matches("sub.api.z.ai", "z.ai") is True
+        assert host_matches("notz.ai", "z.ai") is False
+
+    def test_multiple_domains(self):
+        assert host_matches("together.xyz", "together.ai", "together.xyz") is True
+        assert host_matches("api.together.ai", "together.ai", "together.xyz") is True
+        assert host_matches("other.com", "together.ai", "together.xyz") is False
+
+    def test_case_insensitive(self):
+        assert host_matches("API.Z.AI", "z.ai") is True
+
+
+class TestUrlAccessors:
+    def test_get_url_hostname(self):
+        assert get_url_hostname("https://example.com:8080/foo") == "example.com"
+        assert get_url_hostname("https://[::1]:8080/foo") == "::1"
+        assert get_url_hostname("https://[::1") == ""
+        assert get_url_hostname("not a url") == ""
+        assert get_url_hostname(None) == ""
+
+    def test_get_url_path(self):
+        assert get_url_path("https://example.com/foo/bar?q=1") == "/foo/bar"
+        assert get_url_path("https://example.com") == ""
+        assert get_url_path(None) == ""
+
+    def test_get_url_path_and_query(self):
+        assert get_url_path_and_query("https://example.com/foo?q=1") == "/foo?q=1"
+        assert get_url_path_and_query("https://example.com") == "/"
+        assert get_url_path_and_query(None) == "/"
+
+    def test_is_pdf_url(self):
+        assert is_pdf_url("https://example.com/doc.pdf") is True
+        assert is_pdf_url("https://example.com/doc.PDF") is True
+        assert is_pdf_url("https://example.com/doc.pdf?dl=1") is True
+        assert is_pdf_url("https://example.com/doc.txt") is False
+        assert is_pdf_url(None) is False
+

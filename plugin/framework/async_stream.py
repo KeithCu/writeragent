@@ -50,7 +50,7 @@ from typing import Any, Callable, cast
 
 from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind, split_stream_item
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
@@ -329,20 +329,6 @@ _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
 }
 
 
-def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
-    """Kind and payload. A bare kind or a length-1 tuple has no payload."""
-    # crosshair: off
-    if isinstance(item, (tuple, list)):
-        # An empty sequence has no kind. item[0] on () or [] raises
-        # IndexError before the invalid-tag check, including in the Stop
-        # tail and StreamQueue.put. None fails the StreamQueueKind check
-        # the same way a bad tag does.
-        kind = item[0] if item else None
-        data = item[1] if len(item) > 1 else None
-        return kind, data
-    return item, None
-
-
 def _apply_display_item(state: _DrainState, item: Any) -> None:
     """Apply one CHUNK or THINKING. Set an approval event. Leave other kinds.
 
@@ -354,7 +340,7 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
     set so the worker is not left in ``wait_for_approval``.
     """
     # crosshair: off
-    raw_kind, data = _stream_item_kind_data(item)
+    raw_kind, data = split_stream_item(item)
     if not isinstance(raw_kind, StreamQueueKind):
         return
     if raw_kind == StreamQueueKind.CHUNK:
@@ -435,7 +421,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             skip_trailing_flush = True
             break
 
-        raw_kind, data = _stream_item_kind_data(item)
+        raw_kind, data = split_stream_item(item)
 
         try:
             if not isinstance(raw_kind, StreamQueueKind):
@@ -1315,7 +1301,7 @@ class StreamQueue(queue.Queue[Any]):
     def put(self, item: Any, block: bool = True, timeout: float | None = None) -> None:
         # crosshair: off
         if self._terminal_flags:
-            kind, _data = _stream_item_kind_data(item)
+            kind, _data = split_stream_item(item)
             if kind in _TERMINAL_WATCH_KINDS:
                 with self._terminal_lock:
                     active = list(self._terminal_flags)
@@ -1465,7 +1451,7 @@ def run_async_worker_with_drain(
         # NEXT_TOOL is not that exit. Returning true here used to stop the
         # pump before the next tool round. STREAM_DONE / FINAL_DONE /
         # TOOL_DONE still end the drain.
-        kind, _payload = _stream_item_kind_data(item)
+        kind, _payload = split_stream_item(item)
         if kind == StreamQueueKind.NEXT_TOOL:
             return False
         return True
