@@ -33,15 +33,10 @@ from plugin.doc.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import coerce_control_state
+from plugin.framework import thread_guard
 from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
-from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import run_on_main
 from plugin.framework.uno_context import uno_same
-
-def _run_on_main(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    if on_main_thread():
-        return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, **kwargs)
 
 log = logging.getLogger("writeragent.writer.forms")
 
@@ -166,22 +161,25 @@ def _coerce_items(raw: Any) -> list[str] | None:
 
 
 def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
+    from datetime import datetime
+
     s = raw.strip()
-    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", s)
-    if m:
-        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    else:
-        m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
-        if m:
-            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        else:
-            return None
-    try:
-        import datetime
-        datetime.date(year, month, day)
-    except ValueError:
-        return None
-    return (year, month, day)
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return (dt.year, dt.month, dt.day)
+        except ValueError:
+            pass
+    return None
+
+
+def _items_or_error(tool: Any, kwargs: dict[str, Any]) -> tuple[list[str] | None, dict[str, Any] | None]:
+    if "items" in kwargs and kwargs["items"] is not None:
+        coerced_items = _coerce_items(kwargs["items"])
+        if coerced_items is None:
+            return None, tool._tool_error("Parameter 'items' must be a list of strings or comma-separated string.")
+        return coerced_items, None
+    return None, None
 
 
 class _StackedDrawPageCursor:
@@ -216,9 +214,34 @@ class _PageCursors:
         return cursor
 
 
-def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_height: int) -> Point:
+def _form_page_cursors(doc: Any) -> _PageCursors | None:
+    if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
+        return _PageCursors()
+    return None
+
+
+def _next_stacked_position_on_draw_page(dp: Any, default_height: int) -> Point:
     """Place new controls below existing shapes on a draw page (1/100 mm)."""
     return _StackedDrawPageCursor(dp).next_position(default_height)
+
+
+def _commit_form_batch(
+    tool: Any,
+    doc: Any,
+    title: str,
+    mutate: Any,
+    undo_message: str,
+) -> dict[str, Any] | None:
+    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
+    try:
+        error = commit_or_rollback(doc, title, mutate)
+        if error is not None:
+            error["rolled_back"] = True
+            return error
+    except UndoUnavailable:
+        return tool._tool_error(undo_message, code="UNDO_UNAVAILABLE")
+    return None
 
 
 # XCell.getType() members that can take setString without dropping a number or formula.
@@ -343,6 +366,9 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
 }
 
 
+_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."}
+
+
 class FormCreateControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
@@ -358,13 +384,13 @@ class FormCreateControl(ToolWriterFormBase):
         "type": "object",
         "properties": {
             **_CONTROL_PROPERTIES,
-            "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+            "page": _PAGE_PROPERTY,
         },
         "required": ["control", "name"],
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _run_on_main(self._execute_main, ctx, **kwargs)
+        return run_on_main(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -383,12 +409,9 @@ class FormCreateControl(ToolWriterFormBase):
         else:
             date_val = None
 
-        if "items" in kwargs and kwargs["items"] is not None:
-            coerced_items = _coerce_items(kwargs["items"])
-            if coerced_items is None:
-                return self._tool_error("Parameter 'items' must be a list of strings or comma-separated string.")
-        else:
-            coerced_items = None
+        coerced_items, items_err = _items_or_error(self, kwargs)
+        if items_err:
+            return items_err
 
         full_comp_name = _CONTROL_TYPE_MAP[control_type]
 
@@ -458,7 +481,7 @@ class FormCreateControl(ToolWriterFormBase):
                 if page_cursors is not None:
                     pos = page_cursors.for_page(dp).next_position(h)
                 else:
-                    pos = _next_stacked_position_on_draw_page(dp, w, h)
+                    pos = _next_stacked_position_on_draw_page(dp, h)
                 shape.setPosition(pos)
                 dp.add(shape)
             else:
@@ -505,7 +528,7 @@ class FormCreate(ToolWriterFormBase):
                     "type": "object",
                     "properties": {
                         **_CONTROL_PROPERTIES,
-                        "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+                        "page": _PAGE_PROPERTY,
                     },
                     "required": ["control", "name"],
                 },
@@ -515,15 +538,11 @@ class FormCreate(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
-
         fields = kwargs.get("fields", [])
         doc = ctx.doc
         results: list[Any] = []
         creator = FormCreateControl()
-        page_cursors = None
-        if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
-            page_cursors = _PageCursors()
+        page_cursors = _form_page_cursors(doc)
 
         def mutate() -> dict[str, Any] | None:
             for field in fields:
@@ -538,16 +557,15 @@ class FormCreate(ToolWriterFormBase):
                 return failure
             return None
 
-        try:
-            error = commit_or_rollback(doc, "Form Create", mutate)
-            if error is not None:
-                error["rolled_back"] = True
-                return error
-        except UndoUnavailable:
-            return self._tool_error(
-                "Cannot create form controls atomically (no usable undo context).",
-                code="UNDO_UNAVAILABLE",
-            )
+        batch_err = _commit_form_batch(
+            self,
+            doc,
+            "Form Create",
+            mutate,
+            "Cannot create form controls atomically (no usable undo context).",
+        )
+        if batch_err is not None:
+            return batch_err
 
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
@@ -581,7 +599,6 @@ class FormGenerate(ToolWriterFormBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.llm_client import LlmClient
-        from plugin.framework.thread_guard import on_main_thread
 
         description = kwargs.get("description")
         config = get_api_config()
@@ -606,7 +623,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
 
         try:
-            if on_main_thread():
+            if thread_guard.on_main_thread():
                 return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
 
             # Get the full document from LLM
@@ -618,7 +635,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             )
 
             # Process the content
-            return _run_on_main(self._process_form_content, ctx, content)
+            return run_on_main(self._process_form_content, ctx, content)
 
         except Exception as e:
             if is_real_disposal(e):
@@ -629,8 +646,6 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
     def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
-        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
-
         doc = ctx.doc
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
@@ -638,9 +653,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         field_results: list[Any] = []
         field_names: list[Any] = []
 
-        page_cursors = None
-        if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
-            page_cursors = _PageCursors()
+        page_cursors = _form_page_cursors(doc)
 
         def mutate() -> dict[str, Any] | None:
             for part in parts:
@@ -666,16 +679,15 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 return failure
             return None
 
-        try:
-            error = commit_or_rollback(doc, "Form Generate", mutate)
-            if error is not None:
-                error["rolled_back"] = True
-                return error
-        except UndoUnavailable:
-            return self._tool_error(
-                "Cannot generate form controls atomically (no usable undo context).",
-                code="UNDO_UNAVAILABLE",
-            )
+        batch_err = _commit_form_batch(
+            self,
+            doc,
+            "Form Generate",
+            mutate,
+            "Cannot generate form controls atomically (no usable undo context).",
+        )
+        if batch_err is not None:
+            return batch_err
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
@@ -699,7 +711,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if page_cursors is not None:
                 pos = page_cursors.for_page(dp).next_position(h)
             else:
-                pos = _next_stacked_position_on_draw_page(dp, w, h)
+                pos = _next_stacked_position_on_draw_page(dp, h)
             shape = bridge.create_shape("com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp)
             shape.setString(plain)
             return
@@ -739,13 +751,13 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+            "page": _PAGE_PROPERTY,
         },
         "required": [],
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _run_on_main(self._execute_main, ctx, **kwargs)
+        return run_on_main(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -813,13 +825,13 @@ class FormEditControl(ToolWriterFormBase):
             "y": {"type": "integer"},
             "width": {"type": "integer"},
             "height": {"type": "integer"},
-            "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+            "page": _PAGE_PROPERTY,
         },
         "required": [],
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _run_on_main(self._execute_main, ctx, **kwargs)
+        return run_on_main(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -834,12 +846,9 @@ class FormEditControl(ToolWriterFormBase):
 
         model = shape.Control
 
-        if "items" in kwargs and kwargs["items"] is not None:
-            coerced_items = _coerce_items(kwargs["items"])
-            if coerced_items is None:
-                return self._tool_error("Parameter 'items' must be a list of strings or comma-separated string.")
-        else:
-            coerced_items = None
+        coerced_items, items_err = _items_or_error(self, kwargs)
+        if items_err:
+            return items_err
 
         if "state" in kwargs:
             if not hasattr(model, "State"):
@@ -894,13 +903,13 @@ class FormDeleteControl(ToolWriterFormBase):
         "properties": {
             "index": {"type": "integer", "description": "Draw-page shape index (optional if name is set)."},
             "name": {"type": "string", "description": "Control Name from form_list_controls."},
-            "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
+            "page": _PAGE_PROPERTY,
         },
         "required": [],
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _run_on_main(self._execute_main, ctx, **kwargs)
+        return run_on_main(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc

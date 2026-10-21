@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 import threading
 from pathlib import Path
@@ -73,66 +74,90 @@ def _is_calc_doc(doc: Any) -> bool:
         return False
 
 
-def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
+def _xlsx_doc_path(doc: Any, *, must_exist: bool = False) -> tuple[str, Path] | None:
+    from plugin.doc.text_helpers import get_document_path
+
+    path_str = get_document_path(doc)
+    if not path_str:
+        return None
+    path = Path(path_str)
+    if path.suffix.lower() != ".xlsx":
+        return None
+    if must_exist and not path.is_file():
+        return None
+    return path_str, path
+
+
+@contextmanager
+def _busy_path(path_str: str):
+    with _lock:
+        if path_str in _busy_paths:
+            busy = True
+        else:
+            _busy_paths.add(path_str)
+            busy = False
+    if busy:
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        with _lock:
+            _busy_paths.discard(path_str)
+
+
+def maybe_convert_excel_py_document(doc: Any) -> bool:
     """If *doc* is an Excel-PY ``.xlsx``, convert to DAG ``=PY``. Return True if converted."""
     if not _is_calc_doc(doc):
         return False
 
-    from plugin.doc.text_helpers import get_document_path
     from plugin.doc.udprops import get_document_property, set_document_property
 
     if get_document_property(doc, _CONVERTED_PROP):
         return False
 
-    path_str = get_document_path(doc)
-    if not path_str:
+    resolved = _xlsx_doc_path(doc)
+    if resolved is None:
         return False
-    path = Path(path_str)
-    if path.suffix.lower() != ".xlsx":
-        return False
+    path_str, path = resolved
 
     from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
 
     if not has_excel_python_xlsx(path):
         return False
 
-    with _lock:
-        if path_str in _busy_paths:
+    with _busy_path(path_str) as acquired:
+        if not acquired:
             return False
-        _busy_paths.add(path_str)
-
-    try:
-        from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
-        from plugin.calc.excel_py_convert.convert import convert_to_dag
-
-        report = convert_to_dag(path)
-        if not any(c.converted for c in report.cells):
-            log.info("excel_py auto-open: no convertible PY cells in %s", path)
-            return False
-        if not report.ok:
-            log.warning("excel_py auto-open: fail-closed (leaving original open) for %s: %s", path, "; ".join(report.issues) or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues))
-            return False
-
-        errors = apply_dag_formulas_to_calc_doc(doc, report)
-        if errors:
-            log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
-            return False
-        set_document_property(doc, _CONVERTED_PROP, "1")
-        from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
-
         try:
-            store_dag_meta_on_doc(doc, report)
+            from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
+            from plugin.calc.excel_py_convert.convert import convert_to_dag
+
+            report = convert_to_dag(path)
+            if not report.has_conversions:
+                log.info("excel_py auto-open: no convertible PY cells in %s", path)
+                return False
+            if not report.ok:
+                log.warning("excel_py auto-open: fail-closed (leaving original open) for %s: %s", path, "; ".join(report.issues) or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues))
+                return False
+
+            errors = apply_dag_formulas_to_calc_doc(doc, report)
+            if errors:
+                log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
+                return False
+            set_document_property(doc, _CONVERTED_PROP, "1")
+            from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
+
+            try:
+                store_dag_meta_on_doc(doc, report)
+            except Exception:
+                log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
+            doc.setModified(True)
+            log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
+            return True
         except Exception:
-            log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
-        doc.setModified(True)
-        log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
-        return True
-    except Exception:
-        log.warning("excel_py auto-open: conversion failed for %s", path, exc_info=True)
-        return False
-    finally:
-        with _lock:
-            _busy_paths.discard(path_str)
+            log.warning("excel_py auto-open: conversion failed for %s", path, exc_info=True)
+            return False
 
 
 def _save_fail_message(path: Path, detail: str) -> str:
@@ -141,68 +166,61 @@ def _save_fail_message(path: Path, detail: str) -> str:
     return _("Could not write Microsoft Excel Python package parts for:\n{0}\n\nThe file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n\n{1}").format(path, detail)
 
 
+def _show_save_failure(ctx: Any, path: Path, detail: str) -> None:
+    from plugin.chatbot.dialogs import msgbox
+    from plugin.framework.uno_context import product_display_name
+
+    msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
+
+
 def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
     """After LO stores a Calc ``.xlsx``, rewrite disk to native Excel PY. Return True if patched."""
     if not _is_calc_doc(doc):
         return False
 
-    from plugin.doc.text_helpers import get_document_path
-
-    path_str = get_document_path(doc)
-    if not path_str:
+    resolved = _xlsx_doc_path(doc, must_exist=True)
+    if resolved is None:
         return False
-    path = Path(path_str)
-    if path.suffix.lower() != ".xlsx" or not path.is_file():
-        return False
+    path_str, path = resolved
 
-    with _lock:
-        if path_str in _busy_paths:
+    with _busy_path(path_str) as acquired:
+        if not acquired:
             return False
-        _busy_paths.add(path_str)
-
-    try:
-        from plugin.calc.excel_py_convert.convert import convert_uno_doc_to_excel, write_excel_python_xlsx
-        from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
-        from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.uno_context import product_display_name
-
-        report = convert_uno_doc_to_excel(doc)
-        if not report.ok:
-            detail = "; ".join(report.issues) if report.issues else "snapshot report not ok"
-            log.warning("excel_py auto-save: report not ok for %s: %s", path, detail)
-            msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
-            return False
-        if not any(c.converted for c in report.cells):
-            # No DAG =PY in memory — leave the saved file alone (plain spreadsheet).
-            return False
-
         try:
-            write_excel_python_xlsx(path, report, path)
+            from plugin.calc.excel_py_convert.convert import convert_uno_doc_to_excel, write_excel_python_xlsx
+            from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
+
+            report = convert_uno_doc_to_excel(doc)
+            if not report.ok:
+                detail = "; ".join(report.issues) if report.issues else "snapshot report not ok"
+                log.warning("excel_py auto-save: report not ok for %s: %s", path, detail)
+                _show_save_failure(ctx, path, detail)
+                return False
+            if not report.has_conversions:
+                # No DAG =PY in memory — leave the saved file alone (plain spreadsheet).
+                return False
+
+            try:
+                write_excel_python_xlsx(path, report, path)
+            except Exception as exc:
+                detail = str(exc)
+                log.warning("excel_py auto-save: ZipFile export failed for %s: %s", path, detail, exc_info=True)
+                _show_save_failure(ctx, path, detail)
+                return False
+
+            if not has_excel_python_xlsx(path):
+                detail = "pythonScripts.xml / _xlws.PY missing after write"
+                log.warning("excel_py auto-save: %s for %s", detail, path)
+                _show_save_failure(ctx, path, detail)
+                return False
+
+            log.info("excel_py auto-save: wrote native Excel PY package for %s", path)
+            return True
         except Exception as exc:
+            log.warning("excel_py auto-save: failed for %s", path, exc_info=True)
             detail = str(exc)
-            log.warning("excel_py auto-save: ZipFile export failed for %s: %s", path, detail, exc_info=True)
-            msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
+            best_effort(lambda: _show_save_failure(ctx, path, detail), "excel_py auto-save error dialog")
             return False
-
-        if not has_excel_python_xlsx(path):
-            detail = "pythonScripts.xml / _xlws.PY missing after write"
-            log.warning("excel_py auto-save: %s for %s", detail, path)
-            msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
-            return False
-
-        log.info("excel_py auto-save: wrote native Excel PY package for %s", path)
-        return True
-    except Exception as exc:
-        log.warning("excel_py auto-save: failed for %s", path, exc_info=True)
-        from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.uno_context import product_display_name
-
-        msg = _save_fail_message(path, str(exc))
-        best_effort(lambda: msgbox(ctx, product_display_name(ctx), msg, box_type=2), "excel_py auto-save error dialog")
-        return False
-    finally:
-        with _lock:
-            _busy_paths.discard(path_str)
 
 
 def _doc_from_event(event: Any) -> Any | None:
@@ -258,7 +276,7 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                 if doc is None:
                     return
                 if name == "OnLoadFinished":
-                    maybe_convert_excel_py_document(ctx, doc)
+                    maybe_convert_excel_py_document(doc)
                     from plugin.framework.queue_executor import execute_on_main_thread
 
                     try:

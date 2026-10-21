@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 from plugin.calc.forecast import ForecastDataTool
@@ -62,7 +61,7 @@ def test_build_viz_request_forecast():
 
 
 def test_merge_forecast_plot_data():
-    history = pd.DataFrame({"Date": ["2024-01-01", "2024-02-01"], "Value": [100.0, 110.0]})
+    history = [["Date", "Value"], ["2024-01-01", 100.0], ["2024-02-01", 110.0]]
     forecast_result = {
         "status": "ok",
         "tables": [

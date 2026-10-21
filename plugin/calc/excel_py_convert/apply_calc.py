@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 def _calc_formula_for_cell(cell: ConvertedCell) -> str:
-    return formula_for_converted_cell(cell, separator=";", use_script_bank=True)
+    return formula_for_converted_cell(cell, separator=";")
 
 
 def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:

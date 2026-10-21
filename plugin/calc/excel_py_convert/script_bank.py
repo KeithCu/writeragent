@@ -32,15 +32,14 @@ BANK_REF_RE = re.compile(rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za
 # Calc / Excel sheet title practical max.
 _CODE_SHEET_MAX_LEN = 31
 CODE_SHEET_NOTE_CELL = "ZZ1"
+INLINE_CODE_MAX_CHARS = 1000
 CODE_SHEET_NOTE = (
     "Python script bank (from Excel pythonScripts). "
-    "Used only for scripts longer than 1000 characters (Calc formula string limit). "
+    f"Used only for scripts longer than {INLINE_CODE_MAX_CHARS} characters (Calc formula string limit). "
     "Each cell here holds the Python for the =PY formula at the same address "
     "on the matching data sheet (e.g. H4 here ↔ H4 on the source sheet). "
     "Enable shared-kernel session mode for multi-cell Excel scripts."
 )
-
-INLINE_CODE_MAX_CHARS = 1000
 
 _RE_A1 = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _A1_SPAN_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
@@ -141,7 +140,7 @@ def should_inline_code(code: str) -> bool:
     return len(code or "") <= INLINE_CODE_MAX_CHARS
 
 
-def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False, use_script_bank: bool = True) -> str:
+def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False) -> str:
     """Build ``=PY`` for a converted cell.
 
     Inline when ``len(converted_code) <= 1000``; otherwise reference
@@ -149,9 +148,10 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", exc
     """
     # Data bindings only — ordering_args are legacy/empty (never formula args).
     args = list(cell.data_args)
-    if use_script_bank and cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
+    excel_syntax = excel_escape or separator == ","
+    if cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
         try:
-            return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=(separator == "," or excel_escape)), args, separator=separator, excel_ranges=excel_escape or separator == ",")
+            return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
         except ValueError as exc:
             if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
                 err = f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}"
@@ -284,7 +284,7 @@ def defined_name_targets_sheet(name: str, val: str, sheet_title: str) -> bool:
     return False
 
 
-def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
+def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by apply_calc.py
     expected_def = bank_defined_name_for(code_sheet)
     named_ranges = getattr(doc, "NamedRanges", None)
     if named_ranges is not None:
@@ -300,31 +300,5 @@ def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
     except Exception:
         pass
     return False
-
-
-def ensure_code_sheet_uno(doc: Any, code_sheet: str, bank: dict[str, str] | None = None) -> Any:
-    """Return (creating if needed) a visible bank sheet named *code_sheet*."""
-    sheets = doc.getSheets()
-    if sheets.hasByName(code_sheet):
-        sheet = sheets.getByName(code_sheet)
-        if not _uno_sheet_is_bank(doc, code_sheet, sheet):
-            raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
-    else:
-        sheets.insertNewByName(code_sheet, sheets.getCount())
-        sheet = sheets.getByName(code_sheet)
-    named_ranges = getattr(doc, "NamedRanges", None)
-    if named_ranges is not None:
-        expected_def = bank_defined_name_for(code_sheet)
-        try:
-            if hasattr(named_ranges, "hasByName") and not named_ranges.hasByName(expected_def):
-                import uno
-
-                addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
-                named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
-        except Exception:
-            pass
-    if not bank or CODE_SHEET_NOTE_CELL not in bank:
-        sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).setString(CODE_SHEET_NOTE)
-    return sheet
 
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.client import run_forecast as client_run_forecast
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     header_prefix,
@@ -113,6 +112,13 @@ def run_trusted_forecast(
     task_hint: str | None = None,
 ) -> dict[str, Any]:
     """Fetch Calc data and run a trusted forecast helper in the user venv."""
+    # What was wrong: importing this facade loaded the host worker inside the venv child.
+    # How it happened: Run Python Script templates import writeragent.scripting.forecast,
+    # and the module-level client import pulls trusted_rpc, which imports venv_worker.
+    # Why this change: the child only needs the lazy venv helpers. The host runner
+    # imports the client when run_trusted_forecast is called.
+    from plugin.scripting.client import run_forecast as client_run_forecast
+
     return run_trusted_calc_data_helper(
         uno_ctx,
         doc,

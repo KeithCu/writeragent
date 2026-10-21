@@ -49,27 +49,22 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     hist_headers = []
     hist_records = []
 
-    if hasattr(history_data, "columns"):
-        # history_data is a DataFrame (only happens if tests pass one in)
-        hist_headers = list(history_data.columns)
-        hist_records = history_data.values.tolist()
-    else:
-        from plugin.scripting.payload_codec import is_calc_range_payload
+    from plugin.scripting.payload_codec import is_calc_range_payload
 
-        grid = history_data
-        if is_calc_range_payload(history_data):
-            # Materialize the envelope to its rectangular values first.
-            # _resolve_python_data returns a calc_range dict, and
-            # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell,
-            # so the Date and Value columns disappear and auto-plot drops
-            # the history.
-            from plugin.scripting.calc_range import materialize_calc_range
+    grid = history_data
+    if is_calc_range_payload(history_data):
+        # Materialize the envelope to its rectangular values first.
+        # _resolve_python_data returns a calc_range dict, and
+        # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell,
+        # so the Date and Value columns disappear and auto-plot drops
+        # the history.
+        from plugin.scripting.calc_range import materialize_calc_range
 
-            grid = materialize_calc_range(history_data).values
+        grid = materialize_calc_range(history_data).values
 
-        if isinstance(grid, list) and len(grid) > 0 and isinstance(grid[0], list):
-            hist_headers = [str(c) for c in grid[0]]
-            hist_records = grid[1:]
+    if isinstance(grid, list) and len(grid) > 0 and isinstance(grid[0], list):
+        hist_headers = [str(c) for c in grid[0]]
+        hist_records = grid[1:]
 
     if date_col not in hist_headers or value_col not in hist_headers:
         return None
@@ -108,14 +103,6 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     fc_rows: list[list[Any]] = []
     for row in fc_rows_raw:
         if not isinstance(row, list) or len(row) <= max(fc_date_idx, fc_forecast_idx):
-            # If it's a dict, handle it gracefully
-            if isinstance(row, dict):
-                entry = [row.get("date"), None, row.get("forecast")]
-                if has_lower:
-                    entry.append(row.get("lower"))
-                if has_upper:
-                    entry.append(row.get("upper"))
-                fc_rows.append(entry)
             continue
 
         entry = [row[fc_date_idx], None, row[fc_forecast_idx]]

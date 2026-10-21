@@ -71,7 +71,7 @@ class ExcelWorkbookModel:
         return {s.title: s.order for s in self.sheets}
 
     def to_dict(self) -> dict[str, Any]:
-        return {"scripts": list(self.scripts), "cells": [asdict(c) for c in self.cells], "sheets": [asdict(s) for s in self.sheets], "tables": dict(self.tables), "anchor_snapshots": dict(self.anchor_snapshots), "source_path": self.source_path, "issues": list(self.issues)}
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExcelWorkbookModel:
@@ -109,6 +109,14 @@ class ExcelWorkbookModel:
         )
 
 
+def _as_header_mode(value: object) -> HeaderMode:
+    if value == "true":
+        return "true"
+    if value == "false":
+        return "false"
+    return "omit"
+
+
 @dataclass
 class BindingInfo:
     """One normalized data binding after dedup."""
@@ -117,6 +125,17 @@ class BindingInfo:
     header_mode: str = "omit"  # HeaderMode values; str for CrossHair
     role: str = "data"  # DepRole values; str for CrossHair
     original_indices: list[int] = field(default_factory=list)  # original %P positions (0-based)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BindingInfo:
+        hm = _as_header_mode(data.get("header_mode"))
+        role = "ordering" if data.get("role") == "ordering" else "data"
+        return cls(
+            a1=str(data.get("a1") or ""),
+            header_mode=hm,
+            role=role,
+            original_indices=list(data.get("original_indices") or []),
+        )
 
 
 @dataclass
@@ -129,7 +148,7 @@ class ConvertedCell:
     original_code: str
     converted_code: str
     data_args: list[str] = field(default_factory=list)
-    ordering_args: list[str] = field(default_factory=list)
+    ordering_args: list[str] = field(default_factory=list)  # legacy; converter relies on shared-kernel session
     # Parallel to data_args: original Excel dep tokens for _xlws.PY export (see module doc).
     excel_deps: list[str] = field(default_factory=list)
     bindings: list[BindingInfo] = field(default_factory=list)
@@ -145,46 +164,14 @@ class ConvertedCell:
     script_index: int = -1
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "sheet": self.sheet,
-            "cell": self.cell,
-            "direction": self.direction,
-            "original_code": self.original_code,
-            "converted_code": self.converted_code,
-            "data_args": list(self.data_args),
-            "ordering_args": list(self.ordering_args),
-            "excel_deps": list(self.excel_deps),
-            "bindings": [asdict(b) for b in self.bindings],
-            "dag_formula": self.dag_formula,
-            "excel_formula": self.excel_formula,
-            "issues": list(self.issues),
-            "shared_kernel": self.shared_kernel,
-            "snapshot_deps": list(self.snapshot_deps),
-            "return_type": self.return_type,
-            "converted": self.converted,
-            "array_ref": self.array_ref,
-            "script_index": self.script_index,
-        }
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConvertedCell:
         bindings: list[BindingInfo] = []
         for b in data.get("bindings") or []:
             if isinstance(b, dict):
-                hm = b.get("header_mode") or "omit"
-                if hm not in ("true", "false", "omit"):
-                    hm = "omit"
-                role = b.get("role") or "data"
-                if role not in ("data", "ordering"):
-                    role = "data"
-                bindings.append(
-                    BindingInfo(
-                        a1=str(b.get("a1") or ""),
-                        header_mode=hm,  # type: ignore[arg-type]
-                        role=role,  # type: ignore[arg-type]
-                        original_indices=list(b.get("original_indices") or []),
-                    )
-                )
+                bindings.append(BindingInfo.from_dict(b))
         return cls(
             sheet=str(data.get("sheet") or "Sheet1"),
             cell=str(data.get("cell") or "A1"),
@@ -215,6 +202,10 @@ class ConversionReport:
     source_path: str = ""
     cells: list[ConvertedCell] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
+
+    @property
+    def has_conversions(self) -> bool:
+        return any(c.converted for c in self.cells)
 
     @property
     def ok(self) -> bool:

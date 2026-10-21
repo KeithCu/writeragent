@@ -11,7 +11,6 @@ import json
 import re
 import zipfile
 from pathlib import Path
-from typing import Any
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts; not network XML (Bandit B314)
 
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
@@ -487,12 +486,8 @@ def has_excel_python_xlsx(path: str | Path) -> bool:
     return False
 
 
-def load_excel_model(path: str | Path, *, prefer_openpyxl_anchors: bool = True) -> ExcelWorkbookModel:
-    """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``.
-
-    prefer_openpyxl_anchors is retained for backwards compatibility; openpyxl anchor enrichment
-    is dropped now that _collect_array_refs accurately handles t="array" formulas.
-    """
+def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
+    """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``."""
     path = Path(path)
     if path.suffix.lower() == ".json":
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -511,6 +506,3 @@ def load_excel_model(path: str | Path, *, prefer_openpyxl_anchors: bool = True) 
         return model
     return parse_excel_xlsx(path)
 
-
-def dump_model_json(model: ExcelWorkbookModel) -> dict[str, Any]:
-    return model.to_dict()
