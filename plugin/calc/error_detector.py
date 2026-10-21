@@ -20,6 +20,8 @@
 Ported from core/calc_error_detector.py for the plugin framework.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -70,8 +72,23 @@ ERROR_TYPES = {
     539: {"code": "#VALUE!", "name": "Unsupported inline array content", "description": "Unsupported inline array content in formula."},
 }
 
-# Cell error text patterns
-ERROR_PATTERNS = ["#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532"]
+# Bugfix: unifies the two disparate Calc error token lists (ERROR_PATTERNS here
+# and _CALC_ERROR_STRINGS in graph.py). Previously graph.py missed Err:NNN codes
+# and ERROR_PATTERNS missed #ERROR!. Case-insensitive lookup maps to canonical spelling.
+ERROR_PATTERNS = frozenset({
+    "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
+    "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
+})
+# "Err:502".upper() is "ERR:502", so membership on the uppercased text cannot
+# use the canonical spelling as the key.
+_ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in ERROR_PATTERNS}
+
+
+def is_calc_error_display(value: object) -> str | None:
+    """Canonical Calc error token when *value* is an error display string."""
+    if isinstance(value, str):
+        return _ERROR_PATTERN_BY_UPPER.get(value.strip().upper())
+    return None
 
 _EVAL_ERROR_LABELS = {
     503: "#NUM! (Invalid numeric value, code 503)",

@@ -16,18 +16,6 @@ from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, CellRecord
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-# Calc error display strings (subset used at ingest when value is a string).
-_CALC_ERROR_STRINGS = frozenset({"#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#ERROR!"})
-
-
-def is_calc_error_display(value: object) -> str | None:
-    """Return the error code string when *value* looks like a Calc error cell display."""
-    if isinstance(value, str):
-        text = value.strip().upper()
-        if text in _CALC_ERROR_STRINGS:
-            return text
-    return None
-
 
 _RANGE_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?", re.IGNORECASE)
 

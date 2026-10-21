@@ -54,46 +54,30 @@ def build_output_model(model: SheetModel) -> OutputSheetModel:
 
 
 def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
-    """Write *output* onto *target_sheet* (bulk array write + number formats)."""
+    """Write *output* onto *target_sheet* (per-cell value or formula, then number formats)."""
     (start_col, start_row), (end_col, end_row) = parse_range_string(output.used_range)
-
-    formula_rows: list[tuple[str, ...]] = []
-    format_cells: list[tuple[int, int, int]] = []
-
     for row in range(start_row, end_row + 1):
-        row_data: list[str] = []
         for col in range(start_col, end_col + 1):
-            addr = format_address(col, row)
-            oc = output.cells[addr]
+            oc = output.cells[format_address(col, row)]
+            cell = target_sheet.getCellByPosition(col, row)
+            # Bugfix: every value was str()'d and then float()'d, so text
+            # "00123" became setValue(123.0). The string grid also treated
+            # text that starts with "=" or "{" as a formula. bool is an int,
+            # and str(True) is the text "True"; CellManipulator._classify_write_cell
+            # already stores bools as 1.0/0.0 so PY formulas see numbers.
+            value = oc.value
             if oc.formula:
-                row_data.append(oc.formula)
-            elif oc.value is None or oc.value == "":
-                row_data.append("")
-            else:
-                row_data.append(str(oc.value))
-            if oc.number_format is not None:
-                format_cells.append((col, row, oc.number_format))
-        formula_rows.append(tuple(row_data))
-
-    # Write explicitly per-cell. Constants must be native numeric values (not text)
-    # because vectorized PY formulas on the same output block will reference them as data.
-    # Using setValue for numbers + setFormula for the generated PY cells guarantees
-    # correct types independent of bulk array quirks with mixed formula/value rows.
-    for r, row_entries in enumerate(formula_rows):
-        for c, entry in enumerate(row_entries):
-            cell = target_sheet.getCellByPosition(start_col + c, start_row + r)
-            if entry.startswith("=") or entry.startswith("{"):
-                cell.setFormula(entry)
-            elif not entry:
+                cell.setFormula(oc.formula)
+            elif isinstance(value, bool):
+                cell.setValue(1.0 if value else 0.0)
+            elif isinstance(value, (int, float)):
+                cell.setValue(value)
+            elif value is None or value == "":
                 cell.setString("")
             else:
-                try:
-                    cell.setValue(float(entry))
-                except ValueError:
-                    cell.setString(entry)
-
-    for col, row, fmt_id in format_cells:
-        target_sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", fmt_id)
+                cell.setString(value if isinstance(value, str) else str(value))
+            if oc.number_format is not None:
+                cell.setPropertyValue("NumberFormat", oc.number_format)
 
 
 def preserve_sheet_to_new_sheet(doc: Any, source_sheet: Any, *, target_name: str = "PythonImport") -> OutputSheetModel:

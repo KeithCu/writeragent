@@ -138,11 +138,14 @@ def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int)
 
 
 def ods_cache_enabled() -> bool:
-    """Settings ``calc.ods_cache_enabled`` (default true). Missing schema → enabled."""
-    try:
-        from plugin.framework.config import get_config
-        from plugin.framework.config_schema import as_bool
+    """Settings ``calc.ods_cache_enabled``.
 
-        return as_bool(get_config(ODS_CACHE_ENABLED_KEY))
-    except Exception:
-        return True
+    Default is the module.yaml value (true). ``get_config_bool_safe`` returns
+    that default for a bad stored value. An unknown key returns False.
+    Other exceptions propagate.
+    """
+    # Bugfix: except Exception returned True, so a bug in config I/O enabled
+    # the cache. The schema default is already what get_config_bool_safe uses.
+    from plugin.framework.config import get_config_bool_safe
+
+    return get_config_bool_safe(ODS_CACHE_ENABLED_KEY)

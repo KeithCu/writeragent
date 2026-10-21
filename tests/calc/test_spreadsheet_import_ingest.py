@@ -72,6 +72,18 @@ def test_classify_error_display():
     assert formula == "=A1/0"
     assert error == "#DIV/0!"
 
+    cell_type, value, formula, error = classify_cell("Err:519", "=A1")
+    assert cell_type == "error"
+    assert value == "Err:519"
+    assert formula == "=A1"
+    assert error == "Err:519"
+
+    cell_type, value, formula, error = classify_cell("hello", "=A1")
+    assert cell_type == "formula"
+    assert value == "hello"
+    assert formula == "=A1"
+    assert error is None
+
 
 def test_extract_cell_refs():
     refs = extract_cell_refs("=SUM($A$1:B2)+C3")

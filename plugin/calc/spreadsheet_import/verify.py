@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from plugin.calc.spreadsheet_import.graph import is_calc_error_display
+from plugin.calc.error_detector import is_calc_error_display
 from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch, VerifyResult
 
 

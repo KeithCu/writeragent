@@ -17,12 +17,23 @@ from plugin.calc.error_detector import (
     ERROR_TYPES,
     ErrorDetector,
     get_calc_error_name,
+    is_calc_error_display,
 )
 
 
 def test_error_detector_data():
     assert 502 in ERROR_TYPES
-    assert len(ERROR_PATTERNS) > 0
+    expected_tokens = frozenset({
+        "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
+        "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
+    })
+    assert ERROR_PATTERNS == expected_tokens
+    assert len({t.upper() for t in ERROR_PATTERNS}) == len(ERROR_PATTERNS)
+    assert is_calc_error_display("#div/0!") == "#DIV/0!"
+    assert is_calc_error_display(" err:502 ") == "Err:502"
+    assert is_calc_error_display("#ERROR!") == "#ERROR!"
+    assert is_calc_error_display("#hashtag") is None
+    assert is_calc_error_display(1) is None
     for code, info in ERROR_TYPES.items():
         assert "name" in info
         assert "description" in info

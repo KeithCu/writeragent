@@ -150,3 +150,53 @@ def test_apply_output_to_sheet():
     cells[(3, 0)].setPropertyValue.assert_called_once_with("NumberFormat", 5)
     cells[(4, 0)].setString.assert_called_once_with("hello")
 
+
+def test_apply_output_keeps_text_that_looks_numeric():
+    sheet = MagicMock()
+    cells: dict[tuple[int, int], MagicMock] = {}
+
+    def get_cell(c: int, r: int) -> MagicMock:
+        if (c, r) not in cells:
+            cells[(c, r)] = MagicMock()
+        return cells[(c, r)]
+
+    sheet.getCellByPosition.side_effect = get_cell
+
+    output = OutputSheetModel(
+        sheet_name="S",
+        used_range="A1:G1",
+        cells={
+            "A1": OutputCell(address="A1", value="00123", formula=None, number_format=None),
+            "B1": OutputCell(address="B1", value="42", formula=None, number_format=None),
+            "C1": OutputCell(address="C1", value="=00123", formula=None, number_format=None),
+            "D1": OutputCell(address="D1", value=7, formula=None, number_format=None),
+            "E1": OutputCell(address="E1", value=0, formula=None, number_format=None),
+            "F1": OutputCell(address="F1", value=True, formula=None, number_format=None),
+            "G1": OutputCell(address="G1", value=False, formula=None, number_format=None),
+        },
+    )
+
+    apply_output_to_sheet(sheet, output)
+
+    cells[(0, 0)].setString.assert_called_once_with("00123")
+    cells[(0, 0)].setValue.assert_not_called()
+
+    cells[(1, 0)].setString.assert_called_once_with("42")
+    cells[(1, 0)].setValue.assert_not_called()
+
+    cells[(2, 0)].setString.assert_called_once_with("=00123")
+    cells[(2, 0)].setFormula.assert_not_called()
+
+    cells[(3, 0)].setValue.assert_called_once_with(7)
+    cells[(3, 0)].setString.assert_not_called()
+
+    cells[(4, 0)].setValue.assert_called_once_with(0)
+    cells[(4, 0)].setString.assert_not_called()
+
+    cells[(5, 0)].setValue.assert_called_once_with(1.0)
+    cells[(5, 0)].setString.assert_not_called()
+
+    cells[(6, 0)].setValue.assert_called_once_with(0.0)
+    cells[(6, 0)].setString.assert_not_called()
+
+
