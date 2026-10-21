@@ -27,17 +27,13 @@ from typing import ClassVar
 
 from ..specialized_base import ToolWriterChartBase
 from plugin.calc.charts import ManageCharts as CalcManageCharts
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
 log = logging.getLogger("writeragent.writer")
 
 # Union services: same name as Calc/Draw ``manage_charts``; last registration wins, so include
 # all chart-capable document services (cf. ``plugin.writer.specialized.shapes``).
-_ALL_CHART_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_ALL_CHART_DOCS = list(ALL_DOCUMENT_SERVICES)
 
 
 class ManageCharts(CalcManageCharts, ToolWriterChartBase):  # type: ignore[misc]

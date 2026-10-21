@@ -45,8 +45,10 @@ def _run_on_main(fn: Any, *args: Any, **kwargs: Any) -> Any:
 
 log = logging.getLogger("writeragent.writer.forms")
 
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+
 # One registration per tool name; union services for Writer + Calc + Draw/Impress (see AGENTS.md shared tools).
-_FORM_DOC_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+_FORM_DOC_SERVICES = list(ALL_DOCUMENT_SERVICES)
 
 _CONTROL_TYPE_MAP = {
     "checkbox": "com.sun.star.form.component.CheckBox",

@@ -22,12 +22,13 @@ Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.chart
 import logging
 from typing import ClassVar
 
-from plugin.draw.base import ToolDrawChartBase
 from plugin.calc.charts import ManageCharts as CalcManageCharts
+from plugin.draw.base import ToolDrawChartBase
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
 log = logging.getLogger("writeragent.draw")
 
-_ALL_CHART_DOCS = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+_ALL_CHART_DOCS = list(ALL_DOCUMENT_SERVICES)
 
 
 class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]

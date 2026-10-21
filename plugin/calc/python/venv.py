@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data_on_main_thread
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, is_image_payload, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_ALL_VENV_DOCS = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+_ALL_VENV_DOCS = list(ALL_DOCUMENT_SERVICES)
 
 _RESULT_NOTE = "Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."
 _CODE_PROP = {
@@ -161,7 +162,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if ctx.doc_type == "calc":
             data_range = kwargs.get("data_range")
             data = kwargs.get("data")
-            py_data, err = resolve_python_data_on_main_thread(ctx, data_range=data_range, data=data)
+            py_data, err = resolve_python_data_on_main_thread(ctx.doc, data_range=data_range, data=data)
             if err:
                 return {"status": "error", "message": err}
         else:

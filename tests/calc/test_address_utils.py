@@ -119,3 +119,38 @@ def test_address_utils():
         with pytest.raises(ValueError):
             parse_range_string(whole_col)
     assert parse_range_string(split_sheet_prefix("Sheet1.$A$1:$B$2")[1]) == ((0, 0), (1, 1))
+
+
+def test_quote_sheet_name_and_qualify_a1():
+    from plugin.calc.address_utils import qualify_a1, quote_sheet_name
+
+    assert quote_sheet_name("Sheet1") == "Sheet1"
+    assert quote_sheet_name("2024") == "'2024'"
+    assert quote_sheet_name("O'Brien") == "'O''Brien'"
+    assert quote_sheet_name("Q1.Sales") == "'Q1.Sales'"
+    assert quote_sheet_name("Foo!Bar") == "'Foo!Bar'"
+
+    assert qualify_a1("Sheet1", "A1") == "Sheet1.A1"
+    assert qualify_a1("2024", "B2") == "'2024'.B2"
+    assert qualify_a1("O'Brien", "C3") == "'O''Brien'.C3"
+    assert qualify_a1("Q1.Sales", "D4") == "'Q1.Sales'.D4"
+    assert qualify_a1("Foo!Bar", "E5") == "'Foo!Bar'.E5"
+    assert qualify_a1("Sheet1", "A1", sep="!") == "Sheet1!A1"
+
+
+def test_format_range_and_format_range_address():
+    from types import SimpleNamespace
+    from plugin.calc.address_utils import format_range, format_range_address
+
+    assert format_range(0, 0, 1, 1) == "A1:B2"
+    assert format_range(0, 0, 0, 0) == "A1:A1"
+    assert format_range(0, 0, 0, 0, collapse_single=True) == "A1"
+    assert format_range(0, 0, 1, 1, collapse_single=True) == "A1:B2"
+
+    addr = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=1, EndRow=1)
+    assert format_range_address(addr) == "A1:B2"
+
+    single_cell_addr = SimpleNamespace(StartColumn=2, StartRow=3, EndColumn=2, EndRow=3)
+    assert format_range_address(single_cell_addr) == "C4:C4"
+    assert format_range_address(single_cell_addr, collapse_single=True) == "C4"
+

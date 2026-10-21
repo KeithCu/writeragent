@@ -258,7 +258,7 @@ def _normalize_data_range_addresses(data_range: Any) -> list[str]:
     return parts if parts else [text]
 
 
-def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
+def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
     """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set.
 
     ``data_range`` may be one A1 string, a comma/semicolon-separated string, or a list of addresses.
@@ -273,7 +273,7 @@ def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) 
 
     if addresses:
         try:
-            bridge = CalcBridge(ctx.doc)
+            bridge = CalcBridge(doc)
             inspector = CellInspector(bridge)
             grids: list[list[list[Any]]] = []
             for addr in addresses:
@@ -306,11 +306,11 @@ def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) 
     return None, None
 
 
-def resolve_python_data_on_main_thread(ctx: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
+def resolve_python_data_on_main_thread(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
     """Marshal Calc range reads to the LO main thread (``is_async`` tools run on workers)."""
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
     if on_main_thread():
-        return _resolve_python_data(ctx, data_range=data_range, data=data)
-    return execute_on_main_thread(_resolve_python_data, ctx, data_range=data_range, data=data)
+        return _resolve_python_data(doc, data_range=data_range, data=data)
+    return execute_on_main_thread(_resolve_python_data, doc, data_range=data_range, data=data)

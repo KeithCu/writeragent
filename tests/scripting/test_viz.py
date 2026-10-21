@@ -244,8 +244,7 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main) as mock_main,
         patch("plugin.scripting.viz.is_calc", return_value=True),
         patch("plugin.scripting.viz.is_writer", return_value=False),
-        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
-        patch("plugin.scripting.viz._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
         patch("plugin.scripting.viz.client_run_viz", side_effect=client) as mock_client,
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -567,8 +566,7 @@ def test_run_trusted_viz_sheet_disposal_propagates():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.scripting.viz.is_calc", return_value=True),
         patch("plugin.scripting.viz.is_writer", return_value=False),
-        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
-        patch("plugin.scripting.viz._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
         patch("plugin.scripting.viz.client_run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -591,8 +589,7 @@ def test_run_trusted_viz_sheet_name_failure_is_best_effort():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.scripting.viz.is_calc", return_value=True),
         patch("plugin.scripting.viz.is_writer", return_value=False),
-        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
-        patch("plugin.scripting.viz._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
         patch("plugin.scripting.viz.client_run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):

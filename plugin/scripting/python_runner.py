@@ -306,7 +306,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     dict is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
     The native dialog runs only :func:`_run_prepared_rps` off the UNO thread.
     """
-    from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context
+    from plugin.calc.analysis_runner import calc_selection_to_a1
     from plugin.calc.python.formula_edit import parse_data_binding_text
     from plugin.calc.calc_addin_data import _resolve_python_data
 
@@ -336,9 +336,8 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     if is_calc(doc):
         drs = _resolve_data_ranges()
         if drs:
-            tool_ctx = calc_tool_context(ctx, doc)
             # Pass the full address list so multi Data: bindings become data / ranges.
-            py_data, err = _resolve_python_data(tool_ctx, data_range=drs, data=None)
+            py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
             if err:
                 return _early({"ok": False, "message": err})
 

@@ -213,8 +213,8 @@ def test_forecast_data_auto_plot_marshals_viz_read(
     assert mock_main_thread.call_count == 1
 
 
-def test_auto_plot_reads_sheet_on_main_and_uses_analysis_runner_context():
-    """Wrong calc_tool_context import raises AttributeError; envelope must merge."""
+def test_auto_plot_reads_sheet_on_main_and_passes_doc():
+    """Auto-plot history reads Calc data on the main thread and merges envelope."""
     envelope = {
         "__wa_payload__": PAYLOAD_CALC_RANGE,
         "shape": [3, 2],
@@ -243,8 +243,7 @@ def test_auto_plot_reads_sheet_on_main_and_uses_analysis_runner_context():
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main),
-        patch("plugin.calc.analysis_runner.calc_tool_context", return_value=MagicMock()) as mock_ctx,
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)) as mock_resolve,
         patch("plugin.scripting.viz.run_trusted_viz", side_effect=viz) as mock_viz,
     ):
         result = run_auto_plot_after_forecast(
@@ -260,5 +259,5 @@ def test_auto_plot_reads_sheet_on_main_and_uses_analysis_runner_context():
 
     assert result is not None
     assert result["status"] == "ok"
-    mock_ctx.assert_called_once()
+    mock_resolve.assert_called_once()
     mock_viz.assert_called_once()

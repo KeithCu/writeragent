@@ -21,14 +21,13 @@ Ported from core/calc_error_detector.py for the plugin framework.
 """
 
 import logging
-import re
 from typing import Any
 
-from plugin.calc.address_utils import parse_address
+from plugin.calc.address_utils import A1_CELL_RE, index_to_column, parse_address, parse_range_string
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
-# Regex for matching cell references (e.g. A1, $B$2)
-CELL_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)")
+# Alias for backwards compatibility with tests importing it
+CELL_REF_PATTERN = A1_CELL_RE
 
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
@@ -164,7 +163,7 @@ class ErrorDetector:
             # Honour sheet-qualified ranges (Sheet1.A1:D10) without switching
             # the active sheet; parse_range_string alone rejects prefixes.
             sheet, bare = self.bridge.resolve(range_str)
-            start, end = self.bridge.parse_range_string(bare)
+            start, end = parse_range_string(bare)
             start_col, start_row = start
             end_col, end_row = end
         else:
@@ -192,7 +191,7 @@ class ErrorDetector:
                     error_info = self.get_error_type(cell)
                     if error_info:
                         addr = cell.getCellAddress()
-                        col_str = self.bridge._index_to_column(addr.Column)
+                        col_str = index_to_column(addr.Column)
                         address = f"{col_str}{addr.Row + 1}"
                         errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
 
@@ -215,7 +214,7 @@ class ErrorDetector:
         sheet = self.bridge.get_active_sheet()
         cell = sheet.getCellByPosition(col, row)
         formula = cell.getFormula() or ""
-        refs = CELL_REF_PATTERN.findall(formula.upper())
+        refs = A1_CELL_RE.findall(formula.upper())
         precedent_addrs = list({f"{c}{r}" for c, r in refs})
 
         error_info = self.get_error_type(cell)

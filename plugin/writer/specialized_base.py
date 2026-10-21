@@ -83,7 +83,6 @@ class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
     specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
     required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent: str | None = "edit"
 
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
@@ -96,19 +95,16 @@ class ToolWriterPageBase(ToolWriterSpecialBase):
         (ToolWriterSpecialBase.required_core_tools or frozenset())
         | frozenset(["style_list", "style_clone"])
     )
-    intent: str | None = "edit"
 
 
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
     specialized_domain_description: ClassVar[str | None] = "Manage text frames, their content, and positioning."
-    intent: str | None = "edit"
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "embedded"
     specialized_domain_description: ClassVar[str | None] = "OLE in active doc only (not sibling files on disk)."
-    intent: str | None = "edit"
 
 
 class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
@@ -117,7 +113,6 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
         "In-document image operations (image_list) and nearby folder images (image_list_nearby_files); "
         "generate new images, or edit a selected image with image_generate(source_image='selection')."
     )
-    intent: str | None = "media"
     # Writer + Draw/Impress graphic hosts; ignore keeps the shared constant assignable.
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
 
@@ -129,7 +124,6 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Extract text and structure (layout, tables) from embedded graphics; extract_structure_from_image."
     )
-    intent: str | None = "media"
 
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
@@ -171,32 +165,27 @@ class ToolWriterFieldBase(ToolWriterSpecialBase):
 class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
     specialized_domain_description: ClassVar[str | None] = "View, add, and manage document comments and feedback."
-    intent: str | None = "review"
 
 
 class WriterAgentSpecialTracking(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes (redlines) in the document."
-    intent: str | None = "review"
 
 
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
     specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
     required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent: str | None = "navigate"
 
 
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "structural"
     specialized_domain_description: ClassVar[str | None] = "Document navigation, headings, and structural summary."
-    intent: str | None = "navigate"
 
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
     specialized_domain: ClassVar[str | None] = "tables"
     specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells)."
-    intent: str | None = "edit"
     # Writer + Draw/Impress table hosts; ignore keeps the union assignable across mixins.
     uno_services: list[str] | None = [  # type: ignore[assignment]
         "com.sun.star.text.TextDocument",
@@ -209,7 +198,6 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
     specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
     required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent: str | None = "edit"
 
 
 class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
@@ -218,7 +206,6 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    intent: str | None = "edit"
     # Concrete form tools override this with the Writer/Calc/Draw union.
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
 
@@ -237,70 +224,6 @@ class ToolWriterMailMergeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "mail_merge"
     specialized_domain_description: ClassVar[str | None] = "Configure data sources, insert database merge fields, and execute mail merge jobs."
     required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent: str | None = "edit"
-
-
-'''
-# Mock domain base classes: uncomment when implementations are ready.
-class ToolWriterSectionBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "sections"
-    specialized_domain_description: ClassVar[str | None] = "Manage document sections, protection, columns, and properties."
-    intent = "edit"
-
-
-class ToolWriterBibliographyBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "bibliography"
-    specialized_domain_description: ClassVar[str | None] = "Manage citations and generate document bibliographies."
-    intent = "edit"
-
-
-class ToolWriterWatermarkBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "watermark"
-    specialized_domain_description: ClassVar[str | None] = "Insert, configure, or remove page watermarks and backgrounds."
-    intent = "edit"
-
-
-class ToolWriterAutoTextBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "autotext"
-    specialized_domain_description: ClassVar[str | None] = "Insert, list, and manage AutoText quick-insert entries."
-    intent = "edit"
-
-
-class ToolWriterTocEnhancementBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "toc_enhancement"
-    specialized_domain_description: ClassVar[str | None] = "Advanced multi-level custom Table of Contents design and enhancement."
-    intent = "edit"
-
-
-class ToolWriterDocumentAutomationBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "document_automation"
-    specialized_domain_description: ClassVar[str | None] = "Run macros, register event bindings, and automate document scripting."
-    intent = "edit"
-
-
-class ToolWriterSecurityBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "security"
-    specialized_domain_description: ClassVar[str | None] = "Digital signatures, document encryption, and pattern-based content redaction."
-    intent = "review"
-
-
-class ToolWriterDocumentManagementBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "document_management"
-    specialized_domain_description: ClassVar[str | None] = "Read and write document metadata, compare documents, and assemble files."
-    intent = "review"
-
-
-class ToolWriterCollaborationBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "collaboration"
-    specialized_domain_description: ClassVar[str | None] = "Manage editing users, custom notifications, and conflict resolution."
-    intent = "review"
-
-
-class ToolWriterCustomizationBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "customization"
-    specialized_domain_description: ClassVar[str | None] = "Customize keyboard shortcuts, menu items, and custom commands."
-    intent = "edit"
-'''
 
 
 class SpecializedWorkflowFinished(ToolBase):

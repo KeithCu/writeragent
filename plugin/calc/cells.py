@@ -34,7 +34,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import index_to_column, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import format_range, index_to_column, parse_range_string, quote_sheet_name, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
@@ -86,9 +86,7 @@ def _parse_color(color_str: Any) -> int | None:
 
 def _sheet_token(sheet_name: str) -> str:
     """Bare when the name is a Python identifier; otherwise 'name' with quotes doubled."""
-    if sheet_name.isidentifier():
-        return sheet_name
-    return "'" + sheet_name.replace("'", "''") + "'"
+    return quote_sheet_name(sheet_name)
 
 
 def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
@@ -217,7 +215,7 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
         preview_cols = min(cols, _DISTINCT_PEEK_MAX_COLUMNS)
         end_row = int(addr.StartRow) + preview_rows - 1
         end_col = int(addr.StartColumn) + preview_cols - 1
-        local = f"{index_to_column(int(addr.StartColumn))}{int(addr.StartRow) + 1}:{index_to_column(end_col)}{end_row + 1}"
+        local = format_range(int(addr.StartColumn), int(addr.StartRow), end_col, end_row)
 
         prefix = _sheet_prefix_for_clip(range_name, cell_range)
         preview_range = f"{prefix}{local}"
@@ -314,7 +312,7 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
         rows = int(preview["rows"])
         end_col = start_col + min(cols, _DISTINCT_PEEK_MAX_COLUMNS) - 1
         end_row = start_row + min(rows, _DISTINCT_PEEK_MAX_ROWS) - 1
-        local = f"{index_to_column(start_col)}{start_row + 1}:{index_to_column(end_col)}{end_row + 1}"
+        local = format_range(start_col, start_row, end_col, end_row)
         clipped = f"{preview.get('sheet_prefix') or ''}{local}"
         cell_range = bridge.resolve_range_or_address(clipped)
         if not hasattr(cell_range, "getDataArray"):

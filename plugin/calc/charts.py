@@ -34,9 +34,10 @@ from plugin.framework.tool import ToolBaseDummy
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal, is_tool_document_disposed
 from plugin.framework.uno_context import uno_same
 import uno
@@ -958,7 +959,7 @@ class ListCharts(ToolBaseDummy):
     intent: str | None = "navigate"
     description: str = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1121,9 +1122,8 @@ class GetChartInfo(ToolBaseDummy):
 
         # Data ranges (Calc only)
         if hasattr(chart_obj, "getRanges"):
-            bridge = CalcBridge(doc)
             try:
-                info["data_ranges"] = [bridge._range_to_str(r) for r in chart_obj.getRanges()]
+                info["data_ranges"] = [format_range_address(r) for r in chart_obj.getRanges()]
             except Exception as exc:
                 # Bugfix: a closed document raises DisposedException from the chart info read, and this
                 # except turned that into a partial chart.
@@ -1773,7 +1773,7 @@ class ManageCharts(ToolCalcChartBase):
         },
         "required": ["action"],
     }
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     is_mutation: bool | None = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:

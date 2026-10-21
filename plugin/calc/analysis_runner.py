@@ -6,25 +6,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
-from plugin.calc.address_utils import format_range
+from plugin.calc.address_utils import format_range_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.client import run_analysis
-from plugin.framework.errors import ToolExecutionError, uno_read
+from plugin.framework.errors import uno_read
 from plugin.scripting.analysis import HELPER_NAMES
-
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
-
-
-def calc_tool_context(uno_ctx: Any, doc: Any) -> ToolContext:
-    """Minimal ToolContext-like object for range reads on the main thread."""
-    from types import SimpleNamespace
-
-    # SimpleNamespace is intentionally duck-typed as ToolContext for range helpers.
-    return cast("ToolContext", cast("object", SimpleNamespace(ctx=uno_ctx, doc=doc, doc_type="calc" if is_calc(doc) else None, active_domain=None)))
 
 
 def calc_selection_to_a1(doc: Any) -> str | None:
@@ -43,54 +32,37 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         bridge = CalcBridge(doc)
         sheet = bridge.get_active_sheet()
         sheet_name = str(sheet.getName())
-        cell_part = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=True)
-        if " " in sheet_name or "." in sheet_name or "'" in sheet_name:
-            escaped_name = sheet_name.replace("'", "''")
-            return f"'{escaped_name}'.{cell_part}"
-        return f"{sheet_name}.{cell_part}"
+        cell_part = format_range_address(addr, collapse_single=True)
+        return qualify_a1(sheet_name, cell_part)
 
     return uno_read(_get, None)
 
 
-def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, data_range: str | None = None, data: Any = None, headers: bool = True, task_hint: str | None = None) -> dict[str, Any]:
+def run_trusted_analysis(
+    uno_ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None = None,
+    data_range: str | None = None,
+    data: Any = None,
+    headers: bool = True,
+    task_hint: str | None = None,
+) -> dict[str, Any]:
     """Fetch Calc data and run a trusted helper in the user venv."""
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="ANALYSIS_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="ANALYSIS_ERROR")
+    from plugin.scripting.helper_domain import run_trusted_calc_data_helper
 
-    dr = str(data_range).strip() if data_range else None
-    if not dr and data is None:
-        raise ToolExecutionError("Provide data_range or data", code="ANALYSIS_ERROR")
-
-    from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.framework.queue_executor import execute_on_main_thread
-
-    def _read_data() -> tuple[Any, str | None, dict[str, Any]]:
-        tool_ctx = calc_tool_context(uno_ctx, doc)
-        data_out, error_out = _resolve_python_data(tool_ctx, data_range=dr, data=data)
-
-        ctx_out: dict[str, Any] = {}
-        sheet_name = uno_read(lambda: CalcBridge(doc).get_active_sheet().getName(), None)
-        if sheet_name:
-            ctx_out["sheet_name"] = sheet_name
-        return data_out, error_out, ctx_out
-
-    py_data, err, context = execute_on_main_thread(_read_data)
-
-    if err:
-        raise ToolExecutionError(err, code="ANALYSIS_ERROR")
-    if py_data is None:
-        raise ToolExecutionError("No data to analyze", code="ANALYSIS_ERROR")
-
-    spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
-    if isinstance(params, dict) and params:
-        spec["params"] = params
-
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-    if dr:
-        context["range_a1"] = dr
-
-    return run_analysis(uno_ctx, spec, py_data, context=context or None)
+    return run_trusted_calc_data_helper(
+        uno_ctx,
+        doc,
+        helper=helper,
+        params=params,
+        data_range=data_range,
+        data=data,
+        headers=headers,
+        task_hint=task_hint,
+        helper_names=HELPER_NAMES,
+        error_code="ANALYSIS_ERROR",
+        empty_data_message="No data to analyze",
+        client_run=run_analysis,
+    )

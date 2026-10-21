@@ -113,18 +113,13 @@ def _same_calc_cell(left: Any, right: Any) -> bool:
 def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
     """Resolve ``$A$1`` / ``Sheet.A1`` to a cell, or None if the address is bad."""
     try:
-        from plugin.calc.address_utils import split_sheet_prefix
+        from plugin.calc.address_utils import qualify_a1, split_sheet_prefix
 
         sheet, rest = split_sheet_prefix(code_ref.strip())
         bare = rest.replace("$", "").strip()
         if not bare:
             return None
-        if sheet:
-            needs_quotes = any(not (c.isalnum() or c == "_") for c in sheet) or sheet[:1].isdigit()
-            escaped_sheet = sheet.replace("'", "''")
-            addr = f"'{escaped_sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
-        else:
-            addr = bare
+        addr = qualify_a1(sheet, bare) if sheet else bare
         return CalcBridge(doc).get_cell_by_address(addr)
     except Exception:
         log.debug("python_editor: could not resolve code ref %r", code_ref, exc_info=True)

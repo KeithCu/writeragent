@@ -24,7 +24,6 @@ def test_get_sheet_summary_used_range_letters():
     summary = SheetAnalyzer(bridge).get_sheet_summary()
 
     assert summary["used_range"] == "A1:B3"
-    bridge._index_to_column.assert_not_called()
 
 
 def test_get_sheet_summary_reraises_disposed():

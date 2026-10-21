@@ -34,15 +34,8 @@ def test_list_pivot_tables_all_sheets():
     ctx = MagicMock()
     ctx.doc = doc
 
-    with patch("plugin.calc.pivot.CalcBridge") as mock_bridge_cls, \
-         patch("plugin.calc.pivot._get_dp_tables", return_value=dp_tables), \
+    with patch("plugin.calc.pivot._get_dp_tables", return_value=dp_tables), \
          patch("plugin.calc.pivot._query_interface", return_value=dpt):
-        mock_bridge = MagicMock()
-        mock_bridge.get_active_document.return_value = doc
-        mock_bridge._range_to_str.return_value = "D1:G11"
-        mock_bridge_cls.return_value = mock_bridge
-        mock_bridge_cls._range_to_str.return_value = "D1:G11"
-
         tool = ListPivotTables()
         res = tool.execute(ctx)
 
@@ -67,13 +60,8 @@ def test_list_pivot_tables_sheet_not_found():
     ctx = MagicMock()
     ctx.doc = doc
 
-    with patch("plugin.calc.pivot.CalcBridge") as mock_bridge_cls:
-        mock_bridge = MagicMock()
-        mock_bridge.get_active_document.return_value = doc
-        mock_bridge_cls.return_value = mock_bridge
-
-        tool = ListPivotTables()
-        res = tool.execute(ctx, sheet="NoSuchSheet")
+    tool = ListPivotTables()
+    res = tool.execute(ctx, sheet="NoSuchSheet")
 
     assert res["status"] == "error"
     assert "No sheet named 'NoSuchSheet'" in res["message"]

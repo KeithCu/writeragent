@@ -29,7 +29,7 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True, also_add_
 
 import unohelper  # noqa: E402
 
-from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  # noqa: E402
+from plugin.calc.addin_common import ADDIN_SERVICE, CalcAddInBase, CalcFunctionSpec  # noqa: E402
 from plugin.calc.prompt_function import execute_prompt_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ except ImportError:
     _XPromptFunctionBase = _XPromptFunctionStub
 
 
-class PromptFunction(SingleFunctionAddInBase, _XPromptFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
+class PromptFunction(CalcAddInBase, _XPromptFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PromptFunction (=PROMPT)."""
 
     def __init__(self, ctx: Any) -> None:
@@ -74,4 +74,4 @@ class PromptFunction(SingleFunctionAddInBase, _XPromptFunctionBase):  # pyright:
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(PromptFunction, "org.extension.writeragent.PromptFunction", ("com.sun.star.sheet.AddIn",))
+g_ImplementationHelper.addImplementation(PromptFunction, "org.extension.writeragent.PromptFunction", (ADDIN_SERVICE,))

@@ -20,6 +20,15 @@ from plugin.framework.errors import ConfigError
 _REPO = Path(__file__).resolve().parents[2]
 
 
+def _completed_process(
+    args: list[str] | None = None,
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args or [], returncode, stdout, stderr)
+
+
 def test_module_yaml_stt_defaults() -> None:
     import yaml
 
@@ -122,7 +131,7 @@ def test_endpoint_transcribe_calls_client_not_venv(monkeypatch: pytest.MonkeyPat
 def test_local_transcribe_does_not_call_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stt_service, "uses_local_stt", lambda: True)
     monkeypatch.setattr(stt_service, "get_stt_local_model", lambda: "small")
-    monkeypatch.setattr(stt_service, "_transcribe_local", lambda wav, model, on_status: f"{model}:{wav}")
+    monkeypatch.setattr(stt_service, "_transcribe_local", lambda wav, model, on_spawn=None: f"{model}:{wav}")
     client = MagicMock()
     assert stt_service.transcribe("/tmp/a.wav", client=client, model="whisper-1") == "small:/tmp/a.wav"
     client.transcribe_audio.assert_not_called()
@@ -131,7 +140,7 @@ def test_local_transcribe_does_not_call_client(monkeypatch: pytest.MonkeyPatch) 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: None)
     with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"'):
-        stt_service._transcribe_local("/tmp/a.wav", "base", None)
+        stt_service._transcribe_local("/tmp/a.wav", "base")
 
 
 def test_probe_caches_present_package_without_pip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,15 +148,10 @@ def test_probe_caches_present_package_without_pip(monkeypatch: pytest.MonkeyPatc
     py_exe = "/opt/venv/bin/python"
     calls: list[list[str]] = []
 
-    class _Result:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
-    def fake_run(cmd: list[str], timeout: float) -> _Result:
-        del timeout
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del timeout, kwargs
         calls.append(list(cmd))
-        return _Result()
+        return _completed_process(cmd, 0)
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     assert stt_service.ensure_faster_whisper(py_exe) is True
@@ -165,20 +169,15 @@ def test_missing_package_errors_with_install_hint_and_does_not_pip(
     py_exe = "/opt/venv/bin/python"
     calls: list[list[str]] = []
 
-    class _Result:
-        returncode = 1
-        stdout = ""
-        stderr = "ModuleNotFoundError: faster_whisper"
-
-    def fake_run(cmd: list[str], timeout: float) -> _Result:
-        del timeout
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del timeout, kwargs
         calls.append(list(cmd))
-        return _Result()
+        return _completed_process(cmd, 1, stderr="ModuleNotFoundError: faster_whisper")
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"') as exc_info:
-        stt_service._transcribe_local("/tmp/a.wav", "base", None)
+        stt_service._transcribe_local("/tmp/a.wav", "base")
     message = str(exc_info.value)
     assert "Python Test" in message
     assert "optional" in message
@@ -191,35 +190,26 @@ def test_present_package_transcribes_via_child_script(monkeypatch: pytest.Monkey
     stt_service.clear_faster_whisper_probe_cache()
     py_exe = "/opt/venv/bin/python"
     calls: list[list[str]] = []
-    statuses: list[str] = []
 
-    class _Result:
-        def __init__(self, returncode: int, stdout: str = "") -> None:
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = ""
-
-    def fake_run(cmd: list[str], timeout: float) -> _Result:
-        del timeout
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del timeout, kwargs
         calls.append(list(cmd))
         if "import faster_whisper" in cmd:
-            return _Result(0)
-        return _Result(0, '{"status":"ok","text":"hello world"}\n')
+            return _completed_process(cmd, 0)
+        return _completed_process(cmd, 0, '{"status":"ok","text":"hello world"}\n')
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: True)
-    assert stt_service._transcribe_local("/tmp/a.wav", "small", statuses.append) == "hello world"
+    assert stt_service._transcribe_local("/tmp/a.wav", "small") == "hello world"
     assert calls[0] == [py_exe, "-c", "import faster_whisper"]
     assert calls[1][0] == py_exe
     assert calls[1][1].endswith("whisper_transcribe.py")
     assert calls[1][2:] == ["--wav", "/tmp/a.wav", "--model=small"]
     assert len(calls) == 2
     assert all("pip" not in part for cmd in calls for part in cmd)
-    assert statuses == ["Transcribing with local Whisper (small)…"]
-    assert all("download" not in line for line in statuses)
     # Cached import probe: the next recording only runs the child script.
-    assert stt_service._transcribe_local("/tmp/b.wav", "tiny", None) == "hello world"
+    assert stt_service._transcribe_local("/tmp/b.wav", "tiny") == "hello world"
     assert len(calls) == 3
     assert calls[2][2:] == ["--wav", "/tmp/b.wav", "--model=tiny"]
     stt_service.clear_faster_whisper_probe_cache()
@@ -228,25 +218,18 @@ def test_present_package_transcribes_via_child_script(monkeypatch: pytest.Monkey
 def test_uncached_weights_status_mentions_download(monkeypatch: pytest.MonkeyPatch) -> None:
     stt_service.clear_faster_whisper_probe_cache()
     py_exe = "/opt/venv/bin/python"
-    statuses: list[str] = []
 
-    class _Result:
-        def __init__(self, returncode: int, stdout: str = "") -> None:
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = ""
-
-    def fake_run(cmd: list[str], timeout: float) -> _Result:
-        del timeout
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del timeout, kwargs
         if "import faster_whisper" in cmd:
-            return _Result(0)
-        return _Result(0, '{"status":"ok","text":"hi"}\n')
+            return _completed_process(cmd, 0)
+        return _completed_process(cmd, 0, '{"status":"ok","text":"hi"}\n')
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
-    assert stt_service._transcribe_local("/tmp/a.wav", "tiny", statuses.append) == "hi"
-    assert statuses == ["Transcribing with local Whisper (tiny)… The first run downloads the model."]
+    assert stt_service._transcribe_local("/tmp/a.wav", "tiny") == "hi"
+    assert "download" in stt_service._local_whisper_status("tiny")
     stt_service.clear_faster_whisper_probe_cache()
 
 
@@ -288,26 +271,21 @@ def test_timeout_mentions_download_only_when_weights_missing(monkeypatch: pytest
     py_exe = "/opt/venv/bin/python"
     cached = {"yes": True}
 
-    class _Result:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
-    def fake_run(cmd: list[str], timeout: float) -> _Result | None:
-        del timeout
+    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+        del timeout, kwargs
         if "import faster_whisper" in cmd:
-            return _Result()
+            return _completed_process(cmd, 0)
         return None
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: cached["yes"])
     with pytest.raises(ConfigError, match="could not start") as cached_exc:
-        stt_service._transcribe_local("/tmp/a.wav", "base", None)
+        stt_service._transcribe_local("/tmp/a.wav", "base")
     assert "download" not in str(cached_exc.value)
     cached["yes"] = False
     with pytest.raises(ConfigError, match="downloads model weights") as missing_exc:
-        stt_service._transcribe_local("/tmp/a.wav", "base", None)
+        stt_service._transcribe_local("/tmp/a.wav", "base")
     assert "first run" in str(missing_exc.value)
     stt_service.clear_faster_whisper_probe_cache()
 
@@ -347,7 +325,7 @@ def test_probe_timeout_is_not_a_missing_package(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     with pytest.raises(ConfigError) as exc_info:
-        stt_service._transcribe_local("/tmp/a.wav", "base", None)
+        stt_service._transcribe_local("/tmp/a.wav", "base")
     message = str(exc_info.value)
     assert "timed out or could not start" in message
     assert "uv pip install" not in message

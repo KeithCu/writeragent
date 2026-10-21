@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.vision_egress import (
+    _vision_structure_calc_layout,
     format_vision_structure_for_calc,
     insert_vision_structure_into_calc,
     structure_calc_grid_has_content,
@@ -158,7 +159,7 @@ def test_literal_text_write_uses_setstring():
     doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
     bridge = MagicMock()
     bridge.resolve_range_or_address.return_value = cell_range
-    bridge.get_active_document.return_value = doc
+    bridge.doc = doc
     CellManipulator(bridge).write_formula_range("A1", [["=SUM(A1)", "000123"]], literal_text=True)
     assert cells[(0, 0)].setString.call_args[0][0] == "=SUM(A1)"
     assert cells[(1, 0)].setString.call_args[0][0] == "000123"
@@ -168,3 +169,15 @@ def test_literal_text_write_uses_setstring():
     assert "=SUM(A1)" not in flat
     assert "000123" not in flat
     assert 123.0 not in flat
+
+
+def test_vision_structure_preserves_string_cells_without_numeric_coercion():
+    result = {
+        "helper": "extract_structure",
+        "tables": [{"name": "table_1", "columns": ["Code"], "rows": [["0123"], [None]]}],
+    }
+    grid, _ = _vision_structure_calc_layout(result)
+    # OCR numeric-looking text stays string rather than coerced to float
+    assert ["0123"] in grid
+    assert [""] in grid
+

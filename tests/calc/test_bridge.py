@@ -147,3 +147,40 @@ def test_resolve_range_or_address_disposal_propagates():
     with pytest.raises(DocumentDisposedError):
         bridge.resolve_range_or_address("Total")
 
+
+def test_resolve_range_or_address_qualified_named_range():
+    doc = MagicMock()
+    data_sheet = _sheet("Data")
+    data_named = MagicMock()
+    cells = object()
+    data_named.getReferredCells.return_value = cells
+    data_sheet.NamedRanges.hasByName.side_effect = lambda n: n == "LocalName"
+    data_sheet.NamedRanges.getByName.return_value = data_named
+
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda n: n == "Data"
+    sheets.getByName.side_effect = lambda n: data_sheet
+    doc.getSheets.return_value = sheets
+
+    bridge = CalcBridge(doc)
+    assert bridge.resolve_range_or_address("Data.LocalName") is cells
+    data_sheet.NamedRanges.getByName.assert_called_once_with("LocalName")
+
+
+def test_resolve_range_or_address_global_only_named_range():
+    doc = MagicMock()
+    global_cells = object()
+    global_named = MagicMock()
+    global_named.getReferredCells.return_value = global_cells
+    doc.NamedRanges.hasByName.side_effect = lambda name: name == "GlobalTotal"
+    doc.NamedRanges.getByName.return_value = global_named
+
+    active = _sheet("Sheet1")
+    active.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+
+    bridge = CalcBridge(doc)
+    assert bridge.resolve_range_or_address("GlobalTotal") is global_cells
+    doc.NamedRanges.getByName.assert_called_once_with("GlobalTotal")
+
+

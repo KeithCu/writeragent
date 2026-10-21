@@ -184,11 +184,10 @@ def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
 
 
 @patch("plugin.scripting.forecast.client_run_forecast")
-@patch("plugin.calc.analysis_runner.calc_tool_context", return_value=MagicMock())
 @patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Date", "Value"], ["2024-01-01", 1.0]], None))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
-def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_main, mock_main_thread, _mock_resolve, _mock_ctx, mock_client):
+def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_main, mock_main_thread, _mock_resolve, mock_client):
     del mock_on_main
     inside = {"flag": False}
 

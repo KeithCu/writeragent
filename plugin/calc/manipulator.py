@@ -46,13 +46,12 @@ else:
         pass
 
 
-from plugin.calc import CalcError
-from plugin.calc.address_utils import index_to_column
-from plugin.calc.array_formula import MAX_ARRAY_CELLS, result_range, returns_array
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
+from plugin.calc.array_formula import MAX_ARRAY_CELLS, CellRect, result_range, returns_array
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.inspector import _format_category_from_type
-from plugin.framework.errors import safe_json_loads, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, safe_json_loads, is_disposed_exception, uno_probe
 from plugin.framework.uno_context import get_ctx
 
 
@@ -266,7 +265,7 @@ class CellManipulator:
                             continue
 
                     cell_name = f"{index_to_column(c)}{r + 1}"
-                    arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
+                    arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
     def _apply_style_properties(self, obj: Any, bold: bool | None, italic: bool | None, bg_color: int | None, font_color: int | None, font_size: float | None, h_align: str | None, v_align: str | None, wrap_text: bool | None, border_color: int | None) -> None:
@@ -418,7 +417,7 @@ class CellManipulator:
 
     def _set_range_number_format(self, range_str: str, format_str: str) -> None:
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        doc = self.bridge.get_active_document()
+        doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = self._resolve_document_locale(doc)
         format_id = formats.queryKey(format_str, locale, False)
@@ -428,7 +427,7 @@ class CellManipulator:
 
     def _set_number_format(self, address: str, format_str: str) -> None:
         cell = self.bridge.get_cell_by_address(address)
-        doc = self.bridge.get_active_document()
+        doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = self._resolve_document_locale(doc)
         format_id = formats.queryKey(format_str, locale, False)
@@ -449,7 +448,7 @@ class CellManipulator:
             # clearContents on part of an array formula silently does nothing, so
             # refuse with a clear message unless the range covers the whole array.
             addr = _uno_range_address(cell_range)
-            sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+            sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
             self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
             # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
             cell_range.clearContents(23)
@@ -745,8 +744,8 @@ class CellManipulator:
                 formula_or_values = parsed
 
             if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
-                sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
-                doc = self.bridge.get_active_document()
+                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
+                doc = self.bridge.doc
 
                 was_modified = doc.isModified()
                 undo_mgr = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
@@ -836,7 +835,7 @@ class CellManipulator:
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
-                sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                 return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 
             if isinstance(formula_or_values, (list, tuple)):
@@ -862,7 +861,7 @@ class CellManipulator:
                         if non_empty_count > 0:
                             expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
 
-                        range_str = f"{self.bridge._index_to_column(start[0])}{start[1] + 1}:{self.bridge._index_to_column(end[0])}{end[1] + 1}"
+                        range_str = format_range(start[0], start[1], end[0], end[1])
 
                     # Pad rows to ensure uniform width, and flatten into 1D
                     flat_vals = []
@@ -889,7 +888,7 @@ class CellManipulator:
                 else:
                     values = [formula_or_values] * total_cells
 
-            doc = self.bridge.get_active_document()
+            doc = self.bridge.doc
             formats = doc.getNumberFormats()
             locale = self._resolve_document_locale(doc)
             std_key = formats.getStandardIndex(locale)
@@ -1106,7 +1105,7 @@ class CellManipulator:
             try:
                 cell_range = self.bridge.resolve_range_or_address(range_str)
                 addr = _uno_range_address(cell_range)
-                sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                 self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
             except CalcError:
                 raise
@@ -1129,8 +1128,8 @@ class CellManipulator:
         rows 0–1 of the user's last column. Place the probe on the two
         rows under the used area instead.
         """
-        max_col = 16383  # XFD
-        max_row = 1_048_575
+        max_col = MAX_COL  # XFD
+        max_row = MAX_ROW
         col = min(max(int(used.EndColumn), avoid_col) + 2, max_col)
         row = 0
         overlaps_used = col <= int(used.EndColumn) and int(used.StartRow) <= 1 and int(used.EndRow) >= 0
@@ -1206,12 +1205,9 @@ class CellManipulator:
         else:
             rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
 
-        def block_name(a: int, b: int, c: int, d: int) -> str:
-            return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)
-
         notes: list[str] = []
         if explicit:
-            target = (c1, r1, c2, r2)
+            target = CellRect(c1, r1, c2, r2)
             height, width = r2 - r1 + 1, c2 - c1 + 1
             if height * width > MAX_ARRAY_CELLS:
                 raise CalcError("The target range is %d x %d cells, over the %d-cell limit." % (height, width, MAX_ARRAY_CELLS))
@@ -1224,6 +1220,8 @@ class CellManipulator:
                 raise CalcError("The result is %d x %d cells, over the %d-cell limit." % (rows, cols, MAX_ARRAY_CELLS))
             target = result_range(c1, r1, rows, cols)
 
+        block_name = format_range(target.left, target.top, target.right, target.bottom)
+
         # Rewriting the same array formula in place is an update.
         # Cells inside the array being replaced are not occupied, and the
         # clear runs only after the new target is accepted. Clearing first
@@ -1234,10 +1232,9 @@ class CellManipulator:
         if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):
             replaced_box = (int(existing.StartColumn), int(existing.StartRow), int(existing.EndColumn), int(existing.EndRow))
 
-        t_c1, t_r1, t_c2, t_r2 = target
         occupied: list[tuple[int, int]] = []
-        for row in range(t_r1, t_r2 + 1):
-            for col in range(t_c1, t_c2 + 1):
+        for row in range(target.top, target.bottom + 1):
+            for col in range(target.left, target.right + 1):
                 if (col, row) == (c1, r1):
                     continue
                 if replaced_box is not None and replaced_box[0] <= col <= replaced_box[2] and replaced_box[1] <= row <= replaced_box[3]:
@@ -1247,7 +1244,7 @@ class CellManipulator:
                     occupied.append((col, row))
         if occupied:
             block_c, block_r = occupied[0]
-            raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name(*target), len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
+            raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name, len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
 
         if measure_only:
             return {}
@@ -1257,12 +1254,12 @@ class CellManipulator:
 
         rng = sheet.getCellRangeByPosition(*target)
         rng.setArrayFormula(formula)
-        anchor = sheet.getCellByPosition(t_c1, t_r1)
+        anchor = sheet.getCellByPosition(target.left, target.top)
         if int(anchor.Error):
             uno_probe(lambda: _clear_array_range(rng), None)
             raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
         preview = [list(r) for r in rng.getDataArray()[:5]]
-        payload: dict[str, Any] = {"message": "Array formula entered on %s (%d x %d)." % (block_name(*target), rows, cols), "array_range": block_name(*target), "rows": rows, "cols": cols, "preview": preview}
+        payload: dict[str, Any] = {"message": "Array formula entered on %s (%d x %d)." % (block_name, rows, cols), "array_range": block_name, "rows": rows, "cols": cols, "preview": preview}
         if notes:
             payload["warning"] = " ".join(notes)
         log.info("%s", payload["message"])
@@ -1291,7 +1288,7 @@ class CellManipulator:
             dest_cell.Column = dest_ra.StartColumn
             dest_cell.Row = dest_ra.StartRow
 
-            dest_sheet = self.bridge.get_active_document().getSheets().getByIndex(dest_ra.Sheet)
+            dest_sheet = self.bridge.doc.getSheets().getByIndex(dest_ra.Sheet)
             dest_sheet.copyRange(dest_cell, source_ra)
 
             msg = f"Copied {rows}×{cols} from {source_str} onto {dest_str}."
@@ -1328,7 +1325,7 @@ class CellManipulator:
         try:
             sheet = self.bridge.get_active_sheet()
             columns = sheet.getColumns()
-            col_index = self.bridge._column_to_index(col_letter.upper())
+            col_index = column_to_index(col_letter.upper())
             columns.removeByIndex(col_index, count)
             log.info("%d column(s) deleted starting from column %s.", count, col_letter.upper())
             return f"{count} column(s) deleted starting from column {col_letter.upper()}."

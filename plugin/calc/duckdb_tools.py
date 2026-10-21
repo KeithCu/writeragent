@@ -10,7 +10,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.address_utils import qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
@@ -458,21 +458,8 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
 
 
 def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
-    """Qualify an A1 range so CellInspector hits *sheet_name* without setActiveSheet.
-
-    Hidden sibling opens often lack a usable controller; a sheet prefix is the
-    same resolve path live-range tools already use (``CalcBridge.resolve``).
-
-    Calc and Excel escape an apostrophe by doubling it
-    (``'O''Brien'.C5:D6``). ``split_sheet_prefix`` unescapes that back to
-    ``O'Brien`` before the sheet lookup. Wrapping ``O'Brien`` as
-    ``'O'Brien'.C5:D6`` ends the quoted name at the first apostrophe, the
-    match fails, and the sheet is lost.
-    """
-    if any(ch in sheet_name for ch in " .!'"):
-        escaped = sheet_name.replace("'", "''")
-        return f"'{escaped}'.{range_str}"
-    return f"{sheet_name}.{range_str}"
+    """Qualify an A1 range so CellInspector hits *sheet_name* without setActiveSheet."""
+    return qualify_a1(sheet_name, range_str)
 
 
 def _sibling_office_error(full_path: str, message: str, *, sheet: str | None = None, code: str = "DUCKDB_SQL_ERROR") -> ToolExecutionError:

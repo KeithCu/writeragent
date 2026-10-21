@@ -174,3 +174,92 @@ def test_no_context_means_no_filtering():
     schemas = [{"name": "extract_structure_from_image"}]
 
     assert drop_unavailable_domains(schemas, registry, None) == schemas
+
+
+def test_calc_base_does_not_import_writer_or_draw():
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-c",
+        "import sys, plugin.calc.base; assert 'plugin.writer' not in sys.modules; assert 'plugin.draw' not in sys.modules",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+
+
+_MARKER_ALLOWLIST = {
+    "Writer": frozenset({"document_research", "python", "vision", "web_research"}),
+    "Calc": frozenset({"document_research", "web_research", "vision", "images"}),
+    "Draw": frozenset({"document_research", "python", "web_research"}),
+}
+
+
+@pytest.mark.parametrize("label", ["Writer", "Calc", "Draw"])
+def test_concrete_specialized_tool_domains_in_catalog(label):
+    from unittest.mock import patch
+    from plugin.calc import CalcModule
+    from plugin.draw import DrawModule
+    from plugin.framework.prompts import (
+        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+        WRITER_SIDEBAR_ONLY_DOMAINS,
+    )
+    from plugin.framework.service import ServiceRegistry
+    from plugin.framework.tool import ToolBaseDummy, ToolRegistry
+    from plugin.writer import WriterModule
+
+    services = ServiceRegistry()
+    services.register("tools", ToolRegistry(services))
+    with patch("plugin.framework.config._resolve_config_path_from_ctx", return_value="/tmp/writeragent.json"):
+        WriterModule().initialize(services)
+        CalcModule().initialize(services)
+        DrawModule().initialize(services)
+
+    bases = _app_bases()
+    all_tools = _all_tool_classes()
+    cat_domains = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
+    sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
+
+    app_tools = [
+        t for t in all_tools
+        if issubclass(t, bases[label])
+        and not issubclass(t, ToolBaseDummy)
+        and getattr(t, "specialized_domain", None) not in sidebar_only
+    ]
+    for tool_cls in app_tools:
+        domain = getattr(tool_cls, "specialized_domain", None)
+        assert domain is None or domain in cat_domains, (
+            f"{label}: Tool {tool_cls.name} has specialized_domain {domain!r} not in catalog {cat_domains}"
+        )
+
+
+@pytest.mark.parametrize("label", ["Writer", "Calc", "Draw"])
+def test_catalog_domains_have_tools_or_marker_allowlist(label):
+    from unittest.mock import patch
+    from plugin.calc import CalcModule
+    from plugin.draw import DrawModule
+    from plugin.framework.service import ServiceRegistry
+    from plugin.framework.tool import ToolBaseDummy, ToolRegistry
+    from plugin.writer import WriterModule
+
+    services = ServiceRegistry()
+    services.register("tools", ToolRegistry(services))
+    with patch("plugin.framework.config._resolve_config_path_from_ctx", return_value="/tmp/writeragent.json"):
+        WriterModule().initialize(services)
+        CalcModule().initialize(services)
+        DrawModule().initialize(services)
+
+    bases = _app_bases()
+    all_tools = _all_tool_classes()
+    cat_domains = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
+
+    app_tools = [t for t in all_tools if issubclass(t, bases[label]) and not issubclass(t, ToolBaseDummy)]
+    tool_domains = {getattr(t, "specialized_domain", None) for t in app_tools}
+
+    allowlist = _MARKER_ALLOWLIST[label]
+    for domain in cat_domains:
+        assert domain in allowlist or domain in tool_domains, (
+            f"{label}: Catalog domain {domain!r} has no concrete tools and is not in marker allowlist"
+        )
+

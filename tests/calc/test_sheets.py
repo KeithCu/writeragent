@@ -39,12 +39,10 @@ def _sheets_doc(*names: str) -> MagicMock:
 
 
 def test_list_sheets_omits_leading_underscore_names():
-    ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_active_document.return_value = _sheets_doc(
-            "Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data"
-        )
-        result = ListSheets().execute(ctx)
+    ctx = SimpleNamespace(
+        doc=_sheets_doc("Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data")
+    )
+    result = ListSheets().execute(ctx)
 
     assert result["status"] == "ok"
     assert result["result"] == ["Sheet1", "Data"]
@@ -101,9 +99,8 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     ctx = SimpleNamespace(doc=MagicMock())
     sheets = MagicMock()
     sheets.getCount.return_value = 1
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_active_document.return_value.getSheets.return_value = sheets
-        result = CreateSheet().execute(ctx, sheet="Q1 Actuals")
+    ctx.doc.getSheets.return_value = sheets
+    result = CreateSheet().execute(ctx, sheet="Q1 Actuals")
 
     assert result["status"] == "ok"
     assert "no cells copied" in result["message"]
@@ -114,8 +111,7 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
 def test_list_sheets_disposal_is_document_disposed():
     tool = ListSheets()
     ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_active_document.side_effect = DocumentDisposedError("gone")
-        res = tool.execute_safe(ctx)
+    ctx.doc.getSheets.side_effect = DocumentDisposedError("gone")
+    res = tool.execute_safe(ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"

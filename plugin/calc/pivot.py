@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.calc.address_utils import parse_address, parse_range_string
+from plugin.calc.address_utils import format_range_address, parse_address, parse_range_string
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
@@ -155,8 +155,8 @@ class CreatePivotTable(ToolCalcPivotBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        doc = bridge.get_active_document()
+        doc = ctx.doc
+        bridge = CalcBridge(doc)
         sheets_coll = doc.getSheets()
         pivot_name = (kwargs.get("name") or "").strip()
         if not pivot_name:
@@ -228,8 +228,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         name = (kwargs.get("name") or "").strip()
         if not name:
             return self._tool_error("name is required.")
@@ -266,8 +265,7 @@ class ListPivotTables(ToolCalcPivotBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         only_sheet = kwargs.get("sheet")
 
         sh = doc.getSheets()
@@ -290,7 +288,7 @@ class ListPivotTables(ToolCalcPivotBase):
                 if dpt is not None:
                     ora = dpt.getOutputRange()
                     entry["output_sheet_index"] = ora.Sheet
-                    entry["output_range"] = CalcBridge._range_to_str(ora)
+                    entry["output_range"] = format_range_address(ora)
                 out.append(entry)
 
         return {"status": "ok", "pivot_tables": out, "count": len(out)}

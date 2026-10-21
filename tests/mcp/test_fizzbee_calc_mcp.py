@@ -81,11 +81,71 @@ def _call_rpc(handler: MCPProtocolHandler, msg: dict) -> dict:
 # 1. Full Calc Layout & Schema Verification Tests
 # =========================================================================== #
 
+_EXPECTED_CALC_TOOL_NAMES = frozenset({
+    "add_cell_comment",
+    "add_conditional_format",
+    "apply_sheet_filter",
+    "clear_sheet_filter",
+    "create_pivot_table",
+    "create_sheet",
+    "delegate_read_document",
+    "delegate_to_specialized_calc_toolset",
+    "delegate_tool_domains",
+    "delete_cell_comment",
+    "delete_sheet",
+    "delete_structure",
+    "detect_and_explain_errors",
+    "evaluate_formula",
+    "get_guidance",
+    "get_sheet_filter",
+    "get_sheet_summary",
+    "grep_nearby_files",
+    "insert_cell_html",
+    "list_calc_functions",
+    "list_cell_comments",
+    "list_conditional_formats",
+    "list_nearby_files",
+    "list_pivot_tables",
+    "list_sheets",
+    "manage_charts",
+    "merge_cells",
+    "named_range_add",
+    "named_range_create_from_titles",
+    "named_range_delete",
+    "named_range_edit",
+    "named_range_get_info",
+    "named_range_list",
+    "protect_sheet",
+    "query_folder_sql",
+    "read_cell_range",
+    "redo",
+    "refresh_pivot_table",
+    "remove_conditional_formats",
+    "rename_sheet",
+    "replace_in_spreadsheet",
+    "run_venv_python_script",
+    "search_in_spreadsheet",
+    "set_style",
+    "shape_connect",
+    "shape_delete",
+    "shape_group",
+    "shape_summary",
+    "shape_upsert",
+    "sort_range",
+    "switch_sheet",
+    "symbolic_math",
+    "undo",
+    "write_formula_range",
+})
+
+
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 61 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 54 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
-    assert layout["total_count"] >= 54, f"Expected at least 54 tools, found {layout['total_count']}"
+    all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
+    assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
+    assert layout["total_count"] == 58
     assert len(layout["core_tools"]) >= 10
     assert len(layout["specialized_tools"]) >= 39
 

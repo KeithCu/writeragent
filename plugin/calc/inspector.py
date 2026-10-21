@@ -22,10 +22,9 @@ Ported from core/calc_inspector.py for the plugin framework.
 
 import datetime
 import logging
-import re
 from typing import Any
 
-from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.address_utils import A1_CELL_RE, index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
@@ -33,7 +32,6 @@ from plugin.scripting.config_limits import configured_python_max_data_cells, pyt
 
 log = logging.getLogger("writeragent.calc")
 
-_FORMULA_REF_RE = re.compile(r"\$?([A-Z]+)\$?(\d+)")
 _CELL_FLAG_DATETIME = 2
 _NUMBER_FORMAT_DEFINED = 1
 _NUMBER_FORMAT_DATE = 2
@@ -140,7 +138,7 @@ class CellInspector:
         value = info.get("value")
         if not isinstance(value, (int, float)):
             return
-        doc = self.bridge.get_active_document()
+        doc = self.bridge.doc
         formats = doc.getNumberFormats()
         category, format_code = self._format_meta(self._safe_prop(cell, "NumberFormat"), formats, {})
         if category is None:
@@ -178,7 +176,7 @@ class CellInspector:
             if not has_formula:
                 return {}, None
 
-        doc = self.bridge.get_active_document()
+        doc = self.bridge.doc
         formats = doc.getNumberFormats()
         cache: dict[int, tuple[str | None, str | None]] = {}
         rows: dict[int, list[tuple[int, int, str, str | None]]] = {}
@@ -380,7 +378,7 @@ class CellInspector:
                         cell_type = EMPTY
                         value = None
 
-                    col_letter = self.bridge._index_to_column(col)
+                    col_letter = index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
 
                     cell_info = {"address": cell_address, "value": value, "formula": formula, "type": self._cell_type_name(cell_type)}
@@ -419,7 +417,7 @@ class CellInspector:
         """
         try:
             if sheet_name:
-                doc = self.bridge.get_active_document()
+                doc = self.bridge.doc
                 sheets = doc.getSheets()
                 sheet = sheets.getByName(sheet_name)
             else:
@@ -445,13 +443,13 @@ class CellInspector:
                         cell = enum.nextElement()
                         cell_addr = cell.getCellAddress()
 
-                        col_letter = self.bridge._index_to_column(cell_addr.Column)
+                        col_letter = index_to_column(cell_addr.Column)
                         cell_address = f"{col_letter}{cell_addr.Row + 1}"
 
                         formula = cell.getFormula()
                         value, _type = cell_value_and_type(cell)
 
-                        refs = _FORMULA_REF_RE.findall(formula.upper())
+                        refs = A1_CELL_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})
 
                         formulas.append({"address": cell_address, "formula": formula, "value": value, "precedents": precedents})

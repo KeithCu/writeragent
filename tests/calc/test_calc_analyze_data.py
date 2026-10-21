@@ -69,7 +69,7 @@ def _disposed():
 def test_goal_seek_reraises_disposed(calc_ctx):
     boom = _disposed()
     with (
-        patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
+        patch("plugin.calc.analysis.resolve_cell_address", side_effect=boom),
         pytest.raises(type(boom), match="URP"),
     ):
         GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
@@ -77,7 +77,7 @@ def test_goal_seek_reraises_disposed(calc_ctx):
 
 def test_goal_seek_wraps_other_errors(calc_ctx):
     with (
-        patch("plugin.calc.analysis.CalcBridge", side_effect=ValueError("seek failed")),
+        patch("plugin.calc.analysis.resolve_cell_address", side_effect=ValueError("seek failed")),
         pytest.raises(ToolExecutionError, match="seek failed"),
     ):
         GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
@@ -101,7 +101,7 @@ def test_solver_reraises_disposed(calc_ctx):
     boom = _disposed()
     with (
         patch.dict(sys.modules, modules),
-        patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
+        patch("plugin.calc.analysis.resolve_cell_address", side_effect=boom),
         pytest.raises(type(boom), match="URP"),
     ):
         SolverTool().execute(calc_ctx, objective_cell="C1", variables=["A1"])
@@ -146,10 +146,12 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     assert kwargs["task_hint"] == "sales summary"
 
 
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.calc.analysis_runner.run_analysis")
 @patch("plugin.calc.calc_addin_data._resolve_python_data")
-def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, calc_ctx):
+def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, mock_on_main, calc_ctx):
+    del mock_on_main
     call_order: list[str] = []
 
     def main_thread(fn, *args, **kwargs):

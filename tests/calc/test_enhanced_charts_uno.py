@@ -228,10 +228,9 @@ def test_calc_multisheet_charts(ctx, doc):
         "data_range": "'Sheet1'.A1:B2",
     })
     assert edit_data_res.get("status") == "ok"
-    from plugin.calc.bridge import CalcBridge
-    bridge = CalcBridge(doc)
+    from plugin.calc.address_utils import format_range_address
     sheet1 = doc.getSheets().getByName("Sheet1")
-    expected_range_str = bridge._range_to_str(sheet1.getCellRangeByName("A1:B2").getRangeAddress())
+    expected_range_str = format_range_address(sheet1.getCellRangeByName("A1:B2").getRangeAddress())
     info_c1 = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": "Chart_1"})
     assert info_c1.get("data_ranges") == [expected_range_str]
 

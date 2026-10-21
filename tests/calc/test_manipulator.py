@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.calc import CalcError
+from plugin.framework.errors import CalcError
 from plugin.calc.manipulator import CellManipulator
 
 

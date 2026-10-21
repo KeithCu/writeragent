@@ -12,6 +12,7 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
+from plugin.calc.tabular_egress import _append_blank, _append_table_rows
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
 from plugin.writer.images.image_tools import _get_selected_graphic_object
@@ -24,11 +25,6 @@ def _cell(value: Any) -> Any:
     if isinstance(value, str):
         return value
     return str(value)
-
-
-def _append_blank(rows: list[list[Any]]) -> None:
-    if rows and rows[-1]:
-        rows.append([])
 
 
 def _table_span_merges(table: dict[str, Any], *, header_grid_row: int, max_grid_row: int) -> list[tuple[int, int, int, int]]:
@@ -98,16 +94,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             _append_blank(rows)
             rows.append([str(table.get("name") or f"table_{table_count}")])
             header_grid_row = len(rows)
-            if isinstance(columns, list) and columns:
-                rows.append([str(col) for col in columns])
-            else:
-                header_grid_row = len(rows)
-            if isinstance(table_rows, list):
-                for row in table_rows:
-                    if isinstance(row, list):
-                        rows.append([_cell(cell) for cell in row])
-                    else:
-                        rows.append([_cell(row)])
+            _append_table_rows(rows, columns, table_rows, _cell)
             merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1))
             if table.get("truncated"):
                 total = table.get("total_rows")

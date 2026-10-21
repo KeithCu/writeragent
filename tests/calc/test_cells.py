@@ -165,14 +165,12 @@ def test_inspector_default_range_read_does_not_query_formats():
     cell_range.getFormulaArray.return_value = (("1", "2"),)
     bridge = MagicMock()
     bridge.resolve_range_or_address.return_value = cell_range
-    bridge._index_to_column.side_effect = ("A", "B")
 
     result = CellInspector(bridge).read_range("A1:B1")
 
     assert [cell["value"] for cell in result[0]] == [1.0, 2.0]
     cell_range.queryContentCells.assert_not_called()
     cell_range.getUniqueCellFormatRanges.assert_not_called()
-    bridge.get_active_document.assert_not_called()
 
 
 def test_inspector_read_range_refuses_over_cap_before_get_data_array():
@@ -221,9 +219,7 @@ def _make_range_bridge(*, data_array, formula_array, date_addresses=(), format_g
     )
     bridge = MagicMock()
     bridge.resolve_range_or_address.return_value = cell_range
-    bridge.get_active_document.return_value = doc
-    letters = tuple(chr(ord("A") + i) for i in range(max(cols, 1)))
-    bridge._index_to_column.side_effect = letters
+    bridge.doc = doc
     return bridge, cell_range, formats
 
 
@@ -697,7 +693,7 @@ def test_write_formula_range_s30_format_pass_warning():
 
     bridge = MagicMock()
     bridge.resolve_range_or_address.return_value = cell_range
-    bridge.get_active_document.return_value = doc
+    bridge.doc = doc
 
     formatter = MagicMock()
     formatter.detectNumberFormat.return_value = 37
@@ -749,7 +745,7 @@ def test_write_formula_range_s30_warning_counts_apply_only():
 
     bridge = MagicMock()
     bridge.resolve_range_or_address.return_value = cell_range
-    bridge.get_active_document.return_value = doc
+    bridge.doc = doc
 
     formatter = MagicMock()
     formatter.detectNumberFormat.return_value = 37
@@ -821,7 +817,7 @@ def test_make_number_formatter_unwraps_guarded_doc():
 def test_write_formula_range_empty_uno_error_uses_type_name():
     """Blank UNO str(e) must not surface as an empty CalcError."""
     from plugin.calc.manipulator import CellManipulator
-    from plugin.calc import CalcError
+    from plugin.framework.errors import CalcError
 
     class _BlankUno(Exception):
         def __str__(self):
@@ -1261,7 +1257,7 @@ def test_write_cell_range_multi_range_preserves_array_payload():
 
 
 def test_write_cell_range_multi_range_rolls_back_on_error():
-    from plugin.calc import CalcError
+    from plugin.framework.errors import CalcError
     from plugin.calc.cells import WriteCellRange
 
     titles_stack = []
@@ -1305,7 +1301,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
 
 
 def test_set_cell_style_multi_range_rolls_back_on_error():
-    from plugin.calc import CalcError
+    from plugin.framework.errors import CalcError
     from plugin.calc.cells import SetCellStyle
 
     titles_stack = []

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Callable
 
 from plugin.scripting.viz import HELPER_NAMES
 
@@ -22,10 +22,37 @@ def task_hint_implies_plot(task_hint: str | None) -> bool:
     return _VIZ_HINT_RE.search(str(task_hint)) is not None
 
 
-def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
-    if helper not in AUTO_PLOT_ANALYSIS_HELPERS:
+def helper_should_auto_plot(helper: str, allowed: frozenset[str], *, auto_plot: bool, task_hint: str | None) -> bool:
+    if helper not in allowed:
         return False
     return bool(auto_plot) or task_hint_implies_plot(task_hint)
+
+
+def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
+    return helper_should_auto_plot(helper, AUTO_PLOT_ANALYSIS_HELPERS, auto_plot=auto_plot, task_hint=task_hint)
+
+
+def apply_auto_plot_result(
+    result: dict[str, Any],
+    plot_result: dict[str, Any] | None,
+    insert: Callable[[dict[str, Any]], Any],
+) -> dict[str, Any]:
+    """Attach plot result, run main-thread image insert, and record image_inserted or plot_error."""
+    if plot_result is None:
+        return result
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    out = dict(result)
+    out["plot"] = plot_result
+    if plot_result.get("status") == "ok":
+        try:
+            execute_on_main_thread(lambda: insert(plot_result))
+            out["image_inserted"] = True
+        except Exception as exc:
+            out["plot_error"] = str(exc)
+    else:
+        out["plot_error"] = plot_result.get("message")
+    return out
 
 
 def build_viz_request(analysis_helper: str, *, analysis_result: dict[str, Any], analysis_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:

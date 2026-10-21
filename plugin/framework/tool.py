@@ -481,6 +481,9 @@ class ToolBaseDummy(_ToolErrorMixin):
     name: str | None = None
     is_final_answer_tool: bool = False
 
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        return getattr(self, "parameters", None)
+
 
 def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     """True if *t* is a Writer/Calc/Draw specialized tool for *active_domain*."""
@@ -656,7 +659,7 @@ class ToolRegistry:
                 self._required_core_union[tool.name] = frozenset(prev or ()) | frozenset(nxt or ())
         self._tools[tool.name] = tool
 
-    def auto_discover_package(self, package_name: str) -> None:
+    def auto_discover_package(self, package_name: str, skip: frozenset[str] = frozenset()) -> None:
         """Automatically discover and register ToolBase subclasses in all submodules of a package."""
         # crosshair: off
         import importlib
@@ -667,6 +670,8 @@ class ToolRegistry:
 
         # Iterate over all submodules in the package directory
         for _unused, module_name, _is_pkg in pkgutil.iter_modules(package.__path__):
+            if module_name in skip:
+                continue
             full_module_name = f"{package_name}.{module_name}"
             try:
                 module = importlib.import_module(full_module_name)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.address_utils import parse_output_anchor
 from plugin.framework.tool import ToolBaseDummy
 from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP
 
@@ -35,7 +36,7 @@ class OptimizeDataTool(ToolBaseDummy):
         "properties": {
             "helper": {"type": "string", "description": "Optimization helper name (e.g. optimize_portfolio, linear_programming)."},
             "params": {"type": "object", "description": _PARAM_TEXT},
-            "data_range": {"type": "string", "description": "A1 range address to optimize (e.g. 'Sheet1.A1:D1000')."},
+            "data_range": {"type": "string", "description": "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data. The host extracts the values out-of-band."},
             "output_range": {"type": "string", "description": "Optional A1 anchor cell to write formatted results (Calc only)."},
             "headers": {"type": "boolean", "description": "First row contains column names (default true)."},
             "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
@@ -44,36 +45,18 @@ class OptimizeDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        import copy
-        from typing import cast
-
-        p = copy.deepcopy(self.parameters)
-        if p and "properties" in p:
-            props = cast("dict[str, Any]", p["properties"])
-            if "data_range" in props:
-                props["data_range"]["description"] = "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data. The host extracts the values out-of-band."
-        return p
-
     def is_async(self) -> bool:
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         helper = str(kwargs.get("helper") or "").strip()
-        if not helper:
-            return self._tool_error("helper is required")
-
         data_range = kwargs.get("data_range")
         data = kwargs.get("data")
 
         if getattr(ctx, "active_domain", None) in ("analysis", "optimize") and data is not None:
             return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
-        if not (data_range and str(data_range).strip()) and data is None:
-            return self._tool_error("Provide data_range or data")
-
         from plugin.scripting.optimize import run_trusted_optimize, insert_optimize_result_into_calc
-        from plugin.calc.address_utils import parse_output_anchor
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None

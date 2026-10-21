@@ -33,6 +33,13 @@ EXTENSION_ID_LIBREPY = "org.extension.librepy"
 EXTENSION_ID_WRITERAGENT = "org.extension.writeragent"
 EXTENSION_ID_LIBREHARPER = "org.extension.libreharper"
 
+ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
+    "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.presentation.PresentationDocument",
+)
+
 
 def get_plugin_dir() -> str:
     """Returns the absolute path to the plugin/ directory."""

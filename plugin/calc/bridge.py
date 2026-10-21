@@ -26,7 +26,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import uno_read
-from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import parse_address, parse_range_string, split_sheet_prefix
 
 log = logging.getLogger("writeragent.calc")
 
@@ -46,6 +46,19 @@ def filter_agent_sheet_names(names: Any) -> list[str]:
     return [n for n in names if is_agent_visible_sheet(n)]
 
 
+def _referred_cells(container: Any, name: str) -> Any | None:
+    if container is None:
+        return None
+    nr_coll = getattr(container, "NamedRanges", None)
+    if nr_coll is not None and hasattr(nr_coll, "hasByName") and nr_coll.hasByName(name):
+        nr = nr_coll.getByName(name)
+        if hasattr(nr, "getReferredCells"):
+            cells = nr.getReferredCells()
+            if cells is not None:
+                return cells
+    return None
+
+
 class CalcBridge:
     """Bridge between the plugin layer and the UNO Calc document."""
 
@@ -53,10 +66,6 @@ class CalcBridge:
 
     def __init__(self, doc: Any) -> None:
         self.doc = doc
-
-    def get_active_document(self) -> Any:
-        """Return the wrapped document."""
-        return self.doc
 
     def get_active_sheet(self) -> Any:
         """Return the currently active sheet.
@@ -145,40 +154,23 @@ class CalcBridge:
         range_or_address = range_or_address.strip()
         prefix, bare_name = split_sheet_prefix(range_or_address)
 
-        # 1. If explicitly sheet-qualified (e.g. Sheet1.MyRange), check sheet-local NamedRanges first
         if prefix and hasattr(self.doc, "getSheets"):
             sheets = self.doc.getSheets()
-            if sheets.hasByName(prefix):
-                sheet_obj = sheets.getByName(prefix)
-                if hasattr(sheet_obj, "NamedRanges") and sheet_obj.NamedRanges.hasByName(bare_name):
-                    named_range = sheet_obj.NamedRanges.getByName(bare_name)
-                    if hasattr(named_range, "getReferredCells"):
-                        cells = named_range.getReferredCells()
-                        if cells is not None:
-                            return cells
+            if hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
+                cells = _referred_cells(sheets.getByName(prefix), bare_name)
+                if cells is not None:
+                    return cells
 
-        # 2. Active sheet's local NamedRanges, before the workbook container.
         # Calc formula lookup lets a sheet-local name shadow a same-spelled
-        # global name on that sheet. Checking doc.NamedRanges first returned
-        # the global referred cells for a bare name present in both scopes.
-        # Qualified names already hit the named sheet in step 1, so the same
-        # logical name resolved differently depending on whether it was written
-        # as Total or Sheet1.Total.
+        # global name on that sheet.
         active_sheet = uno_read(self.get_active_sheet, None)
-        if active_sheet is not None and hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(range_or_address):
-            named_range = active_sheet.NamedRanges.getByName(range_or_address)
-            if hasattr(named_range, "getReferredCells"):
-                cells = named_range.getReferredCells()
-                if cells is not None:
-                    return cells
+        cells = _referred_cells(active_sheet, range_or_address)
+        if cells is not None:
+            return cells
 
-        # 3. Workbook global NamedRanges (when the active sheet has no local name).
-        if hasattr(self.doc, "NamedRanges") and self.doc.NamedRanges.hasByName(range_or_address):
-            named_range = self.doc.NamedRanges.getByName(range_or_address)
-            if hasattr(named_range, "getReferredCells"):
-                cells = named_range.getReferredCells()
-                if cells is not None:
-                    return cells
+        cells = _referred_cells(self.doc, range_or_address)
+        if cells is not None:
+            return cells
 
         sheet, address = self.resolve(range_or_address)
 
@@ -190,20 +182,3 @@ class CalcBridge:
             return self.get_cell(sheet, col, row)
         except ValueError:
             return sheet.getCellRangeByName(address)
-
-    @staticmethod
-    def _index_to_column(index: int) -> str:
-        return index_to_column(index)
-
-    @staticmethod
-    def _column_to_index(col_str: str) -> int:
-        return column_to_index(col_str)
-
-    @staticmethod
-    def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]]:
-        return parse_range_string(range_str)
-
-    @staticmethod
-    def _range_to_str(range_addr: Any) -> str:
-        """Convert a CellRangeAddress to a string."""
-        return "%s%d:%s%d" % (index_to_column(range_addr.StartColumn), range_addr.StartRow + 1, index_to_column(range_addr.EndColumn), range_addr.EndRow + 1)

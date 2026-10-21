@@ -11,22 +11,41 @@ files only bootstrap ``sys.path`` and register this class. Implementation name s
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Any
 
 import uno
 import unohelper
 
-from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase
+from plugin.calc.addin_common import CalcAddInBase, CalcFunctionSpec
 from plugin.calc.python.function import execute_python_addin
 
 log = logging.getLogger(__name__)
 
 IMPL_NAME = "org.extension.writeragent.PythonFunction"
 
-_PYTHON_ARGS = ("The Python code to execute. Assign output to 'result'.", "Optional one or more ranges injected as data (one range: data is that CalcRange; several: data is the ranges list — use data[i] or ranges[i]), or a single-cell index for matrix formulas (e.g. ROW(A1)-ROW($A$1)).")
-_PYTHON_SPEC = CalcFunctionSpec(display_name="PYTHON", programmatic_name="python", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
-_PY_SPEC = CalcFunctionSpec(display_name="PY", programmatic_name="py", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
+_PYTHON_ARGS = (
+    "The Python code to execute. Assign output to 'result'.",
+    (
+        "Optional one or more ranges injected as data (one range: data is that CalcRange; "
+        "several: data is the ranges list — use data[i] or ranges[i]), or a single-cell "
+        "index for matrix formulas (e.g. ROW(A1)-ROW($A$1))."
+    ),
+)
+_PYTHON_SPEC = CalcFunctionSpec(
+    display_name="PYTHON",
+    programmatic_name="python",
+    description="Executes Python code in the configured venv and returns the result.",
+    arg_names=("code", "data"),
+    arg_descriptions=_PYTHON_ARGS,
+    optional_from=1,
+)
+_PY_SPEC = dataclasses.replace(
+    _PYTHON_SPEC,
+    display_name="PY",
+    programmatic_name="py",
+)
 PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
 # Returned when LibreOffice passes no calling document. Never guess one.
 MISSING_CALLER_ERROR = "Error: no calling document"
@@ -43,7 +62,7 @@ except ImportError:
     _XPythonFunctionBase = _XPythonFunctionStub
 
 
-class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
+class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
     _true_strings: set[str]

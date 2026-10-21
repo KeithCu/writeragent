@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from plugin.framework.config import get_config, get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
@@ -35,13 +35,10 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 log = logging.getLogger(__name__)
 
 # Shown when the venv cannot ``import faster_whisper``. Record does not run it.
-FASTER_WHISPER_PIP_INSTALL = 'uv pip install faster-whisper "av<14"'
+_FASTER_WHISPER_PIP_INSTALL = 'uv pip install faster-whisper "av<14"'
 
 STT_PROVIDER_ENDPOINT = "endpoint"
 STT_PROVIDER_LOCAL = "local"
-# Stored value is ``local``. These are accepted from writeragent.json and the
-# Speech combo label ("Local Whisper (faster-whisper)").
-_LOCAL_PROVIDER_ALIASES = frozenset({"local", "whisper", "faster-whisper", "faster_whisper"})
 
 # faster-whisper size aliases. Each downloads Systran/faster-whisper-<size>
 # into the Hugging Face cache the first time that size is used.
@@ -69,7 +66,7 @@ def normalize_stt_provider(raw: object) -> str:
     ``audio.stt_provider``) keeps POST ``/v1/audio/transcriptions``.
     """
     text = str(raw or "").strip().lower()
-    if text in _LOCAL_PROVIDER_ALIASES or "whisper" in text:
+    if text == "local" or "whisper" in text:
         return STT_PROVIDER_LOCAL
     return STT_PROVIDER_ENDPOINT
 
@@ -103,23 +100,23 @@ def stt_controls_enabled(provider: str) -> tuple[bool, bool]:
     return (not local, local)
 
 
+def _config_str_or_empty(key: str) -> str:
+    """Read a string config value, returning empty string on missing key."""
+    try:
+        val = get_config(key)
+        return str(val) if val is not None else ""
+    except ConfigError:
+        return ""
+
+
 def get_stt_provider() -> str:
     """``audio.stt_provider``, or ``endpoint`` when the key is absent."""
-    try:
-        raw = get_config("audio.stt_provider")
-    except ConfigError:
-        # Manifest without this key (checkout before the field existed).
-        raw = ""
-    return normalize_stt_provider(raw)
+    return normalize_stt_provider(_config_str_or_empty("audio.stt_provider"))
 
 
 def get_stt_local_model() -> str:
     """``audio.stt_local_model``, default ``base``."""
-    try:
-        raw = get_config("audio.stt_local_model")
-    except ConfigError:
-        raw = ""
-    return normalize_stt_local_model(raw)
+    return normalize_stt_local_model(_config_str_or_empty("audio.stt_local_model"))
 
 
 def uses_local_stt() -> bool:
@@ -232,10 +229,7 @@ def clear_faster_whisper_probe_cache() -> None:
 
 def resolve_stt_python() -> str | None:
     """Venv interpreter from Settings → Python, or None when it is not set."""
-    try:
-        venv_dir = get_config_str("scripting.python_venv_path").strip()
-    except ConfigError:
-        return None
+    venv_dir = _config_str_or_empty("scripting.python_venv_path").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)
@@ -265,16 +259,6 @@ def _close_stt_pipe(stream: Any) -> None:
 def _read_stt_pipe(stream: Any, sink: list[str]) -> None:
     data = best_effort(stream.read, "STT pipe read failed", default="") if stream is not None else ""
     sink.append(data if isinstance(data, str) else "")
-
-
-def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
-    log.info("%s", message)
-    if on_status is None:
-        return
-    try:
-        on_status(message)
-    except Exception:
-        log.exception("STT status callback failed")
 
 
 def _run_cmd(
@@ -361,13 +345,6 @@ def _run_cmd(
         _close_stt_pipe(proc.stderr)
 
 
-def _probe_failed_message() -> str:
-    return _(
-        "Could not check whether faster-whisper is installed. "
-        "The Settings → Python interpreter timed out or could not start."
-    )
-
-
 def ensure_faster_whisper(py_exe: str) -> bool:
     """Return True when ``import faster_whisper`` succeeds in ``py_exe``.
 
@@ -382,7 +359,12 @@ def ensure_faster_whisper(py_exe: str) -> bool:
             return True
     completed = _run_cmd([py_exe, "-c", "import faster_whisper"], _PROBE_TIMEOUT_SEC)
     if completed is None:
-        raise ConfigError(_probe_failed_message())
+        raise ConfigError(
+            _(
+                "Could not check whether faster-whisper is installed. "
+                "The Settings → Python interpreter timed out or could not start."
+            )
+        )
     if completed.returncode == 0:
         with _probe_lock:
             _whisper_ready.add(py_exe)
@@ -419,58 +401,46 @@ def parse_whisper_stdout(stdout: str) -> str:
     raise ConfigError(_("Local Whisper did not return a transcript."))
 
 
-def _missing_venv_message() -> str:
+def _local_timeout_message(cached: bool) -> str:
+    if cached:
+        return _(
+            "Local Whisper timed out or could not start. "
+            "Try again, or pick a smaller Local Model in Settings → Speech."
+        )
     return _(
-        "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
-        "Set the venv, then install with: {0}"
-    ).format(FASTER_WHISPER_PIP_INSTALL)
-
-
-def _missing_package_message() -> str:
-    return _(
-        "faster-whisper is not installed in the Settings → Python venv. "
-        "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
-    ).format(FASTER_WHISPER_PIP_INSTALL)
+        "Local Whisper timed out or could not start. The first run downloads model weights; "
+        "try again, or pick a smaller Local Model in Settings → Speech."
+    )
 
 
 def _transcribe_local(
     wav_path: str,
     model_name: str,
-    on_status: Callable[[str], None] | None,
     *,
     on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     py_exe = resolve_stt_python()
     if not py_exe:
-        raise ConfigError(_missing_venv_message())
+        raise ConfigError(
+            _(
+                "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+                "Set the venv, then install with: {0}"
+            ).format(_FASTER_WHISPER_PIP_INSTALL)
+        )
     if not os.path.isfile(_WHISPER_SCRIPT):
         raise ConfigError(_("Local Whisper script is missing from the extension."))
     if not ensure_faster_whisper(py_exe):
-        raise ConfigError(_missing_package_message())
-
-    # The child downloads inside WhisperModel. Mention it only when model.bin
-    # is not already in the hub cache — a later Record of the same size must
-    # not claim another download. The download does not stream progress back.
-    _emit(on_status, _local_whisper_status(model_name))
-    cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
-    if on_spawn is not None:
-        completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
-    else:
-        completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC)
-    if completed is None:
-        if _local_whisper_weights_cached(model_name):
-            raise ConfigError(
-                _(
-                    "Local Whisper timed out or could not start. "
-                    "Try again, or pick a smaller Local Model in Settings → Speech."
-                )
-            )
         raise ConfigError(
             _(
-                "Local Whisper timed out or could not start. The first run downloads model weights; "
-                "try again, or pick a smaller Local Model in Settings → Speech."
-            )
+                "faster-whisper is not installed in the Settings → Python venv. "
+                "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
+            ).format(_FASTER_WHISPER_PIP_INSTALL)
         )
+
+    cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
+    completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
+    if completed is None:
+        raise ConfigError(_local_timeout_message(_local_whisper_weights_cached(model_name)))
     if completed.returncode != 0 or not (completed.stdout or "").strip():
         detail = (completed.stderr or completed.stdout or "").strip()
         log.warning("Local Whisper exited %s: %s", completed.returncode, detail[-2000:])
@@ -488,7 +458,6 @@ def transcribe(
     *,
     client: Any = None,
     model: str | None = None,
-    on_status: Callable[[str], None] | None = None,
     on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     """Transcribe ``wav_path`` with the configured STT provider.
@@ -498,18 +467,10 @@ def transcribe(
     ``client.transcribe_audio`` and does not spawn the venv.
     """
     if uses_local_stt():
-        if on_spawn is not None:
-            return _transcribe_local(
-                wav_path,
-                get_stt_local_model(),
-                on_status,
-                on_spawn=on_spawn,
-            )
-        return _transcribe_local(
-            wav_path,
-            get_stt_local_model(),
-            on_status,
-        )
+        return _transcribe_local(wav_path, get_stt_local_model(), on_spawn=on_spawn)
+    if client is None or not hasattr(client, "transcribe_audio"):
+        raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
+    return str(client.transcribe_audio(wav_path, model=model) or "")
     if client is None or not hasattr(client, "transcribe_audio"):
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
     return str(client.transcribe_audio(wav_path, model=model) or "")

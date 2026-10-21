@@ -10,7 +10,7 @@ import re
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
-from plugin.calc.error_detector import CELL_REF_PATTERN
+from plugin.calc.address_utils import A1_CELL_RE
 from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, CellRecord, SheetModel
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ def extract_cell_refs(formula: str) -> list[str]:
     """Extract same-sheet A1-style references from a formula string."""
     if not formula:
         return []
-    refs = CELL_REF_PATTERN.findall(formula.upper())
+    refs = A1_CELL_RE.findall(formula.upper())
     return [f"{col}{row}" for col, row in refs]
 
 

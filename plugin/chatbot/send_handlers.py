@@ -282,7 +282,6 @@ class SendHandlersMixin:
             transcribe,
             uses_local_stt,
         )
-        from plugin.framework.queue_executor import post_to_main_thread
 
         # getattr: a duck-typed host (the smol _do_send double) has no field
         # until this call sets it. Missing means nothing is in flight.
@@ -314,11 +313,6 @@ class SendHandlersMixin:
             self._set_status(transcribing)
             self._append_response("\n[" + transcribing + "]\n")
 
-            def on_status(message: str) -> None:
-                # Worker thread: the status control is UNO. run_blocking_in_thread
-                # pumps processEventsToIdle, which runs this posted callback.
-                post_to_main_thread(self._set_status, message)
-
             def _on_spawn(proc: Any) -> None:
                 def _kill() -> None:
                     terminate_stt_process(proc)
@@ -332,7 +326,6 @@ class SendHandlersMixin:
                     wav_path,
                     client=client,
                     model=stt_model,
-                    on_status=on_status,
                     on_spawn=_on_spawn,
                 )
 

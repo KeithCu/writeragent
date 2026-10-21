@@ -45,13 +45,11 @@ class ToolCalcSpecialBase(ToolBase):
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
     specialized_domain_description: ClassVar[str | None] = "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, image_list for in-sheet graphics; edit a selected image with image_generate(source_image='selection')."
-    intent: str | None = "media"
 
 
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = "Extract text and structure (layout, tables) from embedded sheet graphics; extract_structure_from_image."
-    intent: str | None = "media"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
 
 
@@ -68,13 +66,11 @@ class ToolCalcDocumentResearchBase(ToolCalcSpecialBase):
 class ToolCalcCommentBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
     specialized_domain_description: ClassVar[str | None] = "View, add, and manage cell comments and feedback."
-    intent: str | None = "review"
 
 
 class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "conditional_formatting"
     specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
-    intent: str | None = "edit"
 
 
 class ToolCalcSheetBase(ToolCalcSpecialBase):
@@ -82,13 +78,11 @@ class ToolCalcSheetBase(ToolCalcSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "sheets"
     specialized_domain_description: ClassVar[str | None] = "Create, list, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
-    intent: str | None = "edit"
 
 
 class ToolCalcPivotBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "pivot_tables"
     specialized_domain_description: ClassVar[str | None] = "Create and manage data pivot tables for analysis."
-    intent: str | None = "analyze"
 
 
 class ToolCalcChartBase(ToolCalcSpecialBase):
@@ -96,7 +90,6 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit charts on the active sheet or embedded chart in the document."
-    intent: str | None = "edit"
 
 
 class ToolCalcShapeBase(ToolCalcSpecialBase):
@@ -107,13 +100,11 @@ class ToolCalcShapeBase(ToolCalcSpecialBase):
 class ToolCalcRangeBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "ranges"
     specialized_domain_description: ClassVar[str | None] = "Bulk operations on cell ranges (sort, advanced find/replace)."
-    intent: str | None = "edit"
 
 
 class ToolCalcSearchBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "search"
     specialized_domain_description: ClassVar[str | None] = "Search for text or values or replace across the entire spreadsheet."
-    intent: str | None = "navigate"
 
 
 class ToolCalcAnalysisBase(ToolCalcSpecialBase):
@@ -121,7 +112,6 @@ class ToolCalcAnalysisBase(ToolCalcSpecialBase):
     # register a local tool with specialized_domain = "analysis".
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    intent: str | None = "analyze"
     # Deliberately do NOT include "read_cell_range" here (unlike the general Calc special base).
     # Analysis sub-agents must use data_range (A1 address strings) with analyze_data / run_venv_python_script.
     # This keeps large data out-of-band: the host resolves the address on the main thread and hands
@@ -134,7 +124,6 @@ class ToolCalcAnalysisBase(ToolCalcSpecialBase):
 class ToolCalcErrorBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "errors"
     specialized_domain_description: ClassVar[str | None] = "Find, diagnose, and suggest fixes for formula errors (e.g. #REF!, #DIV/0!)."
-    intent: str | None = "edit"
 
 
 class ToolCalcSpecialTracking(ToolCalcSpecialBase):
@@ -142,7 +131,6 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes in the spreadsheet."
-    intent: str | None = "review"
 
 
 class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
@@ -157,7 +145,6 @@ class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Run read-only SQL (DuckDB) against folder files and live Calc ranges; query_folder_sql."
     )
-    intent: str | None = "analyze"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
 
 
@@ -166,5 +153,4 @@ class ToolCalcPythonBase(ToolCalcSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "python"
     specialized_domain_description: ClassVar[str | None] = "Run Python in the user-configured venv (subprocess). Assign output to variable `result` for JSON return."
-    intent: str | None = "analyze"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()

@@ -13,16 +13,14 @@ import logging
 import os
 from typing import Any, cast
 
-from plugin.calc.analysis_runner import calc_tool_context
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
 from plugin.scripting.helper_domain import (
     header_prefix,
 )
 from plugin.scripting.payload_codec import is_image_payload, is_multi_data, find_image_payloads, write_image_payload_to_temp
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -95,63 +93,23 @@ def run_trusted_viz(
     task_hint: str | None = None,
 ) -> dict[str, Any]:
     """Fetch Calc data and run a trusted viz helper in the user venv."""
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="VIZ_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="VIZ_ERROR")
+    from plugin.scripting.helper_domain import run_trusted_calc_data_helper
 
-    dr = str(data_range).strip() if data_range else None
-
-    def _read_sheet() -> tuple[Any, dict[str, Any]]:
-        # UNO only. forecast auto-plot calls this off the UI thread.
-        if not is_calc(doc) and not is_writer(doc):
-            raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code="VIZ_ERROR")
-        if not dr and data is None:
-            raise ToolExecutionError("Provide data_range or data", code="VIZ_ERROR")
-        tool_ctx = calc_tool_context(uno_ctx, doc)
-        py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
-        if err:
-            raise ToolExecutionError(err, code="VIZ_ERROR")
-        if py_data is None:
-            raise ToolExecutionError("No data to plot", code="VIZ_ERROR")
-        context: dict[str, Any] = {}
-        if is_calc(doc):
-            try:
-                from plugin.calc.bridge import CalcBridge
-
-                context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
-            except Exception as exc:
-                # What was wrong: DisposedException was ignored, then run_viz ran
-                # against a dead document.
-                # How it happened: the sheet name is best-effort context.
-                # Why this change: reraise_if_disposed propagates real disposal. Other
-                # failures still leave sheet_name unset.
-                reraise_if_disposed(exc)
-        if task_hint:
-            context["task_hint"] = str(task_hint)
-        if dr:
-            context["range_a1"] = dr
-        return py_data, context
-
-    # Forecast auto-plot used to run this whole helper on the UI thread, so
-    # matplotlib IPC froze Calc. ForecastDataTool wrapped
-    # run_auto_plot_after_forecast in execute_on_main_thread, and this
-    # function did the sheet read and client_run_viz together. Hop only the
-    # UNO read; client_run_viz stays on the caller (the worker).
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
-
-    if on_main_thread():
-        py_data, context = _read_sheet()
-    else:
-        py_data, context = execute_on_main_thread(_read_sheet)
-
-    spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
-    if isinstance(params, dict) and params:
-        spec["params"] = params
-
-    return client_run_viz(uno_ctx, spec, py_data, context=context or None)
+    return run_trusted_calc_data_helper(
+        uno_ctx,
+        doc,
+        helper=helper,
+        params=params,
+        data_range=data_range,
+        data=data,
+        headers=headers,
+        task_hint=task_hint,
+        helper_names=HELPER_NAMES,
+        error_code="VIZ_ERROR",
+        empty_data_message="No data to plot",
+        client_run=client_run_viz,
+        require_calc_or_writer=True,
+    )
 
 
 # --- Egress ---

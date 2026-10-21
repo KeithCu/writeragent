@@ -49,8 +49,7 @@ class ListSheets(ToolCalcSheetBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         sheet_names = filter_agent_sheet_names(doc.getSheets().getElementNames())
         log.info("Sheets listed: %s", sheet_names)
         return {"status": "ok", "result": sheet_names}
@@ -66,10 +65,9 @@ class SwitchSheet(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs["sheet"]
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         sheets = doc.getSheets()
         if not sheets.hasByName(sheet_name):
             raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
@@ -95,11 +93,10 @@ class CreateSheet(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs["sheet"]
         position = kwargs.get("position")
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         sheets = doc.getSheets()
         if position is None:
             position = sheets.getCount()
@@ -122,11 +119,10 @@ class RenameSheet(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         old_name = kwargs["old_name"]
         new_name = kwargs["new_name"]
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         sheets = doc.getSheets()
         if not sheets.hasByName(old_name):
             raise UnoObjectError(f"No sheet found named '{old_name}'.")
@@ -151,10 +147,9 @@ class DeleteSheet(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs["sheet"]
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         sheets = doc.getSheets()
         if not sheets.hasByName(sheet_name):
             raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
@@ -175,17 +170,17 @@ class ProtectSheet(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs.get("sheet")
         should_protect = kwargs.get("protect", True)
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         if sheet_name:
             sheets = doc.getSheets()
             if not sheets.hasByName(sheet_name):
                 raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
             sheet = sheets.getByName(sheet_name)
         else:
+            bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()
 
         if should_protect:

@@ -824,12 +824,15 @@ def run_trusted_calc_data_helper(
     error_code: str,
     empty_data_message: str,
     client_run: Callable[..., dict[str, Any]],
+    require_calc_or_writer: bool = False,
 ) -> dict[str, Any]:
     """Fetch Calc data and run one trusted sheet helper. Forecast and optimize share this."""
-    from plugin.calc.analysis_runner import calc_tool_context
-    from plugin.calc.bridge import CalcBridge
     from plugin.calc.calc_addin_data import _resolve_python_data
+    from plugin.doc.doc_type import is_calc, is_writer
     from plugin.framework.errors import ToolExecutionError
+
+    if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
+        raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
     name = str(helper or "").strip()
     if not name:
@@ -845,12 +848,12 @@ def run_trusted_calc_data_helper(
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
         from plugin.framework.errors import reraise_if_disposed
 
-        tool_ctx = calc_tool_context(uno_ctx, doc)
-        py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+        py_data, err = _resolve_python_data(doc, data_range=dr, data=data)
         context: dict[str, Any] = {}
         try:
-            bridge = CalcBridge(doc)
-            context["sheet_name"] = bridge.get_active_sheet().getName()
+            from plugin.calc.bridge import CalcBridge
+
+            context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
         except Exception as e:
             # What was wrong: DisposedException was logged and ignored, then client_run
             # ran against a dead document.

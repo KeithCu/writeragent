@@ -7,8 +7,13 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+import pytest
 
-from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase
+from plugin.calc.addin_common import (
+    ADDIN_SERVICE,
+    CalcAddInBase,
+    CalcFunctionSpec,
+)
 
 _PY_SPEC = CalcFunctionSpec(
     display_name="PY",
@@ -28,7 +33,11 @@ _PYTHON_SPEC = CalcFunctionSpec(
 )
 
 
-class _DualPythonAddIn(SingleFunctionAddInBase):
+class _DualPythonAddIn(CalcAddInBase):
+    pass
+
+
+class _SinglePythonAddIn(CalcAddInBase):
     pass
 
 
@@ -41,5 +50,94 @@ def test_python_addin_metadata_both_names():
     assert addin.getArgumentCount("py") == 2
     assert addin.getArgumentCount("python") == 2
     assert addin.getArgumentName("python", 0) == "code"
+    assert addin.getArgumentName("python", 1) == "data"
+    assert addin.getArgumentDescription("python", 0) == "code desc"
+    assert addin.getArgumentDescription("python", 1) == "data desc"
+    assert addin.getArgumentIsOptional("python", 0) is False
     assert addin.getArgumentIsOptional("python", 1) is True
-    assert addin.getProgrammaticFunctionName("PROMPT") == ""
+    assert addin.getFunctionDescription("python") == "Executes Python code in the configured venv and returns the result."
+    assert addin.hasFunctionWizard("python") is True
+    assert addin.getProgrammaticCategoryName("python") == "Add-In"
+    assert addin.getDisplayCategoryName("python") == "Add-In"
+    assert addin.supportsService(ADDIN_SERVICE) is True
+    assert addin.supportsService("com.sun.star.sheet.OtherService") is False
+    assert addin.getSupportedServiceNames() == (ADDIN_SERVICE,)
+
+
+def test_single_spec_constructor():
+    addin = _SinglePythonAddIn(MagicMock(), _PY_SPEC)
+    assert addin.getProgrammaticFunctionName("PY") == "py"
+    assert addin.getDisplayFunctionName("py") == "PY"
+    assert addin.getArgumentCount("py") == 2
+
+
+def test_accessors_unknown_name():
+    addin = _DualPythonAddIn(MagicMock(), (_PY_SPEC, _PYTHON_SPEC))
+    assert addin.getProgrammaticFunctionName("UNKNOWN") == ""
+    assert addin.getDisplayFunctionName("unknown") == ""
+    assert addin.getFunctionDescription("unknown") == ""
+    assert addin.getArgumentDescription("unknown", 0) == ""
+    assert addin.getArgumentName("unknown", 0) == ""
+    assert addin.hasFunctionWizard("unknown") is False
+    assert addin.getArgumentCount("unknown") == 0
+    assert addin.getArgumentIsOptional("unknown", 0) is False
+    assert addin.getProgrammaticCategoryName("unknown") == ""
+    assert addin.getDisplayCategoryName("unknown") == ""
+
+
+@pytest.mark.parametrize("index,expected_name,expected_desc", [
+    (-1, "", ""),
+    (0, "code", "code desc"),
+    (1, "data", "data desc"),
+    (2, "", ""),
+    (10, "", ""),
+])
+def test_argument_bounds(index: int, expected_name: str, expected_desc: str):
+    addin = _DualPythonAddIn(MagicMock(), (_PY_SPEC, _PYTHON_SPEC))
+    assert addin.getArgumentName("python", index) == expected_name
+    assert addin.getArgumentDescription("python", index) == expected_desc
+
+
+def test_argument_is_optional_past_end():
+    # True for every index >= optional_from, including indexes past len(arg_names)
+    addin = _DualPythonAddIn(MagicMock(), (_PY_SPEC, _PYTHON_SPEC))
+    assert addin.getArgumentIsOptional("python", 0) is False
+    assert addin.getArgumentIsOptional("python", 1) is True
+    assert addin.getArgumentIsOptional("python", 2) is True
+    assert addin.getArgumentIsOptional("python", 99) is True
+
+
+def test_duplicate_names_raise():
+    dup_spec = CalcFunctionSpec(
+        display_name="PY",
+        programmatic_name="py_dup",
+        description="desc",
+        arg_names=(),
+        arg_descriptions=(),
+        optional_from=0,
+    )
+    with pytest.raises(ValueError, match="Duplicate display_name or programmatic_name"):
+        _DualPythonAddIn(MagicMock(), (_PY_SPEC, dup_spec))
+
+    dup_prog_spec = CalcFunctionSpec(
+        display_name="PY2",
+        programmatic_name="py",
+        description="desc",
+        arg_names=(),
+        arg_descriptions=(),
+        optional_from=0,
+    )
+    with pytest.raises(ValueError, match="Duplicate display_name or programmatic_name"):
+        _DualPythonAddIn(MagicMock(), (_PY_SPEC, dup_prog_spec))
+
+
+@pytest.mark.parametrize("args", [
+    {"display_name": "", "programmatic_name": "p", "description": "d", "arg_names": (), "arg_descriptions": (), "optional_from": 0},
+    {"display_name": "D", "programmatic_name": "", "description": "d", "arg_names": (), "arg_descriptions": (), "optional_from": 0},
+    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": (), "optional_from": 0},
+    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": ("desc",), "optional_from": -1},
+    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": ("desc",), "optional_from": 2},
+])
+def test_calc_function_spec_validation(args: dict):
+    with pytest.raises(ValueError):
+        CalcFunctionSpec(**args)

@@ -21,14 +21,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from plugin.calc.address_utils import column_to_index, index_to_column
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
+from plugin.calc.array_formula import skip_double_quoted
 from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula, py_call_open_end, py_formula_has_unquoted_code_ref
 from plugin.framework.errors import CalcError
 
-
-# Calc / Excel current grid. Out-of-bounds relative shift → #REF!.
-_MAX_COL = 16383  # XFD
-_MAX_ROW = 1_048_575  # 0-based last row of 1048576
 
 _TWOD_FORMULA_MSG = "A single formula cannot fill a 2-D range ({rows}×{cols}). Use a 1-column or 1-row range for fill-down/across (relative A1 refs adjust per cell), or pass an explicit array with one value per cell."
 
@@ -130,7 +127,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int) -> str:
     n = len(formula)
     while i < n:
         if formula[i] == '"':
-            j = _skip_double_quoted(formula, i)
+            j = skip_double_quoted(formula, i)
             out.append(formula[i:j])
             i = j
             continue
@@ -197,20 +194,6 @@ def _skip_ws(s: str, i: int) -> int:
     return i
 
 
-def _skip_double_quoted(s: str, i: int) -> int:
-    """Index after the closing ``"``; *i* points at the opening quote."""
-    j = i + 1
-    n = len(s)
-    while j < n:
-        if s[j] == '"':
-            if j + 1 < n and s[j + 1] == '"':
-                j += 2
-                continue
-            return j + 1
-        j += 1
-    return n
-
-
 def _read_dollar(s: str, i: int) -> tuple[int, bool]:
     if i < len(s) and s[i] == "$":
         return i + 1, True
@@ -228,7 +211,7 @@ def _read_col(s: str, i: int) -> tuple[int, int] | None:
     if len(letters) > 3:
         return None
     col_idx = column_to_index(letters)
-    if col_idx > _MAX_COL:
+    if col_idx > MAX_COL:
         return None
     return i, col_idx
 
@@ -358,9 +341,9 @@ def _shift_part(part: _Part, dcol: int, drow: int) -> _Part | None:
         col += dcol
     if row is not None and not part.row_abs:
         row += drow
-    if col is not None and not 0 <= col <= _MAX_COL:
+    if col is not None and not 0 <= col <= MAX_COL:
         return None
-    if row is not None and not 0 <= row <= _MAX_ROW:
+    if row is not None and not 0 <= row <= MAX_ROW:
         return None
     return _Part(col, row, part.col_abs, part.row_abs)
 

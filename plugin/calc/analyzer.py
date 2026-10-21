@@ -37,7 +37,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
-from plugin.calc.address_utils import format_range
+from plugin.calc.address_utils import format_range, format_range_address
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 
 log = logging.getLogger("writeragent.calc")
@@ -210,7 +210,7 @@ def get_calc_context_for_chat(
                     if hasattr(selection, "getRangeAddress"):
                         addr = safe_call(selection.getRangeAddress, "Get range address")
                         if addr is not None:
-                            sel_range = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, collapse_single=False)
+                            sel_range = format_range_address(addr)
                             ctx_str += f"Current Selection: {sel_range}\n"
 
                             # Check for selected values if small

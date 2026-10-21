@@ -8,16 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.viz_auto_plot import task_hint_implies_plot
+from plugin.calc.viz_auto_plot import helper_should_auto_plot
 from plugin.scripting.viz import HELPER_NAMES
 
 AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})
 
 
 def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
-    if helper not in AUTO_PLOT_FORECAST_HELPERS:
-        return False
-    return bool(auto_plot) or task_hint_implies_plot(task_hint)
+    return helper_should_auto_plot(helper, AUTO_PLOT_FORECAST_HELPERS, auto_plot=auto_plot, task_hint=task_hint)
 
 
 def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
@@ -161,19 +159,13 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
     if viz_helper not in HELPER_NAMES:
         return None
 
-    # calc_tool_context lives on plugin.calc.analysis_runner, the same
-    # import helper_domain, quant, viz, and python_runner use. Importing it
-    # from plugin.scripting.forecast raises AttributeError after a
-    # successful forecast.
-    from plugin.calc.analysis_runner import calc_tool_context
     from plugin.calc.calc_addin_data import _resolve_python_data
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
 
     def _read_history() -> tuple[Any, str | None]:
         # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
-        tool_ctx = calc_tool_context(uno_ctx, doc)
-        return _resolve_python_data(tool_ctx, data_range=data_range, data=None)
+        return _resolve_python_data(doc, data_range=data_range, data=None)
 
     if on_main_thread():
         py_data, err = _read_history()

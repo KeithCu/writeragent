@@ -18,32 +18,27 @@ log = logging.getLogger("writeragent.calc")
 _CALC_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
 
-class UpsertShape(DrawUpsertShape, ToolCalcShapeBase):
-    name: str | None = "shape_upsert"
+class _CalcShapeTool(ToolCalcShapeBase):
     uno_services: list[str] | None = _CALC_DRAW_SHAPE_DOCS  # type: ignore[assignment]
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+
+
+class UpsertShape(DrawUpsertShape, _CalcShapeTool):
+    name: str | None = "shape_upsert"
     tier: str = "specialized"
 
 
-class DeleteShape(DrawDeleteShape, ToolCalcShapeBase):
+class DeleteShape(DrawDeleteShape, _CalcShapeTool):
     name: str | None = "shape_delete"
-    uno_services: list[str] | None = _CALC_DRAW_SHAPE_DOCS  # type: ignore[assignment]
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
-class GetDrawSummary(DrawGetDrawSummary, ToolCalcShapeBase):
+class GetDrawSummary(DrawGetDrawSummary, _CalcShapeTool):
     name: str | None = "shape_summary"
-    uno_services: list[str] | None = _CALC_DRAW_SHAPE_DOCS  # type: ignore[assignment]
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
-class ConnectShapes(DrawConnectShapes, ToolCalcShapeBase):
+class ConnectShapes(DrawConnectShapes, _CalcShapeTool):
     name: str | None = "shape_connect"
-    uno_services: list[str] | None = _CALC_DRAW_SHAPE_DOCS  # type: ignore[assignment]
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
-class GroupShapes(DrawGroupShapes, ToolCalcShapeBase):
+class GroupShapes(DrawGroupShapes, _CalcShapeTool):
     name: str | None = "shape_group"
-    uno_services: list[str] | None = _CALC_DRAW_SHAPE_DOCS  # type: ignore[assignment]
-    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]

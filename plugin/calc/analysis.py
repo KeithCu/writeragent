@@ -26,24 +26,14 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_output_anchor
-from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_cell_address
 from plugin.scripting.analysis import HELPER_NAMES
 
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-    from com.sun.star.table import CellAddress
 
 log = logging.getLogger("writeragent.calc")
-
-
-def _output_anchor(output_range: str) -> tuple[str | None, int, int]:
-    """Sheet name (if any), column, and row where an analysis report should start.
-
-    Parsing lives in ``parse_output_anchor`` so forecast and optimize share it.
-    """
-    return parse_output_anchor(output_range)
 
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
@@ -79,11 +69,6 @@ def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> 
     return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
 
 
-def _get_cell_address(doc: Any, address_str: str) -> CellAddress:
-    """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a CellAddress struct."""
-    return resolve_cell_address(doc, address_str)
-
-
 class GoalSeekTool(ToolBaseDummy):
     """Find the value of a variable cell that results in a target formula value."""
 
@@ -108,11 +93,10 @@ class GoalSeekTool(ToolBaseDummy):
         apply_result = kwargs.get("apply_result", True)
 
         try:
-            bridge = CalcBridge(ctx.doc)
-            doc = bridge.get_active_document()
+            doc = ctx.doc
 
-            formula_addr = _get_cell_address(doc, formula_str)
-            variable_addr = _get_cell_address(doc, variable_str)
+            formula_addr = resolve_cell_address(doc, formula_str)
+            variable_addr = resolve_cell_address(doc, variable_str)
 
             # SpreadsheetDocument implements XGoalSeek directly
             if not hasattr(doc, "seekGoal"):
@@ -185,11 +169,10 @@ class SolverTool(ToolBaseDummy):
         engine_name = kwargs.get("engine", "com.sun.star.sheet.Solver")
 
         try:
-            bridge = CalcBridge(ctx.doc)
-            doc = bridge.get_active_document()
+            doc = ctx.doc
 
-            objective_addr = _get_cell_address(doc, objective_str)
-            variable_addrs = tuple(_get_cell_address(doc, v) for v in variable_strs)
+            objective_addr = resolve_cell_address(doc, objective_str)
+            variable_addrs = tuple(resolve_cell_address(doc, v) for v in variable_strs)
 
             smgr = ctx.ctx.ServiceManager
             solver = None
@@ -273,7 +256,7 @@ class SolverTool(ToolBaseDummy):
             solver_constraints = []
             for c in constraints_raw:
                 constraint = SolverConstraint()
-                constraint.Left = _get_cell_address(doc, c["left"])
+                constraint.Left = resolve_cell_address(doc, c["left"])
                 constraint.Operator = op_map[c["operator"]]
 
                 right_val = c["right"]
@@ -281,7 +264,7 @@ class SolverTool(ToolBaseDummy):
                 try:
                     constraint.Right = float(right_val)
                 except ValueError:
-                    constraint.Right = _get_cell_address(doc, right_val)
+                    constraint.Right = resolve_cell_address(doc, right_val)
 
                 solver_constraints.append(constraint)
 
@@ -322,7 +305,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         "properties": {
             "helper": {"type": "string", "description": "Analysis helper name (e.g. describe_data, run_regression)."},
             "params": {"type": "object", "description": "Helper-specific parameters."},
-            "data_range": {"type": "string", "description": "A1 range address to analyze (e.g. 'Sheet1.A1:D1000'). The host resolves and hands the data to the helper."},
+            "data_range": {"type": "string", "description": "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data when using the analysis domain. The host extracts the values out-of-band."},
             "output_range": {"type": "string", "description": "Optional A1 anchor cell to write formatted results (Calc only)."},
             "headers": {"type": "boolean", "description": "First row contains column names (default true)."},
             "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
@@ -332,46 +315,17 @@ class AnalyzeDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        """JSON schema presented for analyze_data.
-
-        In the analysis specialized domain (the primary consumer of this tool),
-        we only expose data_range (an A1 address string). The sub-agent must
-        reason in terms of ranges/addresses; the host performs the read on the
-        main thread and delivers the shaped data (split_grid / payload_codec)
-        to the trusted helper or venv. This enforces out-of-band data handoff
-        for the analysis sub-agent (see docs/calc/analysis-sub-agent.md).
-        """
-        import copy
-        from typing import cast
-
-        p = copy.deepcopy(self.parameters)
-        if p and "properties" in p:
-            props = cast("dict[str, Any]", p["properties"])
-            # Defensive: ensure no raw data value path leaks even if class parameters changes.
-            props.pop("data", None)
-            if "data_range" in props:
-                props["data_range"]["description"] = "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data when using the analysis domain. The host extracts the values out-of-band."
-        return p
-
     def is_async(self) -> bool:
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         helper = str(kwargs.get("helper") or "").strip()
-        if not helper:
-            return self._tool_error("helper is required")
-
         data_range = kwargs.get("data_range")
         data = kwargs.get("data")
 
-        # Strict enforcement for the analysis domain (see get_parameters above and
-        # docs/calc/analysis-sub-agent.md "Data Handoff").
+        # Strict enforcement for the analysis domain (see docs/calc/analysis-sub-agent.md "Data Handoff").
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
             return self._tool_error("analysis domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
-
-        if not (data_range and str(data_range).strip()) and data is None:
-            return self._tool_error("Provide data_range or data")
 
         from plugin.calc.analysis_runner import run_trusted_analysis
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
@@ -379,7 +333,7 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         dr = str(data_range).strip() if data_range else None
         params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-        headers = bool(kwargs.get("headers", True)) if "headers" in kwargs else True
+        headers = bool(kwargs.get("headers", True))
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
@@ -391,10 +345,8 @@ class AnalyzeDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run analysis: {exc}")
 
         if output_range and result.get("status") == "ok":
-            anchor_ref = output_range
-
             def _write() -> None:
-                sheet, col, row = _output_anchor(anchor_ref)
+                sheet, col, row = parse_output_anchor(output_range)
                 insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
@@ -404,27 +356,13 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.viz_auto_plot import run_auto_plot_after_analysis, should_auto_plot
+            from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
             from plugin.scripting.viz import insert_viz_result_into_doc
 
             plot_result = None
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
                 plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
-            if plot_result is not None:
-                result = dict(result)
-                result["plot"] = plot_result
-                if plot_result.get("status") == "ok":
-
-                    def _insert_plot() -> None:
-                        insert_viz_result_into_doc(ctx.ctx, ctx.doc, plot_result)
-
-                    try:
-                        execute_on_main_thread(_insert_plot)
-                        result["image_inserted"] = True
-                    except Exception as exc:
-                        result["plot_error"] = str(exc)
-                else:
-                    result["plot_error"] = plot_result.get("message")
+            result = apply_auto_plot_result(result, plot_result, lambda pr: insert_viz_result_into_doc(ctx.ctx, ctx.doc, pr))
 
         return result

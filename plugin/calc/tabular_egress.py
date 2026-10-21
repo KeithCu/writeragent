@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.python.function import to_calc_compatible
@@ -34,6 +34,23 @@ def _append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str
             rows.append([str(key), str(val)])
         else:
             rows.append([str(key), _cell(val)])
+
+
+def _append_table_rows(
+    rows: list[list[Any]],
+    columns: Any,
+    table_rows: Any,
+    cell: Callable[[Any], Any],
+) -> None:
+    """Append column headers and data rows using the provided cell coercion function."""
+    if isinstance(columns, list) and columns:
+        rows.append([str(c) for c in columns])
+    if isinstance(table_rows, list):
+        for row in table_rows:
+            if isinstance(row, list):
+                rows.append([cell(c) for c in row])
+            else:
+                rows.append([cell(row)])
 
 
 def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
@@ -80,16 +97,7 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
                 continue
             _append_blank(rows)
             rows.append([str(table.get("name") or "table")])
-            columns = table.get("columns")
-            table_rows = table.get("rows")
-            if isinstance(columns, list) and columns:
-                rows.append([str(c) for c in columns])
-            if isinstance(table_rows, list):
-                for row in table_rows:
-                    if isinstance(row, list):
-                        rows.append([_cell(cell) for cell in row])
-                    else:
-                        rows.append([_cell(row)])
+            _append_table_rows(rows, table.get("columns"), table.get("rows"), _cell)
             if table.get("truncated"):
                 total = table.get("total_rows")
                 note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
@@ -106,8 +114,19 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
     return rows
 
 
-def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
-    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count."""
+def insert_tabular_result_into_calc(
+    doc: Any,
+    _uno_ctx: Any,
+    grid: list[list[Any]],
+    *,
+    sheet_name: str | None = None,
+    start_col: int | None = None,
+    start_row: int | None = None,
+) -> int:
+    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count.
+
+    The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
+    """
     if start_col is None or start_row is None:
         col, row = calc_anchor_from_selection(doc)
         start_col = col if start_col is None else start_col
@@ -116,13 +135,9 @@ def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
 
-    addr = f"{index_to_column(start_col)}{start_row + 1}"
+    addr = format_address(start_col, start_row)
     if sheet_name:
-        escaped_name = sheet_name.replace("'", "''")
-        if " " in escaped_name or "." in escaped_name or "'" in sheet_name:
-            addr = f"'{escaped_name}'.{addr}"
-        else:
-            addr = f"{sheet_name}.{addr}"
+        addr = qualify_a1(sheet_name, addr)
 
     manipulator.write_formula_range(addr, grid)
     return len(grid)

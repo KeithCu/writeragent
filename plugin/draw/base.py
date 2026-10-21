@@ -69,7 +69,6 @@ class ToolDrawShapeBase(ToolDrawSpecialBase):
 class ToolDrawFormBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    intent: str | None = "edit"
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 

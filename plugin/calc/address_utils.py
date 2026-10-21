@@ -24,8 +24,19 @@ core/calc_address_utils.py for the plugin framework.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_COL_LETTERS, DEAL_MAX_ROW_INDEX, ascii_bounded, deal, inverse_ensure
+
+# Calc grid limits (0-based: col 0..16383 is A..XFD, row 0..1048575 is 1..1048576).
+# These are physical Calc sheet limits, not the reduced bounds in deal_shim.
+MAX_COL = 16383
+MAX_ROW = 1_048_575
+
+# Pattern for scanning cell tokens in formulas (not a validator; accepts optional $).
+A1_CELL_RE = re.compile(r"\$?([A-Z]+)\$?(\d+)")
+
+_A1_RE = re.compile(r"^([A-Z]+)([0-9]+)$")
 
 
 # Pre must cap the int: `index >= 0` with no max lets CrossHair feed a giant
@@ -125,6 +136,29 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     return name.strip(), match.group("rest").strip()
 
 
+def quote_sheet_name(name: str) -> str:
+    """Bare iff ``name.isidentifier()``; otherwise ``'name'`` with `'` doubled."""
+    if name.isidentifier():
+        return name
+    return "'" + name.replace("'", "''") + "'"
+
+
+def qualify_a1(sheet_name: str, a1: str, *, sep: str = ".") -> str:
+    """Qualify an A1 address or range with a properly quoted sheet name."""
+    return f"{quote_sheet_name(sheet_name)}{sep}{a1}"
+
+
+def _parse_a1(text: str, label: str) -> tuple[int, int]:
+    cleaned = text.replace("$", "").strip().upper()
+    match = _A1_RE.match(cleaned)
+    if not match:
+        raise ValueError(f"Invalid {label}: '{cleaned}'")
+    row_num = int(match.group(2))
+    if row_num < 1:
+        raise ValueError(f"Invalid row number in {label}: {row_num}")
+    return column_to_index(match.group(1)), row_num - 1
+
+
 @deal.pre(lambda address: ascii_bounded(address, DEAL_MAX_CELL_REF, min_len=1))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
 @deal.raises(ValueError)
@@ -148,23 +182,7 @@ def parse_address(address: str) -> tuple[int, int]:
     sheet, address = split_sheet_prefix(address)
     if sheet is not None:
         raise ValueError(f"Cell address '{sheet}.{address}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
-    # Bugfix: absolute references like $A$1 or A$1 failed regex matching.
-    # Calc writes $ locks which are not part of the alphanumeric address; strip them.
-    address = address.replace("$", "")
-    address = address.strip().upper()
-    match = re.match(r"^([A-Z]+)([0-9]+)$", address)
-    if not match:
-        raise ValueError(f"Invalid cell address: '{address}'")
-
-    col_str = match.group(1)
-    row_num = int(match.group(2))
-    if row_num < 1:
-        raise ValueError(f"Invalid row number in cell address: {row_num}")
-
-    col_index = column_to_index(col_str)
-    row_index = row_num - 1
-
-    return col_index, row_index
+    return _parse_a1(address, "cell address")
 
 
 @deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
@@ -190,35 +208,18 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     sheet, range_str = split_sheet_prefix(range_str)
     if sheet is not None:
         raise ValueError(f"Range '{sheet}.{range_str}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
-    # Bugfix: absolute range references like $A$1:$B$2 failed regex matching.
-    # Strip $ characters from the address portion so the range regex matches cleanly.
-    range_str = range_str.replace("$", "")
-    range_str = range_str.strip().upper()
 
-    pattern = r"^([A-Z]+)([0-9]+)(?::([A-Z]+)([0-9]+))?$"
-    match = re.match(pattern, range_str)
-    if not match:
-        raise ValueError(f"Invalid cell range format: '{range_str}'")
+    cleaned = range_str.replace("$", "").strip().upper()
+    start_str, has_sep, end_str = cleaned.partition(":")
+    if not has_sep:
+        pt = _parse_a1(start_str, "cell address")
+        return pt, pt
 
-    start_col = column_to_index(match.group(1))
-    start_row_num = int(match.group(2))
-    if start_row_num < 1:
-        raise ValueError(f"Invalid row number in start cell address: {start_row_num}")
-    start_row = start_row_num - 1
-
-    if match.group(3) is not None:
-        end_col = column_to_index(match.group(3))
-        end_row_num = int(match.group(4))
-        if end_row_num < 1:
-            raise ValueError(f"Invalid row number in end cell address: {end_row_num}")
-        end_row = end_row_num - 1
-        if start_col > end_col or start_row > end_row:
-            raise ValueError(f"Invalid cell range: start cell must be top-left and end cell bottom-right: '{range_str}'")
-    else:
-        end_col = start_col
-        end_row = start_row
-
-    return (start_col, start_row), (end_col, end_row)
+    start_pt = _parse_a1(start_str, "start cell address")
+    end_pt = _parse_a1(end_str, "end cell address")
+    if start_pt[0] > end_pt[0] or start_pt[1] > end_pt[1]:
+        raise ValueError(f"Invalid cell range: start cell must be top-left and end cell bottom-right: '{range_str}'")
+    return start_pt, end_pt
 
 
 # Nested parse_address is skipped under CrossHair (import-time inverse_ensure
@@ -259,6 +260,15 @@ def format_range(start_col: int, start_row: int, end_col: int, end_row: int, *, 
     return f"{start}:{end}"
 
 
+def format_range_address(addr: Any, *, collapse_single: bool = False) -> str:
+    """Format a UNO CellRangeAddress into an A1 range string."""
+    return format_range(
+        addr.StartColumn,
+        addr.StartRow,
+        addr.EndColumn,
+        addr.EndRow,
+        collapse_single=collapse_single,
+    )
 def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
     """Sheet name (if any), column, and row where a generated report should start.
 

@@ -15,10 +15,46 @@ Detection is pure Python (no UNO). The write path measures size and calls
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
+
+
+class CellRect(NamedTuple):
+    left: int
+    top: int
+    right: int
+    bottom: int
+
 
 # Functions whose result is an array when they are what the formula returns.
-ARRAY_FUNCTIONS = frozenset({"FILTER", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY", "TRANSPOSE", "MMULT", "MINVERSE", "FREQUENCY", "CHOOSECOLS", "CHOOSEROWS", "HSTACK", "VSTACK", "TAKE", "DROP", "EXPAND", "WRAPROWS", "WRAPCOLS", "TOCOL", "TOROW"})
+# Matching uses .upper(); names are the canonical English uppercase forms.
+ARRAY_FUNCTIONS = frozenset({
+    # Dynamic array functions
+    "FILTER",
+    "SORT",
+    "SORTBY",
+    "UNIQUE",
+    "SEQUENCE",
+    "RANDARRAY",
+    # Matrix functions
+    "TRANSPOSE",
+    "MMULT",
+    "MINVERSE",
+    "FREQUENCY",
+    # Shape / manipulation functions
+    "CHOOSECOLS",
+    "CHOOSEROWS",
+    "HSTACK",
+    "VSTACK",
+    "TAKE",
+    "DROP",
+    "EXPAND",
+    "WRAPROWS",
+    "WRAPCOLS",
+    "TOCOL",
+    "TOROW",
+})
 
+# Cap on probe/result size to prevent out-of-memory on runaway arrays.
 MAX_ARRAY_CELLS = 100_000
 
 _CALL = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*)\s*\(")
@@ -39,7 +75,7 @@ def top_level_calls(formula: str) -> list[str]:
     while i < n:
         ch = text[i]
         if ch == '"':
-            i = _skip_double_quoted(text, i)
+            i = skip_double_quoted(text, i)
             continue
         if ch == "(":
             depth += 1
@@ -67,17 +103,17 @@ def returns_array(formula: str, forced: bool | None = None) -> bool:
     """
     if forced is not None:
         return bool(forced)
-    if not isinstance(formula, str) or not formula.startswith("="):
+    if not isinstance(formula, str) or not formula.startswith("=") or len(formula) <= 1:
         return False
     return any(name in ARRAY_FUNCTIONS for name in top_level_calls(formula))
 
 
-def result_range(col: int, row: int, rows: int, cols: int) -> tuple[int, int, int, int]:
+def result_range(col: int, row: int, rows: int, cols: int) -> CellRect:
     """``(first_col, first_row, last_col, last_row)`` of a result at (*col*, *row*)."""
-    return col, row, col + cols - 1, row + rows - 1
+    return CellRect(col, row, col + cols - 1, row + rows - 1)
 
 
-def _skip_double_quoted(s: str, i: int) -> int:
+def skip_double_quoted(s: str, i: int) -> int:
     """Index after the closing ``"``; *i* points at the opening quote."""
     j = i + 1
     n = len(s)

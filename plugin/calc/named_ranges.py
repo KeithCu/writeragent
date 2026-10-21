@@ -21,7 +21,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import column_to_index, format_range_address, index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed, uno_read
@@ -283,9 +283,7 @@ def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
             sheet_name = ""
             if doc is not None and hasattr(doc, "getSheets"):
                 sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
-            start_str = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
-            end_str = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
-            range_str = f"{start_str}:{end_str}" if (addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow) else start_str
+            range_str = format_range_address(addr, collapse_single=True)
             info["referred_range"] = {
                 "sheet": sheet_name or f"Sheet{addr.Sheet + 1}",
                 "address": range_str,
@@ -310,13 +308,12 @@ class NamedRangeList(ToolCalcRangeBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         scope_arg = kwargs.get("scope", "global")
         if scope_arg is None or str(scope_arg).strip() == "":
             scope_arg = "global"
         scope_clean = str(scope_arg).strip()
 
-        doc = bridge.get_active_document()
+        doc = ctx.doc
         result: list[dict[str, Any]] = []
 
         if scope_clean.lower() == "all":
@@ -358,7 +355,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
         name = kwargs["name"].strip()
         scope_arg = kwargs.get("scope")
 
-        doc = bridge.get_active_document()
+        doc = bridge.doc
 
         if scope_arg is not None and str(scope_arg).strip():
             container, effective_scope, _ = _resolve_container(doc, str(scope_arg).strip())
@@ -395,7 +392,6 @@ class NamedRangeAdd(ToolCalcRangeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         name = kwargs["name"].strip()
         content = kwargs["content"].strip()
         scope = kwargs.get("scope")
@@ -403,7 +399,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         flags_arg = kwargs.get("flags")
 
         try:
-            doc = bridge.get_active_document()
+            doc = ctx.doc
             container, effective_scope, sheet_obj = _resolve_container(doc, scope)
             if container.hasByName(name):
                 return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
@@ -461,7 +457,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
         flags_arg = kwargs.get("flags")
 
         try:
-            doc = bridge.get_active_document()
+            doc = bridge.doc
             resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with name '{name}' in scope '{scope}'.")
             if isinstance(resolved, dict):
                 return resolved
@@ -537,7 +533,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
         scope = kwargs.get("scope")
 
         try:
-            doc = bridge.get_active_document()
+            doc = bridge.doc
             resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with the name '{name}' in scope '{scope}'.")
             if isinstance(resolved, dict):
                 return resolved
@@ -588,7 +584,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
             return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")
 
         try:
-            doc = bridge.get_active_document()
+            doc = bridge.doc
             sheet, address = bridge.resolve(range_str)
             cell_range = bridge.get_cell_range(sheet, address)
             range_addr = cell_range.getRangeAddress()
