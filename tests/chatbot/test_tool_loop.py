@@ -612,7 +612,7 @@ def test_refresh_active_tools_for_session():
 # =============================================================================
 
 import pytest
-from plugin.framework.tool import ToolRegistry, _is_specialized_domain_tool
+from plugin.framework.tool import ToolBase, ToolRegistry, _is_specialized_domain_tool
 from plugin.writer.specialized_base import ToolWriterSpecialBase, SpecializedWorkflowFinished
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 from plugin.calc.specialized import DelegateToSpecializedCalc
@@ -654,16 +654,43 @@ class DummyCalcSpecialTool(ToolCalcSpecialBase):
         return {"status": "ok", "message": "ok"}
 
 
-class DummyDrawSpecialTool(ToolDrawSpecialBase):
+# Bugfix: DummyDrawSpecialTool previously inherited directly from ToolDrawSpecialBase
+# at module scope, which permanently leaked 'draw_test_domain' into
+# ToolDrawSpecialBase.__subclasses__() across the pytest session. This caused
+# test_tool_exposure_parity.py to fail when verifying that catalog domains map to
+# shipped concrete tools.
+#
+# To prevent test pollution, DummyDrawSpecialTool inherits from ToolBase (registered
+# virtually with ToolDrawSpecialBase), and the dummy_draw_tool fixture monkeypatches
+# ToolDrawSpecialBase.__subclasses__ only for tests exercising Draw delegation,
+# restoring the original subclasses on teardown.
+class DummyDrawSpecialTool(ToolBase):
     name = "dummy_draw_special_tool"
     description = "A dummy Draw specialized tool."
     parameters = {"type": "object", "properties": {}, "required": []}
     specialized_domain = "draw_test_domain"
+    tier = "specialized"
+    is_app_specialized_tool = True
 
     uno_services = ["com.sun.star.drawing.DrawingDocument"]
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "message": "ok"}
+
+
+ToolDrawSpecialBase.register(DummyDrawSpecialTool)
+
+
+@pytest.fixture
+def dummy_draw_tool(monkeypatch):
+    """Temporarily include DummyDrawSpecialTool in ToolDrawSpecialBase subclasses and restore on teardown."""
+    orig_subclasses = ToolDrawSpecialBase.__subclasses__
+    monkeypatch.setattr(
+        ToolDrawSpecialBase,
+        "__subclasses__",
+        classmethod(lambda cls: [*orig_subclasses(), DummyDrawSpecialTool]),
+    )
+    yield DummyDrawSpecialTool
 
 
 @pytest.fixture
@@ -828,13 +855,13 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     assert any(t.name == "dummy_shape_tool" for t in smol_tools)
 
 
-def test_is_specialized_domain_tool_helper():
+def test_is_specialized_domain_tool_helper(dummy_draw_tool):
     t = DummyTableTool()
     assert _is_specialized_domain_tool(t, "tables") is True
     assert _is_specialized_domain_tool(t, "images") is False
     c = DummyCalcSpecialTool()
     assert _is_specialized_domain_tool(c, "images") is True
-    d = DummyDrawSpecialTool()
+    d = dummy_draw_tool()
     assert _is_specialized_domain_tool(d, "draw_test_domain") is True
 
 
@@ -868,10 +895,10 @@ def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registr
     assert "does not inject" in (py_schema["function"]["description"] or "")
 
 
-def test_active_domain_schemas_include_calc_and_draw(registry):
+def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     """Calc/Draw specialized tools must appear when active_domain matches."""
     registry.register(DummyCalcSpecialTool())
-    registry.register(DummyDrawSpecialTool())
+    registry.register(dummy_draw_tool())
 
     mock_sheet = MagicMock()
 
@@ -953,8 +980,9 @@ def test_draw_specialized_delegation_sub_agent(
     _mock_get_config_int,
     registry,
     mock_ctx,
+    dummy_draw_tool,
 ):
-    registry.register(DummyDrawSpecialTool())
+    registry.register(dummy_draw_tool())
     registry.register(DelegateToSpecializedDraw())
     
     mock_agent_instance = MagicMock()
