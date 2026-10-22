@@ -280,3 +280,56 @@ def test_footnotes_disposal_is_document_disposed():
     res = tool.execute_safe(ctx, note="footnote")
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_footnotes_settings_update_partial_failure():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    settings = MagicMock()
+
+    def fake_set_property_value(name, val):
+        if name == "BadProp":
+            raise RuntimeError("Unknown property")
+
+    settings.setPropertyValue.side_effect = fake_set_property_value
+    doc.getFootnoteSettings.return_value = settings
+
+    tool = FootnotesSettingsUpdate()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(ctx, note="footnote", properties={"Prefix": "[", "BadProp": "invalid"})
+
+    assert res["status"] == "error"
+    assert "Prefix" in res["updated_properties"]
+    assert "Prefix" in res["message"]
+    assert "BadProp" in res["message"]
+
+
+def test_footnotes_non_numeric_index():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    supplier = MagicMock()
+    supplier.getCount.return_value = 2
+    doc.getFootnotes.return_value = supplier
+
+    ctx = FakeCtx(doc)
+
+    res_edit = FootnotesEdit().execute(ctx, note="footnote", index="non_numeric", text="abc")
+    assert res_edit["status"] == "error"
+    assert "Invalid index non_numeric" in res_edit["message"]
+
+    res_delete = FootnotesDelete().execute(ctx, note="footnote", index="bad_idx")
+    assert res_delete["status"] == "error"
+    assert "Invalid index bad_idx" in res_delete["message"]
+
+
+def test_footnotes_missing_note_asserts():
+    import pytest
+
+    tool = FootnotesList()
+    ctx = FakeCtx(MagicMock())
+    with pytest.raises(AssertionError):
+        tool.execute(ctx)
+

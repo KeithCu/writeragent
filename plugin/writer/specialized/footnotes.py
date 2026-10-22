@@ -49,6 +49,16 @@ _NOTE_TABLE: dict[str, tuple[str, str, str]] = {
 }
 
 
+def _note_schema(description: str) -> dict[str, Any]:
+    return {"type": "string", "enum": ["footnote", "endnote"], "description": description}
+
+
+def _require_note(kwargs: dict[str, Any]) -> str:
+    note = kwargs.get("note")
+    assert note is not None
+    return str(note)
+
+
 def _note_access(doc: Any, note_type: str, kind: str) -> Any:
     cfg = _NOTE_TABLE.get(note_type)
     if not cfg:
@@ -60,9 +70,15 @@ def _note_access(doc: Any, note_type: str, kind: str) -> Any:
 
 
 def _note_at_index(tool: Any, doc: Any, note_type: str, index_val: Any) -> tuple[Any, int] | dict[str, Any]:
-    index = int(index_val) if index_val is not None else -1
     notes = _note_access(doc, note_type, "supplier")
     count = notes.getCount()
+    # What was wrong: passing a non-numeric index to _note_at_index raised an uncaught ValueError.
+    # How it happened: int(index_val) was called without catching ValueError or TypeError.
+    # Why this change: catch ValueError and TypeError and return the existing invalid-index tool error.
+    try:
+        index = int(index_val) if index_val is not None else -1
+    except (ValueError, TypeError):
+        return tool._tool_error(f"Invalid index {index_val}. The document has {count} {note_type}(s).")
     if index < 0 or index >= count:
         return tool._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
     return notes.getByIndex(index), index
@@ -81,7 +97,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to insert a footnote or an endnote."},
+            "note": _note_schema("Whether to insert a footnote or an endnote."),
             "text": {"type": "string", "description": "The content of the footnote or endnote."},
             "label": {"type": "string", "description": "Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering."},
             "insert_after": {
@@ -101,7 +117,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         text = str(kwargs.get("text"))
         label = kwargs.get("label", "")
 
@@ -162,11 +178,11 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 class FootnotesList(ToolWriterFootnoteBase):
     name: str | None = "footnotes_list"
     description: str = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to list footnotes or endnotes."}}, "required": ["note"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"note": _note_schema("Whether to list footnotes or endnotes.")}, "required": ["note"]}
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         doc = ctx.doc
 
         notes = _note_access(doc, note_type, "supplier")
@@ -188,7 +204,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to edit a footnote or an endnote."},
+            "note": _note_schema("Whether to edit a footnote or an endnote."),
             "index": {"type": "integer", "description": "The 0-based index of the note to edit (from footnotes_list)."},
             "text": {"type": "string", "description": "The new text content for the note."},
             "label": {"type": "string", "description": "Optional custom mark (e.g., '*'). Leave empty to revert to auto-numbering."},
@@ -198,7 +214,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         res = _note_at_index(self, ctx.doc, note_type, kwargs.get("index"))
         if isinstance(res, dict):
             return res
@@ -218,13 +234,13 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     description: str = "Deletes an existing footnote or endnote based on its index (from footnotes_list)."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to delete a footnote or an endnote."}, "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."}},
+        "properties": {"note": _note_schema("Whether to delete a footnote or an endnote."), "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."}},
         "required": ["note", "index"],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         res = _note_at_index(self, ctx.doc, note_type, kwargs.get("index"))
         if isinstance(res, dict):
             return res
@@ -242,11 +258,11 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
     name: str | None = "footnotes_settings_get"
     description: str = "Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to get settings for footnotes or endnotes."}}, "required": ["note"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"note": _note_schema("Whether to get settings for footnotes or endnotes.")}, "required": ["note"]}
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         doc = ctx.doc
 
         settings = _note_access(doc, note_type, "settings")
@@ -278,13 +294,13 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
     description: str = "Updates the formatting and numbering settings for footnotes or endnotes. You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType)."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"note": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to update settings for footnotes or endnotes."}, "properties": {"type": "object", "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})"}},
+        "properties": {"note": _note_schema("Whether to update settings for footnotes or endnotes."), "properties": {"type": "object", "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})"}},
         "required": ["note", "properties"],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = str(kwargs.get("note"))
+        note_type = _require_note(kwargs)
         props_to_update = kwargs.get("properties", {})
         doc = ctx.doc
 
@@ -298,6 +314,15 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
                 settings.setPropertyValue(prop_name, prop_val)
                 updated_props.append(prop_name)
             except Exception as e:
-                return self._tool_error(f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}")
+                # What was wrong: when setPropertyValue failed after some properties were updated, the error did not report which properties had already succeeded.
+                # How it happened: _tool_error only included the failure message without the updated property list.
+                # Why this change: include already-updated property names in the error message and updated_properties payload.
+                msg = f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}"
+                if updated_props:
+                    msg = f"{msg}. Already updated: {', '.join(updated_props)}."
+                err = self._tool_error(msg, updated_properties=updated_props)
+                if updated_props:
+                    err["updated_properties"] = updated_props
+                return err
 
         return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}
