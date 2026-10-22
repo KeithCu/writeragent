@@ -362,6 +362,8 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
         # topics/sentiment return list[str]. Do not str() that list.
+        assert isinstance(text, (str, list)), type(text)
+        assert isinstance(document_context, dict)
         exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context})
 
     from plugin.scripting.session_manager import pin_script_document, release_script_document, rps_session_id

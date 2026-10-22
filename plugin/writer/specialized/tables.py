@@ -739,6 +739,7 @@ class ManageTableStructure(ToolWriterTableBase):
         name = str(kwargs.get("name") or "").strip()
         # type/required checks are done by the tool schema in ToolRegistry
         idx = kwargs["index"]
+        assert isinstance(idx, int) and not isinstance(idx, bool)
         if idx < 0:
             return self._tool_error("index must be non-negative.")
         axis = "rows" if axis_arg == "row" else "columns"
@@ -848,6 +849,7 @@ class TableInsert(ToolWriterTableBase):
                 return self._tool_error("rows and columns must be at least 1.")
 
             data = kwargs.get("data")
+            assert data is None or isinstance(data, (list, tuple)), type(data)
             if data:
                 if len(data) > rows:
                     return self._tool_error("data has %d rows but table only has %d." % (len(data), rows))

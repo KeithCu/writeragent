@@ -865,7 +865,7 @@ def test_non_integer_index_errors():
     ok, err = tool.validate(action="insert", axis="row", index="two")
     assert ok is False
     assert err is not None and "Invalid type for index" in err and "integer" in err
-    with pytest.raises(TypeError):
+    with pytest.raises(AssertionError):
         tool.execute(
             _ctx({"T": FakeTable(2, 2)}),
             action="insert",
@@ -1164,6 +1164,8 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     ok_data, err_data = tool.validate(rows=2, columns=2, data="ab")
     assert ok_data is False
     assert err_data is not None and "Invalid type for data" in err_data and "array" in err_data
+    with pytest.raises(AssertionError):
+        tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=2, columns=2, data="ab")
 
 
 def test_table_set_cell_non_string_cell():
