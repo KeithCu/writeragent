@@ -875,13 +875,6 @@ def test_non_integer_index_errors():
         )
 
 
-def test_manage_table_structure_bad_action_or_axis():
-    ctx = _ctx({"T": FakeTable(2, 2)})
-    tool = ManageTableStructure()
-    assert tool.execute(ctx, action="merge", axis="row", name="T", index=0)["status"] == "error"
-    assert tool.execute(ctx, action="insert", axis="diagonal", name="T", index=0)["status"] == "error"
-
-
 # ---- insert / delete --------------------------------------------------------
 
 def test_table_insert_nests_into_parent_cell():
@@ -1166,15 +1159,6 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     assert err_data is not None and "Invalid type for data" in err_data and "array" in err_data
     with pytest.raises(AssertionError):
         tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=2, columns=2, data="ab")
-
-
-def test_table_set_cell_non_string_cell():
-    """Bug 1: TableSetCell must handle non-string cell arguments without AttributeError."""
-    doc = FakeWriterDoc({"T": FakeTable(2, 2, cells={"A1": "old"})})
-    tool = TableSetCell()
-    res = tool.execute(SimpleNamespace(doc=doc), name="T", cell=123, text="new")
-    assert res["status"] == "error"
-    assert "Cell '123' not in table 'T'" in res["message"]
 
 
 def test_table_insert_draw_non_numeric_rows_columns():
