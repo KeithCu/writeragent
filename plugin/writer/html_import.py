@@ -628,11 +628,26 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
     return swapped, kept
 
 
-def _deleted_by_the_edit(model: Any, original: Any) -> bool:
-    """True when the edit removed *original*: disposed (review off), or its anchor -- for a
-    paragraph anchor, the paragraph's break -- inside a pending tracked deletion (review on).
-    Anything else is still in place and must not be duplicated, e.g. a search replace of the
-    text of the paragraph a picture is anchored to."""
+def _deleted_by_the_edit(model: Any, original: Any, name: str | None = None) -> bool:
+    """True when the edit removed *original*: missing from getGraphicObjects() or disposed
+    (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
+    a pending tracked deletion (review on). Anything else is still in place and must not be
+    duplicated, e.g. a search replace of the text of the paragraph a picture is anchored to."""
+    # Bugfix: Calling original.getAnchor() crashes soffice with a null pointer dereference
+    # inside SwXFrame::getSwAnchor (sw/source/core/unocore/unoframe.cxx) when a review-off
+    # delete leaves SwXTextGraphicObject alive with an empty/null anchor. Check whether
+    # doc.getGraphicObjects().hasByName(name) still has it before calling getAnchor(). If missing,
+    # it was deleted by the edit so return True. Non-disposal lookup errors are logged and
+    # treated as deleted (reraise_if_disposed first).
+    if name:
+        try:
+            graphics = model.getGraphicObjects()
+            if not graphics.hasByName(name):
+                return True
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.warning("_deleted_by_the_edit: graphic object lookup failed for %r: %s", name, exc)
+            return True
     try:
         anchor = original.getAnchor()
     except Exception as exc:
@@ -702,12 +717,12 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
             except Exception as exc:
                 reraise_if_disposed(exc)
         if found is None:
-            if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original):
+            if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original, image.name):
                 raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
             log.warning("kept image %r: marker not found after the import", image.name)
             continue
         text = found.getText()
-        if getattr(image.anchor, "value", "") == "AT_PAGE" or not _deleted_by_the_edit(model, image.original):
+        if getattr(image.anchor, "value", "") == "AT_PAGE" or not _deleted_by_the_edit(model, image.original, image.name):
             # The original is still where it was (page-anchored, or outside what the edit
             # replaced): drop the marker instead of adding a duplicate.
             found.setString("")

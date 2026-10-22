@@ -810,6 +810,65 @@ def test_deleted_by_the_edit():
     assert html_import._deleted_by_the_edit(model, original) is True
 
 
+def test_deleted_by_the_edit_name_guard(caplog):
+    import logging
+    import pytest
+    from unittest.mock import MagicMock
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import html_import
+
+    # 1. Name missing from doc.getGraphicObjects() is treated as deleted without calling getAnchor()
+    model = MagicMock()
+    model.getGraphicObjects.return_value.hasByName.return_value = False
+    original = MagicMock()
+    original.getAnchor.side_effect = AssertionError("getAnchor must not be called when name is missing")
+    assert html_import._deleted_by_the_edit(model, original, "Picture 1") is True
+    original.getAnchor.assert_not_called()
+    model.getGraphicObjects.return_value.hasByName.assert_called_once_with("Picture 1")
+
+    # 2. Name present in doc.getGraphicObjects() proceeds to check anchor
+    model = MagicMock()
+    model.getGraphicObjects.return_value.hasByName.return_value = True
+    model.getPropertyValue.return_value = False  # review off
+    original = MagicMock()
+    assert html_import._deleted_by_the_edit(model, original, "Picture 1") is False
+    original.getAnchor.assert_called_once()
+
+    # 3. Non-disposal lookup failures are logged and treated as deleted
+    model = MagicMock()
+    model.getGraphicObjects.side_effect = RuntimeError("collection lookup failed")
+    original = MagicMock()
+    original.getAnchor.side_effect = AssertionError("getAnchor must not be called on lookup failure")
+    with caplog.at_level(logging.WARNING):
+        assert html_import._deleted_by_the_edit(model, original, "Picture 1") is True
+    original.getAnchor.assert_not_called()
+    assert "collection lookup failed" in caplog.text
+
+    # 4. Disposal lookup failure is re-raised
+    model = MagicMock()
+    model.getGraphicObjects.side_effect = DocumentDisposedError("doc disposed")
+    with pytest.raises(DocumentDisposedError):
+        html_import._deleted_by_the_edit(model, MagicMock(), "Picture 1")
+
+
+def test_restore_image_placeholders_passes_name():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    kept = [_kept()]
+    with patch.object(html_import, "_deleted_by_the_edit", return_value=True) as mock_deleted:
+        html_import._restore_image_placeholders(model, kept)
+    mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
+
+    # Missing marker case:
+    model = MagicMock()
+    model.findFirst.return_value = None
+    with patch.object(html_import, "_deleted_by_the_edit", return_value=False) as mock_deleted:
+        html_import._restore_image_placeholders(model, kept)
+    mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
+
+
 def test_full_document_refuses_before_deleting_anything():
     import pytest
     from unittest.mock import patch
