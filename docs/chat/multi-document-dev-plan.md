@@ -259,7 +259,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 
 | Source doc type | Typical inner allowlist |
 | --------------- | ----------------------- |
-| **Writer** | `get_document_content` ([`content.py`](../../plugin/writer/content.py); optional `include_images`, default false), `get_document_tree` ([`outline.py`](../../plugin/writer/outline.py)), `search_in_document` |
+| **Writer** | `get_document_content` ([`get_document_content.py`](../../plugin/writer/get_document_content.py); optional `include_images`, default false), `get_document_tree` ([`outline.py`](../../plugin/writer/outline.py)), `search_in_document` |
 | **Calc** | `get_sheet_summary` ([`sheets.py`](../../plugin/calc/sheets.py)), `read_cell_range` ([`cells.py`](../../plugin/calc/cells.py)) |
 | **Draw / Impress** | `list_pages` ([`shapes.py`](../../plugin/draw/shapes.py)), `get_draw_tree` ([`tree.py`](../../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py) |
 

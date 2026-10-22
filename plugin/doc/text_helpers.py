@@ -587,7 +587,7 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
     Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order.
     One bad portion is skipped. A closed document raises DocumentDisposedError.
     TextTable cells are walked; headers and frames are not in the body XText this
-    function is given (content.py passes ``getText()``)."""
+    function is given (get_document_content.py passes ``getText()``)."""
     out: list[dict[str, str]] = []
     para_enum = uno_read(lambda: text_range.createEnumeration(), _FAILED, object_type="TextRange")
     if para_enum is _FAILED:
@@ -651,7 +651,7 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
             if portion_enum is not _FAILED:
                 _walk_portions(portion_enum)
 
-    # No outer except: content.py already logs a failed walk. That outer except
+    # No outer except: get_document_content.py already logs a failed walk. That outer except
     # returned the partial list for every error, including a closed document.
     _walk_elements(para_enum)
     _flush(del_buf, "deletion")

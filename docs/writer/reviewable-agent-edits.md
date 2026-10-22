@@ -92,7 +92,7 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 
 Small edits in long paragraphs use **surgical** tracked changes instead of one whole-block redline
 ([`plugin/writer/word_diff_split.py`](../../plugin/writer/word_diff_split.py), integrated in
-[`plugin/writer/content.py`](../../plugin/writer/content.py)):
+[`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py)):
 
 * A word-level diff splits the replace into several tight Delete+Insert pairs — one reviewable
   change per sub-edit — when the changed-word fraction is below a threshold (default **0.6**).

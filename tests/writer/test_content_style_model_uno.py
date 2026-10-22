@@ -16,7 +16,7 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.format as fmt
 
 

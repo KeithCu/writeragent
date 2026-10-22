@@ -26,7 +26,7 @@ from plugin.framework.module_base import ModuleBase
 # tempfile.gettempdir() probe (auditwall SideEffectDetected). initialize() loads them.
 def _import_writer_tools():
     from . import tree, proximity  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    from . import content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    from . import apply_document_content, get_document_content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from .specialized import bookmarks
     from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mail_merge  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from .locale import linguistic_index

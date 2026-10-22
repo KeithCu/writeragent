@@ -8,14 +8,14 @@ the mode later doesn't update it). No LibreOffice required."""
 from unittest.mock import patch
 
 
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 import pytest
 
 _tool = ApplyDocumentContent()
 
 
 def _annotate(mode, result):
-    with patch("plugin.writer.content.get_agent_edit_review_mode", return_value=mode):
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value=mode):
         return _tool._annotate_review_status(object(), result)
 
 

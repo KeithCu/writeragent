@@ -320,12 +320,12 @@ def test_apply_document_content_selection_failure_not_silent():
     set_configs({'doc.agent_edit_review_mode': 'none'})
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import format as format_support
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.content.selection_anchor", return_value=MagicMock()), \
+    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=MagicMock()), \
          patch.object(format_support, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP

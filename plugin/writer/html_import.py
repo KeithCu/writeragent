@@ -659,7 +659,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     Plain text goes in with ``insertString``; inline markup is imported RAW (no ``<p>``),
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
-    # No html.unescape here: content.py already decoded complete character references on the
+    # No html.unescape here: apply_document_content.py already decoded complete character references on the
     # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
     # decodes entities in markup itself.
     if not content_has_markup(content):

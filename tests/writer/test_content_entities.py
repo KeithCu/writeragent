@@ -5,7 +5,7 @@
 """HTML entities on apply_document_content's format-preserving (plain text) path."""
 
 
-from plugin.writer.content import _ENTITY_RE
+from plugin.writer.apply_document_content import _ENTITY_RE
 
 
 class TestPlainTextEntityGuard:

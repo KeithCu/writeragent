@@ -17,7 +17,7 @@ from plugin.writer.format import (
     _insert_mixed_html_and_math_at_cursor,
     _insert_mixed_or_plain_html
 )
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 
 class TestWriterMathPreservation:
     def test_mixed_math_preservation(self):

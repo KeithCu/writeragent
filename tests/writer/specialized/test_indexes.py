@@ -665,7 +665,7 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
          patch("plugin.writer.format.document_to_content", side_effect=AssertionError("format export")) as export_format, \
-         patch("plugin.writer.content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
+         patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
         listed = tool.execute(ctx)
 
     assert listed["status"] == "ok", listed

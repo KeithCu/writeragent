@@ -14,7 +14,7 @@ the new text rather than merely preserved.
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 

@@ -48,7 +48,7 @@ Design notes for prompt authors live in this section so the source file stays sc
 
 #### Why a JSON array (not one HTML blob)?
 
-- OpenAI tool schema declares `content` as type `array` ([`plugin/writer/content.py`](../../plugin/writer/content.py)). Each element is one heading/paragraph fragment; `execute()` joins with `\n` before Writer HTML import.
+- OpenAI tool schema declares `content` as type `array` ([`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py)). Each element is one heading/paragraph fragment; `execute()` joins with `\n` before Writer HTML import.
 - Long answers: block-sized strings are easier for models to emit than one giant tool argument, and JSON parsers handle quotes per element instead of one nested escape soup.
 - Whether array still wins vs a single string is unsettled; `execute()` already accepts a list or a string that parses as JSON array.
 
@@ -81,7 +81,7 @@ If we implement true block/centered math (e.g. paragraph anchor + alignment), re
 
 **Why examples look like plain quoted HTML while document rules show `["…"]` arrays:**
 
-- Document path: `content` parameter is schema-typed array; join happens in `content.py`.
+- Document path: `content` parameter is schema-typed array; join happens in `apply_document_content.py`.
 - Sidebar path: no array join — StarWriter HTML filter imports the string as one fragment.
 - JSON escaping still applies at the tool-call layer (`\"`) but that is not HTML `&lt;` escaping.
 

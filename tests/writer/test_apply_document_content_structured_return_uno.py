@@ -14,7 +14,7 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import (
     TestingFactory,
     skip_windows_leftover_hidden_load,

@@ -16,7 +16,7 @@ import pytest
 
 import plugin.writer.format as format_mod
 import plugin.writer.search as search_mod
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 
 
 def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
@@ -124,7 +124,7 @@ def test_search_all_matches_no_match_errors(monkeypatch):
 def test_read_only_attribute_sent_back_is_flagged():
     """The write path drops data-lo-para. Say so: a silent no-op is the failure this tool's
     callers already get bitten by."""
-    from plugin.writer.content import _note_read_only_attrs
+    from plugin.writer.apply_document_content import _note_read_only_attrs
 
     res = _note_read_only_attrs(
         {"status": "ok", "message": "Replaced entire document."},
@@ -143,7 +143,7 @@ def test_read_only_attribute_sent_back_is_flagged():
     ],
 )
 def test_content_without_the_attribute_is_untouched(value):
-    from plugin.writer.content import _note_read_only_attrs
+    from plugin.writer.apply_document_content import _note_read_only_attrs
 
     original = {"status": "ok", "message": "Replaced entire document."}
     res = _note_read_only_attrs(original, [value])
@@ -154,7 +154,7 @@ def test_content_without_the_attribute_is_untouched(value):
 
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was ignored."""
-    from plugin.writer.content import _note_read_only_attrs
+    from plugin.writer.apply_document_content import _note_read_only_attrs
 
     original = {"status": "error", "message": "old_content not found."}
 
@@ -163,7 +163,7 @@ def test_failed_write_is_not_annotated():
 
 def test_plain_string_content_is_accepted():
     """content is normally a list, but the checker must not choke on a bare string."""
-    from plugin.writer.content import _note_read_only_attrs
+    from plugin.writer.apply_document_content import _note_read_only_attrs
 
     res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
 
@@ -180,7 +180,7 @@ def test_search_occurrence_selects_requested_match(monkeypatch):
         lambda doc, s: [first, second],
     )
     monkeypatch.setattr(
-        "plugin.writer.content.record_preserve_replace",
+        "plugin.writer.apply_document_content.record_preserve_replace",
         lambda session, doc, found, content, ctx, reviewable: selected.append(found),
     )
 
@@ -320,7 +320,7 @@ def test_search_occurrence_regex_selects_requested_match(monkeypatch):
 
     monkeypatch.setattr(search_mod, "find_all_ranges", unused_find_all)
     monkeypatch.setattr(
-        "plugin.writer.content.record_preserve_replace",
+        "plugin.writer.apply_document_content.record_preserve_replace",
         lambda session, doc, found, content, ctx, reviewable: selected.append(found),
     )
 
@@ -350,7 +350,7 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
         "find_all_ranges",
         lambda doc, s: [first, second],
     )
-    monkeypatch.setattr("plugin.writer.content.collapsed_anchor", lambda found: None)
+    monkeypatch.setattr("plugin.writer.apply_document_content.collapsed_anchor", lambda found: None)
     monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda content: False)
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *args, **kwargs: True)
     inserted = []
@@ -360,7 +360,7 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
         lambda *args, **kwargs: inserted.append(True),
     )
     monkeypatch.setattr(
-        "plugin.writer.content.record_html_atomically",
+        "plugin.writer.apply_document_content.record_html_atomically",
         lambda session, doc, mutate, *rest, **kwargs: mutate(),
     )
 

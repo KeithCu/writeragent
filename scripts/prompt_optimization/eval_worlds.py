@@ -196,7 +196,7 @@ def _write_values_length_mismatch(rng: str, values: list[Any]) -> str:
 
 
 def normalize_apply_content(content: Any) -> str:
-    """Mirror ApplyDocumentContent list/string normalization (content.py)."""
+    """Mirror ApplyDocumentContent list/string normalization (apply_document_content.py)."""
     if isinstance(content, str):
         stripped = content.strip()
         if stripped.startswith("[") and "<" in stripped:

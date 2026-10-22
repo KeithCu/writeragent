@@ -413,7 +413,7 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
 
 
 def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
-    """content.py decodes only complete references; a second html.unescape turned "&sect 2o"
+    """apply_document_content.py decodes only complete references; a second html.unescape turned "&sect 2o"
     into "§ 2o"."""
     from unittest.mock import MagicMock, patch
 

@@ -8,7 +8,7 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 
 _NBSP = chr(0xA0)  # non-breaking space U+00A0 (ASCII-safe in source)

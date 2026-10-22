@@ -148,7 +148,7 @@ def test_apply_document_content_edited_context_on_success():
     leftover). `_enum_has_more` requires UNO True. Review mode is patched: this
     file does not init config, and get_agent_edit_review_mode reads it first."""
     from plugin.writer import format as format_support
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
     found.getString.return_value = "old"
@@ -157,12 +157,12 @@ def test_apply_document_content_edited_context_on_success():
     ctx.services.get.return_value = MagicMock()
     anchor = MagicMock()
     with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch("plugin.writer.content.collapsed_anchor", return_value=anchor), \
-         patch("plugin.writer.content.attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=anchor), \
+         patch("plugin.writer.apply_document_content.attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
          patch.object(format_support, "content_has_markup", return_value=False), \
-         patch("plugin.writer.content.record_preserve_replace"), \
-         patch("plugin.writer.content.get_agent_edit_review_mode", return_value="off"), \
-         patch("plugin.writer.content.review_recording_enabled", return_value=False):
+         patch("plugin.writer.apply_document_content.record_preserve_replace"), \
+         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old")
     assert res["status"] == "ok" and res.get("edited_context") == "echo"

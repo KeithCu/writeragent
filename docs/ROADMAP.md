@@ -10,7 +10,7 @@ Do not duplicate those catalogs here.
 ## Immediate focus
 
 - Keep shrinking boilerplate and fixing stale `docs/` paths when you touch a topic.
-- Optional: section markers in megamodules (`content.py`, `document_helpers.py`, `format.py`, `panel.py`, …) before any large splits.
+- Optional: section markers in megamodules (`document_helpers.py`, `format.py`, `panel.py`, …) before any large splits.
 - Close the UNO fidelity gaps below (Writer / Calc / Draw / Impress).
 
 `TestingFactory` / `with_native_doc` / `execute_tool` are the standard test path. Do not reintroduce per-file `@setup` / `@teardown` lifecycle.

@@ -27,7 +27,7 @@ from plugin.writer.edit_review import (
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
 )
-from plugin.writer.content import ApplyDocumentContent
+from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.edit_review as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
 from plugin.framework.config import set_config, get_config
@@ -393,7 +393,7 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_tool_tracks_when_config_on_uno(ctx, doc):
-    """Real tool path: content.py reads doc.agent_edit_review_mode=record and records the
+    """Real tool path: apply_document_content.py reads doc.agent_edit_review_mode=record and records the
     edit as reviewable redlines; reject restores. (Exercises the config read, which the
     primitive-level tests above do not.)"""
     _reset(doc, ctx, "Old tool body.")
@@ -641,7 +641,7 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
     """#4: if _execute_edit raises AFTER a change was anchored (a replace-all that fails on a later
     match, having anchored the first), execute() must still release the session's wa_review_*
     anchor bookmarks via the session_sink -- none may leak in the document."""
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.edit_review import EditReviewSession
 
     _reset(doc, ctx, "Anchor target paragraph.")

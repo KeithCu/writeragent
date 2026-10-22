@@ -158,7 +158,7 @@ def test_optional_scalar_union_keeps_members_and_null():
 
 def test_apply_document_content_keeps_array_or_string():
     """OpenAI must not advertise content as array-only; execute accepts a string."""
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     content = to_openai_schema(ApplyDocumentContent())["function"]["parameters"]["properties"]["content"]
     assert content["type"] == ["array", "string"]
@@ -203,7 +203,7 @@ def test_normalize_schema_scalar_null_union_preserved():
 
 
 def test_optional_integer_allows_null_on_openai_wire():
-    from plugin.writer.content import GetDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
 
     props = to_openai_schema(GetDocumentContent())["function"]["parameters"]["properties"]
     assert props["max_chars"]["type"] == ["integer", "null"]
@@ -215,7 +215,7 @@ def test_optional_integer_allows_null_on_openai_wire():
 
 
 def test_optional_scalar_nullable_mcp():
-    from plugin.writer.content import GetDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
 
     props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
     assert props["max_chars"]["type"] == ["integer", "null"]

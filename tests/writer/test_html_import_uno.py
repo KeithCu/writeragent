@@ -38,7 +38,8 @@ def test_apply_ruby_html_creates_portions_and_round_trips_uno(ctx: Any, doc: Any
     """StarWriter concatenates <rt>; apply must paint RubyText and get must emit <rt>."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     html = "<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>"
@@ -65,7 +66,8 @@ def test_preserve_format_replace_keeps_existing_ruby_uno(ctx: Any, doc: Any) -> 
     """Plain-text (format-preserving) replace of the base must not drop Ruby marks."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
 
     text = doc.getText()
     text.setString("")
@@ -93,7 +95,7 @@ def test_apply_ruby_with_math_creates_ruby_on_both_bases_uno(ctx: Any, doc: Any)
     """A paragraph with a ruby, an inline formula, and a second ruby gets RubyText on both bases."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     html = "<p><ruby>東<rt>ひがし</rt></ruby> \\(x^2\\) <ruby>西<rt>にし</rt></ruby></p>"
@@ -183,7 +185,7 @@ def _find_field_by_service(doc: Any, service: str) -> Any | None:
 def test_restore_fields_on_writer_inserts_uno(ctx: Any, doc: Any) -> None:
     """replace_full_document, beginning/end insert, and search replace restore live fields."""
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     field_html = '<p>Page <span title="page-number" data-subtype="NEXT" data-offset="1"/></p>'
@@ -237,7 +239,7 @@ def test_restore_fields_on_writer_inserts_uno(ctx: Any, doc: Any) -> None:
 def test_escape_prose_angle_brackets_survives_starwriter_filter_uno(ctx: Any, doc: Any) -> None:
     """Prose angle brackets survive without dropping text, while real HTML tags format."""
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>List<String> tail</p>")
@@ -284,7 +286,8 @@ def _norm_live_text(s: str) -> str:
 def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     """Live round-trip harness testing HTML import/export projection and idempotence."""
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
     from plugin.writer.images.image_tools import insert_image
 
