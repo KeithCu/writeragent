@@ -107,7 +107,7 @@ class AddComment(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        content = kwargs.get("content", "")
+        content = kwargs["content"]
         if not content:
             return self._tool_error("Provide content.")
 
@@ -337,7 +337,7 @@ class CommentResolve(ToolWriterCommentBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        comment_name = kwargs.get("name", "")
+        comment_name = kwargs["name"]
         resolution = kwargs.get("resolution", "")
         author = kwargs.get("author", "AI")
 

@@ -580,7 +580,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        name = kwargs.get("name")
+        name = kwargs["name"]
         if not name:
             return self._tool_error("Bookmark name is required.")
         if name.startswith("_mcp_"):
@@ -621,7 +621,7 @@ class BookmarkDelete(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        name = kwargs.get("name")
+        name = kwargs["name"]
         if not name:
             return self._tool_error("Bookmark name is required.")
         if name.startswith("_mcp_"):
@@ -654,8 +654,8 @@ class BookmarkRename(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_name = kwargs.get("old_name")
-        new_name = kwargs.get("new_name")
+        old_name = kwargs["old_name"]
+        new_name = kwargs["new_name"]
 
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
@@ -683,7 +683,7 @@ class BookmarkGet(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        name = kwargs.get("name")
+        name = kwargs["name"]
         if not name:
             return self._tool_error("Bookmark name is required.")
 
@@ -713,7 +713,7 @@ class BookmarkResolve(ToolWriterBookmarkBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        bookmark_name = kwargs.get("name", "")
+        bookmark_name = kwargs["name"]
         if not bookmark_name:
             return self._tool_error("name is required.")
 

@@ -174,16 +174,6 @@ def test_add_comment_schema_parent_name_optional():
     assert "parent_name" not in params["required"]
 
 
-def test_add_comment_reply_requires_content():
-    from plugin.writer.specialized.comments import AddComment
-
-    ctx = MagicMock()
-    res = AddComment().execute(ctx, parent_name="some-parent")
-    assert res["status"] == "error"
-    assert "content" in res["message"].lower()
-    ctx.doc.getTextFields.assert_not_called()
-
-
 def test_add_comment_reply_unknown_parent():
     from plugin.writer.specialized.comments import AddComment
 

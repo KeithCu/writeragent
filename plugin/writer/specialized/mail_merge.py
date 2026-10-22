@@ -196,7 +196,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        name = kwargs.get("name")
+        name = kwargs["name"]
         file_path = kwargs.get("file_path")
         action = kwargs.get("action", "register")
 
@@ -281,7 +281,7 @@ class InsertField(ToolWriterMailMergeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        column_name = kwargs.get("column_name")
+        column_name = kwargs["column_name"]
         data_source_name = kwargs.get("data_source_name", "")
         table_name = kwargs.get("table_name", "")
         command_type_str = kwargs.get("command_type", "table")
@@ -505,8 +505,8 @@ class RunMerge(ToolWriterMailMergeBase):
     long_running: bool = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        data_source_name = kwargs.get("data_source_name")
-        table_name = kwargs.get("table_name")
+        data_source_name = kwargs["data_source_name"]
+        table_name = kwargs["table_name"]
         command_type_str = kwargs.get("command_type", "table")
         output_type_str = kwargs.get("output_type", "file")
         output_path = kwargs.get("output_path")

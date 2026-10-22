@@ -593,7 +593,7 @@ class FormGenerate(ToolWriterFormBase):
         from plugin.framework.config import get_api_config
         from plugin.framework.client.llm_client import LlmClient
 
-        description = kwargs.get("description")
+        description = kwargs["description"]
         config = get_api_config()
         client = LlmClient(config, ctx.ctx)
 
