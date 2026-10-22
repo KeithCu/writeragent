@@ -31,7 +31,12 @@ from typing import Any, Callable, cast
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
-from ..specialized_base import ToolWriterIndexBase
+from plugin.writer.specialized_base import (
+    ToolWriterIndexBase,
+    enum_param,
+    index_error,
+    target_params,
+)
 from ..target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
@@ -421,8 +426,9 @@ def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:
         if len(tocs) != 1:
             return None, "index is required when the document does not have exactly one table of contents."
         return tocs[0], None
-    if index < 0 or index >= count:
-        return None, "index must be a document index position from indexes_list."
+    err = index_error(index, count, "document index")
+    if err:
+        return None, err
     idx = indexes.getByIndex(index)
     if index_kind_from_uno(idx) != "toc":
         return None, "index is not a table of contents."
@@ -579,13 +585,8 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
 def _paragraph_element(found: Any) -> Any | None:
     """The paragraph object that contains the search hit *found*.
 
-    What was wrong: each in-TOC hit walked found.getText() from the first
-    paragraph until _contained matched.
-    How it happened: toc_match calls this once per hit inside the anchor,
-    and find_all_ranges returns up to MAX_SEARCH_REPLACEMENTS (200).
-    Why this change: the hit's own createEnumeration yields the paragraphs
-    it overlaps (same call as edit_review._block_safe_for_surgical). A hit
-    that spans two paragraphs still matches none.
+    The hit's own createEnumeration yields the paragraphs it overlaps.
+    A hit that spans two paragraphs matches none.
     """
     enum = found.createEnumeration()
     text = found.getText()
@@ -914,10 +915,10 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         if occurrence is not None and occurrence < 0:
             return self._tool_error("occurrence must be a non-negative integer.", code="INVALID_PARAM")
         index = kwargs.get("index")
-        idx, index_error = self._resolve_toc(doc, index)
-        if index_error or idx is None:
+        idx, err = resolve_toc(doc, index)
+        if err or idx is None:
             return self._tool_error(
-                index_error or "Could not find the table of contents.", code="INVALID_PARAM")
+                err or "Could not find the table of contents.", code="INVALID_PARAM")
         # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
         anchor = idx.getAnchor()
         found, find_error = self._toc_match(doc, anchor, str(old_content).strip(), occurrence)
@@ -932,9 +933,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             preview["dry_run"] = True
             return preview
         return self._write(ctx, doc, idx, found, content, override, preview)
-
-    def _resolve_toc(self, doc: Any, index: Any) -> tuple[Any | None, str | None]:
-        return resolve_toc(doc, index)
 
     def _toc_match(self, doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
         return toc_match(doc, anchor, old_content, occurrence)
@@ -1044,10 +1042,10 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         index = kwargs.get("index")
-        idx, index_error = resolve_toc(doc, index)
-        if index_error or idx is None:
+        idx, err = resolve_toc(doc, index)
+        if err or idx is None:
             return self._tool_error(
-                index_error or "Could not find the table of contents.", code="INVALID_PARAM")
+                err or "Could not find the table of contents.", code="INVALID_PARAM")
         # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
         anchor = idx.getAnchor()
         found, find_error = toc_match(doc, anchor, str(old_content).strip(), kwargs.get("occurrence"))
@@ -1104,7 +1102,10 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             "content": {"type": "string", "description": "Plain text of the new entry title. May be the full line (Title followed by a tab and the page) when page is omitted."},
             "page": {"type": "string", "description": "Plain page text written after a tab. Omit to copy the sibling row's page text. Not a page-number field."},
             "hyperlink_url": {"type": "string", "description": "Outline target (#…|outline) or text-table target (#Name|table) for the new row only. Omit to leave the new row unlinked."},
-            "position": {"type": "string", "enum": ["before", "after", "end"], "description": "Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end."},
+            "position": enum_param(
+                ["before", "after", "end"],
+                "Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end.",
+            ),
             "old_content": {"type": "string", "description": "Plain text of the existing TOC entry to insert before or after. Not used when position is end."},
             "level": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Contents N paragraph style (1-10). Omit to clone the sibling entry's style."},
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
@@ -1172,10 +1173,10 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if level_error:
             return self._tool_error(level_error, code="INVALID_PARAM")
         index = kwargs.get("index")
-        idx, index_error = resolve_toc(doc, index)
-        if index_error or idx is None:
+        idx, err = resolve_toc(doc, index)
+        if err or idx is None:
             return self._tool_error(
-                index_error or "Could not find the table of contents.", code="INVALID_PARAM")
+                err or "Could not find the table of contents.", code="INVALID_PARAM")
         # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
         anchor = idx.getAnchor()
         paragraphs = _paragraphs_in_anchor(anchor)
@@ -1363,10 +1364,10 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
-        idx, index_error = resolve_toc(doc, index)
-        if index_error or idx is None:
+        idx, err = resolve_toc(doc, index)
+        if err or idx is None:
             return self._tool_error(
-                index_error or "Could not find the table of contents.",
+                err or "Could not find the table of contents.",
                 code="INVALID_PARAM")
         # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
         anchor = idx.getAnchor()
@@ -1450,11 +1451,13 @@ class IndexesCreate(ToolWriterIndexBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "kind": {"type": "string", "enum": ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"], "description": "The type of index to create."},
+            "kind": enum_param(
+                ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"],
+                "The type of index to create.",
+            ),
             "title": {"type": "string", "description": "The title for the index (e.g., 'Table of Contents')."},
             "create_from_outline": {"type": "boolean", "description": "Whether to create the index from the document outline (mainly for toc). Default true."},
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the index."},
-            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+            **target_params("the index"),
         },
         "required": ["kind"],
     }
@@ -1493,12 +1496,7 @@ class IndexesCreate(ToolWriterIndexBase):
             return self._tool_error(str(ve))
 
         if target == "search" and old_content:
-            # What was wrong: setString("") deleted the match before
-            # insertTextContent and update(), with no undo context.
-            # How it happened: a failure of either later call returned an
-            # error and left the matched text gone.
-            # Why this change: the undo helper rolls that deletion back.
-            # A locked undo manager returns before setString.
+            # The undo helper rolls deletion back if insert or update fails.
             def mutate() -> dict[str, Any] | None:
                 cursor.setString("")
                 text = cursor.getText()
@@ -1544,11 +1542,10 @@ class IndexesAddMark(ToolWriterIndexBase):
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Index mark entry, or Identifier fallback for kind=bibliography."},
-            "kind": {
-                "type": "string",
-                "enum": ["alphabetical", "user", "bibliography"],
-                "description": "alphabetical/user = index mark; bibliography = TextField.Bibliography cite.",
-            },
+            "kind": enum_param(
+                ["alphabetical", "user", "bibliography"],
+                "alphabetical/user = index mark; bibliography = TextField.Bibliography cite.",
+            ),
             "primary_key": {"type": "string", "description": "Alphabetical index primary key. Ignored for bibliography."},
             "secondary_key": {"type": "string", "description": "Alphabetical index secondary key. Ignored for bibliography."},
             "identifier": {"type": "string", "description": "Cite key (Fields.Identifier). Defaults from text when omitted."},
@@ -1563,8 +1560,7 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "type": "object",
                 "description": "Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.",
             },
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the mark or cite."},
-            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+            **target_params("the mark or cite"),
         },
         "required": ["text"],
     }

@@ -724,6 +724,10 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     toc_a.update.assert_not_called()
     toc_b.update.assert_not_called()
 
+    out_of_range = tool.execute(ctx, index=5)
+    assert out_of_range["status"] == "error"
+    assert "Invalid index 5. The document has 2 document index(s)." in out_of_range["message"]
+
     alphabetical = MagicMock()
     alphabetical.getServiceName.return_value = "com.sun.star.text.DocumentIndex"
     toc = MagicMock()
