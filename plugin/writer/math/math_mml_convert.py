@@ -98,6 +98,7 @@ def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
 
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
     """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
+    assert isinstance(latex, str), type(latex)
     if not latex:
         return MathConversionResult(False, None, "empty_latex")
     trimmed = latex.strip()
@@ -113,6 +114,7 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, _exception_message(exc))
+    assert isinstance(mathml, str)
     if not mathml.strip():
         return MathConversionResult(False, None, "latex2mathml_empty_output")
     return convert_mathml_to_starmath(ctx, mathml.strip())
@@ -146,6 +148,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             return MathConversionResult(False, None, "load_returned_none")
         try:
             formula = doc.getPropertyValue("Formula")
+            assert isinstance(formula, str)
             if not formula.strip():
                 return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
             _formula_stripped = formula.strip()

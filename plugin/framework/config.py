@@ -536,6 +536,7 @@ def _copy_config_value(value: Any) -> Any:
 def get_config(key: str) -> Any:
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict()
+    assert isinstance(config_data, dict)
 
     if key in config_data:
         return _copy_config_value(config_data[key])
@@ -656,8 +657,9 @@ def get_config_dict() -> dict[str, Any]:
     Copies each value the same way ``get_config`` does. Returning ``_cache.data``
     itself let a caller change memory without a write.
     """
-    data = _get_validated_config_dict()
-    return {key: _copy_config_value(value) for key, value in data.items()}
+    config_data = _get_validated_config_dict()
+    assert isinstance(config_data, dict)
+    return {key: _copy_config_value(value) for key, value in config_data.items()}
 
 
 def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
