@@ -1465,7 +1465,7 @@ def test_delete_structure_schema_start_type_is_integer():
 
     assert DeleteStructure.parameters is not None
     start_prop = DeleteStructure.parameters["properties"]["start"]
-    assert start_prop["type"] == "integer"
+    assert start_prop["type"] == ["integer", "string"]
     assert "e.g. 5" in start_prop["description"]
 
 

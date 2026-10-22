@@ -502,7 +502,7 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int, *, count: int | None = None) -> dict[str, Any]:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> dict[str, Any]:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
