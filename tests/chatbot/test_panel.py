@@ -32,7 +32,7 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.queue_executor import SendCancellation
-from plugin.chatbot import panel as panel_module
+from plugin.chatbot import panel_voice as panel_voice_module
 from tests.harness.strip_bundle import is_release_build, module_source_contains
 
 
@@ -1586,7 +1586,7 @@ class TestStopPreservesAudioWavPath:
         mock_remove.assert_called_once_with("/tmp/fake.wav")
 
     @pytest.mark.skipif(
-        is_release_build() or not module_source_contains(panel_module, "clear_pending_audio_wav: failed to remove"),
+        is_release_build() or not module_source_contains(panel_voice_module, "clear_pending_audio_wav: failed to remove"),
         reason="Stripped release bundle removes logger .debug call sites (scripts/strip_code.py)",
     )
     def test_clear_pending_audio_wav_logs_permission_error(self, caplog: pytest.LogCaptureFixture) -> None:
