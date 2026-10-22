@@ -1129,7 +1129,7 @@ def test_run_web_research_invalid_json():
 
 
 def test_run_web_research_uses_session_history_not_response_control():
-    from plugin.chatbot.panel import ChatSession
+    from plugin.chatbot.chat_session import ChatSession
 
     panel = DummyChatbotPanel()
     model = MockDocument()

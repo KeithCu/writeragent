@@ -111,7 +111,7 @@ def test_setup_sessions_passes_panel_ctx_into_seeded_prompt():
         ) as prompt,
         patch("plugin.chatbot.panel_factory.get_document_property", return_value=None),
         patch("plugin.chatbot.panel_factory.set_document_property"),
-        patch("plugin.chatbot.panel.ChatSession", return_value=MagicMock()),
+        patch("plugin.chatbot.chat_session.ChatSession", return_value=MagicMock()),
     ):
         el._setup_sessions(model, "extra")
 
@@ -144,7 +144,7 @@ def _save_as_sessions(tmp_path, props: dict, url: str):
         patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
         patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_set),
         patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
-        patch("plugin.chatbot.panel.ChatSession", return_value=MagicMock()),
+        patch("plugin.chatbot.chat_session.ChatSession", return_value=MagicMock()),
     ):
         el._setup_sessions(model, "")
     return get_chat_history
@@ -1203,7 +1203,7 @@ def test_setup_sessions_session_id_write_failure_keeps_old_id(tmp_path):
         patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
         patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_set),
         patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
-        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+        patch("plugin.chatbot.chat_session.ChatSession") as mock_chat_session,
     ):
         el._setup_sessions(model, "")
 
@@ -1252,7 +1252,7 @@ def test_setup_sessions_session_url_write_failure_keeps_new_id(tmp_path):
         patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
         patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_failing_set),
         patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
-        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+        patch("plugin.chatbot.chat_session.ChatSession") as mock_chat_session,
     ):
         el._setup_sessions(model, "")
 
@@ -1269,7 +1269,7 @@ def test_setup_sessions_session_url_write_failure_keeps_new_id(tmp_path):
         patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
         patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_successful_set),
         patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
-        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+        patch("plugin.chatbot.chat_session.ChatSession") as mock_chat_session,
     ):
         el._setup_sessions(model, "")
 

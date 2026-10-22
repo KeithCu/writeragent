@@ -6,7 +6,7 @@ the area gotchas.
 
 ## Entry points
 
-- Sidebar factory / panel / document resolve: `panel_factory.py`, `panel.py`
+- Sidebar factory / panel / document resolve: `panel_factory.py`, `panel.py`, `chat_session.py`
 - Tool loop / chat FSM: `tool_loop.py`, `tool_loop_state.py`
 - Smol / librarian ReAct (separate runtime; shares `LlmClient`): `smol_agent.py`
 - Dialogs / settings: `dialogs.py`, `dialog_views.py`, `settings_dialog.py`
@@ -17,7 +17,8 @@ the area gotchas.
 ## File ownership (existing modules; no new panel/dialog/session files)
 
 - `panel_factory.py` — UNO `XUIElementFactory` / XDL load / control wiring / listener attach. Resolves the document from the frame (`get_document_from_frame`). Does **not** import or call `get_document_context_for_chat`.
-- `panel.py` — `ChatSession` + button listeners. `ChatSession.refresh_document_context` rebuilds system prompt + `[DOCUMENT CONTENT]` on Chat-mode switch, each send, and mid-loop refresh after a mutating tool.
+- `panel.py` — button listeners (`SendButtonListener`, `StopButtonListener`, `ClearButtonListener`, etc.).
+- `chat_session.py` — `ChatSession` holds conversation history for multi-turn chat. `ChatSession.refresh_document_context` rebuilds system prompt + `[DOCUMENT CONTENT]` on Chat-mode switch, each send, and mid-loop refresh after a mutating tool.
 - `panel_voice.py` — `PanelVoiceController` for voice lifecycle (STT child termination, TTS stop/wait, audio slice sync, hands-free recording gestures).
 - `panel_events.py` — `PanelEventsController` for MCP events, HTTP server events, and inline web search approval.
 - `send_handlers.py` / `tool_loop.py` — mixins on `SendButtonListener`. Route send / mid-loop refresh through `ChatSession.refresh_document_context`. Stay mixins (no `session.py` / `send.py`).
@@ -30,7 +31,8 @@ the area gotchas.
 
 ## Legal imports
 
-- factory → `panel` (session + listeners), `dialogs` (control helpers), `get_document_from_frame`
+- factory → `panel` (listeners), `chat_session` (session), `dialogs` (control helpers), `get_document_from_frame`
+- `chat_session` must not import `panel` or `panel_factory`
 - factory must **not** import `get_document_context_for_chat`
 - views → `dialogs` helpers; views must **not** import `tool_loop`
 - send / tool loop → `ChatSession.refresh_document_context`; must **not** import `get_document_context_for_chat` or `panel_factory`

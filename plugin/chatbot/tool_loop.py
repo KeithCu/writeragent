@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
 if TYPE_CHECKING:
     import queue
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.chatbot.panel import ChatSession
+    from plugin.chatbot.chat_session import ChatSession
 
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop

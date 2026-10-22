@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.panel import ChatSession
+from plugin.chatbot.chat_session import ChatSession
 from plugin.framework.errors import WriterAgentException
 
 
@@ -83,7 +83,7 @@ def test_add_message_shapes():
 def test_persist_rules_with_mock_db():
     mock_db = MagicMock()
     mock_db.get_messages.return_value = []
-    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Sys", session_id="sid-1")
 
     mock_db.add_message.assert_called_with("system", "Sys")
@@ -107,7 +107,7 @@ def test_load_failure_does_not_seed_system_row():
 
     mock_db = MagicMock()
     mock_db.get_messages.side_effect = json.JSONDecodeError("bad", "doc", 0)
-    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Sys", session_id="sid-bad")
 
     assert session.messages == []
@@ -117,7 +117,7 @@ def test_load_failure_does_not_seed_system_row():
 def test_load_oserror_does_not_seed_system_row():
     mock_db = MagicMock()
     mock_db.get_messages.side_effect = OSError("disk")
-    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Sys", session_id="sid-os")
 
     assert session.messages == []
@@ -127,7 +127,7 @@ def test_load_oserror_does_not_seed_system_row():
 def test_clear_resets_messages_and_document_context():
     mock_db = MagicMock()
     mock_db.get_messages.return_value = []
-    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Sys", session_id="sid-clear")
 
     session.set_system_context("Sys", "Doc")
@@ -164,7 +164,7 @@ def test_history_load_uses_persisted_messages():
         {"role": "system", "content": "Loaded sys"},
         {"role": "user", "content": "prior"},
     ]
-    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Ignored when history present", session_id="sid-load")
 
     assert session.db is mock_db
@@ -203,7 +203,7 @@ def test_refresh_document_context_sets_prompt_and_excerpt():
 
 def test_history_load_failure_still_applies_system_prompt():
     with patch(
-        "plugin.chatbot.panel.get_chat_history",
+        "plugin.chatbot.chat_session.get_chat_history",
         side_effect=WriterAgentException("db down"),
     ):
         session = ChatSession(system_prompt="Fallback sys", session_id="sid-fail")

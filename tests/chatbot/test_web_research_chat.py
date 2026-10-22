@@ -1,5 +1,5 @@
 # WriterAgent tests
-from plugin.chatbot.panel import ChatSession
+from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.web_research_chat import (
     display_name_for_path_or_name,
     document_open_preview_line,

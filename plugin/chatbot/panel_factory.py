@@ -1104,8 +1104,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
-        # Deferred: importing panel.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
-        from plugin.chatbot.panel import ChatSession
+        # Deferred: importing chat_session.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
+        from plugin.chatbot.chat_session import ChatSession
 
         # Pass the panel ctx. refresh_document_context does; omitting it
         # here skips vision, peer, and memory/humanizer in the seeded prompt.

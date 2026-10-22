@@ -577,7 +577,7 @@ class TestSendDispose:
         assert listener.sidebar_state.send.has_text is True
 
     def test_clear_while_busy_drops_the_in_flight_reply(self) -> None:
-        from plugin.chatbot.panel import ChatSession
+        from plugin.chatbot.chat_session import ChatSession
         from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn
 
         listener = _make_send_listener()
@@ -602,7 +602,7 @@ class TestSendDispose:
         set_text.assert_not_called()
 
     def test_swapped_session_does_not_receive_the_in_flight_reply(self) -> None:
-        from plugin.chatbot.panel import ChatSession
+        from plugin.chatbot.chat_session import ChatSession
         from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn, session_for_turn
 
         listener = _make_send_listener()
@@ -1798,7 +1798,7 @@ def test_do_send_restores_query_text_on_error() -> None:
     from plugin.chatbot.panel import SendButtonListener
     from unittest.mock import MagicMock, patch
 
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
         listener.query_control = MagicMock()
         listener.query_control.getModel.return_value = MagicMock()
@@ -1824,7 +1824,7 @@ def test_normal_turn_end_does_not_set_focus() -> None:
     from plugin.chatbot.panel import SendButtonListener
     from unittest.mock import MagicMock, patch
 
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
     listener.frame_session = MagicMock()
     listener.frame_session.restore_focus = MagicMock()
@@ -1838,7 +1838,7 @@ def test_ask_text_restored_on_post_clear_error() -> None:
     from unittest.mock import MagicMock, patch
     import pytest
 
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
 
     listener.query_control = MagicMock()
@@ -2343,7 +2343,7 @@ class TestPanelR14Fixes:
         with (
             patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False),
             patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False),
-            patch("plugin.chatbot.panel.ChatSession"),
+            patch("plugin.chatbot.chat_session.ChatSession"),
         ):
             session = MagicMock()
             session.messages = []

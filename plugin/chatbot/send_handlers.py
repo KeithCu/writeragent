@@ -163,7 +163,7 @@ def _reset_active_run_flags(host: Any) -> None:
 
 if TYPE_CHECKING:
     import queue
-    from plugin.chatbot.panel import ChatSession
+    from plugin.chatbot.chat_session import ChatSession
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:

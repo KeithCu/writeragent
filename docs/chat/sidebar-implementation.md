@@ -496,7 +496,8 @@ Simpler approach:
 | `registry/org/openoffice/Office/UI/Sidebar.xcu` | Deck + panel; include `WantsAWT` true |
 | `registry/org/openoffice/Office/UI/Factories.xcu` | ChatPanelFactory registration |
 | `panel_factory.py` | ChatPanelFactory, ChatPanelElement, ChatToolPanel; ContainerWindowProvider + setVisible(True). Wires controls only — does not build `[DOCUMENT CONTENT]`. |
-| `panel.py` | `ChatSession` + Send/Stop/Clear listeners. Mode-switch, send, and mid-loop context refresh is `ChatSession.refresh_document_context`. |
+| `panel.py` | Send/Stop/Clear listeners. |
+| `chat_session.py` | `ChatSession`. Mode-switch, send, and mid-loop context refresh is `ChatSession.refresh_document_context`. |
 | `send_handlers.py` / `tool_loop.py` | Mixins on Send; call `ChatSession.refresh_document_context` on each send / mutating tool. |
 | `WriterAgentDialogs/ChatPanelDialog.xdl` | Panel UI; `dlg:withtitlebar="false"` |
 | `META-INF/manifest.xml` | Register panel factory, Sidebar.xcu, Factories.xcu |
