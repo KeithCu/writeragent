@@ -33,6 +33,28 @@ from plugin.doc.specialized_base import DelegateToSpecializedBase
 
 log = logging.getLogger("writeragent.writer")
 
+INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
+
+
+def enum_param(values: list[str], description: str, **extra: Any) -> dict[str, Any]:
+    """JSON-schema string enum property."""
+    return {"type": "string", "enum": list(values), "description": description, **extra}
+
+
+def target_params(what: str, **extra: Any) -> dict[str, Any]:
+    """The target + old_content property pair used by insert-at-target tools (resolve_target_cursor)."""
+    return {
+        "target": enum_param(INSERT_TARGETS, f"Where to insert {what}.", **extra),
+        "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+    }
+
+
+def index_error(index: int, count: int, what: str) -> str | None:
+    """Error text if 0 <= index < count fails, else None."""
+    if 0 <= index < count:
+        return None
+    return f"Invalid index {index}. The document has {count} {what}(s)."
+
 
 class ToolWriterSpecialBase(ToolBase):
     """Base class for all specialized Writer tools.

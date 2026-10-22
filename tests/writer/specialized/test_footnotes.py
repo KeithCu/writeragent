@@ -215,13 +215,10 @@ def test_footnotes_delete():
     anchor.setString.assert_called_with("")
 
 def test_invalid_note_type():
-    doc = MagicMock()
     tool = FootnotesList()
-    ctx = FakeCtx(doc)
-
-    res = tool.execute_safe(ctx, note="invalid_type")
-    assert res["status"] == "error"
-    assert "Invalid note_type" in res["message"]
+    ok, message = tool.validate(note="invalid_type")
+    assert ok is False
+    assert message is not None and "note" in message
 
 def test_footnotes_settings_get():
     doc = MagicMock()
@@ -306,7 +303,7 @@ def test_footnotes_settings_update_partial_failure():
     assert "BadProp" in res["message"]
 
 
-def test_footnotes_non_numeric_index():
+def test_footnotes_out_of_range_index():
     doc = MagicMock()
     doc.supportsService.return_value = True
 
@@ -316,20 +313,27 @@ def test_footnotes_non_numeric_index():
 
     ctx = FakeCtx(doc)
 
-    res_edit = FootnotesEdit().execute(ctx, note="footnote", index="non_numeric", text="abc")
+    res_edit = FootnotesEdit().execute(ctx, note="footnote", index=5, text="abc")
     assert res_edit["status"] == "error"
-    assert "Invalid index non_numeric" in res_edit["message"]
+    assert "Invalid index 5. The document has 2 footnote(s)." in res_edit["message"]
 
-    res_delete = FootnotesDelete().execute(ctx, note="footnote", index="bad_idx")
+    res_delete = FootnotesDelete().execute(ctx, note="footnote", index=-1)
     assert res_delete["status"] == "error"
-    assert "Invalid index bad_idx" in res_delete["message"]
+    assert "Invalid index -1. The document has 2 footnote(s)." in res_delete["message"]
 
 
-def test_footnotes_missing_note_asserts():
+def test_footnotes_schema_validation():
+    tool = FootnotesEdit()
+    ok, message = tool.validate(note="footnote", index="non_numeric", text="abc")
+    assert ok is False
+    assert message is not None and "index" in message
+
+
+def test_footnotes_missing_note_raises():
     import pytest
 
     tool = FootnotesList()
     ctx = FakeCtx(MagicMock())
-    with pytest.raises(AssertionError):
+    with pytest.raises(KeyError):
         tool.execute(ctx)
 
