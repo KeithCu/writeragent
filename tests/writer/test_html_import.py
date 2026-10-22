@@ -670,7 +670,7 @@ def _graphics_doc(*names):
 
 
 def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
-    from plugin.writer.html_import import _swap_image_placeholders
+    from plugin.writer.image_placeholders import _swap_image_placeholders
 
     model = _graphics_doc("Assinatura", "Selo")
     content = _FRAME + '<p>Texto <span class="graphic-fr2" id="Selo"><img src=""/></span> depois.</p>'
@@ -683,7 +683,7 @@ def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
 def test_swap_image_placeholders_keeps_a_picture_inside_a_heading():
     # The export puts a <p> between the wrapper and the <img> when the picture sits in a heading;
     # the edit was refused as "an image without its data" before.
-    from plugin.writer.html_import import _swap_image_placeholders
+    from plugin.writer.image_placeholders import _swap_image_placeholders
 
     content = ('<h1 data-lo-style="Heading1"><a id="a__1423bb33"><span/></a><span class="graphic-fr1" id="Image2">'
                '<p><img alt="" src=""/></p></span>AO DOUTO JUIZO</h1>')
@@ -698,7 +698,7 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     import pytest
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.html_import import _swap_image_placeholders
+    from plugin.writer.image_placeholders import _swap_image_placeholders
 
     with pytest.raises(ToolExecutionError, match="'Assinatura'"):
         _swap_image_placeholders(_graphics_doc(), _FRAME)
@@ -709,7 +709,7 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
 def test_swap_image_placeholders_leaves_other_content_alone():
     from unittest.mock import MagicMock
 
-    from plugin.writer.html_import import _swap_image_placeholders
+    from plugin.writer.image_placeholders import _swap_image_placeholders
 
     model = MagicMock()
     content = '<p>Sem imagem</p><img src="data:image/png;base64,AAAA"/>'
@@ -721,7 +721,7 @@ def _kept(anchor="AT_PARAGRAPH"):
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
-    from plugin.writer.html_import import _KeptImage
+    from plugin.writer.image_placeholders import _KeptImage
 
     return _KeptImage("waXimg0", "Assinatura", MagicMock(), MagicMock(), SimpleNamespace(value=anchor),
                       MagicMock(), {"TextWrap": 1})
@@ -730,12 +730,12 @@ def _kept(anchor="AT_PARAGRAPH"):
 def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     model = MagicMock()
     found = model.findFirst.return_value
-    with patch.object(html_import, "_deleted_by_the_edit", return_value=True):
-        html_import._restore_image_placeholders(model, [_kept()])
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
+        image_placeholders._restore_image_placeholders(model, [_kept()])
     picture = model.createInstance.return_value
     found.getText.return_value.insertTextContent.assert_called_once_with(found, picture, True)
     picture.setPropertyValue.assert_called_with("TextWrap", 1)
@@ -745,13 +745,13 @@ def test_restore_only_drops_the_marker_when_the_original_stayed():
     """A search replace of a paragraph's text keeps the paragraph and its picture: no duplicate."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     for anchor, deleted in (("AT_PARAGRAPH", False), ("AT_PAGE", True)):
         model = MagicMock()
         found = model.findFirst.return_value
-        with patch.object(html_import, "_deleted_by_the_edit", return_value=deleted):
-            html_import._restore_image_placeholders(model, [_kept(anchor)])
+        with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=deleted):
+            image_placeholders._restore_image_placeholders(model, [_kept(anchor)])
         found.setString.assert_called_once_with("")
         found.getText.return_value.insertTextContent.assert_not_called()
 
@@ -759,25 +759,25 @@ def test_restore_only_drops_the_marker_when_the_original_stayed():
 def test_restore_image_placeholders_missing_marker_for_deleted_original_raises():
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     model = MagicMock()
     model.findFirst.return_value = None
     kept = [_kept("AT_PARAGRAPH")]
-    with patch.object(html_import, "_deleted_by_the_edit", return_value=True):
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
         with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-            html_import._restore_image_placeholders(model, kept)
+            image_placeholders._restore_image_placeholders(model, kept)
 
 
 def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_raise():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     model = MagicMock()
     model.findFirst.return_value = None
     kept = [_kept("AT_PARAGRAPH")]
-    with patch.object(html_import, "_deleted_by_the_edit", return_value=False):
-        html_import._restore_image_placeholders(model, kept)
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False):
+        image_placeholders._restore_image_placeholders(model, kept)
     model.createInstance.assert_not_called()
 
 
@@ -785,15 +785,15 @@ def test_deleted_by_the_edit():
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     gone = MagicMock()
     gone.getAnchor.side_effect = RuntimeError("disposed")
-    assert html_import._deleted_by_the_edit(MagicMock(), gone) is True
+    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone) is True
 
     model = MagicMock()
     model.getPropertyValue.return_value = False  # review off: alive means still there
-    assert html_import._deleted_by_the_edit(model, MagicMock()) is False
+    assert image_placeholders._deleted_by_the_edit(model, MagicMock()) is False
 
     # Review on: an inline picture whose anchor sits inside a pending Delete went with it.
     model = MagicMock()
@@ -810,7 +810,7 @@ def test_deleted_by_the_edit():
     enum = model.getRedlines.return_value.createEnumeration.return_value
     enum.hasMoreElements.side_effect = [True, False]
     enum.nextElement.side_effect = [delete]
-    assert html_import._deleted_by_the_edit(model, original) is True
+    assert image_placeholders._deleted_by_the_edit(model, original) is True
 
 
 def test_deleted_by_the_edit_name_guard(caplog):
@@ -818,14 +818,14 @@ def test_deleted_by_the_edit_name_guard(caplog):
     import pytest
     from unittest.mock import MagicMock
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     # 1. Name missing from doc.getGraphicObjects() is treated as deleted without calling getAnchor()
     model = MagicMock()
     model.getGraphicObjects.return_value.hasByName.return_value = False
     original = MagicMock()
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called when name is missing")
-    assert html_import._deleted_by_the_edit(model, original, "Picture 1") is True
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
     model.getGraphicObjects.return_value.hasByName.assert_called_once_with("Picture 1")
 
@@ -834,7 +834,7 @@ def test_deleted_by_the_edit_name_guard(caplog):
     model.getGraphicObjects.return_value.hasByName.return_value = True
     model.getPropertyValue.return_value = False  # review off
     original = MagicMock()
-    assert html_import._deleted_by_the_edit(model, original, "Picture 1") is False
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is False
     original.getAnchor.assert_called_once()
 
     # 3. Non-disposal lookup failures are logged and treated as deleted
@@ -843,7 +843,7 @@ def test_deleted_by_the_edit_name_guard(caplog):
     original = MagicMock()
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called on lookup failure")
     with caplog.at_level(logging.WARNING):
-        assert html_import._deleted_by_the_edit(model, original, "Picture 1") is True
+        assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
     assert "collection lookup failed" in caplog.text
 
@@ -851,24 +851,24 @@ def test_deleted_by_the_edit_name_guard(caplog):
     model = MagicMock()
     model.getGraphicObjects.side_effect = DocumentDisposedError("doc disposed")
     with pytest.raises(DocumentDisposedError):
-        html_import._deleted_by_the_edit(model, MagicMock(), "Picture 1")
+        image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1")
 
 
 def test_restore_image_placeholders_passes_name():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import image_placeholders
 
     model = MagicMock()
     kept = [_kept()]
-    with patch.object(html_import, "_deleted_by_the_edit", return_value=True) as mock_deleted:
-        html_import._restore_image_placeholders(model, kept)
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True) as mock_deleted:
+        image_placeholders._restore_image_placeholders(model, kept)
     mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
 
     # Missing marker case:
     model = MagicMock()
     model.findFirst.return_value = None
-    with patch.object(html_import, "_deleted_by_the_edit", return_value=False) as mock_deleted:
-        html_import._restore_image_placeholders(model, kept)
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False) as mock_deleted:
+        image_placeholders._restore_image_placeholders(model, kept)
     mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
 
 

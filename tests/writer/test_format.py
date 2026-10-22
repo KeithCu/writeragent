@@ -126,7 +126,7 @@ def test_replace_preserving_format_restores_original_on_insert_failure():
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.html_import._is_recording_changes", return_value=True), \
+    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True), \
          patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()), \
          pytest.raises(RuntimeError, match="insert boom"):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
@@ -148,7 +148,7 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.html_import._is_recording_changes", return_value=True):
+    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True):
         fmt.replace_preserving_format(object(), target, "NEW TEXT")  # in_undo_context defaults to False
 
     assert text.cursor.getString() == "NEW TEXT"  # single atomic replace
@@ -538,7 +538,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
     from unittest.mock import MagicMock, patch
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     class _Cursor:
         def __init__(self):
@@ -585,7 +585,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
 
     text = _Text()
     ctx = MagicMock()
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(text), "XY", ctx=ctx)
     assert text.cursor.writes == []
@@ -595,7 +595,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
 
 def test_replace_preserving_format_skips_equal_runs():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     moves = []
     writes = []
@@ -638,7 +638,7 @@ def test_replace_preserving_format_skips_equal_runs():
             return object()
 
     text = _Text()
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
 
     assert moves == [(5, False), (1, True)]
@@ -647,7 +647,7 @@ def test_replace_preserving_format_skips_equal_runs():
 
 def test_replace_preserving_format_special_portion_keeps_one_step_loop():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     moves = []
     writes = []
@@ -708,7 +708,7 @@ def test_replace_preserving_format_special_portion_keeps_one_step_loop():
             return _Enum([_Para()])
 
     text = _Text()
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
 
     # Special portion: each character is checked 1-by-1
@@ -718,7 +718,7 @@ def test_replace_preserving_format_special_portion_keeps_one_step_loop():
 
 def test_replace_preserving_format_200_char_plain_issues_one_setstring():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     writes = []
     moves = []
@@ -774,7 +774,7 @@ def test_replace_preserving_format_200_char_plain_issues_one_setstring():
         def createEnumeration(self):
             return _Enum([_Para([_Portion(old_str)])])
 
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), new_str)
 
     assert writes == [new_str]
@@ -783,7 +783,7 @@ def test_replace_preserving_format_200_char_plain_issues_one_setstring():
 
 def test_replace_preserving_format_two_portions_issue_two_setstrings():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     writes = []
 
@@ -838,7 +838,7 @@ def test_replace_preserving_format_two_portions_issue_two_setstrings():
         def createEnumeration(self):
             return _Enum([_Para()])
 
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), new_str)
 
     assert len(writes) == 2
@@ -847,7 +847,7 @@ def test_replace_preserving_format_two_portions_issue_two_setstrings():
 
 def test_replace_preserving_format_equal_string_is_noop():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     moves = []
     writes = []
@@ -876,7 +876,7 @@ def test_replace_preserving_format_equal_string_is_noop():
         def getStart(self):
             return object()
 
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), "IDENTICAL")
 
     assert moves == []
@@ -886,7 +886,7 @@ def test_replace_preserving_format_equal_string_is_noop():
 def test_replace_preserving_format_equal_run_go_right_false_raises():
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi
+    from plugin.writer import html_import as hi, image_placeholders
 
     writes = []
 
@@ -913,7 +913,7 @@ def test_replace_preserving_format_equal_run_go_right_false_raises():
         def getStart(self):
             return object()
 
-    with patch.object(hi, "_is_recording_changes", return_value=False):
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
 
@@ -932,7 +932,7 @@ def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_c
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.html_import._is_recording_changes", return_value=True):
+    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True):
         fmt.replace_preserving_format(object(), target, "NEW TEXT",
                                       in_undo_context=True, split_author=False)
 
@@ -955,7 +955,7 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
 
     text = _OkText()
     target = _FakeRange(text)
-    with patch("plugin.writer.html_import._is_recording_changes", return_value=True), \
+    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True), \
          patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
 

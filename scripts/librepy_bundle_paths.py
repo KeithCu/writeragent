@@ -108,6 +108,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/html_export.py",
     "plugin/writer/html_import.py",
     "plugin/writer/html_import_styles.py",
+    "plugin/writer/image_placeholders.py",
     "plugin/writer/html_ruby.py",
     "plugin/writer/table_nesting.py",
     "plugin/writer/xhtml_style_postprocess.py",
