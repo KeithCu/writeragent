@@ -141,7 +141,7 @@ def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
     """Wrapper scripts pre must share rewrite_excel_code's _deal_excel_src_ok.
 
     Pytest keeps str_bounded (NUL allowed); CrossHair alphabet rejects NUL
-    (check-all 33935176527: convert_model_to_dag(scripts=['\\x00'])).
+    on convert_model_to_dag(scripts=['\\x00']).
     """
     assert _deal_excel_src_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
@@ -151,9 +151,9 @@ def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
 def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
     """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work.
 
-    CrossHair rejects len-1 junk and non-A1 tokens (check-all 33940151004
-    PatternError on ``_``; check-all 33954468213 nested note PreconditionFailed
-    on ``M``). Different from #599: NUL *scripts* vs ``_deal_excel_src_ok``.
+    CrossHair rejects len-1 junk and non-A1 tokens (avoiding relib
+    PatternError on ``_`` and nested note PreconditionFailed on ``M``).
+    Different from #599: NUL *scripts* vs ``_deal_excel_src_ok``.
     """
     def cell(deps: list[str]) -> ExcelPyCell:
         return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
@@ -169,7 +169,7 @@ def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
 
 
 def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:
-    """check-all 33940151004: CrossHair relib PatternError on this exact call.
+    """Underscore dep does not cause a PatternError.
 
     CPython ``resolve_dep('_')`` is unresolved; convert must not raise
     ``re.error`` / ``PatternError`` (unterminated character set) even with
@@ -204,7 +204,7 @@ def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:
 
 
 def test_convert_model_to_dag_single_letter_dep_no_nested_note_pre_fail() -> None:
-    """check-all 33954468213: deps=['M'] nested-failed ``_normalize_bindings``.
+    """Single letter non-A1 dep does not fail nested precondition in _normalize_bindings.
 
     ``resolve_dep('M')`` is unresolved with note ``unrecognized dep 'M'`` (len >1).
     Under CrossHair ``_normalize_bindings`` requires ``_DEAL_NOTE_LEN=1``, so the

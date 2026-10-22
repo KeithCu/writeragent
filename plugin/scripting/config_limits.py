@@ -128,8 +128,7 @@ def python_exec_timeout_max() -> int:
 
 # bool is an int subclass. ``isinstance(x, bool) is False`` uses object identity,
 # so CrossHair's SymbolicBool never matches False and the pre never holds for
-# symbolic ints (check-all deep 32900105768: resolve(..., configured=33) then
-# nested _clamp_timeout). ``type(x) is int`` rejects bools the same way for
+# symbolic ints. ``type(x) is int`` rejects bools the same way for
 # real values and is CrossHair-friendly.
 def _timeout_int_ok_pytest(value: object) -> bool:
     # A hand-edited timeout past DEAL_MAX_ARGV (86400 is one day; the schema

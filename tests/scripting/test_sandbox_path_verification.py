@@ -77,7 +77,7 @@ def test_safe_workspace_path_long_name_is_bool() -> None:
 
 
 def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:
-    """cover-all 33689813185 leftover (~48m sandbox); filesystem walkers off, doable later."""
+    """Filesystem walkers stay off cover-all targets."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build
@@ -96,6 +96,6 @@ def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:
     )
     for name in offed:
         assert not any(f.endswith(f".{name}") for f in fqns), name
-    # cover-all 35526755391: basename stays on with ascii dual-profile (not off).
+    # Basename validator stays on with ascii dual-profile.
     assert any(f.endswith("._is_acceptable_python_basename") for f in fqns)
 

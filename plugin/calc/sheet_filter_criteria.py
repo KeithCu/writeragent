@@ -45,8 +45,7 @@ FILTER_OPERATOR2_LABELS: tuple[str, ...] = (
 _NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(FILTER_OPERATOR2_LABELS)}
 
 
-# Dual-profile: Closed FilterOperator2 labels under CrossHair. Open ascii_bounded
-# DEAL_MAX_TOKEN still cost ~28m on name→code / connection / resolve (cover-all 35546602462).
+# Dual-profile: Closed FilterOperator2 labels under CrossHair.
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
     # An unknown or non-ASCII operator from the model must raise
     # UnoObjectError, not PreContractError. The body does that.
@@ -90,7 +89,6 @@ _deal_filter_code_ok = _profile(_deal_filter_code_ok_crosshair, _deal_filter_cod
 def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
     # crosshair: off
-    # cover-all 33797534946 (~39m module, 18732 examples). Doable later: closed enum codes 0..17 only.
     if 0 <= code < len(FILTER_OPERATOR2_LABELS):
         return FILTER_OPERATOR2_LABELS[code]
     return str(int(code))
@@ -177,7 +175,6 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     previous condition only (linear chain — not arbitrary parentheses).
     """
     # crosshair: off
-    # nested dict Any (field/value) still combinatoric (cover-all 33337516899: 86k lines, 1559 examples). Doable later with a closed criterion schema.
     if "field" not in raw:
         raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
     try:

@@ -104,7 +104,7 @@ def _to_py(v: Any) -> Any:
     walk redundant. Do not remove it without the serialization A/B suite
     (docs/scripting/numpy-serialization.md): dropping it is an unpack change.
     """
-    # crosshair: off  # recursive list/tuple Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    # crosshair: off
     item = _numpy_scalar_item(v)
     if item is not v:
         return item
@@ -150,7 +150,7 @@ fast_flatten_grid_1d: Any = None
 
 def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
     """Perform a runtime canary test to ensure the Cython binary is correct and compatible."""
-    # crosshair: off  # Any Cython callables (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a closed canary fixture.
+    # crosshair: off
     try:
         if fn2d is None or fn1d is None:
             return False
@@ -269,7 +269,7 @@ def load_cython_accelerator() -> None:
     during ``invalidate_host_cython_accelerator``. Do not add one unless
     invalidate must overlap a pack that is already running.
     """
-    # crosshair: off  # sys.path/import sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
+    # crosshair: off
     global fast_flatten_grid_2d, fast_flatten_grid_1d
     global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
     if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_DISABLED:
@@ -342,7 +342,7 @@ def invalidate_host_cython_accelerator() -> None:
     the old ``writeragent_vec`` module object. Clear globals and module cache so
     the next load binds the new file instead of calling into a stale mapping.
     """
-    # crosshair: off  # sys.modules sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
+    # crosshair: off
     global fast_flatten_grid_2d, fast_flatten_grid_1d
     global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
     fast_flatten_grid_2d = None
@@ -430,7 +430,7 @@ _FLOAT64_BYTES = 8
 
 def _is_grid_sequence(grid: object) -> bool:
     """True for empty, 1D, or 2D list/tuple grids (jagged 2D allowed; flatten raises ValueError)."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if not isinstance(grid, (list, tuple)):
         return False
     if len(grid) == 0:
@@ -569,12 +569,12 @@ def _is_multi_data_envelope(envelope: object) -> bool:
     )
 )
 def is_multi_data(obj: Any) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _is_multi_data_envelope(obj)
 
 
 def _is_image_payload_envelope(envelope: object) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -597,7 +597,7 @@ def _is_image_payload_envelope(envelope: object) -> bool:
     )
 )
 def is_image_payload(obj: Any) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _is_image_payload_envelope(obj)
 
 
@@ -615,7 +615,7 @@ def find_image_payloads(
     visited (a shared wrapper, or a cycle) is skipped, so that wrapper's
     images are reported once.
     """
-    # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    # crosshair: off
     if _depth > _MAX_IMAGE_DEPTH:
         return []
     if is_image_payload(obj):
@@ -638,7 +638,6 @@ def find_image_payloads(
 def image_payload_suffix(payload: dict[str, Any]) -> str:
     """Return a temp-file suffix for *payload* (``.svg`` or ``.png``)."""
     # crosshair: off
-    # cover-all 33797534946 (~46.5m payload_codec, 710 examples). Dict Any format probe. Doable later with closed format Literal.
     fmt = str(payload.get("format") or "png").lower()
     return ".svg" if fmt == "svg" else ".png"
 
@@ -651,7 +650,7 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
     A path returned to the caller, such as PlotDataTool's non-Calc image_path,
     stays. A failed write still removes the file this function created.
     """
-    # crosshair: off  # tempfile/filesystem (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a bytes/format domain.
+    # crosshair: off
     suffix = image_payload_suffix(payload)
     path = ""
     try:
@@ -674,7 +673,7 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
 
 
 def _is_dataframe_envelope(envelope: object) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -705,7 +704,7 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     )
 )
 def is_dataframe_payload(obj: Any) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _is_dataframe_envelope(obj)
 
 
@@ -723,7 +722,7 @@ def _nonneg_shape_dim(d: object) -> bool:
 
 
 def _is_calc_range_envelope(envelope: object) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -751,13 +750,13 @@ def _is_calc_range_envelope(envelope: object) -> bool:
     )
 )
 def is_calc_range_payload(obj: Any) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     # Canonical wire guard. calc_range.py re-exports this; do not add a second copy.
     return _is_calc_range_envelope(obj)
 
 
 def _is_split_grid_envelope(envelope: object) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -774,9 +773,9 @@ def _is_split_grid_envelope(envelope: object) -> bool:
 @deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 def _is_any_payload_envelope(obj: object) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     # Body already ORs the five family detectors; a matching ensure re-ran all
-    # five on every CrossHair post (check-all deep 32900105768, 8:14).
+    # five on every CrossHair post.
     return (
         _is_split_grid_envelope(obj)
         or _is_multi_data_envelope(obj)
@@ -813,7 +812,6 @@ def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
 def _uniform_column_kind(kinds: list[str]) -> str | None:
     """Return the kind when every column matches; else None (mixed columns)."""
     # crosshair: off
-    # cover-all 33797534946 (~46.5m payload_codec, 634 examples). Combinatoric kinds list. Doable later with tiny kind alphabet.
     if not kinds:
         return None
     first = kinds[0]
@@ -830,7 +828,7 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     kinds = envelope.get("column_kinds")
     if isinstance(kinds, list) and len(kinds) == ncols:
         return ["int" if k == "int" else ("bool" if k == "bool" else "float") for k in kinds]
@@ -839,7 +837,7 @@ def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
 
 def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str | None:
     """Decode-only: all-int or all-float fast path when ``column_kinds`` are uniform; None if mixed."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
 
@@ -850,7 +848,7 @@ def _apply_column_kinds_to_ndarray(arr: Any, *, uniform: str | None) -> Any:
     column, so that value is ``int``, ``bool``, or ``float``. The old
     ``if is_1d`` arm re-read ``column_kinds[0]`` after that and never ran.
     """
-    # crosshair: off  # numpy astype on Any (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with an ndarray/kinds domain.
+    # crosshair: off
     import numpy as np
 
     if uniform == "int":
@@ -891,7 +889,7 @@ def _wire_cells_for_log(data: Any) -> str:
 
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
-    # crosshair: off  # recursive Any walk (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok + sample bound.
+    # crosshair: off
     if is_image_payload(obj):
         return f"image format={obj.get('format')} bytes={len(obj.get('data', b''))}"
     if is_multi_data(obj):
@@ -946,9 +944,7 @@ def _deal_shape_ok_pytest(shape: object) -> bool:
 def _deal_shape_ok_crosshair(shape: object) -> bool:
     """Tiny shape domain for CrossHair.
 
-    cover-all 35546602462 spent ~29m on ``should_use_binary_envelope`` /
-    ``cell_count`` despite ``DEAL_MAX_ROW_INDEX=20``. Keep the FQNs on with a
-    2×{0..4} grid instead of off.
+    Keep the FQNs on with a 2×{0..4} grid instead of off.
     """
     return (
         isinstance(shape, tuple)
@@ -1025,9 +1021,8 @@ def should_use_binary_envelope(
     if force == "never":
         return False
     # ``bool(shape)`` on a CrossHair symbolic tuple returns SymbolicBool;
-    # Python's ``and`` then TypeErrors (``__bool__`` must return bool) —
-    # should_use_binary_envelope((), min_cells=0, force='auto') on check-all
-    # deep 32900105768. Empty tuple is still False via len; keep this FQN on.
+    # Python's ``and`` then TypeErrors (``__bool__`` must return bool).
+    # Empty tuple is still False via len; keep this FQN on.
     return len(shape) > 0 and cell_count(shape) >= min_cells
 
 
@@ -1045,7 +1040,6 @@ def binary_envelope_skip_reason(
 ) -> str | None:
     """Human-readable reason split_grid was not used; None if envelope would be used."""
     # crosshair: off
-    # cover-all 33797534946 (~46.5m payload_codec, 937 examples). Combinatoric skip-reason strings. Keep should_use_binary_envelope on (_CROSSHAIR_TARGETS). Doable later with closed force/shape domain.
     if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
         return None
     if force == "never":
@@ -1056,7 +1050,7 @@ def binary_envelope_skip_reason(
 
 def _is_numeric_coercible_impl(value: Any) -> bool:
     """Body of ``is_numeric_coercible`` without ``@deal.pre`` (used by ``is_numeric_grid``)."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if value is None or isinstance(value, (bool, int, float)):
         return True
     # NumPy scalars (int64, float64, bool_, uint64) without a module-level import.
@@ -1095,7 +1089,7 @@ def is_numeric_coercible(value: Any) -> bool:
     Calc blanks. ``np.array(..., dtype=float64)`` still raises ``ValueError``
     on them, and ``_child_unpack_single_data`` keeps the list in that case.
     """
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _is_numeric_coercible_impl(value)
 
 
@@ -1104,7 +1098,7 @@ def is_numeric_coercible(value: Any) -> bool:
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: len(grid) > 0 or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
@@ -1167,7 +1161,7 @@ def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
 @deal.post(lambda result: isinstance(result, list))
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
     """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results."""
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     if len(grid) == 0:
         return []
     if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
@@ -1205,7 +1199,7 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
     start with ``int`` or ``uint``. Object, ``Decimal``, and ``Fraction``
     stay float.
     """
-    # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
+    # crosshair: off
     st = column_states[c]
     if st == 3:
         return
@@ -1355,7 +1349,7 @@ def _flatten_append_cell_slow(
     nan: float,
 ) -> None:
     """Full per-cell flatten semantics (None, strings, NumPy scalars, column metadata)."""
-    # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
+    # crosshair: off
 
     if val is None:
         buf_append(nan)
@@ -1449,7 +1443,7 @@ def _validate_rectangular_grid(grid_2d: list[list[Any]]) -> int:
     every row to that width. One walk rejects a non-row and a jagged width
     and returns the width. A release build has no deal pre on this path.
     """
-    # crosshair: off  # unbounded 2D grid (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
+    # crosshair: off
     if not grid_2d:
         return 0
     ncols = _split_grid_row_width(grid_2d[0])
@@ -1467,7 +1461,7 @@ def _iter_split_grid_cells(
     is_2d: bool,
 ) -> Iterator[tuple[int, int, Any]]:
     """Yield ``(col_idx, flat_idx, val)`` row-major for 1D or validated 2D grids."""
-    # crosshair: off  # unbounded grid walk (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
+    # crosshair: off
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         idx = 0
@@ -1836,7 +1830,7 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
     call here before ``array.frombytes`` / ``np.frombuffer``, so a short,
     long, or non-multiple-of-8 buffer raises instead of changing the grid.
     """
-    # crosshair: off  # buffer/b64 bytes (cover-all: envelope Any). Same reason as the unpackers.
+    # crosshair: off
     if "buffer" in envelope:
         raw = envelope["buffer"]
     elif "b64" in envelope:
@@ -2061,7 +2055,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
     )
 )
 def is_split_grid(obj: Any) -> bool:
-    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
+    # crosshair: off
     return _is_split_grid_envelope(obj)
 
 
@@ -2427,7 +2421,7 @@ def _container_has_packable_nested(obj: Any, _depth: int = 0, *, _np: Any) -> bo
     ``_optional_numpy()`` again. A module-level cache would also hide the
     ``sys.modules['numpy'] = None`` tests.
     """
-    # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    # crosshair: off
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: maximum recursion depth exceeded")
     containers = (dict, _np.ndarray) if _np is not None else (dict,)
@@ -2447,7 +2441,7 @@ def _container_has_packable_nested(obj: Any, _depth: int = 0, *, _np: Any) -> bo
 
 def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
     """True when a list/tuple should be packed element-wise instead of as one grid."""
-    # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    # crosshair: off
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: maximum recursion depth exceeded")
     # A top-level ndarray is one grid (the caller packs it). A dict is not.

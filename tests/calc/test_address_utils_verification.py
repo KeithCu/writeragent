@@ -145,7 +145,7 @@ def test_crosshair_address_utils_if_available() -> None:
 
 
 def test_format_address_post_avoids_regex() -> None:
-    """cover-all 35546602462: format_address ~27m with re.match post; keep post regex-free."""
+    """format_address postcondition stays regex-free to avoid concolic solver slowdowns."""
     import inspect
 
     from plugin.calc.address_utils import format_address

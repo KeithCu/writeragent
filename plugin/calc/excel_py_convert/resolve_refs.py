@@ -99,10 +99,10 @@ def _has_anchorarray_shape(raw: str) -> bool:
     """True when *raw* can match ``_ANCHOR_RE`` (``ANCHORARRAY(...)`` / ``_xlfn.``).
 
     CrossHair's relib re-parses ``Pattern.pattern`` on symbolic ``re.match`` and
-    ``PatternError``s on character-class fragments (check-all 33940151004:
-    ``deps=['_']`` → unterminated character set). ``_`` is a prefix of
-    ``_xlfn.`` but not a real anchor — skip the regex unless the call surface
-    is present. Same class as ``formula_edit`` PY|PYTHON ``startswith``.
+    ``PatternError``s on character-class fragments (``deps=['_']`` → unterminated
+    character set). ``_`` is a prefix of ``_xlfn.`` but not a real anchor — skip
+    the regex unless the call surface is present. Same class as ``formula_edit``
+    PY|PYTHON ``startswith``.
     """
     if not raw.endswith(")"):
         return False
@@ -114,8 +114,8 @@ def _has_table_all_shape(raw: str) -> bool:
     """True when *raw* can match ``_TABLE_ALL_RE`` (``Name[#All]``).
 
     The escaped ``[#All]`` suffix in ``_TABLE_ALL_RE`` is the fragment CrossHair
-    relib treats as an open ``[`` class (check-all 33940151004). Junk like
-    ``_`` / ``[`` must not reach ``re.match``.
+    relib treats as an open ``[`` class. Junk like ``_`` / ``[`` must not reach
+    ``re.match``.
     """
     return raw.upper().endswith("[#ALL]")
 
@@ -163,7 +163,7 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
         return _unresolved(raw, note="empty dep")
 
     # Gate each regex on a cheap surface shape so CrossHair / junk deps never
-    # re.match a character-class pattern (check-all 33940151004 PatternError).
+    # re.match a character-class pattern (PatternError).
     if _has_anchorarray_shape(raw):
         m_anchor = _ANCHOR_RE.match(raw)
         if m_anchor:

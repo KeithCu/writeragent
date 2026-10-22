@@ -155,7 +155,7 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     Drop None, whitespace-only strings, and every non-str, including UNO
     objects. Do not stringify. Empty input returns ``{}``.
     """
-    # crosshair: off  # nested IPC dict domain still combinatoric despite _deal_ipc_dict_ok (cover-all 33293627157: ~7m, 113k lines). Doable later with a constructor domain.
+    # crosshair: off
     if not target:
         return {}
     out: dict[str, str] = {}
@@ -175,7 +175,7 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
 @deal.pre(lambda msg: _deal_ipc_dict_ok(msg))
 def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     """Build ``target`` from an explicit dict plus top-level load aliases."""
-    # crosshair: off  # nested IPC dict + alias merges (cover-all 33293627157: ~9m, 148k lines). Doable later with a constructor domain.
+    # crosshair: off
     raw = msg.get("target")
     target = normalize_target(raw if isinstance(raw, Mapping) else None)
     for dest in _TARGET_KEYS:
@@ -232,7 +232,7 @@ def stamp_session(
     identity dict, which may be empty. ``mode`` is set only when *mode* or
     the copied message's ``mode`` is a non-empty string.
     """
-    # crosshair: off  # nested IPC dict copy/merge (cover-all 33293627157: ~11m, 157k lines). Doable later with a constructor domain.
+    # crosshair: off
     out = dict(msg)
     out["session_id"] = str(session_id or "")
     use_mode = str(mode or out.get("mode") or "")

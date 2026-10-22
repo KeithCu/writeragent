@@ -18,9 +18,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, final
 
 if TYPE_CHECKING:
     from plugin.acp.base import AgentBackend
@@ -31,96 +30,84 @@ from plugin.acp.builtin import BuiltinBackend
 log = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class BackendSpec:
-    backend_id: str
-    display_name: str
-    binary_name: str
-    default_extra_args: tuple[str, ...]
-    api_key_env_by_provider: Mapping[str, str]
-    binary_prefixes: tuple[str, ...]
-    class_name: str
+@final
+class HermesBackend(ACPBackend):
+    """``hermes`` with no subcommand is interactive; ``hermes acp`` is the stdio CLI.
+
+    The external CLI consumes the app key only for OpenRouter and OpenAI.
+    Other providers use Hermes's own auth.
+    """
+
+    backend_id = "hermes"
+    display_name = "Hermes"
+    binary_name = "hermes"
+    default_extra_args = ("acp",)
+    api_key_env_by_provider = {
+        "openrouter": "OPENROUTER_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
+    binary_prefixes: tuple[str, ...] = ()
 
 
-_BACKEND_SPECS: tuple[BackendSpec, ...] = (
-    BackendSpec(
-        backend_id="hermes",
-        display_name="Hermes",
-        binary_name="hermes",
-        # hermes with no subcommand is interactive; hermes acp is the stdio CLI.
-        default_extra_args=("acp",),
-        # The external CLI consumes the app key only for OpenRouter and OpenAI; other providers use Hermes's own auth.
-        api_key_env_by_provider={"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY"},
-        binary_prefixes=(),
-        class_name="HermesBackend",
-    ),
-    BackendSpec(
-        backend_id="claude",
-        display_name="Claude Code",
-        binary_name="claude-code-acp-rs",
-        default_extra_args=(),
-        # An OpenAI (or any non-Anthropic) key must not be exported as ANTHROPIC_API_KEY.
-        api_key_env_by_provider={"anthropic": "ANTHROPIC_API_KEY"},
-        binary_prefixes=(),
-        class_name="ClaudeBackend",
-    ),
-    BackendSpec(
-        backend_id="vibe",
-        display_name="Mistral Vibe",
-        binary_name="vibe-acp",
-        # Empty default_extra_args. contentBlocks on the prompt result are drained by base send().
-        default_extra_args=(),
-        api_key_env_by_provider={"mistral": "MISTRAL_API_KEY"},
-        binary_prefixes=(),
-        class_name="VibeBackend",
-    ),
-    BackendSpec(
-        backend_id="grok",
-        display_name="Grok Build",
-        binary_name="grok",
-        default_extra_args=("--no-auto-update", "agent", "stdio"),
-        api_key_env_by_provider={},
-        # Official names grok, grok-cli, and grok.exe share those args. Auth is ~/.grok, so env map stays empty.
-        binary_prefixes=("grok",),
-        class_name="GrokBackend",
-    ),
-    BackendSpec(
-        backend_id="opencode",
-        display_name="OpenCode",
-        binary_name="opencode",
-        # Empty env map; auth is the OpenCode login file. ("acp",) is the stdio subcommand.
-        default_extra_args=("acp",),
-        api_key_env_by_provider={},
-        binary_prefixes=(),
-        class_name="OpenCodeBackend",
-    ),
+@final
+class ClaudeBackend(ACPBackend):
+    """An OpenAI key must not be exported as ``ANTHROPIC_API_KEY``."""
+
+    backend_id = "claude"
+    display_name = "Claude Code"
+    binary_name = "claude-code-acp-rs"
+    default_extra_args: tuple[str, ...] = ()
+    api_key_env_by_provider = {"anthropic": "ANTHROPIC_API_KEY"}
+    binary_prefixes: tuple[str, ...] = ()
+
+
+@final
+class VibeBackend(ACPBackend):
+    """No default CLI args. ``contentBlocks`` on the prompt result are drained by ``send()``."""
+
+    backend_id = "vibe"
+    display_name = "Mistral Vibe"
+    binary_name = "vibe-acp"
+    default_extra_args: tuple[str, ...] = ()
+    api_key_env_by_provider = {"mistral": "MISTRAL_API_KEY"}
+    binary_prefixes: tuple[str, ...] = ()
+
+
+@final
+class GrokBackend(ACPBackend):
+    """``grok``, ``grok-cli``, and ``grok.exe`` share these args. Auth is ``~/.grok``."""
+
+    backend_id = "grok"
+    display_name = "Grok Build"
+    binary_name = "grok"
+    default_extra_args = ("--no-auto-update", "agent", "stdio")
+    api_key_env_by_provider: Mapping[str, str] = {}
+    binary_prefixes = ("grok",)
+
+
+@final
+class OpenCodeBackend(ACPBackend):
+    """Auth is the OpenCode login file. ``acp`` is the stdio subcommand."""
+
+    backend_id = "opencode"
+    display_name = "OpenCode"
+    binary_name = "opencode"
+    default_extra_args = ("acp",)
+    api_key_env_by_provider: Mapping[str, str] = {}
+    binary_prefixes: tuple[str, ...] = ()
+
+
+_ACP_BACKENDS: tuple[type[ACPBackend], ...] = (
+    HermesBackend,
+    ClaudeBackend,
+    VibeBackend,
+    GrokBackend,
+    OpenCodeBackend,
 )
-
-for spec in _BACKEND_SPECS:
-    cls = type(
-        spec.class_name,
-        (ACPBackend,),
-        {
-            "backend_id": spec.backend_id,
-            "display_name": spec.display_name,
-            "binary_name": spec.binary_name,
-            "default_extra_args": spec.default_extra_args,
-            "api_key_env_by_provider": spec.api_key_env_by_provider,
-            "binary_prefixes": spec.binary_prefixes,
-            "__module__": "plugin.acp.registry",
-        },
-    )
-    globals()[spec.class_name] = cls
-
-HermesBackend: type[ACPBackend] = globals()["HermesBackend"]
-ClaudeBackend: type[ACPBackend] = globals()["ClaudeBackend"]
-VibeBackend: type[ACPBackend] = globals()["VibeBackend"]
-GrokBackend: type[ACPBackend] = globals()["GrokBackend"]
-OpenCodeBackend: type[ACPBackend] = globals()["OpenCodeBackend"]
 
 AGENT_BACKEND_REGISTRY: dict[str, type[AgentBackend]] = {
     "builtin": BuiltinBackend,
-    **{spec.backend_id: globals()[spec.class_name] for spec in _BACKEND_SPECS},
+    **{cls.backend_id: cls for cls in _ACP_BACKENDS},
 }
 
 

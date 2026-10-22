@@ -38,7 +38,7 @@ from tests.harness.vhs_budget import vhs_max_examples
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
     "plugin.framework.client.stream_normalizer.normalize_delta",
-    # Hot sinks off'd after cover-all 35546602462 (~3.5h stream_normalizer):
+    # Hot sinks kept off cover-all:
     # extract_reasoning_replay_from_response, reasoning_replay_from_assistant_response,
     # normalize_message_content, _normalize_delta_tool_calls_ok, ThinkTagStreamSplitter.feed.
     # _normalize_stream_delta / _thinking_text_from_delta / _merge_reasoning_details already off.
@@ -378,7 +378,7 @@ def test_crosshair_stream_normalizer_fqn_if_available(target: str) -> None:
         pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
 
 def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
-    """cover-all 35546602462: stream_normalizer ~3.5h; keep hot sinks out of cover_fqns."""
+    """Keep hot stream_normalizer sinks out of cover_fqns."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

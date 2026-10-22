@@ -84,7 +84,8 @@ class EventBus:
     _dispatching: threading.local
 
     def __init__(self) -> None:
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         self._subscribers: dict[str, list[tuple[Any, bool]]] = {}  # event -> list of (callback, is_weakref)
         # RLock: a weakref callback can run on this thread while the lock is
         # already held (GC during a list copy). A plain Lock deadlocks there.
@@ -128,7 +129,8 @@ class EventBus:
                       ``weakref.ref`` would point at a temporary bound
                       method and the subscription would die on the next GC.
         """
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         entry: tuple[Any, bool]
         if weak and hasattr(callback, "__self__"):
             try:
@@ -155,7 +157,8 @@ class EventBus:
         Bound methods do not belong here. ``weakref.ref`` would track the
         temporary method object, which dies when the caller did not stash it.
         """
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         try:
             return (weakref.ref(callback, lambda r: self._cleanup(event, r)), True)
         except TypeError:
@@ -163,7 +166,8 @@ class EventBus:
 
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         with self._guard():
             subs = self._subscribers.get(event)
             if not subs:
@@ -201,7 +205,8 @@ class EventBus:
         return stored_self is other_self and stored_func is other_func
 
     def _active_events(self) -> set[str]:
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         active = getattr(self._dispatching, "events", None)
         if active is None:
             active = set()
@@ -254,7 +259,8 @@ class EventBus:
             active.discard(token)
 
     def _resolve(self, cb: Any, is_weak: bool) -> Any:
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         if is_weak:
             return cb()  # weakref -> call to dereference
         return cb
@@ -270,7 +276,8 @@ class EventBus:
         found the lock free). The list a caller is copying stays stable until
         that copy finishes, and the callback cannot deadlock against the bus.
         """
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        # crosshair: off
+        # threading.local() is engine-hostile.
         self._lock.acquire()
         try:
             self._pending_cleanups.append((event, ref))

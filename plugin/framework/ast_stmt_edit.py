@@ -34,7 +34,7 @@ from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_
 @deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
-    # crosshair: off  # unbounded ast.Expr (cover-all 33451622787: bulk of 4884s / 878 examples). Doable later: tiny concrete Expr+Name factory, not symbolic AST.
+    # crosshair: off
     # getattr: CrossHair may synthesize Expr() without .value; real ast.Expr always has it.
     value = getattr(node, "value", None) if isinstance(node, ast.Expr) else None
     if not isinstance(value, ast.Call):
@@ -84,7 +84,7 @@ def iter_matching_expr_statements(source: str, should_remove: Callable[[ast.Expr
 
 
 def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
-    # crosshair: off  # ast.walk combinatoric leftover (cover-all 33451622787: 19540 log lines / 120 examples). Doable later: tiny tree bound.
+    # crosshair: off
     parent_map: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
@@ -120,7 +120,7 @@ def _cut_same_line_span(raw: str, start: int, end: int) -> str:
 
 def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[ast.stmt] | None:
     """Suite list (``body`` / ``orelse`` / ``finalbody`` / except body) containing *node*."""
-    # crosshair: off  # symbolic AST parent/container walk (cover-all 33451622787: 48580 log lines / 47 examples). Doable later: tiny tree bound.
+    # crosshair: off
     parent = parent_map.get(node)
     if not parent:
         return None

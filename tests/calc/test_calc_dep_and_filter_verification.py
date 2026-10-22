@@ -123,11 +123,10 @@ def test_resolve_dep_range_and_table() -> None:
 
 @pytest.mark.parametrize("dep", ["_", "[", "]", "\x00", "!", ":", "#", ""])
 def test_resolve_dep_junk_no_pattern_error(dep: str) -> None:
-    """check-all 33940151004: junk 1-char deps must not hit character-class regexes.
+    """Junk 1-char deps must not hit character-class regexes.
 
-    CrossHair relib ``PatternError: unterminated character set`` on
-    ``convert_model_to_dag(..., deps=['_'])``. CPython already returned
-    unresolved; the gate keeps ``re.match`` off these strings.
+    CPython returns unresolved without triggering regex parser errors on
+    special characters.
     """
     model = DummyModel()  # type: ignore[assignment]
     resolved = resolve_dep(dep, model)
@@ -172,10 +171,10 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
 
 
 def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
-    """cover-all 33797534946 leftover (~39m sheet_filter); code→name off, doable later.
+    """filter_operator2_code_to_name stays out of cover-all targets.
 
-    cover-all 35546602462: name→code / connection / resolve stay on under a closed
-    FilterOperator2 dual-profile (UNDER_CROSSHAIR); code→name remains off.
+    name→code, connection, and resolve stay on under a closed
+    FilterOperator2 profile, while code→name remains off.
     """
     from pathlib import Path
 

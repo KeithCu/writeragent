@@ -125,14 +125,13 @@ def test_localhost_safe_origin() -> None:
 
 
 def test_normalize_origins_list_is_off_cover_all() -> None:
-    """cover-all leftover offs (33569420452 ~4h plus 33689813185 normalize_cors_origin)."""
+    """CORS origin normalization and safe-origin checks stay off cover-all."""
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
 
     fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
-    # cover-all 33569420452 leftover offs (doable later with a closed origin enum).
     offed = (
         "normalize_origins_list",
         "normalize_cors_origin",

@@ -300,7 +300,7 @@ class StreamingHTMLStripper:
         assistant chunk here; one slice >4096 raised PreContractError, which
         suppress_disposed swallowed (UI Ready, log PreContractError=1).
         """
-        # crosshair: off  # char-by-char tag machine (cover-all 33451622787: ~1800s module, 2 examples despite DEAL_MAX_HTML_CHUNK=16). Doable later: dual-profile ASCII + smaller chunk.
+        # crosshair: off
         out: list[str] = []
         for char in chunk:
             if not self.in_tag:

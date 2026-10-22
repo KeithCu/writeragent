@@ -137,7 +137,7 @@ def _memoized_fingerprint(imports_tuple: tuple[str, ...]) -> str:
 
 @deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
 def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
-    # crosshair: off  # sorted join over symbolic import lists (cover-all 33418536119: sandbox_cache 20906s after PR 523). Doable later with a closed import-alphabet fingerprint.
+    # crosshair: off
     # LocalPythonExecutor.authorized_imports is a set union, so order is not
     # the policy. Sort and dedupe or the same allowlist misses the cache.
     # Names are joined with newline. A newline or NUL in a name would alias
@@ -148,13 +148,13 @@ def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
 
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
 def _cache_key(code: str, authorized_imports: Sequence[str]) -> str:
-    # crosshair: off  # sha256 on symbolic code+NUL (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
+    # crosshair: off
     material = code + "\0" + _imports_fingerprint(authorized_imports)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def _format_syntax_error(exc: SyntaxError) -> str:
-    # crosshair: off  # SyntaxError text/offset formatting (cover-all 33355986432: sandbox_cache in-flight 6h, no flushed log). Doable later with a tiny lineno/text domain.
+    # crosshair: off
     # offset is 1-based. Spacing by offset puts the caret one column to the
     # right of the token CPython underlines (ast.parse("def f(:") is offset 7,
     # the ':'). A null byte on 3.12+ is a SyntaxError with lineno/offset/text
@@ -208,7 +208,7 @@ def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
 def get_hot_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
-    # crosshair: off  # threading.Lock + OrderedDict hot cache (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
+    # crosshair: off
     if len(code) > _MAX_CACHED_SOURCE_CHARS:
         return _build_entry(code, authorized_imports)
     key = _cache_key(code, authorized_imports)

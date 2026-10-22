@@ -3,8 +3,9 @@ import json
 from enum import Enum, auto
 from typing import Any, Dict, List, Mapping, Optional, NamedTuple, assert_never, cast
 
-from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.memory import format_upsert_memory_chat_line
+from plugin.chatbot.state_machine import UIEffectKind
+from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
@@ -15,7 +16,8 @@ from plugin.framework.deal_shim import (
     deal,
     str_bounded,
 )
-from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.service import BaseState, FsmTransition
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -30,7 +32,6 @@ DELEGATE_TASK_CHAT_MAX = 120
 
 def _deal_cap(production: int) -> int:
     # CrossHair floors these caps to 1. Production keeps the real bound.
-    # Truncate/describe still ~56m after token/dict halves (33211730747).
     return 1 if UNDER_CROSSHAIR else production
 
 
@@ -46,7 +47,6 @@ _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
 
 def _describe_empty_response_content(content: Any) -> str:
     # crosshair: off
-    # cover-all 33689813185 leftover: Any content (~932 ex). Doable later: str-only preview domain.
     if content is None:
         return "None"
     if content == "":
@@ -75,7 +75,7 @@ def _describe_empty_response_content(content: Any) -> str:
     )
 )
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
-    # crosshair: off  # dict values still Any; three-line helper. Doable later with value bounds (cover-all 33258921875: 311k lines).
+    # crosshair: off
     if tool_calls is None:
         return "none"
     if isinstance(tool_calls, list):
@@ -92,7 +92,6 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
 @deal.post(lambda result: isinstance(result, str) and "round=" in result)
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
-    # Deep check-all run 32840960268: CHECK ERROR (CrossHair engine traceback) after 1:53.
     # crosshair: off
     # Call the helper only for None or a list. Any other shape is present.
     # Its @deal.pre accepts only None or a list; a provider dict or string
@@ -145,7 +144,7 @@ _deal_func_args_ok = _deal_func_args_ok_crosshair if UNDER_CROSSHAIR else _deal_
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off  # Mapping Any domain extract (cover-all 33569420452: 4647 examples / ~634s est despite UNDER_CROSSHAIR dual-profile). Doable later.
+    # crosshair: off
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
@@ -154,7 +153,7 @@ def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def delegate_status_label(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off  # thin wrapper over domain_from_delegate_args (cover-all 33569420452: 2063 examples / ~282s est). Doable later.
+    # crosshair: off
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
@@ -180,7 +179,6 @@ _deal_truncate_task_ok = (
 @deal.pre(lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: _deal_truncate_task_ok(task, max_len))
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
     # crosshair: off
-    # cover-all 35526755391: ~31m / 433 examples / 36k lines despite dual-profile len=1. Engine-hostile display helper. Doable later: closed task alphabet.
     # Display-only helper. ascii_bounded on the *full* task PreContract-failed debug
     # OXTs when specialize task was long / non-ASCII (GMP retest). Chat may show 120
     # chars; specialize still gets kwargs["task"] intact (specialized_base.execute).
@@ -195,7 +193,6 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
 @deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""
-    # Deep check-all run 32840960268: Prev 56:34, 493k lines.
     # crosshair: off
     domain = domain_from_delegate_args(func_args)
     raw_task = func_args.get("task")
@@ -229,7 +226,7 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     lambda func_args, result_data: _deal_func_args_ok(func_args) and type(result_data) is dict
 )
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
-    # crosshair: off  # dual Mapping (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
+    # crosshair: off
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":
@@ -332,17 +329,12 @@ def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
-    # for False, which would append the debug params line. The legacy
-    # prefix is read from the result message.
+    # for False, which would append the debug params line.
     if type(result_data) is not dict:
         return False
     count = result_data.get("replaced_count")
     if type(count) is int and count == 0:
         return True
-    # TODO(follow-up): drop legacy prefix once all callers emit replaced_count.
-    note = result_data.get("message")
-    if type(note) is str:
-        return note.strip().startswith("Replaced 0 occurrence")
     return False
 
 
@@ -419,7 +411,7 @@ class SpawnToolWorkerEffect:
 
 @dataclasses.dataclass(frozen=True)
 class ToolLoopUIEffect:
-    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
+    kind: UIEffectKind
     text: str = ""
     is_empty_model_debug: bool = False
 
@@ -429,7 +421,6 @@ class LogAgentEffect:
     location: str
     message: str
     data: Dict[str, Any]
-    hypothesis_id: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -549,10 +540,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             if has_audio:
                 effects.append(CleanupAudioEffect())
 
-            effects.append(LogAgentEffect(location="tool_loop.py:tool_round", message="Tool loop round response", data={"round": state.round_num, "has_tool_calls": bool(tool_calls), "num_tool_calls": len(tool_calls) if tool_calls else 0}, hypothesis_id="A"))
+            effects.append(LogAgentEffect(location="tool_loop_state.py:tool_round", message="Tool loop round response", data={"round": state.round_num, "has_tool_calls": bool(tool_calls), "num_tool_calls": len(tool_calls) if tool_calls else 0}))
 
             if not tool_calls:
-                effects.append(LogAgentEffect(location="tool_loop.py:exit_no_tools", message="Exiting loop: no tool_calls", data={"round": state.round_num}, hypothesis_id="A"))
+                effects.append(LogAgentEffect(location="tool_loop_state.py:exit_no_tools", message="Exiting loop: no tool_calls", data={"round": state.round_num}))
                 if content:
                     effects.append(ToolLoopUIEffect(kind="debug", text="Tool loop: Adding assistant message to session"))
                     effects.append(
@@ -620,7 +611,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
                 new_round_num = state.round_num + 1
                 if new_round_num >= state.max_rounds:
-                    effects.append(LogAgentEffect(location="tool_loop.py:exit_exhausted", message="Exiting loop: exhausted max_tool_rounds", data={"rounds": state.max_rounds}, hypothesis_id="A"))
+                    effects.append(LogAgentEffect(location="tool_loop_state.py:exit_exhausted", message="Exiting loop: exhausted max_tool_rounds", data={"rounds": state.max_rounds}))
                     effects.append(SpawnFinalStreamEffect())
                     capped_round_num = max(state.round_num, state.max_rounds)
                     return FsmTransition(dataclasses.replace(state, round_num=capped_round_num), effects)
@@ -631,8 +622,6 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             else:
                 func_name, func_args_str, call_id = pending_tool_call_fields(state.pending_tools[0])
 
-                from plugin.framework.errors import safe_json_loads
-
                 func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
                 status_text, run_line = format_tool_running_ui(func_name, func_args)
                 effects.append(ToolLoopUIEffect(kind="status", text=status_text))
@@ -641,7 +630,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 effects.append(ToolLoopUIEffect(kind="append", text=run_line))
                 effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))
 
-                effects.append(LogAgentEffect(location="tool_loop.py:tool_execute", message="Executing tool", data={"tool": func_name, "round": state.round_num}, hypothesis_id="C,D,E"))
+                effects.append(LogAgentEffect(location="tool_loop_state.py:tool_execute", message="Executing tool", data={"tool": func_name, "round": state.round_num}))
                 effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool call: {func_name}({func_args_str})"))
 
                 is_async = func_name in state.async_tools
@@ -651,8 +640,6 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, pending_tools=state.pending_tools[1:]), effects)
 
         case EventKind.TOOL_RESULT:
-            from plugin.framework.errors import safe_json_loads
-
             # Unpack tool result fields explicitly without assuming non-None values.
             raw_result = event_data.get("result")
             result = raw_result if isinstance(raw_result, str) else ""

@@ -91,14 +91,12 @@ def _split_decls(decl: str) -> list[str]:
 def _clean_decl_ordered(decl: str) -> str:
     """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
     # crosshair: off
-    # CSS decl tokenization (cover-all 35546602462: ~18m xhtml module). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
     return "; ".join(_split_decls(decl))
 
 
 def _normalize_decl(decl: str) -> str:
     """Order-independent fingerprint of a declaration set (for autostyle matching)."""
     # crosshair: off
-    # CSS decl normalize/sort (cover-all 35546602462). Doable later with closed decl alphabet.
     return ";".join(sorted(_split_decls(decl)))
 
 
@@ -146,7 +144,6 @@ _FODT_PARA_STYLE_RE = re.compile(
 def _fodt_override_css(style_block: str) -> str:
     """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
     # crosshair: off
-    # FODT style-block regex/string walk (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
     parts = []
     seen = set()
     for odf_attr, css_name in _FODT_OVERRIDE_ATTRS:
@@ -232,7 +229,6 @@ def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
 def _strip_body(xhtml: str) -> str:
     """Return the inner HTML of ``<body>`` (or the input unchanged if there is no body)."""
     # crosshair: off
-    # XHTML body slice (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
     m = _BODY_RE.search(xhtml or "")
     return m.group(1).strip() if m else (xhtml or "")
 
@@ -240,7 +236,6 @@ def _strip_body(xhtml: str) -> str:
 def _drop_trailing_empty_paragraphs(html: str) -> str:
     """Drop whitespace/``&nbsp;``-only ``<p>`` blocks at the very end (LO export ghost paras)."""
     # crosshair: off
-    # HTML trailing-empty scan (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
     while True:
         new = _TRAILING_EMPTY_P_RE.sub("", html)
         if new == html:
@@ -251,7 +246,6 @@ def _drop_trailing_empty_paragraphs(html: str) -> str:
 def _inject_attr(start_tag: str, attr: str) -> str:
     """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
     # crosshair: off
-    # start-tag attribute inject (cover-all 35546602462). Doable later with closed tag alphabet.
     if start_tag.endswith("/>"):
         return start_tag[:-2].rstrip() + attr + "/>"
     if start_tag.endswith(">"):
@@ -261,7 +255,6 @@ def _inject_attr(start_tag: str, attr: str) -> str:
 
 def _attr_value(attrs: list[tuple[str, str | None]], key: str) -> str:
     # crosshair: off
-    # attr list scan (cover-all 35546602462). Doable later with closed attrs domain.
     for k, v in attrs:
         if k == key:
             return v or ""
@@ -315,7 +308,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
-        # HTMLParser transformer state (cover-all 35546602462). Doable later with closed style maps.
         super().__init__()
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
@@ -358,7 +350,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         Para* when applying a named style).
         """
         # crosshair: off
-        # paragraph class rewrite (cover-all 35546602462). Doable later with closed class alphabet.
         if _AUTOSTYLE_RE.match(suffix):
             # Authoritative: the flat-ODF parent of this autostyle (Pn -> named base).
             parent = self._autostyle_parents.get(suffix)
@@ -379,7 +370,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
     def _rewrite_block(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
         # crosshair: off
-        # block tag rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
         para_classes = _PARA_CLASS_RE.findall(classes)
         token = None
@@ -404,7 +394,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
     def _rewrite_span(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
         # crosshair: off
-        # span rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
         names = classes.split()
         text_names = [c for c in names if c.startswith("text-")]
@@ -423,7 +412,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
-        # HTMLParser starttag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
         if t == "table":
@@ -441,26 +429,22 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
-        # HTMLParser startendtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
     def handle_endtag(self, tag: str) -> None:
         # crosshair: off
-        # HTMLParser endtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
     def result(self) -> str:
         # crosshair: off
-        # HTMLParser result join (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
         return "".join(self._out)
 
 
 def _strip_class_names(start_tag: str, name_re: re.Pattern[str]) -> str:
     """Remove class names matching *name_re* from a start tag; drop the attr if it empties."""
     # crosshair: off
-    # class= regex rewrite (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
     def _sub(m: Any) -> str:
         kept = [c for c in m.group(2).split() if not name_re.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
@@ -481,7 +465,6 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
     """
     # crosshair: off
-    # HTMLParser over unbounded XHTML (cover-all 35546602462: ~18m module). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK (pytest fixtures exceed 512).
     raw_map, norm_map = parse_style_block(full_xhtml)
     body = _strip_body(full_xhtml)
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)

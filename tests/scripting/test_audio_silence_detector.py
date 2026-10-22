@@ -63,7 +63,7 @@ def test_pcm_energy_uses_full_pcm_not_truncated():
 
 
 def test_pcm_energy_int16_dropped_from_check_all_fqns():
-    """Deep check-all run 32877875221 hung on the RMS/peak float post at [42/56]."""
+    """pcm_energy_int16 is omitted from cover_fqns_for_module."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

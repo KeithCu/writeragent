@@ -12,7 +12,7 @@ from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
 
 # Quote-machine / typical formula alphabet. Pytest keeps Unicode (curly quotes);
-# CrossHair uses this closed set (normalize_lo_formula_for_parse 3:59, 32877875221).
+# CrossHair uses this closed set.
 _LO_FORMULA_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=();,\"'<>:+-*/^&%$.!_[]{}# \t\n")
 _PREPROCESS_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 
@@ -65,9 +65,8 @@ def _no_unquoted_semicolon(s: str) -> bool:
     return _scan_quotes(s, None) is not None
 
 
-# Deep check-all run 32840960268: two nested ensures (curly-quote scan +
-# _no_unquoted_semicolon) cost ~7+7+6 min. Skip under CrossHair; cheap str post
-# and the implementation loop stay.
+# Two nested ensures (curly-quote scan + _no_unquoted_semicolon) skip
+# under CrossHair; cheap str post and the implementation loop stay.
 @deal.pre(lambda formula: _deal_lo_formula_ok(formula))
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)

@@ -44,7 +44,7 @@ from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
-# drops those FQNs. Data-binding display/parse are also off (run 32840960268).
+# drops those FQNs. Data-binding display/parse are also off.
 # Keep parse/normalize: nested ensures are inverse_ensure-skipped. Range
 # formatters stay on (closed A1/sheet alphabet, DEAL_MAX_TOKEN length).
 _CROSSHAIR_TARGETS = (
@@ -61,7 +61,6 @@ _REWRITE_WRAPPERS_OFF = (
     "_rewrite_token_calls",
     "format_data_binding_display",
     "parse_data_binding_text",
-    # cover-all 33797534946 leftovers (~4.4h formula_edit)
     "extract_python_code_loose",
     "build_new_python_formula",
     "escape_code_for_excel_formula",
@@ -277,11 +276,8 @@ def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
 def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     """Sanitize/escape/rebuild stay ``# crosshair: off``; parse/normalize stay on.
 
-    format_data_binding_display / parse_data_binding_text are also off
-    (deep check-all run 32840960268: Prev 95:09 / 15:20). Range formatters
-    stay on — closed A1/sheet alphabet, no regex. cover-all 33797534946
-    offs (extract/build/escape/rebuild wrappers) also stay out of cover FQNs.
-    cover-all 35526755391 offs (range bodies, ensure helpers, format_data_binding_text) too.
+    format_data_binding_display, parse_data_binding_text, and wrapper helpers
+    stay out of cover FQNs, while range formatters remain on.
     """
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
@@ -303,7 +299,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "py_formula_has_unquoted_code_ref",
         "rebuild_python_formula_with_code_ref",
         "cell_looks_python_like",
-        # cover-all 35526755391 leftovers (~2.45h formula_edit)
         "_parts_result_ok",
         "_quoted_parse_result_ok",
         "py_call_open_end",

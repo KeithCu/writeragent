@@ -298,7 +298,7 @@ def _tool_stream_kind(update: dict[str, Any]) -> StreamQueueKind:
 
 
 class ACPBackend(AgentBackend):
-    """Base class for ACP-based agent backends. Registry spec sets backend attrs."""
+    """Base class for ACP-based agent backends. Subclasses in `plugin.acp.registry` set these attributes."""
 
     binary_name: str = ""
     binary_prefixes: tuple[str, ...] = ()

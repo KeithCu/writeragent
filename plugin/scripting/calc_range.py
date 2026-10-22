@@ -29,7 +29,7 @@ from plugin.framework.deal_shim import (
 )
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
 
-# Cover: 1×1 grid, int 0, 1-char ascii. Dim 4 / ±8 still ~2.3h (33211730747).
+# Cover: 1×1 grid, int 0, 1-char ascii.
 _DEAL_GRID_DIM = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
 _DEAL_CELL_INT_ABS = 0 if UNDER_CROSSHAIR else 8
 _DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
@@ -168,7 +168,7 @@ def _binop(op: Any, reverse: bool = False) -> Any:
     """Factory for binary operator dunders delegating to _binary_op."""
     @deal.pre(_deal_binary_op_pre)
     def method(self: Any, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op; doable later (cover-all 33258921875)
+        # crosshair: off
         return self._binary_op(other, op, is_reverse=reverse)
 
     return method
@@ -198,20 +198,17 @@ class CalcRange:
     @property
     def values(self) -> list[list[Any]]:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """Live 2D cells. ``None`` is a blank. These lists are the range's storage; writing into them changes the range."""
         return self._values
 
     @property
     def address(self) -> str | None:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return self._address
 
     @property
     def shape(self) -> tuple[int, int]:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         nrows = len(self._values)
         ncols = len(self._values[0]) if self._values else 0
         return (nrows, ncols)
@@ -219,36 +216,30 @@ class CalcRange:
     @property
     def nrows(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return self.shape[0]
 
     @property
     def ncols(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return self.shape[1]
 
     def __repr__(self) -> str:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         r, c = self.shape
         addr = f" address={self._address!r}" if self._address else ""
         return f"CalcRange({r}x{c}{addr})"
 
     def __len__(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return self.nrows
 
     def __iter__(self) -> Iterator[list[Any]]:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """Iterate rows (each a list). Does not flatten to cells."""
         return iter(self._values)
 
     def __getitem__(self, key: Any) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """Row access (``data[0]``) or slice of rows — not cell flattening."""
         return self._values[key]
 
@@ -260,7 +251,6 @@ class CalcRange:
 
     def to_numpy(self, *, dtype: Any = None, copy: bool | None = None) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """NumPy view of the cells.
 
         With no ``dtype``, a grid of ``None`` and real numbers (``int`` / ``float``,
@@ -341,7 +331,6 @@ class CalcRange:
 
     def __bool__(self) -> bool:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             return bool(self._values[0][0])
         if self.shape == (0, 0) or not self._values:
@@ -353,14 +342,12 @@ class CalcRange:
 
     def __str__(self) -> str:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             return str(self._values[0][0])
         return self.__repr__()
 
     def __format__(self, format_spec: str) -> str:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             return format(self._values[0][0], format_spec)
         return format(str(self), format_spec)
@@ -368,7 +355,6 @@ class CalcRange:
     # Scalar conversions
     def __float__(self) -> float:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             val = self._values[0][0]
             if val is None:
@@ -378,7 +364,6 @@ class CalcRange:
 
     def __int__(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             val = self._values[0][0]
             if val is None:
@@ -388,7 +373,6 @@ class CalcRange:
 
     def __round__(self, ndigits: int | None = None) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             val = self._values[0][0]
             if val is None:
@@ -398,17 +382,14 @@ class CalcRange:
 
     def __trunc__(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return math.trunc(self.__float__())
 
     def __floor__(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return math.floor(self.__float__())
 
     def __ceil__(self) -> int:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return math.ceil(self.__float__())
 
     # Dispatchers
@@ -448,7 +429,6 @@ class CalcRange:
 
     def _unary_op(self, op: Any) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
             val = self._values[0][0]
             if val is None:
@@ -477,15 +457,15 @@ class CalcRange:
 
     # Unary
     def __neg__(self) -> Any:
-        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
+        # crosshair: off
         return self._unary_op(operator.neg)
 
     def __pos__(self) -> Any:
-        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
+        # crosshair: off
         return self._unary_op(operator.pos)
 
     def __abs__(self) -> Any:
-        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
+        # crosshair: off
         return self._unary_op(operator.abs)
 
     # Rich comparisons (aligned through _binary_op: 1x1 returns bool; multi-cell returns bool ndarray)
@@ -577,7 +557,7 @@ def _is_pandas_frame_or_series(obj: Any) -> bool:
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
-    # crosshair: off  # Any/numpy/split_grid combinatorics; tiny list domain later (cover-all 33258921875: 575k lines)
+    # crosshair: off
     from plugin.scripting.payload_codec import (
         _numpy_scalar_item,
         child_unpack_data,
@@ -653,7 +633,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
 
 @deal.pre(lambda obj: _deal_json_list_of_grids_arg_ok(obj))
 def _is_json_list_of_grids(obj: Any) -> bool:
-    # crosshair: off  # nested list/tuple shape walk (cover-all 33569420452: 13580 examples / ~527s est despite dual-profile pre). Doable later: fixed small grid domain.
+    # crosshair: off
     """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
 
     A normal 2D sheet block ``[[1, 2], [3, 4]]`` has scalar cells — not a list of grids.
@@ -706,7 +686,7 @@ def dataframe_to_labeled_grid(
     *,
     include_header: bool = True,
 ) -> list[list[Any]]:
-    # crosshair: off  # columns+data nested lists (cover-all 33569420452: 3337 examples / ~130s est despite _DEAL_GRID_DIM). Doable later.
+    # crosshair: off
     """Build a Calc-ready grid from a dataframe envelope (optional header row)."""
     body: list[list[Any]]
     if data is None:

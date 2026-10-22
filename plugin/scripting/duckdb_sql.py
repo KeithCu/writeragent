@@ -133,7 +133,7 @@ def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
 
 
 
-# cover-all 35526755391: is_sql_result 8130 examples / 169k lines on unbounded dict[Any]. Dual-profile closed dict.
+# Dual-profile closed dict for is_sql_result.
 _DEAL_SQL_RESULT_KEYS = 4 if UNDER_CROSSHAIR else 32
 _DEAL_SQL_RESULT_STR = 8 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 

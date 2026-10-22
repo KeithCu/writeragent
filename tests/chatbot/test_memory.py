@@ -297,7 +297,7 @@ def test_upsert_empty_content_pops_key(tmp_path):
 
 
 def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
-    """Deep check-all run 32840960268: Prev 20:53."""
+    """format_upsert_memory_chat_line stays out of cover_fqns_for_module."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

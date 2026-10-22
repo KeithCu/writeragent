@@ -39,8 +39,7 @@ _BASE_ALLOW_HEADERS = ("Content-Type", "Authorization", "Mcp-Session-Id", "X-Doc
 
 _EXPOSE_HEADERS = "Mcp-Session-Id, Mcp-Protocol-Version"
 
-# Loopback hosts formerly matched by ``_ORIGIN_RE``. No regex: CrossHair relib
-# on that pattern ate 11:33 (check-all 32877875221).
+# Loopback hosts formerly matched by ``_ORIGIN_RE``. No regex.
 _SAFE_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
 
 # URL-safe Origin alphabet (scheme/host/port, including IPv6 brackets).
@@ -116,7 +115,6 @@ _deal_origins_config_ok = (
 @deal.post(lambda result: result is None or (isinstance(result, str) and (result.lower().startswith("http://") or result.lower().startswith("https://")) and not result.endswith("/")))
 def normalize_cors_origin(value: str | None) -> str | None:
     # crosshair: off
-    # cover-all 33689813185 leftover (~32m / 1289 ex) despite _deal_origin_ok. Doable later: closed origin enum.
     """Return a canonical origin URL or None if empty/invalid."""
     if value is None:
         return None
@@ -159,14 +157,12 @@ def normalize_cors_origin(value: str | None) -> str | None:
     return f"{scheme}://{netloc}"
 
 
-# Deep check-all run 32840960268 hung here at the 360-minute job wall (Prev 9:51
-# on the unique-length post, then the runner was still on this FQN at cancel).
 # Nested unique-length ensure is skipped under CrossHair; cheap list/str posts stay.
 @deal.pre(lambda value: _deal_origins_config_ok(value))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value: Any) -> list[str]:
-    # crosshair: off  # list/str Any + unique-length post still combinatoric (cover-all 33569420452: ~4040s est / 5594 ex despite _deal_origin_ok). Doable later: closed origin enum.
+    # crosshair: off
     """Coerce config value to a deduped list of normalized origin strings."""
     if value is None:
         return []
@@ -188,7 +184,7 @@ def normalize_origins_list(value: Any) -> list[str]:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
-    # crosshair: off  # urlparse + ipaddress SMT wander (cover-all 33569420452: ~939s est / 1298 ex despite _deal_origin_ok). Doable later.
+    # crosshair: off
     """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -209,14 +205,13 @@ def is_private_browser_origin(origin: str) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
-    # Do not wrap in bool(): CrossHair SymbolicBool TypeError (same class as
-    # bool(shape) on should_use_binary_envelope, check-all 32877875221 20:40).
+    # Do not wrap in bool(): CrossHair SymbolicBool TypeError.
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
 @deal.pre(lambda origins: _deal_origins_config_ok(origins))
 def set_extra_allowed_origins(origins: Any) -> None:
-    # crosshair: off  # frozenset(normalize_origins_list) leftover (cover-all 33569420452: ~4419s est / 6120 ex). Doable later.
+    # crosshair: off
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
     global _extra_allowed_origins
     _extra_allowed_origins = frozenset(normalize_origins_list(origins))
@@ -238,7 +233,7 @@ def set_allow_private_origins(allow: bool) -> None:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
-    # crosshair: off  # frozenset membership under symbolic origin (cover-all 33569420452: ~966s est / 1335 ex). Doable later.
+    # crosshair: off
     if len(origin) == 0:
         return False
     normalized = normalize_cors_origin(origin)
@@ -246,7 +241,7 @@ def is_extra_allowed_origin(origin: str) -> bool:
 
 
 def _is_loopback_origin(origin: str) -> bool:
-    # crosshair: off  # urlparse hostname walk (cover-all 33569420452: ~939s est / 1298 ex). Doable later.
+    # crosshair: off
     """True for http(s) localhost / 127.0.0.1 / ::1 (optional port). No regex."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -283,7 +278,7 @@ def reload_cors_policy_from_config(services: Any) -> None:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
-    # crosshair: off  # composes loopback/extra/private (cover-all 33569420452: ~966s est / 1335 ex). Doable later.
+    # crosshair: off
     """True when Origin may receive Access-Control-Allow-Origin reflection."""
     if len(origin) == 0:
         return False
@@ -445,7 +440,7 @@ def reject_forbidden_host(handler: Any) -> bool:
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
-    # crosshair: off  # split/merge header list still SMT-heavy (cover-all 33569420452: ~1393s est / 1927 ex despite _deal_allow_headers_ok). Doable later.
+    # crosshair: off
     """Build Access-Control-Allow-Headers: base list union preflight request list."""
     merged: dict[str, str] = {}
     for header in _BASE_ALLOW_HEADERS:

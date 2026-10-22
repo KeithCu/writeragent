@@ -91,7 +91,7 @@ _deal_sentence_locale_ok = (
 
 
 # NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
-# (check-all 33928341275: split_passage_to_sentences('\x00', locale=DEFAULT)).
+# (split_passage_to_sentences('\x00', locale=DEFAULT)).
 def _deal_passage_text_ok_pytest(text: object) -> bool:
     # Documents are longer than DEAL_MAX_SOURCE. The cap raised
     # PreContractError before the sentence splitter ran. CrossHair keeps
@@ -276,7 +276,6 @@ def _sentences_spans_ok(sentences: object) -> bool:
     Successive starts must be ``>=`` the previous end (production splitters are sequential).
     """
     # crosshair: off
-    # deal.pre predicate; covering it is circular (cover-all 33258921875: 267k lines). Doable later.
     if not isinstance(sentences, list) or not _sentences_spans_shape_ok(sentences):
         return False
     prev_end: int | None = None
@@ -372,7 +371,6 @@ def _merge_small_sentences_to_spans(
 
 @deal.pre(lambda passage: _deal_ws_passage_ok(passage))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
-    # Regex splitter is engine-hostile under CrossHair (cover-all 33180040863 ~24m).
     # crosshair: off
     from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_WHITESPACE_RUN_RE, split_sentence_chunks_by_separator_regex
 
@@ -389,7 +387,6 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
     # crosshair: off
-    # ICU/locale sentence merge still combinatoric (cover-all 33569420452: ~738s est / 2036 ex despite str_bounded). Doable later.
     from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
     from plugin.writer.locale.grammar_proofread_locale import (
         bcp47_to_icu_sentence_breaker_locale,
@@ -491,7 +488,6 @@ def split_passage_to_chunk_meta(
     locale_bcp47: str | None = None,
 ) -> list[dict[str, Any]]:
     # crosshair: off
-    # LocaleTextRun + prose/non-prose split (cover-all 33569420452: ~958s est / 2642 ex despite ascii_bounded meta). Doable later.
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
     from plugin.embeddings.embeddings_fs import LocaleTextRun
 

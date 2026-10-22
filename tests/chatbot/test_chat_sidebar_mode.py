@@ -195,7 +195,7 @@ def test_set_selector_mode_librarian_is_last_index():
 
 
 def test_mode_from_label_dropped_from_check_all_fqns():
-    """Deep check-all run 32840960268: Prev 10:13 on gettext labels."""
+    """mode_from_label is omitted from cover_fqns_for_module."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

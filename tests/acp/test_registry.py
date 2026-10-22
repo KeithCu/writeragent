@@ -16,7 +16,7 @@ import yaml
 from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.registry import (
     AGENT_BACKEND_REGISTRY,
-    _BACKEND_SPECS,
+    _ACP_BACKENDS,
     ClaudeBackend,
     GrokBackend,
     HermesBackend,
@@ -54,7 +54,7 @@ def test_module_yaml_matches_registry_specs():
     data = yaml.safe_load(_MODULE_YAML.read_text(encoding="utf-8"))
     options = data["config"]["backend_id"]["options"]
     yaml_pairs = [(opt["value"], opt["label"]) for opt in options]
-    expected_pairs = [("builtin", "Built-in"), *[(spec.backend_id, spec.display_name) for spec in _BACKEND_SPECS]]
+    expected_pairs = [("builtin", "Built-in"), *[(cls.backend_id, cls.display_name) for cls in _ACP_BACKENDS]]
     assert yaml_pairs == expected_pairs
 
 
@@ -66,21 +66,19 @@ def test_registry_classes_own_their_display_names():
         assert "display_name" in cls.__dict__
 
 
-@pytest.mark.parametrize("spec", _BACKEND_SPECS, ids=lambda s: s.backend_id)
-def test_backend_spec_properties(spec):
-    cls = AGENT_BACKEND_REGISTRY[spec.backend_id]
+@pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
+def test_backend_spec_properties(cls):
     backend = cls()
-    assert backend.backend_id == spec.backend_id
-    assert backend.display_name == spec.display_name
-    assert backend.get_binary_name() == spec.binary_name
-    assert tuple(backend.default_extra_args) == spec.default_extra_args
+    assert backend.backend_id == cls.backend_id
+    assert backend.display_name == cls.display_name
+    assert backend.get_binary_name() == cls.binary_name
+    assert tuple(backend.default_extra_args) == cls.default_extra_args
 
 
-@pytest.mark.parametrize("spec", _BACKEND_SPECS, ids=lambda s: s.backend_id)
-def test_backend_is_available_matrix(spec):
-    cls = AGENT_BACKEND_REGISTRY[spec.backend_id]
+@pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
+def test_backend_is_available_matrix(cls):
     backend = cls()
-    fake_path = f"/usr/bin/{spec.binary_name}"
+    fake_path = f"/usr/bin/{cls.binary_name}"
 
     with patch("shutil.which", return_value=fake_path), patch("os.path.isfile", return_value=True):
         assert backend.is_available(None) is True

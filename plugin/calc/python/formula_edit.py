@@ -57,7 +57,7 @@ _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "
 
 def _match_py_alias(raw: str, *, require_equals: bool, aliases: tuple[str, ...]) -> int | None:
     # crosshair: off
-    # Same prefix scan as py_call_open_end (cover-all 35526755391).
+    # Same prefix scan as py_call_open_end.
     i = 0
     n = len(raw)
     if require_equals:
@@ -88,13 +88,12 @@ _STORED_ADDIN_ALIASES = tuple(a for a in _CALC_PYTHON_FN_ALIASES_BY_LEN if a.sta
 
 def stored_addin_call_open_end(raw: str) -> int | None:
     # crosshair: off
-    # Same prefix scan as py_call_open_end (cover-all 35526755391). Fully qualified OriginalNames only.
+    # Same prefix scan as py_call_open_end. Fully qualified OriginalNames only.
     return _match_py_alias(raw, require_equals=True, aliases=_STORED_ADDIN_ALIASES)
 
 
 def py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
     # crosshair: off
-    # cover-all 35526755391 (~5.4m). Prefix scanner as cover entry; stay-on parse still exercises it. Doable later: tiny PY-prefix alphabet.
     """Return index after the opening ``(`` of a PY/PYTHON call, or None.
 
     CrossHair check of ``normalize_formula_string('PY')`` raised
@@ -175,7 +174,6 @@ def _is_data_arg_separator(rest: str) -> bool:
 def extract_python_code_loose(formula: str) -> str | None:
     """Best-effort code extraction from a PY/PYTHON-like formula string."""
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 201 examples). Combinatoric loose parse. Doable later with tiny PY alphabet.
     parts = parse_python_formula(formula)
     if parts is not None:
         return parts.code
@@ -211,7 +209,6 @@ def normalize_formula_string(formula: str) -> str:
 def build_new_python_formula(code: str) -> str:
     """Build a fresh ``=PY("…")`` formula (single code argument, no data range)."""
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 297 examples). Thin escape wrapper. Doable later with DEAL_MAX_SOURCE code alphabet.
     escaped = escape_code_for_formula(code)
     return f'={CALC_PYTHON_FN}("{escaped}")'
 
@@ -281,7 +278,6 @@ _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\bcalc\.text\s*\(")
 @deal.ensure(lambda s, open_idx, result: result == -1 or (0 <= open_idx <= result < len(s) and s[result] == ")"))
 def _find_matching_paren(s: str, open_idx: int) -> int:
     # crosshair: off
-    # cover-all 35526755391 (~4m). Paren walker as cover entry. Doable later: tiny balanced-paren alphabet.
     """Return index of ``)`` matching ``(`` at *open_idx*, or -1."""
     # Reject out-of-range open_idx: negatives index from the end (CrossHair '', -1).
     if open_idx < 0 or open_idx >= len(s):
@@ -352,7 +348,6 @@ def sanitize_inline_py_code(code: str) -> str:
 def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     """Return token names still present that ``sanitize_inline_py_code`` would rewrite."""
     # crosshair: off
-    # four regex searches on free strings (cover-all 33314946731: ~5.3h, 500k lines). Same rewrite-regex class as sanitize. Doable later with a tiny token alphabet.
     hits: list[str] = []
     if _LEXER_COLLISION_FLOAT_RE.search(code):
         hits.append("float")
@@ -417,9 +412,6 @@ def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
 def format_data_binding_display(data_suffix: str) -> str:
     """Human-readable range/index args from ``data_suffix`` (e.g. ``;A1:B10)`` → ``A1:B10``)."""
-    # Deep check-all run 32840960268: Prev 95:09, 2.26M lines on this while
-    # strip/lstrip(';,').rstrip(')') fixed-point. ascii_bounded still allows
-    # control ASCII; the engine kept exploding.
     # crosshair: off
     s = data_suffix or ""
     while True:
@@ -435,8 +427,6 @@ def format_data_binding_display(data_suffix: str) -> str:
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) and '"' not in x for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
     """Parse editor textbox content into formula data arguments."""
-    # Deep check-all run 32840960268: Prev 15:20 on re.split of the textbox.
-    # Split is now replace+str.split; still off — dropping regex alone is not proven.
     # crosshair: off
     raw = (text or "").strip()
     if not raw:
@@ -451,7 +441,6 @@ def parse_data_binding_text(text: str) -> list[str]:
 @deal.post(lambda result: isinstance(result, str))
 def format_data_binding_text(data_args: list[str]) -> str:
     # crosshair: off
-    # cover-all 35526755391 (~10m / 1 example, 27k lines). Editor join of data_args. Doable later: tiny data_args alphabet.
     """Format data args for the editor textbox (comma-separated)."""
     cleaned = [a.strip() for a in data_args if a.strip()]
     return ", ".join(cleaned)
@@ -468,7 +457,7 @@ def _is_a1_cell_prefix(s: str) -> bool:
 
     Replaces ``re.match(r'^\\$?[A-Z]+\\$?\\d', s, re.I)``. CrossHair's relib
     raises ``TypeError: ord() expected a character, but string of length 0``
-    on NUL/control ASCII in that pattern (check-all run 32840960268).
+    on NUL/control ASCII in that pattern.
     """
     i = 0
     n = len(s)
@@ -627,7 +616,6 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
     (``A1:B10``) and unquoted Python (``sp.prime(100)``) return False.
     """
     # crosshair: off
-    # parse_address/split_sheet_prefix on free strings (cover-all 33314946731: ~14m, 22k lines). Doable later with the closed A1/_deal_range_addr_ok domain.
     if type(code) is not str:
         return False
     s = code.strip()
@@ -652,7 +640,6 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
 def py_formula_has_unquoted_code_ref(formula: str) -> bool:
     """True when the formula is ``=PY($A$1; …)`` (unquoted), not ``=PY(\"A1\")``."""
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 200 examples). Combinatoric parse+cell-ref. Doable later with closed A1 PY alphabet.
     parts = parse_python_formula(formula)
     if parts is None or not py_code_arg_is_cell_ref(parts.code):
         return False
@@ -673,7 +660,6 @@ def rebuild_python_formula_with_code_ref(code_ref: str, data_args: list[str], *,
     *code_ref* is a sheet-qualified address (``py_code_Pivots.A1`` or ``py_code_Pivots!A1``).
     """
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 126 examples). Combinatoric rebuild+formatter. Doable later with closed A1/data_args domain.
     use_excel = excel_ranges or separator == ","
     fmt = format_excel_data_range if use_excel else format_py_data_range
     ref = fmt(code_ref.strip())
@@ -685,5 +671,4 @@ def rebuild_python_formula_with_code_ref(code_ref: str, data_args: list[str], *,
 def cell_looks_python_like(formula: str) -> bool:
     """True if *formula* appears to be a PY/PYTHON call (even if strict parse failed)."""
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 201 examples). Thin parse/loose wrapper. Doable later with tiny PY alphabet.
     return extract_python_code_loose(formula) is not None

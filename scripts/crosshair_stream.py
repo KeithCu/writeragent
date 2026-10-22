@@ -491,7 +491,7 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
     sibling pure helpers in the same file still get covered.
 
     Names starting with ``_deal_`` are skipped: they are contract predicates, and
-    covering the pytest-wide ``object`` variants is circular (cover-all 33258921875).
+    covering the pytest-wide ``object`` variants is circular.
 
     A column-0 module ``# crosshair: off`` yields an empty list (same as check skipping the file).
     ``require_deal=True`` keeps only callables that have ``@deal.`` (check-all).

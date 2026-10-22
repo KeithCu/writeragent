@@ -193,7 +193,6 @@ def _skip_string(src: str, i: int) -> int:
 @inverse_ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
 def _normalize_excel_placeholders(src: str) -> str:
     # crosshair: off
-    # regex/char-walk on symbolic src; 82331 examples / 119m on cover-all 32987767383 after alphabet pre.
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
     Placeholders inside strings and comments are left untouched so quoted
@@ -443,7 +442,6 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
 @deal.pre(lambda current, candidate: ascii_bounded(current or "", _DEAL_BINDING_A1_LEN) and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN))
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
-    # string branch leftover (cover-all 33569420452: ~977s est / 1812 ex despite ascii_bounded A1). Doable later.
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
     See ``EXCEL_DEP_TOKEN_FIDELITY`` / models module doc — fidelity only, not Calc semantics.
@@ -475,7 +473,6 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
     Unresolved deps produce issues and an empty a1 — caller must fail-closed.
     """
     # crosshair: off
-    # ResolvedDep objects still explode SMT; tiny pre is not enough (cover-all 33258921875: 255k lines). Doable later.
     issues: list[str] = []
     bindings: list[BindingInfo] = []
     index_map: dict[int, int] = {}
@@ -511,7 +508,6 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
 @deal.pre(lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell))
 def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_in_order: list[ExcelPyCell] | None = None, best_effort: bool = False) -> ConvertedCell:
     # crosshair: off
-    # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
         return ConvertedCell(

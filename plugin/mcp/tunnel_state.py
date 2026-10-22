@@ -144,7 +144,6 @@ def compute_backoff_delay(retry_count: int, initial: float = DEFAULT_INITIAL_BAC
 
 def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
     # crosshair: off
-    # cover-all 33689813185 leftover: dict Any int parse (~1444 ex). Doable later: closed key/int domain.
     """Parse an optional int from event data; empty / invalid strings keep *fallback*.
 
     CrossHair can put ``''`` in ``port`` / ``max_retries``; ``int('')`` raises.

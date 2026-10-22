@@ -318,7 +318,7 @@ def test_host_pack_split_grid_is_split_grid() -> None:
 
 
 def test_payload_codec_cover_all_33797534946_offs() -> None:
-    """cover-all 33797534946 leftovers (~46.5m); skip-reason/image/kinds off, policy stays on."""
+    """skip-reason, image, and uniform column kind helpers stay off cover-all while policy stays on."""
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")

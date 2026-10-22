@@ -674,7 +674,7 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, ToolLoopUIEffect):
             self._execute_ui_effect(effect)
         elif isinstance(effect, LogAgentEffect):
-            agent_log(effect.location, effect.message, data=effect.data, hypothesis_id=effect.hypothesis_id)
+            agent_log(effect.location, effect.message, data=effect.data)
         elif isinstance(effect, AddMessageEffect):
             self._add_message(effect)
         elif isinstance(effect, SpawnLLMWorkerEffect):

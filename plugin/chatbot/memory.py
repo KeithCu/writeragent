@@ -88,7 +88,7 @@ _deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair, _deal_memory_arg
 @deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
-    # crosshair: off  # dict|JSON str Any still explodes (cover-all 33569420452: 4656 examples / ~503s est despite DEAL_MAX_SOURCE). Doable later: closed key set.
+    # crosshair: off
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)

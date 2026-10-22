@@ -608,7 +608,7 @@ def test_tool_result_parsing():
         call_id="call_y",
         func_name="apply_document_content",
         func_args_str='{"content": "' + ("A" * 1000) + '"}',
-        result='{"message": "Replaced 0 occurrences"}',
+        result='{"message": "Replaced 0 occurrences", "replaced_count": 0}',
         mutates_document=False
     )
     tr_adc = next_state(state, event_adc)
@@ -721,7 +721,7 @@ def test_format_tool_result_chat_text_success_and_delegate():
 
 def test_is_replaced_zero_result():
     assert is_replaced_zero_result({"replaced_count": 0}) is True
-    assert is_replaced_zero_result({"message": "Replaced 0 occurrences"}) is True
+    assert is_replaced_zero_result({"message": "Replaced 0 occurrences"}) is False
     assert is_replaced_zero_result({"replaced_count": 2}) is False
     assert is_replaced_zero_result({}) is False
     # False == 0, but a boolean is not a replacement count.
@@ -779,7 +779,7 @@ def test_format_tool_result_chat_text_null_message_uses_fallback():
 
 
 def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
-    """Deep check-all run 32840960268: engine traceback after 1:53 / Prev 56:34."""
+    """Ensure format_empty_model_response_debug and format_delegate_running_chat_line stay out of cover_fqns_for_module(..., require_deal=True)."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build

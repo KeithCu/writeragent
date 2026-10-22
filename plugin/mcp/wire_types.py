@@ -85,7 +85,6 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     treat ``req_id is None`` before calling this, or check ``"id" not in msg``.
     """
     # crosshair: off
-    # Cover-all 33180040863 spent ~7m in this parser, so the marker stays.
     # Do not sniff sys.modules["crosshair"] (deal_shim): if that module is
     # loaded, the old branch returned JsonRpcParseError("mock") for every
     # valid request.
@@ -222,7 +221,6 @@ class CallToolRequestParams:
     @classmethod
     def from_params(cls, params: dict[str, Any]) -> CallToolRequestParams:
         # crosshair: off
-        # cover-all 33689813185 leftover: thin wrapper (~3186 ex) despite _deal_call_tool_params_ok. Doable later.
         return _call_tool_request_params_from_dict(params)
 
 
@@ -240,8 +238,6 @@ def _deal_call_tool_params_ok_pytest(params: object) -> bool:
 
 
 def _deal_call_tool_params_ok_crosshair(params: object) -> bool:
-    # cover-all 33180040863: unbounded params → 3400 examples on from_params.
-    # check-all 33668189572: missing/empty name → ValueError CHECK FAIL on {}.
     if type(params) is not dict:
         return False
     # type() is dict narrows to Top[dict] (keys Never); ty then rejects Literal lookups.
@@ -275,7 +271,6 @@ _deal_call_tool_params_ok = (
 @deal.pre(lambda params: _deal_call_tool_params_ok(params))
 def _call_tool_request_params_from_dict(params: dict[str, Any]) -> CallToolRequestParams:
     # crosshair: off
-    # cover-all 33689813185 leftover: dict Any (~3110 ex) despite dual-profile pre. Doable later: closed name/args enum.
     name = params.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError("tools/call requires params.name")

@@ -72,8 +72,6 @@ class SilenceDetectorResult:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and 0.0 <= result[0] <= 1.0 and 0.0 <= result[1] <= 1.0)
 def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""
-    # Live check-all deep run 32877875221 hung on the RMS post at [42/56].
-    # Same pattern as PR #450.
     # crosshair: off
     sample_count = len(pcm) // 2
     if sample_count == 0:
@@ -160,7 +158,7 @@ class SilenceDetector:
         return self._silence_threshold * SPEECH_HYSTERESIS_FACTOR
 
     def process_chunk(self, pcm: bytes) -> SilenceDetectorResult:
-        # crosshair: off  # stateful RMS/float SMT wrapping already-off pcm_energy_int16 (cover-all 33337516899: 52k lines, 3205 examples). Doable later with a tiny PCM/frame domain.
+        # crosshair: off
         if not self._config.enabled:
             return SilenceDetectorResult(
                 rms=0.0, peak=0.0, is_speech=False, silence_ms=0, speech_ms=0, should_stop=False, heard_speech=False
