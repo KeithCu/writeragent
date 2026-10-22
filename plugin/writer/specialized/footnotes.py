@@ -320,9 +320,8 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
                 msg = f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}"
                 if updated_props:
                     msg = f"{msg}. Already updated: {', '.join(updated_props)}."
-                err = self._tool_error(msg, updated_properties=updated_props)
-                if updated_props:
-                    err["updated_properties"] = updated_props
+                err = self._tool_error(msg)
+                err["updated_properties"] = updated_props
                 return err
 
         return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}
