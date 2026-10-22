@@ -49,6 +49,7 @@ class FakeSession:
 
 class FakeHost:
     def __init__(self):
+        self._tool_calling = self  # fake host plays the composed ToolCallingMixin role
         self.ctx = MagicMock()
         self.session = FakeSession()
         self.image_model_selector = None

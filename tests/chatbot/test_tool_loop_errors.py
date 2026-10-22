@@ -34,6 +34,7 @@ class MockSession:
 
 class MockDummyToolCallingClass(ToolCallingMixin):
     def __init__(self):
+        self._tool_calling = self  # fake panel plays the composed ToolCallingMixin role
         self.ctx = MagicMock()
         self.session = MockSession()
         self.sidebar_state = SidebarCompositeState(

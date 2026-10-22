@@ -1610,3 +1610,71 @@ def test_delete_structure_validation():
             assert "count" in res["message"]
             manipulator.delete_structure.assert_not_called()
 
+
+def test_insert_cell_html_execution_and_validation():
+    from plugin.calc.cells import InsertCellHtml
+
+    ctx = SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), services=None)
+    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+        res = InsertCellHtml().execute(ctx, cell="A1", html="<b>bold</b>")
+        assert res["status"] == "ok"
+        mock_rich.assert_called_once_with(ctx.doc, ctx.ctx, "A1", "<b>bold</b>", config_svc=None)
+
+    # Empty cell address after strip
+    res_empty = InsertCellHtml().execute(ctx, cell="   ", html="<b>bold</b>")
+    assert res_empty["status"] == "error"
+    assert "cell is required" in res_empty["message"]
+
+    # Invalid cell address
+    res_inv = InsertCellHtml().execute(ctx, cell="invalid_cell_addr", html="<b>bold</b>")
+    assert res_inv["status"] == "error"
+    assert "Invalid cell address" in res_inv["message"]
+
+    # Missing required params raise KeyError
+    with pytest.raises(KeyError):
+        InsertCellHtml().execute(ctx, cell="A1")
+    with pytest.raises(KeyError):
+        InsertCellHtml().execute(ctx, html="<b>bold</b>")
+
+    # Non-string html raises AssertionError
+    with pytest.raises(AssertionError):
+        InsertCellHtml().execute(ctx, cell="A1", html=123)
+
+
+def test_schema_required_params_direct_call_assertions():
+    from plugin.calc.cells import (
+        DeleteStructure,
+        MergeCells,
+        ReadCellRange,
+        SetCellStyle,
+        SortRange,
+        WriteCellRange,
+    )
+
+    ctx = SimpleNamespace(doc=MagicMock())
+
+    # Range missing raises KeyError on direct execute
+    with pytest.raises(KeyError):
+        ReadCellRange().execute(ctx)
+    with pytest.raises(KeyError):
+        WriteCellRange().execute(ctx)
+    with pytest.raises(KeyError):
+        SetCellStyle().execute(ctx)
+    with pytest.raises(KeyError):
+        MergeCells().execute(ctx)
+    with pytest.raises(KeyError):
+        SortRange().execute(ctx, has_header=True)
+
+    # SortRange has_header missing or wrong type
+    with pytest.raises(KeyError):
+        SortRange().execute(ctx, range=["A1:B2"])
+    with pytest.raises(AssertionError):
+        SortRange().execute(ctx, range=["A1:B2"], has_header="true")
+
+    # DeleteStructure structure_type missing or invalid
+    with pytest.raises(KeyError):
+        DeleteStructure().execute(ctx, start=1)
+    with pytest.raises(AssertionError):
+        DeleteStructure().execute(ctx, structure_type="invalid", start=1)
+
+

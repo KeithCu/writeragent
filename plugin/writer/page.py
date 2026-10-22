@@ -1645,7 +1645,7 @@ class PageSetColumns(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
-        column_count = cast("int", kwargs.get("column_count"))
+        column_count: int = kwargs["column_count"]
         spacing_raw = kwargs.get("spacing_mm", 0)
 
         # type/enum checks are done by the tool schema in ToolRegistry

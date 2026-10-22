@@ -284,7 +284,7 @@ class SectionRead(ToolWriterStructuralBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        section_name = kwargs.get("section", "")
+        section_name = kwargs["section"]
         if not section_name:
             return self._tool_error("section is required.")
 

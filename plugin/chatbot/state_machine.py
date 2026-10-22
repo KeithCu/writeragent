@@ -131,14 +131,11 @@ class EffectInterpreter:
                 if terminal == "Ready":
                     self.handler._set_status("Ready")
             case SpawnDirectImageEffect(query_text=qt, model=mod):
-                target = getattr(self.handler, "_send_handlers", self.handler)
-                target._execute_direct_image_effect(qt, mod, self.current_state, self)
+                self.handler._send_handlers._execute_direct_image_effect(qt, mod, self.current_state, self)
             case SpawnAgentWorkerEffect(query_text=qt, model=mod, doc_type_str=dts):
-                target = getattr(self.handler, "_send_handlers", self.handler)
-                target._execute_agent_backend_effect(qt, mod, dts, self.current_state, self)
+                self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts, self.current_state, self)
             case SpawnWebWorkerEffect(query_text=qt, model=mod):
-                target = getattr(self.handler, "_send_handlers", self.handler)
-                target._execute_web_research_effect(qt, mod, self.current_state, self)
+                self.handler._send_handlers._execute_web_research_effect(qt, mod, self.current_state, self)
             case _:
                 # SendHandlerUIEffect kinds beyond append/status (and future effects): no-op.
                 pass

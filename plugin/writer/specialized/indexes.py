@@ -891,8 +891,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_content: str = kwargs.get("old_content") or ""
-        content: str = kwargs.get("content") or ""
+        old_content: str = kwargs["old_content"]
+        content: str = kwargs["content"]
         if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         if "\n" in content or "\r" in content:
@@ -1033,7 +1033,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_content: str = kwargs.get("old_content") or ""
+        old_content: str = kwargs["old_content"]
         if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         if _reject_markup(old_content):
@@ -1117,7 +1117,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        content: str = kwargs.get("content") or ""
+        content: str = kwargs["content"]
         if not content.strip():
             return self._tool_error("content must be a non-empty string.", code="INVALID_PARAM")
         content = content.strip()
@@ -1462,7 +1462,7 @@ class IndexesCreate(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        index_kind = kwargs.get("kind", "toc")
+        index_kind = kwargs["kind"]
         title = kwargs.get("title")
         create_from_outline = kwargs.get("create_from_outline", True)
         target = kwargs.get("target", "selection")
@@ -1573,7 +1573,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]
         doc = ctx.doc
-        mark_text = kwargs.get("text")
+        mark_text = kwargs["text"]
         index_kind = kwargs.get("kind", "alphabetical")
         primary_key = kwargs.get("primary_key")
         secondary_key = kwargs.get("secondary_key")

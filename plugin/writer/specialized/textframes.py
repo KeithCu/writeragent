@@ -101,7 +101,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        frame_name = kwargs.get("name", "")
+        frame_name = kwargs["name"]
         frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
@@ -155,7 +155,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        frame_name = kwargs.get("name", "")
+        frame_name = kwargs["name"]
         frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame

@@ -430,10 +430,10 @@ class DelegateToolDomains(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.send_cancellation import SendCancelled
 
-        names, names_err = normalize_domain_list(kwargs.get("domains"))
+        names, names_err = normalize_domain_list(kwargs["domains"])
         if names_err or not names:
             return self._tool_error(names_err or "domains must be a non-empty list of specialized domain names.", code="DOMAINS_REQUIRED")
-        task: str = kwargs.get("task") or ""
+        task: str = kwargs["task"]
         if not task.strip():
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 

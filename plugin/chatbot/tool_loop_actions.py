@@ -491,6 +491,7 @@ class ToolLoopActionHost(Protocol):
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
+    _tool_calling: Any
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
 
 
@@ -665,7 +666,6 @@ class ToolLoopEffectInterpreter:
         """Run one effect and return True when the drain loop should exit."""
 
         host = self.host
-        tool_calling: Any = getattr(host, "_tool_calling", host)
         if isinstance(effect, ExitLoopEffect):
             return True
         if isinstance(effect, TriggerNextToolEffect):
@@ -675,7 +675,7 @@ class ToolLoopEffectInterpreter:
             q = spawn_queue(turn) if turn is not None else None
             if turn is None or q is None or turn.active_client is None:
                 return True
-            tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
+            host._tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
                 return True
@@ -690,8 +690,8 @@ class ToolLoopEffectInterpreter:
             q = spawn_queue(turn) if turn is not None else None
             if turn is None or q is None or turn.active_client is None:
                 return True
-            tool_calling._refresh_active_tools_for_session()
-            tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
+            host._tool_calling._refresh_active_tools_for_session()
+            host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
             self._update_activity_state(effect)
         elif isinstance(effect, CleanupAudioEffect):

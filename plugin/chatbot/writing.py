@@ -93,7 +93,7 @@ class WritingResearchWeb(ToolWriterSpecialBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.chatbot.web_research import WebResearchTool
 
-        query = kwargs.get("query")
+        query = kwargs["query"]
         return WebResearchTool().execute(ctx, query=query)
 
 
@@ -129,7 +129,7 @@ class WriteDocumentSection(ToolWriterSpecialBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        content = normalize_html_content_array(kwargs.get("content"))
+        content = normalize_html_content_array(kwargs["content"])
         if not content:
             return self._tool_error("content must be a non-empty array of HTML strings.", code="INVALID_CONTENT")
 

@@ -161,7 +161,7 @@ class MemoryTool(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off
-        key = kwargs.get("key")
+        key = kwargs["key"]
         if not key:
             return self._tool_error("Key is required.")
         # Omit is an error. kwargs.get("content", "") treats a missing
