@@ -34,6 +34,7 @@ from .grammar_proofread_text import slice_preview_debug
 from .grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, next_enqueue_seq, grammar_queue
 
 from plugin.framework import config, queue_executor
+from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -47,10 +48,7 @@ def reset_grammar_llm_client_cache() -> None:
     """Clear thread-local cached LlmClient instance (for tests and cleanup)."""
     cached = getattr(_grammar_worker_tls, "client", None)
     if cached is not None:
-        try:
-            cached.stop()
-        except Exception:
-            pass
+        best_effort(cached.stop, "grammar LLM client stop failed")
     _grammar_worker_tls.client = None
     _grammar_worker_tls.cache_key = None
 
@@ -73,10 +71,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
         return cached_client
 
     if cached_client is not None:
-        try:
-            cached_client.stop()
-        except Exception:
-            pass
+        best_effort(cached_client.stop, "grammar LLM client stop failed")
 
     import importlib
 

@@ -338,7 +338,7 @@ def _collect_open_file_urls(
     except Exception:
         try:
             log.exception("_collect_open_file_urls failed")
-        except Exception:
+        except Exception:  # noqa: S110  PyUNO traceback conversion raises inside log.exception (GHA 34593327841)
             # PyUNO: logging a UNO exception can raise
             # "Couldn't convert traceback … getTypes" (GHA 34593327841).
             pass

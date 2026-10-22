@@ -403,14 +403,15 @@ def _visible_portions(
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
                     in_delete = not in_delete
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
             continue
         if in_delete:
             continue
         try:
             chunk = portion.getString()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("visible portion getString failed (%s)", type(exc).__name__)
             continue
         # A Frame portion (as-character formula/object) has no text but html export
         # still needs it in place; it adds zero to offsets.
@@ -691,8 +692,8 @@ def get_selection_text(model: Any) -> str | None:
     except DocumentDisposedError:
         # safe_call maps disposal to DocumentDisposedError; do not swallow it.
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("get_selection_text failed (%s)", type(exc).__name__)
     return None
 
 
@@ -858,8 +859,8 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
     try:
         vc.gotoRange(doc.getText().getStart(), False)
         in_body = True
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("with_view_cursor_left_body_locked: gotoRange to body start failed (%s)", type(exc).__name__)
     if in_body:
         doc.lockControllers()
     try:
@@ -870,8 +871,8 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
         if saved is not None:
             try:
                 vc.gotoRange(saved, False)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
 
 
 @main_thread_only

@@ -52,13 +52,13 @@ def _user_defined_property_exists(props: Any, name: str) -> bool:
         if info is not None and hasattr(info, "hasPropertyByName"):
             try:
                 return bool(info.hasPropertyByName(name))
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("hasPropertyByName failed for %s (%s)", name, type(exc).__name__)
     if hasattr(props, "hasByName"):
         try:
             return bool(props.hasByName(name))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("hasByName failed for %s (%s)", name, type(exc).__name__)
     return False
 
 
@@ -152,8 +152,8 @@ def set_document_property(model: Any, name: str, value: Any) -> None:
                 doc_url = model.getURL() or ""
             if hasattr(model, "isReadonly"):
                 readonly = str(model.isReadonly())
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("set_document_property url/readonly probe failed (%s)", type(exc).__name__)
 
         log.exception("set_document_property error (url=%s, readonly=%s)", doc_url, readonly)
         raise
@@ -163,5 +163,5 @@ def remove_document_property(doc: Any, name: str) -> None:
         props = doc.getDocumentProperties().getUserDefinedProperties()
         if props.getPropertySetInfo().hasPropertyByName(name):
             props.removeProperty(name)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("remove_document_property %s failed (%s)", name, type(exc).__name__)

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.errors import best_effort
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
@@ -404,21 +405,18 @@ class HarperLSClient:
             return
         for stream in (proc.stdin, proc.stdout):
             if stream is not None:
-                try:
-                    stream.close()
-                except Exception:
-                    pass
+                best_effort(stream.close, "harper pipe close failed")
         if proc.poll() is not None:
             return
+        def _kill() -> None:
+            proc.kill()
+            proc.wait(timeout=0.5)
+
         try:
             proc.terminate()
             proc.wait(timeout=0.5)
         except Exception:
-            try:
-                proc.kill()
-                proc.wait(timeout=0.5)
-            except Exception:
-                pass
+            best_effort(_kill, "[harper] kill after terminate failed")
 
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:

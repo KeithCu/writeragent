@@ -7,10 +7,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBaseDummy, ToolContext
+
+log = logging.getLogger(__name__)
 
 
 class DocumentHealthCheck(ToolBaseDummy):
@@ -93,9 +96,10 @@ class DocumentHealthCheck(ToolBaseDummy):
                 bm = bookmarks.getByName(name)
                 try:
                     anchor = bm.getAnchor()
-                except Exception:
+                except Exception as exc:
                     # getAnchor can throw on a collapsed mark. The name
                     # still exists; do not call that broken.
+                    log.debug("bookmark %s getAnchor failed (%s)", name, type(exc).__name__)
                     continue
                 if anchor is None:
                     issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
@@ -128,8 +132,8 @@ class DocumentHealthCheck(ToolBaseDummy):
                     g = uno_read(lambda: obj.getPropertyValue("Graphic"), None)
                     if g is None:
                         issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("graphic %s health check failed (%s)", name, type(exc).__name__)
 
         return {"status": "ok", "issues": issues, "issue_count": len(issues), "paragraph_count": len(para_ranges), "total_headings": total_headings}
 

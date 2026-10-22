@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from plugin.contrib.pooch import HTTPDownloader, Untar, Unzip, retrieve
 from plugin.framework.constants import USER_AGENT
+from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -258,11 +259,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
         log.exception("[harper] Failed to download and extract binary")
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}") from e
     finally:
-        try:
-            if tmp_binary.exists():
-                tmp_binary.unlink()
-        except Exception:
-            pass
+        best_effort(lambda: tmp_binary.unlink() if tmp_binary.exists() else None, "[harper] temp binary unlink failed")
 
 
 # TEMP(2026-07): Remove after ~2026-09 — migrates Harper from profile bin/ to harper/.

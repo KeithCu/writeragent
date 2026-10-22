@@ -272,7 +272,7 @@ def get_document_context_for_chat(
             sel_text = _text_helpers.get_selection_text(model)
             if sel_text:
                 return f"[Document context resolution failed. Active selection: {sel_text}]"
-        except Exception:
+        except DocumentDisposedError:
             pass
         return "[Document content unavailable]"
 
@@ -577,13 +577,13 @@ def _ensure_cache_listener(doc: Any, key: str) -> None:
         try:
             if can_modify:
                 doc.removeModifyListener(modify)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("cache modify listener rollback failed (%s)", type(exc).__name__)
         try:
             if can_unload:
                 doc.removeDocumentEventListener(unload)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("cache unload listener rollback failed (%s)", type(exc).__name__)
         return
     _CACHE_LISTENERS[key] = _CacheListenerPair(key, modify, unload, doc)
 
@@ -616,7 +616,8 @@ class DocumentService(ServiceBase):
                 try:
                     if doc.supportsService("com.sun.star.document.OfficeDocument"):
                         docs.append(doc)
-                except Exception:
+                except Exception as exc:
+                    log.debug("open_documents: skip component (%s)", type(exc).__name__)
                     continue
         except Exception:
             log.debug("open_documents failed", exc_info=True)
@@ -640,7 +641,8 @@ class DocumentService(ServiceBase):
         for doc in self.open_documents():
             try:
                 found.setdefault(self.detect_doc_type(doc), doc)
-            except Exception:
+            except Exception as exc:
+                log.debug("open_documents_by_type: skip document (%s)", type(exc).__name__)
                 continue
         return found
 

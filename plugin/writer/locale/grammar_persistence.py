@@ -796,8 +796,8 @@ def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
                 tc.gotoStartOfParagraph(False)
                 tc.gotoEndOfParagraph(True)
                 return tc.getString()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("paragraph text for range failed (%s)", type(exc).__name__)
     return None
 
 

@@ -77,8 +77,8 @@ def get_visual_doc_type(doc: Any) -> str:
         try:
             if doc.supportsService(WEB_DOCUMENT_SERVICE):
                 return "web"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("get_visual_doc_type: WebDocument probe failed (%s)", type(exc).__name__)
 
     doc_type = get_document_type(doc)
     if doc_type == DocumentType.UNKNOWN:
@@ -182,8 +182,8 @@ def has_uno_property(obj: Any, name: str) -> bool:
         psi = obj.getPropertySetInfo()
         if psi is not None and hasattr(psi, "hasPropertyByName"):
             return bool(psi.hasPropertyByName(name))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("has_uno_property %s probe failed (%s)", name, type(exc).__name__)
     return False
 
 
@@ -376,8 +376,8 @@ def is_graphic_object(obj: Any) -> bool:
     try:
         if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("is_graphic_object service probe failed (%s)", type(exc).__name__)
 
     # Some TextGraphicObject instances expose GraphicURL even when Graphic cannot
     # be read directly. The property read is guarded to avoid PyUNO probe errors.
@@ -469,7 +469,8 @@ def _graphics_in_text_range(doc: Any, range_obj: Any) -> list[tuple[str, Any]]:
             if text.compareRegionStarts(anchor_start, sel_end) < 0:
                 continue
             found.append((name, graphic))
-        except Exception:
+        except Exception as exc:
+            log.debug("graphic %s anchor compare failed (%s)", name, type(exc).__name__)
             continue
     return _sort_graphics_by_anchor(text, found)
 
@@ -610,8 +611,8 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                     if sheet_name is None and hasattr(sheet, "getName"):
                         try:
                             sheet_name = sheet.getName()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            log.debug("list_graphic_objects sheet %s name failed (%s)", sheet_idx, type(exc).__name__)
                     for i in range(draw_page.getCount()):
                         shape = draw_page.getByIndex(i)
                         if is_graphic_object(shape):

@@ -445,8 +445,8 @@ class SearchDialog:
                                     existing = ctrl.getModel().Text
                                     new_text = (existing + "\n" if existing else "") + line
                                     ctrl.getModel().Text = new_text
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                log.debug("search rebuild heartbeat UI update failed (%s)", type(exc).__name__)
 
                         execute_on_main_thread(ui_update)
                         del hb_data[file]
@@ -492,8 +492,8 @@ class SearchDialog:
                     btn_search = dlg.getControl("BtnSearch")
                     if btn_search:
                         btn_search.getModel().Enabled = True
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("search results UI update failed (%s)", type(exc).__name__)
 
         execute_on_main_thread(_update)
 
@@ -512,8 +512,8 @@ class SearchDialog:
                     btn_rebuild = dlg.getControl("BtnRebuild")
                     if btn_rebuild:
                         btn_rebuild.getModel().Enabled = True
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("search rebuild UI update failed (%s)", type(exc).__name__)
 
         execute_on_main_thread(_update)
 
