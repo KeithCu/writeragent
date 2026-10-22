@@ -164,12 +164,7 @@ def test_track_changes_list():
 def test_track_changes_show():
     ctx, _, _, view_settings = _create_mock_ctx()
     tool = TrackChangesShow()
-    
-    # Missing arg
-    res_err = tool.execute(ctx)
-    assert res_err["status"] == "error"
-    assert "Missing required parameter" in res_err["message"]
-    
+
     props = {"RedlineDisplayType": 1}
     def _set_prop(name, val):
         props[name] = val
@@ -193,6 +188,15 @@ def test_track_changes_show():
     assert res_false["message"] == "Hiding tracked changes markup."
     assert props["RedlineDisplayType"] == 1
     view_settings.setPropertyValue.assert_not_called()
+
+
+def test_track_changes_show_type_assertion():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesShow()
+    with pytest.raises(AssertionError):
+        tool.execute(ctx, show="not-a-bool")  # type: ignore[arg-type]
+    with pytest.raises(KeyError):
+        tool.execute(ctx)
 
 
 def test_track_changes_show_readback_mismatch():
@@ -439,6 +443,16 @@ def test_manage_tracked_changes_invalid_action():
     ctx, dispatcher, _frame, _ = _create_mock_ctx()
     res = ManageTrackedChanges().execute(ctx, action="squash")
     assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_manage_tracked_changes_index_type_assertion():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
+    with pytest.raises(AssertionError):
+        tool.execute(ctx, action="accept", index="two")  # type: ignore[arg-type]
+    with pytest.raises(AssertionError):
+        tool.execute(ctx, action="accept", index=True)  # type: ignore[arg-type]
     dispatcher.executeDispatch.assert_not_called()
 
 # --- Agent-self-resolution guard (B3): the agent must never accept/reject its OWN edits --------

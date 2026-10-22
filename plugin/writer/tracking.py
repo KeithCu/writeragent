@@ -330,11 +330,8 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        show = kwargs.get("show")
-        if show is None:
-            return self._tool_error("Missing required parameter: show")
-
-        show_b = bool(show)
+        show_b: bool = kwargs["show"]
+        assert isinstance(show_b, bool)
         # What was wrong: checked controller.getViewSettings to decide Writer vs Calc, but Calc controllers might also implement getViewSettings.
         # How it happened: relied on view service distinction rather than document capability.
         # Why this change fixes it: branch on hasattr(ctx.doc, 'getRedlines') to distinguish Writer from Calc.
@@ -396,11 +393,12 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        action = kwargs.get("action")
+        action = kwargs["action"]
         if action in ("accept_all", "reject_all"):
             return self._execute_all(ctx, is_accept=(action == "accept_all"))
         index = kwargs.get("index")
-        if index is None or not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        assert index is None or (isinstance(index, int) and not isinstance(index, bool))
+        if index is None or index < 0:
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
 
