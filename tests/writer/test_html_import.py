@@ -497,7 +497,7 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 def test_nested_blocks_share_one_style_slot():
     """<blockquote><p> and <li><p> are ONE Writer paragraph: two slots shifted every later style
     ("2. DO DIREITO" lost its heading) and the leftover ones hit old text (relatos #35/#40)."""
-    from plugin.writer.html_import import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import _extract_block_lo_styles
 
     html = ('<h1 data-lo-style="Heading1">T</h1>'
             '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
@@ -509,7 +509,7 @@ def test_nested_blocks_share_one_style_slot():
 
 
 def test_second_block_inside_a_block_gets_its_own_slot():
-    from plugin.writer.html_import import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import _extract_block_lo_styles
 
     _clean, styles = _extract_block_lo_styles(
         '<li data-lo-style="List"><p>a</p><p data-lo-style="Standard">b</p></li><p data-lo-style="Standard">c</p>')
@@ -521,7 +521,7 @@ def test_block_styles_stop_at_the_end_of_the_import():
     text a full_document had just deleted: its Delete turned into a Format change)."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import html_import
+    from plugin.writer import html_import_styles
 
     text = MagicMock()
     walk_cur = MagicMock()
@@ -544,7 +544,7 @@ def test_block_styles_stop_at_the_end_of_the_import():
     start_cursor = MagicMock()
     from plugin.writer import format as format_mod
     with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
-        html_import._apply_block_lo_styles(
+        html_import_styles._apply_block_lo_styles(
             MagicMock(), text, start_cursor, ["Heading1", "Standard", "Standard", "Heading2"], end=end,
         )
     assert apply.call_count == 2
@@ -552,7 +552,7 @@ def test_block_styles_stop_at_the_end_of_the_import():
 
 def test_apply_block_lo_styles_token_cache_reads_element_names_once():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import_styles
 
     model = MagicMock()
     fam = MagicMock()
@@ -567,7 +567,7 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
 
     from plugin.writer import format as format_mod
     with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
-        html_import._apply_block_lo_styles(
+        html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1", "Heading1"],
         )
     fam.getElementNames.assert_called_once()
@@ -578,7 +578,7 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
 
 def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import_styles
 
     model = MagicMock()
     fam = MagicMock()
@@ -594,7 +594,7 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
 
     from plugin.writer import format as format_mod
     with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
-        html_import._apply_block_lo_styles(
+        html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     assert apply.call_args.args[2] == "Standard"
@@ -647,7 +647,7 @@ def test_full_document_without_review_imports_in_place():
     ],
 )
 def test_styled_div_is_a_slot_and_plain_div_is_not(value, value_2):
-    from plugin.writer.html_import import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import _extract_block_lo_styles
 
     _clean, styles = _extract_block_lo_styles(
         value)
@@ -933,7 +933,7 @@ def test_content_has_markup_cases():
 
 
 def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
-    from plugin.writer import html_import
+    from plugin.writer import html_import_styles
 
     text = MagicMock()
     next_calls = []
@@ -945,18 +945,18 @@ def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
     text.createTextCursorByRange.return_value = walk_cur
     walk_cur.gotoNextParagraph.return_value = False
 
-    html_import._apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
+    html_import_styles._apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
 
     assert len(next_calls) == 0, "createEnumeration should not be called when cursor is provided"
     walk_cur.gotoStartOfParagraph.assert_called_once_with(False)
 
 
 def test_styled_insert_propagates_style_pass_failure():
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_import_styles
 
     cursor = MagicMock()
     cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
-    with patch.object(html_import, "_apply_block_lo_styles", side_effect=RuntimeError("style")), \
+    with patch.object(html_import_styles, "_apply_block_lo_styles", side_effect=RuntimeError("style")), \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
         with pytest.raises(RuntimeError, match="style"):
             html_import._insert_mixed_or_plain_html(
@@ -1106,7 +1106,8 @@ def test_trailing_paragraph_disposal_is_not_success():
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _resolve_paragraph_style_token, _uno_service_true
+    from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _uno_service_true
+    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
 
     class DisposedException(Exception):
         pass
@@ -1136,7 +1137,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
     """The math path moves the cursor past the content, so styling starts after the paragraph before it."""
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_import_styles
 
     cursor = MagicMock()
     before = MagicMock()
@@ -1144,7 +1145,7 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
          patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
          patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
-         patch.object(html_import, "_apply_block_lo_styles") as apply, \
+         patch.object(html_import_styles, "_apply_block_lo_styles") as apply, \
          patch.object(html_import, "_cursor_goto_document_end"):
         html_import._insert_mixed_or_plain_html(
             MagicMock(), MagicMock(), cursor,
