@@ -1374,7 +1374,16 @@ def evaluate_name(
     elif name.id in ERRORS:
         return ERRORS[name.id]
     hint = _close_match_hint(name.id, list(state.keys()), label="variables")
-    raise InterpreterError(f"The variable `{name.id}` is not defined{hint}.")
+    # What was wrong: a missing name raised InterpreterError, a ValueError.
+    # How: evaluate_try matches handlers with isinstance. The stateful benchmark
+    # does `except NameError` around `counter += 1`. InterpreterError is not a
+    # NameError, so the handler never ran, counter was never stored, and every
+    # later cell on that shared kernel failed the same way. Subscript
+    # KeyError/IndexError were unwrapped for this reason in 7560ccae9.
+    # Why: CPython raises NameError, so the handler runs and the assignment
+    # sticks. An uncaught NameError is still wrapped as InterpreterError by
+    # evaluate_python_code, so a bare missing name stays an executor error.
+    raise NameError(f"name '{name.id}' is not defined{hint}")
 
 
 COMPARE_OPERATORS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
@@ -2289,8 +2298,18 @@ def evaluate_python_code(
                 print_container.value = truncate_content(
                     str(print_container), max_length=max_print_outputs_length
                 )
+                # Bugfix: What was wrong: evaluate_name was changed to raise NameError so
+                # scripts could catch missing names via `except NameError`. However, uncaught
+                # NameErrors were formatted with `due to: NameError:`, which Calc add-in worker
+                # exception classification mapped to #NAME? (525) instead of the historical
+                # executor failure #VALUE! (519).
+                # How it happened: evaluate_python_code interpolated type(e).__name__.
+                # Why this change fixes it: formatting uncaught NameError with `due to: InterpreterError:`
+                # preserves the pre-NameError worker failure formatting and Calc #VALUE! (519) error
+                # while allowing `except NameError` inside user scripts.
+                exc_type_name = "InterpreterError" if isinstance(e, NameError) else type(e).__name__
                 raise InterpreterError(
-                    f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {type(e).__name__}: {e}"
+                    f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"
                 )
         finally:
             if stack and stack[-1] is print_container:

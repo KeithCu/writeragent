@@ -2308,6 +2308,7 @@ def test_worker_exception_error_code_and_stays_text() -> None:
         ("Code execution failed at line 'x' due to: FloatingPointError: underflow", 503),
         ("Code execution failed at line 'x' due to: NameError: name 'nope' is not defined", 525),
         ("Code execution failed at line 'x' due to: UnboundLocalError: local variable referenced before assignment", 525),
+        ("Code execution failed at line 'bad' due to: InterpreterError: name 'bad' is not defined", 519),
         ("Code execution failed at line 'x' due to: ValueError: invalid literal", 519),
         ("Code execution failed at line 'x' due to: IndexError: list index out of range", 519),
         ("Code execution failed at line 'x' due to: NotImplementedError: bahttext", 519),
@@ -2399,6 +2400,18 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     out_exc = python_function.execute_python_addin(ctx, "exc_code", doc=doc)
     assert isinstance(out_exc, str)
     assert "host blew up" in out_exc
+
+    # 5b. Missing-name worker error formatted as due to: InterpreterError: name 'bad' is not defined -> 519 double
+    missing_msg = "Code execution failed at line 'bad' due to: InterpreterError: name 'bad' is not defined"
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": missing_msg},
+    )
+    out_missing = python_function.execute_python_addin(ctx, "bad", doc=doc)
+    assert isinstance(out_missing, float)
+    raw_missing = struct.unpack("Q", struct.pack("d", out_missing))[0]
+    assert raw_missing & 0xFFFF == 519
 
     # 6. Successful result="#N/A" -> the 32767 double
     monkeypatch.setattr(

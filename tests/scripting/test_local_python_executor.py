@@ -392,6 +392,35 @@ except IndexError:
     assert executor.state["result3"] == "caught_index_error"
 
 
+def test_except_nameerror_initializes_missing_name():
+    # stateful_session benchmark: except NameError must catch a missing name.
+    # InterpreterError from evaluate_name skipped the handler, so counter
+    # never stuck and every later call failed the same way.
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    code = "try:\n    counter += 1\nexcept NameError:\n    counter = 1\nresult = counter"
+    executor(code)
+    assert executor.state["counter"] == 1
+    assert executor.state["result"] == 1
+    executor(code)
+    assert executor.state["counter"] == 2
+    assert executor.state["result"] == 2
+
+
+def test_missing_name_uncaught_worker_failure_formatting():
+    # An uncaught missing name raises NameError in evaluate_name so user code
+    # can catch it, but evaluate_python_code wraps uncaught NameErrors as
+    # `due to: InterpreterError:` so the worker failure preserves the historical
+    # executor failure formatting and maps to #VALUE! (519) in Calc formulas.
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("missing_variable")
+    msg = str(exc_info.value)
+    assert msg.startswith("Code execution failed at line 'missing_variable' due to: InterpreterError:")
+    assert "name 'missing_variable' is not defined" in msg
+
+
 def test_subscript_evaluates_value_before_index():
     executor = LocalPythonExecutor(additional_authorized_imports=[])
     order = []
