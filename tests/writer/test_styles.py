@@ -607,11 +607,11 @@ def test_clone_style_requires_names():
     family = _style_family({"Src": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    missing_style = StyleClone().execute(mock_ctx, new_style="Dst")
+    missing_style = StyleClone().execute(mock_ctx, style="", new_style="Dst")
     assert missing_style["status"] == "error"
     assert "style is required" in missing_style["message"]
 
-    missing_new = StyleClone().execute(mock_ctx, style="Src")
+    missing_new = StyleClone().execute(mock_ctx, style="Src", new_style="")
     assert missing_new["status"] == "error"
     assert "new_style is required" in missing_new["message"]
 

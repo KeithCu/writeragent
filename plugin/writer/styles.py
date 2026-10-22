@@ -827,7 +827,7 @@ class StyleGetInfo(ToolWriterStyleBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "")
+        style_name = kwargs["style"]
         family = kwargs.get("family", "ParagraphStyles")
 
         # In-process dispatch to the same reader page_get_style_properties uses — not an error
@@ -973,7 +973,7 @@ class ApplyStyle(FrameworkToolBase):
         return val
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = str(kwargs.get("style") or "").strip()
+        style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
 
@@ -1183,7 +1183,7 @@ class StyleUpdate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = str(kwargs.get("style") or "").strip()
+        style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
 
@@ -1323,7 +1323,7 @@ class StyleCreate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = str(kwargs.get("style") or "").strip()
+        style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
 
@@ -1460,8 +1460,8 @@ class StyleClone(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = str(kwargs.get("style") or "").strip()
-        new_name = str(kwargs.get("new_style") or "").strip()
+        style_name = kwargs["style"].strip()
+        new_name = kwargs["new_style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
         if not new_name:
@@ -1544,7 +1544,7 @@ class StyleImport(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        file_path: str = kwargs.get("path") or ""
+        file_path: str = kwargs["path"]
         if not file_path.strip():
             return self._tool_error("path is required.")
         file_path = file_path.strip()
