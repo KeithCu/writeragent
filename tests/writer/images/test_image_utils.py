@@ -776,13 +776,17 @@ def test_temp_cleanup_on_failure():
         assert "exceeded" in str(exc_info.value)
 
 
-def test_save_b64_rejects_oversized(monkeypatch):
+def test_save_b64_rejects_oversized(monkeypatch, tmp_path):
     import glob
     import tempfile
     from plugin.writer.images.image_utils import EndpointImageProvider
 
     provider = EndpointImageProvider({"model": "test"}, None)
     monkeypatch.setattr("plugin.writer.images.image_utils.IMAGE_DOWNLOAD_MAX_BYTES", 100)
+    # Isolate temp dir to tmp_path: previously, checking the shared system temp dir
+    # caused flakiness in parallel test runs (pytest -n) because concurrent tests
+    # on other xdist workers could create wa-img-* files in /tmp during execution.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     # 101 bytes raw base64 encoded
     raw = b"\x89PNG\r\n\x1a\n" + b"x" * 95
@@ -793,6 +797,7 @@ def test_save_b64_rejects_oversized(monkeypatch):
         provider._save_b64(b64_str)
     after = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
     assert after == before
+    assert not after
 
 
 def test_save_b64_rejects_non_image_bytes():
