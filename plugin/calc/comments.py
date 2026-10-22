@@ -109,8 +109,8 @@ class AddCellComment(ToolCalcCommentBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        cell_ref = kwargs.get("cell", "")
-        text = kwargs.get("text", "")
+        cell_ref = kwargs["cell"]
+        text = kwargs["text"]
         if not cell_ref or not text:
             return self._tool_error("cell and text are required.")
 
@@ -158,7 +158,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        cell_ref = kwargs.get("cell", "")
+        cell_ref = kwargs["cell"]
         if not cell_ref:
             return self._tool_error("cell is required.")
 

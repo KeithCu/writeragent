@@ -178,7 +178,7 @@ class FillDrawFields(ToolDrawShapeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        fields = kwargs.get("fields") or []
+        fields = kwargs["fields"]
         if not fields:
             return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
 

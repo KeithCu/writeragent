@@ -19,6 +19,7 @@ from plugin.framework.openrouter_model_id import (
 )
 from plugin.framework.ast_stmt_edit import (
     remove_expr_statements,
+    remove_statements,
 )
 from plugin.framework.default_models import (
     resolve_model_id,
@@ -68,6 +69,25 @@ def test_remove_expr_statements_contracts(src: str) -> None:
     assert count >= 0
     # Output must be valid Python syntax
     import ast
+    ast.parse(res_src)
+
+
+@given(src=st.sampled_from([
+    "assert x > 0\ny = 2",
+    "if True:\n    assert x\n",
+    "def foo():\n    assert x\n    return 42",
+]))
+def test_remove_statements_contracts(src: str) -> None:
+    import ast
+
+    def _match(node: ast.stmt) -> bool:
+        return isinstance(node, ast.Assert)
+
+    res_src, count = remove_statements(src, _match)
+    assert isinstance(res_src, str)
+    assert isinstance(count, int)
+    assert count >= 0
+    # Output must be valid Python syntax
     ast.parse(res_src)
 
 

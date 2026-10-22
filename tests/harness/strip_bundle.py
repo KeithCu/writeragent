@@ -5,7 +5,8 @@
 """Helpers for tests that run against both checkout source and stripped release bundles.
 
 ``make release`` runs pytest on a stripped temp tree (typically under ``/tmp``) after
-``scripts/strip_code.py`` removes ``@deal.*`` and logger ``.debug`` / ``.info`` call sites.
+``scripts/strip_code.py`` removes assert statements, ``@deal.*`` decorators, and
+logger ``.debug`` / ``.info`` call sites.
 ``make test-run`` uses unstripped source with deal installed. Assertions must accept both.
 """
 

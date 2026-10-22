@@ -168,8 +168,8 @@ class InsertMathDraw(ToolDrawSpecialBase):
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 
-        formula_type = kwargs.get("formula_type")
-        formula: str = kwargs.get("formula") or ""
+        formula_type = kwargs["formula_type"]
+        formula: str = kwargs["formula"]
         if not formula.strip():
             return self._tool_error("formula must be a non-empty string.")
 

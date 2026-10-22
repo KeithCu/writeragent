@@ -44,7 +44,7 @@ def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, write
 
 def test_symbolic_math_requires_helper(writer_ctx):
     tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx)
+    result = tool.execute(writer_ctx, helper="")
     assert result["status"] == "error"
 
 

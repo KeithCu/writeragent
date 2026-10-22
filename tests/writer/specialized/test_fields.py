@@ -206,10 +206,6 @@ def test_fields_delete(mock_ctx):
 
 def test_fields_delete_validation_and_missing_ids(mock_ctx):
     tool = FieldsDelete()
-    # Non-list
-    res = tool.execute(mock_ctx, ids="1")
-    assert res["status"] == "error"
-    assert "must be a list of integers" in res["message"]
 
     # Boolean rejected
     res = tool.execute(mock_ctx, ids=[True])

@@ -11,6 +11,7 @@ import os
 from scripts.strip_code import (
     should_skip_print_strip,
     should_skip_strip,
+    strip_assert_statements,
     strip_deal_decorators,
     strip_grammar_obs_calls,
     strip_log_debug_info_calls,
@@ -444,3 +445,107 @@ def test_strip_code_fails_on_syntax_error(tmp_path: Path) -> None:
         strip_production_code(str(tmp_path), dry_run=False)
     assert "Failed stripping" in str(exc_info.value)
     assert "plugin/bad.py" in str(exc_info.value)
+
+
+def test_strip_assert_removes_statements_and_compiles(tmp_path: Path) -> None:
+    test_file = tmp_path / "mock_file.py"
+    original_code = (
+        "assert True\n"
+        "\n"
+        "def check(x):\n"
+        "    assert x > 0, 'must be positive'\n"
+        "    y = x * 2\n"
+        "    assert y > x\n"
+        "    assert (\n"
+        "        y % 2 == 0\n"
+        "    ), 'must be even'\n"
+        "    assert 1; z = y + 1\n"
+        "    return z\n"
+    )
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_assert_statements(str(tmp_path), dry_run=False)
+
+    stripped = test_file.read_text(encoding="utf-8")
+    tree = ast.parse(stripped)
+    assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
+    compiled = compile(stripped, str(test_file), "exec")
+    ns: dict[str, object] = {}
+    exec(compiled, ns)
+    check_fn = ns["check"]
+    assert callable(check_fn)
+    # Even with x = -5 (which would have failed assert x > 0), the function succeeds because asserts were stripped
+    assert check_fn(-5) == -9
+
+
+def test_strip_assert_keeps_pass_when_needed(tmp_path: Path) -> None:
+    test_file = tmp_path / "mock_file.py"
+    original_code = (
+        "def empty_func():\n"
+        "    assert 1 == 1\n"
+        "\n"
+        "def branch(x):\n"
+        "    if x:\n"
+        "        assert x > 0\n"
+        "    else:\n"
+        "        assert x <= 0\n"
+        "    try:\n"
+        "        assert x != 42\n"
+        "    except Exception:\n"
+        "        assert False\n"
+        "    if not x: assert True\n"
+        "    while False:\n"
+        "        assert False\n"
+        "        assert 0\n"
+    )
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_assert_statements(str(tmp_path), dry_run=False)
+
+    stripped = test_file.read_text(encoding="utf-8")
+    tree = ast.parse(stripped)
+    assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
+    compiled = compile(stripped, str(test_file), "exec")
+    ns: dict[str, object] = {}
+    exec(compiled, ns)
+    ns["empty_func"]()
+    ns["branch"](10)
+    ns["branch"](0)
+
+
+def test_strip_assert_dry_run(tmp_path: Path) -> None:
+    test_file = tmp_path / "mock_file.py"
+    original_code = "def f():\n    assert True\n    return 1\n"
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_assert_statements(str(tmp_path), dry_run=True)
+
+    assert test_file.read_text(encoding="utf-8") == original_code
+
+
+def test_strip_production_code_strips_asserts(tmp_path: Path) -> None:
+    test_file = tmp_path / "mock_file.py"
+    original_code = (
+        "from plugin.framework.deal_shim import deal\n"
+        "\n"
+        "@deal.pre(lambda x: x > 0)\n"
+        "def f(x):\n"
+        "    assert x > 0\n"
+        "    print('logging value', x)\n"
+        "    log.debug('debug value: %s', x)\n"
+        "    return x * 10\n"
+    )
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_production_code(str(tmp_path), dry_run=False)
+
+    stripped = test_file.read_text(encoding="utf-8")
+    tree = ast.parse(stripped)
+    assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
+    assert "@deal.pre" not in stripped
+    assert "print(" not in stripped
+    assert "log.debug" not in stripped
+    compiled = compile(stripped, str(test_file), "exec")
+    ns: dict[str, object] = {}
+    exec(compiled, ns)
+    assert ns["f"](5) == 50

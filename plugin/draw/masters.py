@@ -69,7 +69,7 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
         doc = ctx.doc
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(doc, page_idx)
-        master_name = kwargs.get("master")
+        master_name = kwargs["master"]
         if not master_name:
             return self._tool_error("master is required.")
 

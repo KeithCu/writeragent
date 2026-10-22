@@ -177,9 +177,8 @@ class FieldsDelete(ToolWriterFieldBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         snapshot = kwargs.get("snapshot")
-        raw_ids = kwargs.get("ids")
-        if not isinstance(raw_ids, list):
-            return self._tool_error("Parameter 'ids' must be a list of integers.")
+        raw_ids: list[Any] = kwargs["ids"]
+        assert isinstance(raw_ids, list)
 
         cleaned_ids: list[int] = []
         seen = set()
@@ -303,7 +302,7 @@ class FieldsInsert(ToolWriterFieldBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        field_type = kwargs.get("field")
+        field_type = kwargs["field"]
         properties = kwargs.get("properties")
         doc = ctx.doc
         if not hasattr(doc, "createInstance"):

@@ -54,7 +54,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        text = kwargs.get("text", "")
+        text = kwargs["text"]
         append = kwargs.get("append", False)
 
         actual_idx, page = _slide(ctx, kwargs.get("page"))

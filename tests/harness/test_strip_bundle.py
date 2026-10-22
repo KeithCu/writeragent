@@ -40,3 +40,18 @@ def test_skip_if_release_build_is_noop_in_checkout() -> None:
     if is_release_build():
         return
     skip_if_release_build("must not skip unstripped checkout")
+
+
+def test_stripped_plugin_module_has_no_asserts_in_release() -> None:
+    """When running in a release build, plugin modules must have assert statements stripped and compile."""
+    if not is_release_build():
+        return
+    import ast
+    import inspect
+    import plugin.chatbot.history_db as history_db
+
+    source = inspect.getsource(history_db)
+    tree = ast.parse(source)
+    asserts = [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
+    assert not asserts, f"Found {len(asserts)} assert statement(s) in {history_db.__name__}"
+    compile(source, history_db.__file__, "exec")

@@ -641,10 +641,7 @@ class TableSetCell(ToolWriterTableBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()
-        # kwargs.get("cell") without str() raises AttributeError on
-        # non-string inputs. TableSetCell must not call .strip() on the
-        # raw value. Coerce with str(...) before stripping whitespace.
-        cell_raw = str(kwargs.get("cell") or "").strip()
+        cell_raw = kwargs["cell"].strip()
         # type/required checks are done by the tool schema in ToolRegistry
         text = kwargs["text"]
         try:
@@ -730,12 +727,10 @@ class ManageTableStructure(ToolWriterTableBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        action = kwargs.get("action")
-        axis_arg = kwargs.get("axis")
-        if action not in ("insert", "delete"):
-            return self._tool_error("action must be 'insert' or 'delete'.")
-        if axis_arg not in ("row", "column"):
-            return self._tool_error("axis must be 'row' or 'column'.")
+        action = kwargs["action"]
+        axis_arg = kwargs["axis"]
+        assert action in ("insert", "delete")
+        assert axis_arg in ("row", "column")
         name = str(kwargs.get("name") or "").strip()
         # type/required checks are done by the tool schema in ToolRegistry
         idx = kwargs["index"]
@@ -754,7 +749,7 @@ class ManageTableStructure(ToolWriterTableBase):
                     page=kwargs.get("page"),
                     index=kwargs.get("shape_index"),
                 )
-                rows, cols = manage_draw_structure(entry, str(action), str(axis_arg), idx)
+                rows, cols = manage_draw_structure(entry, action, axis_arg, idx)
                 return {
                     "status": "ok",
                     "table_name": entry.get("name") or name,

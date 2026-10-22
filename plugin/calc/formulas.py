@@ -188,7 +188,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        formula_string = (kwargs.get("formula") or "").strip()
+        formula_string = kwargs["formula"].strip()
         cell_address = (kwargs.get("cell") or "A1").strip()
         if not formula_string:
             return self._tool_error("formula is required")

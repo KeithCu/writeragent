@@ -53,13 +53,14 @@ class SymbolicMathTool(ToolCalcPythonBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        helper = str(kwargs.get("helper") or "").strip()
+        helper = kwargs["helper"].strip()
         if not helper:
             return self._tool_error("helper is required")
         if helper not in HELPER_NAMES:
             return self._tool_error(f"Unknown helper {helper!r}")
 
-        params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
+        params = kwargs.get("params")
+        assert params is None or isinstance(params, dict)
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         display_block = bool(kwargs.get("display_block", False))
 
