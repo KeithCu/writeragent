@@ -41,7 +41,7 @@ def calc_mcp_setup():
 
     # Mock main thread executor
     main_thread = MagicMock()
-    main_thread.execute.side_effect = lambda fn, *a, **kw: fn(*a, **{k: v for k, v in kw.items() if k != "timeout"})
+    main_thread.execute.side_effect = lambda fn, *a, **kw: fn(*a, **{k: v for k, v in kw.items() if k not in ("timeout", "bound_scope")})
     services.register("main_thread", main_thread)
 
     config_svc = MagicMock()

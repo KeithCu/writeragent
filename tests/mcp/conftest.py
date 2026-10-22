@@ -58,6 +58,7 @@ def mcp_server():
 
     def mock_execute(fn, *args, **kwargs):
         kwargs.pop("timeout", None)
+        kwargs.pop("bound_scope", None)
         return fn(*args, **kwargs)
 
     main_thread.execute.side_effect = mock_execute

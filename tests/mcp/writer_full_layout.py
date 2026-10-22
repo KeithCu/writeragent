@@ -10,6 +10,7 @@ and provides verification against MCP wire format requirements.
 
 from __future__ import annotations
 
+import tempfile
 from typing import Any, Dict, List, Mapping, Tuple
 from unittest.mock import MagicMock
 
@@ -19,12 +20,24 @@ from plugin.framework.tool import ToolBase, ToolRegistry, to_mcp_schema
 from plugin.writer import WriterModule
 
 
+def _ensure_headless_config() -> None:
+    """Ensure config is initialized with a valid UserConfig temp directory for headless runs."""
+    from plugin.framework.config import _resolved_config_path
+
+    if _resolved_config_path is not None:
+        return
+    ctx = MagicMock()
+    path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+    path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-mcp-cfg-")
+    init_config(ctx)
+
+
 def get_writer_tool_registry(
     services: ServiceRegistry | None = None,
 ) -> Tuple[ServiceRegistry, ToolRegistry]:
     """Create and initialize an isolated ServiceRegistry and ToolRegistry loaded with Writer tools."""
     # Ensure config initialized with mock context for headless/isolated test execution
-    init_config(MagicMock())
+    _ensure_headless_config()
 
     if services is None:
         services = ServiceRegistry()

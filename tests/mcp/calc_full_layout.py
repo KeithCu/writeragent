@@ -14,10 +14,10 @@ from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 
 from plugin.calc import CalcModule
-from plugin.framework.config import init_config
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolBase, ToolRegistry, to_mcp_schema
 from tests.mcp.writer_full_layout import (
+    _ensure_headless_config,
     generate_random_tool_arguments,
     run_randomized_mcp_fuzz,
     validate_mcp_schema,
@@ -36,7 +36,7 @@ def get_calc_tool_registry(
     services: ServiceRegistry | None = None,
 ) -> Tuple[ServiceRegistry, ToolRegistry]:
     """Create and initialize an isolated ServiceRegistry and ToolRegistry loaded with Calc tools."""
-    init_config(MagicMock())
+    _ensure_headless_config()
 
     if services is None:
         services = ServiceRegistry()
