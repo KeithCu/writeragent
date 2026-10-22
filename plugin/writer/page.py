@@ -25,7 +25,13 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import is_disposed_exception, is_real_disposal, make_tool_error, resolve_exception_message
+from plugin.framework.errors import (
+    best_effort,
+    is_disposed_exception,
+    is_real_disposal,
+    make_tool_error,
+    resolve_exception_message,
+)
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
@@ -400,10 +406,10 @@ def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> Non
     """
     dyn_prop, spacing_prop, _unused = _height_props(region)
     style.setPropertyValue(dyn_prop, bool(enabled))
-    try:
-        style.setPropertyValue(spacing_prop, bool(enabled))
-    except Exception:
-        pass  # not offered by every page style
+    best_effort(
+        lambda: style.setPropertyValue(spacing_prop, bool(enabled)),
+        "set_header_footer_auto_height: %s not on this page style" % spacing_prop,
+    )
 
 
 def resolve_page_style(doc: Any, style_name: str = "Standard") -> tuple[Any, str]:
@@ -449,7 +455,8 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
         try:
             if not uno_same(shape.getAnchor().getText(), src_text):
                 continue
-        except Exception:
+        except Exception as exc:
+            log.debug("page style clone: shape anchor unreadable: %s", exc)
             continue
         label = _shape_name(shape)
         try:
@@ -520,7 +527,8 @@ def _copy_page_regions(
         try:
             if source.getPropertyValue(is_on_prop) is not True:
                 continue
-        except Exception:
+        except Exception as exc:
+            log.debug("_copy_page_regions: %s unreadable: %s", is_on_prop, exc)
             continue
         try:
             src_text = source.getPropertyValue(text_prop)
@@ -703,23 +711,23 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
     # so one missing property doesn't fail the read.
     try:
         props["register_paragraph_style"] = style.getPropertyValue("RegisterParagraphStyle")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("get_page_style_properties: RegisterParagraphStyle missing: %s", exc)
     # False means the first page has its OWN header/footer — the usual setup for a
     # letterhead — reachable only through the header_first / footer_first regions. Fetched
     # separately: not every page style offers it, and one missing property must not sink
     # the whole read.
     try:
         props["first_is_shared"] = style.getPropertyValue("FirstIsShared")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("get_page_style_properties: FirstIsShared missing: %s", exc)
     # PageStyleLayout enum or int -> int 0=ALL, 1=LEFT, 2=RIGHT, 3=MIRRORED
     try:
         psl = _page_style_layout_to_int(style.getPropertyValue("PageStyleLayout"))
         if psl is not None:
             props["page_style_layout"] = psl
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("get_page_style_properties: PageStyleLayout unreadable: %s", exc)
     return {"status": "ok", "properties": props}
 
 
@@ -985,8 +993,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         try:
             result["auto_height"] = bool(style.getPropertyValue(dyn_prop))
             result["height_mm"] = round(style.getPropertyValue(height_prop) / 100.0, 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("page header/footer read: auto_height or height unreadable: %s", exc)
         return result
 
 
@@ -1114,15 +1122,15 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             # How it happened: is_on was set True before replace_xtext_with_html was called.
             # Why this change fixes it: roll back is_on to False if it wasn't on before, or restore auto_height.
             if not was_on:
-                try:
-                    style.setPropertyValue(is_on_prop, False)
-                except Exception:
-                    pass
+                best_effort(
+                    lambda: style.setPropertyValue(is_on_prop, False),
+                    "page_set_header_footer_text: rollback %s failed" % is_on_prop,
+                )
             elif auto_height is not None and old_auto_height is not None:
-                try:
-                    set_header_footer_auto_height(style, region, old_auto_height)
-                except Exception:
-                    pass
+                best_effort(
+                    lambda: set_header_footer_auto_height(style, region, old_auto_height),
+                    "page_set_header_footer_text: rollback auto_height failed",
+                )
             return self._tool_error(f"Error writing to {region} text on page style '{style_name}': {e}")
 
 
@@ -1330,12 +1338,14 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
             anchor = shape.getAnchor()
             if not uno_same(anchor.getText(), text_obj):
                 continue
-        except Exception:
+        except Exception as exc:
+            log.debug("_character_anchor_in_matches: anchor unreadable: %s", exc)
             continue
         try:
             if shape.getPropertyValue("AnchorType") != AT_CHARACTER:
                 continue
-        except Exception:
+        except Exception as exc:
+            log.debug("_character_anchor_in_matches: AnchorType unreadable: %s", exc)
             continue
         for cursor in cursors:
             if _anchor_point_in_match(text_obj, anchor, cursor):

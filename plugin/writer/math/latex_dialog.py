@@ -14,6 +14,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.config import get_config, get_config_str, set_config
+from plugin.framework.errors import best_effort
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -87,10 +88,7 @@ def show_latex_input_dialog(
         cbc.getModel().State = 1 if initial_display else 0
         if update:
             cbc.getModel().Enabled = False
-            try:
-                cbc.setEnable(False)
-            except Exception:
-                pass
+            best_effort(lambda: cbc.setEnable(False), "Latex dialog: DisplayBlockCheck.setEnable(False) failed")
 
         outcome: tuple[str, bool] | None = None
 

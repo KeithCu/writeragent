@@ -130,7 +130,7 @@ def cleanup_disposed_controllers() -> None:
                         alive_controllers.append(ctrl)
                         if idx < len(_handlers):
                             alive_handlers.append(_handlers[idx])
-                except Exception:
+                except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
                     pass
             _registered_controllers[:] = alive_controllers
             _handlers[:] = alive_handlers

@@ -357,6 +357,7 @@ def _struct_to_json(struct_name: str, value: Any) -> Any:
         try:
             out[field] = _uno_scalar_to_json(getattr(value, field))
         except Exception:
+            log.debug("style struct field %s unreadable", field, exc_info=True)
             continue
     if struct_name == "com.sun.star.style.LineSpacing" and isinstance(out.get("Mode"), int):
         out["Mode"] = _LINE_SPACING_MODE_WORDS.get(out["Mode"], out["Mode"])
@@ -759,7 +760,7 @@ class StyleList(ToolWriterStyleBase):
                         if cat == 1:  # CHAPTER
                             show = True
                     except Exception:
-                        pass
+                        log.debug("style list: Category unreadable for %r", name, exc_info=True)
                 elif family == "CharacterStyles":
                     # Always show core character styles.
                     core_char_styles = ("Default Style", "Source Text")
@@ -795,7 +796,7 @@ class StyleList(ToolWriterStyleBase):
                         if name not in core_text_styles:
                             show = False
                 except Exception:
-                    pass
+                    log.debug("style list: category filter failed for %r", name, exc_info=True)
 
             if not show:
                 continue
@@ -808,7 +809,7 @@ class StyleList(ToolWriterStyleBase):
             try:
                 entry["parent_style"] = style.getParentStyle()
             except Exception:
-                pass
+                log.debug("style list: getParentStyle failed for %r", name, exc_info=True)
             styles.append(entry)
 
         return {"status": "ok", "family": family, "styles": styles, "count": len(styles)}

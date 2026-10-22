@@ -23,6 +23,7 @@ Operates on the cached heading tree and bookmark map from TreeService.
 from __future__ import annotations
 
 import bisect
+import logging
 from typing import Any
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
@@ -30,6 +31,8 @@ from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entri
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint, heading_ref
+
+log = logging.getLogger("writeragent.writer.nav.proximity")
 
 
 def _collect_anchored(
@@ -52,7 +55,7 @@ def _collect_anchored(
             if pi is not None and start_idx <= pi <= end_idx:
                 items.append(builder(obj, name, pi))
         except Exception:
-            pass
+            log.debug("proximity: skipped object %r", name, exc_info=True)
     return items
 
 
@@ -405,7 +408,7 @@ class ProximityService(ServiceBase):
                         resolved_flag = field.getPropertyValue("Resolved")
                         comments.append({"author": author, "content": (content or "")[:200], "paragraph_index": pi, "resolved": resolved_flag})
             except Exception:
-                pass
+                log.debug("proximity: comment enumeration failed", exc_info=True)
             result["comments"] = comments
 
         return result

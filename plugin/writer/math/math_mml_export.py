@@ -236,6 +236,7 @@ def selected_math_embeds(doc: Any) -> list[Any]:
                 if _is_math_embed(obj):
                     embed_objects.append(obj)
             except Exception:
+                log.debug("selected_math_embeds: getByName(%r) failed", name, exc_info=True)
                 continue
     except Exception:
         embed_objects = []
@@ -252,6 +253,7 @@ def selected_math_embeds(doc: Any) -> list[Any]:
             try:
                 el = get_by_index(i)
             except Exception:
+                log.debug("selected_math_embeds: getByIndex(%s) failed", i, exc_info=True)
                 continue
             _add(el)
             if hasattr(el, "getStart"):
@@ -286,6 +288,7 @@ def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
         try:
             obj = container.getByName(name)
         except Exception:
+            log.debug("resolve_math_embed_name: getByName(%r) failed", name, exc_info=True)
             continue
         if uno_same(obj, embed):
             return str(name)
@@ -325,6 +328,7 @@ def _math_embeds_in_text_range(range_obj: Any, embed_objects: list[Any]) -> list
             if text.compareRegionStarts(anchor_start, sel_end) < 0:
                 continue
         except Exception:
+            log.debug("math embed anchor is not comparable to the selection", exc_info=True)
             continue
         found.append(obj)
     return found
@@ -395,11 +399,13 @@ def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
             try:
                 names = el.getCellNames() or ()
             except Exception:
+                log.debug("math export: table getCellNames failed", exc_info=True)
                 continue
             for name in names:
                 try:
                     cell = el.getCellByName(name)
                 except Exception:
+                    log.debug("math export: getCellByName(%r) failed", name, exc_info=True)
                     continue
                 yield from _iter_body_paragraphs(cell)
             continue

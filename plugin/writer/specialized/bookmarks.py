@@ -25,7 +25,7 @@ from typing import Any, ClassVar, Iterator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
@@ -264,7 +264,7 @@ class BookmarkService(ServiceBase):
                     try:
                         outline_level = element.getPropertyValue("OutlineLevel")
                     except Exception:
-                        pass
+                        log.debug("ensure_heading_bookmarks: OutlineLevel unreadable", exc_info=True)
                     if outline_level > 0:
                         if para_index in existing_map:
                             bookmark_map[para_index] = existing_map[para_index]
@@ -522,10 +522,10 @@ class BookmarkService(ServiceBase):
         if listener is None or source is None:
             return
         if hasattr(source, "removeDocumentEventListener"):
-            try:
-                source.removeDocumentEventListener(listener)
-            except Exception:
-                pass
+            best_effort(
+                lambda: source.removeDocumentEventListener(listener),
+                "heading bookmarks: removeDocumentEventListener failed",
+            )
 
 
 # ── Bookmark Tools ────────────────────────────────────────────────────
@@ -759,6 +759,6 @@ class BookmarkResolve(ToolWriterBookmarkBase):
                     result["text"] = element.getString()
                     result["outline_level"] = element.getPropertyValue("OutlineLevel")
                 except Exception:
-                    pass
+                    log.debug("bookmark locate: heading text or outline level unreadable", exc_info=True)
 
         return result

@@ -655,7 +655,7 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
                     if not st.isInUse():
                         continue
                 except Exception:
-                    pass
+                    log.debug("header/footer label: isInUse failed", exc_info=True)
                 for attr, region in (
                     ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
                     ("HeaderTextFirst", "first-page header"),
@@ -667,12 +667,13 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
                             name = _safe_name(st)
                             result = "%s (page style '%s')" % (region, name) if name else region
                             break
-                    except Exception:
+                    except Exception as exc:
+                        log.debug("header/footer label: %s unreadable: %s", attr, exc)
                         continue
                 if result:
                     break
         except Exception:
-            pass
+            log.debug("header/footer label: page-style walk failed", exc_info=True)
     if result is None:
         result = "header or footer"
     if label_cache is not None:
@@ -729,6 +730,7 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
         try:
             shape = container.getByIndex(i)
         except Exception:
+            log.debug("iter_draw_shapes: getByIndex(%s) failed", i, exc_info=True)
             continue
         is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape"), False)
         if is_group:
@@ -834,6 +836,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
                 continue
             text = shape.getString() if hasattr(shape, "getString") else ""
         except Exception:
+            log.debug("iter_floating_shape_texts: shape text unreadable", exc_info=True)
             continue
         yield shape, text
 
@@ -855,6 +858,7 @@ def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
             content = getattr(field, "Content", "") or ""
             author = (getattr(field, "Author", "") or "").strip()
         except Exception:
+            log.debug("comment_matches: annotation field unreadable", exc_info=True)
             continue
         for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
             yield hit, author, content

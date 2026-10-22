@@ -20,6 +20,7 @@ merge fields, listing document merge fields, and executing mail merge operations
 using LibreOffice's com.sun.star.text.MailMerge and DatabaseContext services.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,8 @@ from ..specialized_base import ToolWriterMailMergeBase
 from ..target_resolver import resolve_target_cursor
 
 import uno
+
+log = logging.getLogger("writeragent.writer")
 
 
 def _to_file_url(path_or_url: str) -> str:
@@ -43,7 +46,7 @@ def _to_file_url(path_or_url: str) -> str:
             if isinstance(res, str):
                 return res
     except Exception:
-        pass
+        log.debug("systemPathToFileUrl failed", exc_info=True)
     return Path(os.path.abspath(path_or_url)).as_uri()
 
 
@@ -398,7 +401,7 @@ class ListFields(ToolWriterMailMergeBase):
                     if info.hasPropertyByName("DataTableName"):
                         tbl_name = field.getPropertyValue("DataTableName") or ""
                 except Exception:
-                    pass
+                    log.debug("mail merge: database field properties unreadable", exc_info=True)
 
             if is_db_field:
                 presentation = ""
