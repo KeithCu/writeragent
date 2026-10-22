@@ -417,7 +417,7 @@ class PersistentEditor:
                 if stream:
                     stream.close()
             except Exception:
-                pass
+                log.debug("editor_host: pipe close failed", exc_info=True)
 
     def send(self, message: dict[str, Any], *, session: EditorSessionState | None = None) -> None:
         """Thread-safe write to child stdin. Session messages get ``session_id`` + ``target``."""

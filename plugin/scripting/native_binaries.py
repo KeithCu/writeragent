@@ -473,7 +473,7 @@ def run_audio_download(
         if os.path.exists(zip_dest):
             try:
                 os.remove(zip_dest)
-            except Exception:
+            except OSError:
                 pass
 
     # Download CFFI binary

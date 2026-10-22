@@ -87,7 +87,7 @@ def _numpy_scalar_item(v: Any) -> Any:
         import numpy as np  # local: safe on host; present in child for mixed grids
         if isinstance(v, np.generic):
             return v.item()
-    except Exception:
+    except Exception:  # noqa: S110  per-cell numpy sniff; a missing numpy would log ImportError on every object-array cell
         # numpy not present or v not a numpy scalar; fall through
         pass
     return v

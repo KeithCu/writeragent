@@ -271,7 +271,7 @@ def get_doc_language(doc: Any) -> str | None:
                 if lang and lang != "zxx":
                     return lang
         except Exception:
-            pass
+            log.debug("text analytics: doc locale %s unreadable", prop, exc_info=True)
     # Current paragraph / selection
     try:
         controller = doc.getCurrentController()
@@ -286,9 +286,9 @@ def get_doc_language(doc: Any) -> str | None:
                         if lang and lang != "zxx":
                             return lang
                 except Exception:
-                    pass
+                    log.debug("text analytics: selection locale %s unreadable", prop, exc_info=True)
     except Exception:
-        pass
+        log.debug("text analytics: selection locale probe failed", exc_info=True)
     return None
 
 
@@ -646,7 +646,7 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
             vc.gotoRange(end, False)
         controller.select(vc)
     except Exception:
-        pass
+        log.debug("text analytics: could not move caret to selection end", exc_info=True)
 
     insert_content_at_position(doc, ctx, html, "selection")
     return 1

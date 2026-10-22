@@ -286,6 +286,7 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
             try:
                 elem = enum.nextElement()
             except Exception:
+                log.debug("document_scripts: nextElement failed; trying later components", exc_info=True)
                 continue
             try:
                 model = None

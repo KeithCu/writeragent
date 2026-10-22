@@ -99,7 +99,7 @@ def _iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generat
                 getattr(model, "getCurrentController", lambda: None)()
                 yield model
             except Exception:
-                pass
+                log.debug("session_manager: skipping broken model", exc_info=True)
 
 
 def _enumerated_matching_models(ctx: Any, predicate: Any) -> list[Any]:
@@ -112,7 +112,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any) -> list[Any]:
                 if predicate(model):
                     matches.append(guard_uno(model))
             except Exception:
-                pass
+                log.debug("session_manager: predicate failed; skipping model", exc_info=True)
     except Exception:
         log.debug("session_manager: document enumeration failed", exc_info=True)
         return []
@@ -144,7 +144,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                     if predicate(doc):
                         return guard_uno(doc)
             except Exception:
-                pass
+                log.debug("session_manager: focused component unusable", exc_info=True)
 
         matches = _enumerated_matching_models(ctx, predicate)
         if len(matches) == 1:

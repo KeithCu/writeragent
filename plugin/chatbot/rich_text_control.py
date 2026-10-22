@@ -770,8 +770,8 @@ def _set_model_property(model: Any, name: str, value: Any) -> bool:
     try:
         setattr(model, name, value)
         return True
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("_set_model_property setattr %s failed: %s", name, e)
     if hasattr(model, "setPropertyValue"):
         try:
             model.setPropertyValue(name, value)

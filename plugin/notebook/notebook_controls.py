@@ -626,13 +626,13 @@ class NotebookRunButtonListener(BaseActionListener):
                             ref_doc.getRuntimeUID()
                             return True
                     except Exception:
-                        pass
+                        log.debug("notebook controls: getRuntimeUID liveness probe failed", exc_info=True)
                     try:
                         if callable(getattr(ref_doc, "getURL", None)):
                             ref_doc.getURL()
                             return True
                     except Exception:
-                        pass
+                        log.debug("notebook controls: getURL liveness probe failed", exc_info=True)
                     return False
 
                 if _probe():

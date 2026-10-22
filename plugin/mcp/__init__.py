@@ -78,7 +78,7 @@ def _debug_token_path() -> str | None:
         if cfg_path:
             return os.path.join(os.path.dirname(str(cfg_path)), _DEBUG_TOKEN_FILENAME)
     except Exception:
-        pass
+        log.debug("debug token path lookup failed", exc_info=True)
     return None
 
 

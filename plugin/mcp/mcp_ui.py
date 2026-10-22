@@ -16,6 +16,7 @@ because inline dispatch on the main thread re-acquires the lock.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,8 @@ from plugin.framework.config import get_config_int_safe
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
+
+log = logging.getLogger("writeragent.mcp.ui")
 
 _active_settings_dialog_ref: Any = None
 # The lock covers the dialog pointer and both URL caches. The posted refresh
@@ -221,7 +224,7 @@ def sync_mcp_config_snippet(
             try:
                 port_val = int(str(port_ctrl.getText() or "").strip())
             except Exception:
-                pass
+                log.debug("mcp snippet: port text parse failed", exc_info=True)
 
     tunnel_enabled_ctrl = get_optional(dlg, "mcp__tunnel_enabled")
     is_tunnel_enabled = get_checkbox_state(tunnel_enabled_ctrl) if tunnel_enabled_ctrl else False
@@ -336,7 +339,7 @@ class TestTunnelListener(BaseActionListener):
                 try:
                     port = int(str(port_ctrl.getText() or "").strip())
                 except Exception:
-                    pass
+                    log.debug("mcp test tunnel: port text parse failed", exc_info=True)
 
         btn = get_optional(self._dlg, "mcp__test_tunnel")
         if btn:
@@ -352,7 +355,7 @@ class TestTunnelListener(BaseActionListener):
                         btn.getModel().Label = _("Test Tunnel")
                         btn.getModel().Enabled = True
                     except Exception:
-                        pass
+                        log.debug("mcp test tunnel: restore button failed", exc_info=True)
                 if pub_url:
                     tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
                     if tunnel_enabled_ctrl:

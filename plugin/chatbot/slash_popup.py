@@ -100,7 +100,7 @@ def _ovdiag(obj: Any, label: str) -> None:
             posz = peer.getOutputSize()
             bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
     except Exception:
-        pass
+        log.debug("slash overlay geometry probe failed for %s", label, exc_info=True)
     _ovlog("%s", " ".join(str(b) for b in bits))
 
 

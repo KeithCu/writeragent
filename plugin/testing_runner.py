@@ -92,7 +92,7 @@ def _arm_native_test_watchdog(_label: str) -> None:
             file=sys.stderr,
         )
     except Exception:
-        pass
+        log.debug("native test watchdog arm failed", exc_info=True)
 
 
 def _disarm_native_test_watchdog(_label: str) -> None:
@@ -150,6 +150,7 @@ def _soffice_pids() -> str:
                 stderr=subprocess.DEVNULL,
             )
         except Exception:
+            log.debug("soffice pid probe %s failed", name, exc_info=True)
             continue
         pids.extend(token for token in out.split() if token)
     return ",".join(dict.fromkeys(pids)) or "-"
@@ -317,12 +318,12 @@ def _drain_soffice_stderr(stream: Any) -> None:
                 break
             note_office_stderr_line(line, echo=True)
     except Exception:
-        pass
+        log.debug("soffice stderr drain failed", exc_info=True)
     finally:
         try:
             stream.close()
         except Exception:
-            pass
+            log.debug("soffice stderr drain close failed", exc_info=True)
 
 
 class _StderrMarkerTee:

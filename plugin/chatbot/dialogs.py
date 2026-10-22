@@ -632,7 +632,8 @@ def format_exception_detail(exc: BaseException, *, _depth: int = 0) -> str:
             continue
         try:
             val = getattr(exc, attr)
-        except Exception:
+        except Exception as attr_exc:
+            log.debug("format_exception_detail: %s unreadable (%s)", attr, type(attr_exc).__name__)
             continue
         if val is None or val == "":
             continue

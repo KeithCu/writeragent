@@ -84,11 +84,11 @@ def claim_ipc_channel() -> BinaryIO:
     try:
         sys.stdout.flush()
     except Exception:
-        pass
+        log.debug("claim_ipc_channel: stdout flush failed", exc_info=True)
     try:
         sys.stderr.flush()
     except Exception:
-        pass
+        log.debug("claim_ipc_channel: stderr flush failed", exc_info=True)
     ipc_fd = os.dup(1)
     os.dup2(2, 1)
     _child_ipc_stream = cast("BinaryIO", os.fdopen(ipc_fd, "wb", buffering=0))

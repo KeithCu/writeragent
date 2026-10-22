@@ -1045,7 +1045,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
                     if probe_resp.getcode() == 200:
                         probe_ok = True
             except Exception:
-                pass
+                log.debug("tunnel health probe failed for %s", health_url, exc_info=True)
 
             if active_p == provider:
                 if probe_ok:

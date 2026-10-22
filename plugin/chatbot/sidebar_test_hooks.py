@@ -1891,7 +1891,7 @@ def adopt_runtime_send_listeners() -> int:
                 continue
             if getattr(obj, "query_control", None) is None:
                 continue
-        except Exception:
+        except Exception:  # noqa: S112  heap scan: disposed UNO proxies raise on getattr; a debug log per object is a traceback storm
             continue
         if _listener_torn_down(obj):
             continue

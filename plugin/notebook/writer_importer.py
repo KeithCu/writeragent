@@ -478,6 +478,7 @@ def _copy_previous_outer_list(cursor: Any) -> bool:
             cursor.setPropertyValue("NumberingRules", rules)
             return True
         except Exception:
+            log.debug("notebook import: previous outer-list paragraph unreadable", exc_info=True)
             continue
     return False
 
