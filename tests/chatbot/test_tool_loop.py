@@ -1194,3 +1194,87 @@ def test_compaction_state_per_turn():
     assert turn2._last_compact_reason is None
     assert turn2._last_compact_tokens_before is None
     assert turn2._last_compact_tokens_after is None
+
+
+def test_retry_status_restored_on_first_chunk():
+    import queue
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    panel, _session = setup_mock_panel()
+    turn = current_turn(panel)
+    q = queue.Queue()
+    turn.queue = q
+    client = MagicMock()
+    client._stopped = False
+
+    def fake_stream(*_args, **kwargs):
+        kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
+        kwargs["append_callback"]("Hello")
+        return {"content": "Hello", "tool_calls": []}
+
+    client.stream_request_with_tools.side_effect = fake_stream
+    started = []
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+    ):
+        ToolCallingMixin._spawn_llm_worker(panel, q, client, 100, [], 0)
+        started[0]()
+
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+
+    kinds = [item[0] for item in items]
+    assert kinds == [
+        StreamQueueKind.STATUS,
+        StreamQueueKind.STATUS,
+        StreamQueueKind.CHUNK,
+        StreamQueueKind.STREAM_DONE,
+    ]
+    assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
+    assert items[1] == (StreamQueueKind.STATUS, "Thinking...")
+    assert items[2] == (StreamQueueKind.CHUNK, "Hello")
+
+
+def test_retry_status_restored_on_first_chunk_final_stream():
+    import queue
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    panel, _session = setup_mock_panel()
+    turn = current_turn(panel)
+    q = queue.Queue()
+    turn.queue = q
+    client = MagicMock()
+    client._stopped = False
+
+    def fake_stream(messages, max_tokens, append_c, append_t, **kwargs):
+        kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
+        append_c("World")
+
+    client.stream_chat_response.side_effect = fake_stream
+    started = []
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+    ):
+        ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
+        started[0]()
+
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+
+    kinds = [item[0] for item in items]
+    assert kinds == [
+        StreamQueueKind.STATUS,
+        StreamQueueKind.STATUS,
+        StreamQueueKind.CHUNK,
+        StreamQueueKind.FINAL_DONE,
+    ]
+    assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
+    assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
+    assert items[2] == (StreamQueueKind.CHUNK, "World")
+

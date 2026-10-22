@@ -615,9 +615,23 @@ class ToolCallingMixin:
                     emit((StreamQueueKind.STOPPED,))
                     return
                 # Status via queue only — never self._set_status from this worker (UNO).
+                retry_shown = False
+
                 def status_cb(t: str) -> None:
+                    nonlocal retry_shown
+                    retry_shown = True
                     emit((StreamQueueKind.STATUS, t))
+
                 resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
+                raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
+
+                def on_chunk(t: str) -> None:
+                    nonlocal retry_shown
+                    if retry_shown:
+                        retry_shown = False
+                        emit((StreamQueueKind.STATUS, resume_status))
+                    raw_chunk(t)
+
                 with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
                     # Compact + stream share one lane hold. compaction.py must
                     # not take the non-reentrant lock itself.
@@ -636,7 +650,7 @@ class ToolCallingMixin:
                     payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
-                        append_callback=_live_text(turn, batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))),
+                        append_callback=_live_text(turn, on_chunk),
                         append_thinking_callback=_live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t))),
                         stop_checker=stop_checker,
                         status_callback=status_cb,
@@ -691,7 +705,24 @@ class ToolCallingMixin:
                 return
             last_streamed: list[str] = []
             try:
-                content_cb = _live_text(turn, batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t)))
+                # Status via queue only — never self._set_status from this worker (UNO).
+                retry_shown = False
+
+                def status_cb(t: str) -> None:
+                    nonlocal retry_shown
+                    retry_shown = True
+                    emit((StreamQueueKind.STATUS, t))
+
+                raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
+
+                def on_chunk(c: str) -> None:
+                    nonlocal retry_shown
+                    if retry_shown:
+                        retry_shown = False
+                        emit((StreamQueueKind.STATUS, "Finishing..."))
+                    raw_chunk(c)
+
+                content_cb = _live_text(turn, on_chunk)
                 thinking_cb = _live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))
 
                 def append_c(c: str) -> None:
@@ -704,8 +735,6 @@ class ToolCallingMixin:
                 if stopped_for_this_send():
                     emit((StreamQueueKind.STOPPED,))
                     return
-                def status_cb(t: str) -> None:
-                    emit((StreamQueueKind.STATUS, t))
                 with llm_request_lane(status_callback=status_cb, resume_status="Finishing..."):
                     # Same compact-then-view path as _spawn_llm_worker. Final
                     # stream has no tools; still compact when the transcript
