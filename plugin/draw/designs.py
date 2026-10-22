@@ -1374,7 +1374,7 @@ class ApplyDesign(ToolBase):
         # _is_draw_only_doc returned the same payload.
         if not _is_impress_doc(ctx.doc):
             return not_impress_error(self, "apply_design")
-        design_key = str(kwargs.get("design") or "").strip()
+        design_key = kwargs["design"].strip()
         if not design_key:
             return self._tool_error("design is required.")
         # One walk, no ZIP look. resolve_design used to open every .otp,

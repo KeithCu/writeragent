@@ -328,7 +328,7 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        layout_name = kwargs.get("layout", "").strip().lower()
+        layout_name = kwargs["layout"].strip().lower()
         if layout_id(layout_name) is None:
             return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
         page_idx = kwargs.get("page")
