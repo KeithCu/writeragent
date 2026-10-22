@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.tool import ToolContext
-from plugin.mcp.mcp_protocol import _tool_needs_document_mutation_gate
+from plugin.mcp.document_mutation_gate import _tool_needs_document_mutation_gate
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
 

@@ -32,19 +32,16 @@ import select
 import threading
 import time
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 from urllib.parse import unquote
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
+import plugin.mcp.document_mutation_gate as document_mutation_gate
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
@@ -235,9 +232,6 @@ _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
 # worker had no scope; do not substitute the main thread's contextvar after marshal.
 _SEND_CANCELLATION_UNSET = object()
 
-_doc_gates: dict[str, threading.Lock] = {}
-_doc_gates_guard = threading.Lock()
-
 
 def _doc_titles(docs: list[Any]) -> list[str]:
     """Human-readable names for an error message; never raises."""
@@ -314,48 +308,6 @@ def _arguments_without_thread_guard_bypass(arguments: dict[str, Any]) -> dict[st
     cleaned = dict(arguments)
     cleaned.pop("bypass_thread_guard", None)
     return cleaned
-
-
-def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
-    # Future: prune _doc_gates[doc_key] on document OnUnload if a long-lived MCP server
-    # opens enough unique URLs that this dict becomes measurable overhead.
-    with _doc_gates_guard:
-        gate = _doc_gates.get(doc_key)
-        if gate is None:
-            gate = threading.Lock()
-            _doc_gates[doc_key] = gate
-        return gate
-
-
-def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:
-    if tool is None:
-        return True  # unknown tool -> be safe
-    # A broken requires_document_lock must not silently switch to
-    # detects_mutation. ToolBase.requires_document_lock already calls that.
-    # An override that raises is a bug and must surface.
-    return bool(tool.requires_document_lock(arguments))
-
-
-@contextmanager
-def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:
-    if not enabled:
-        yield
-        return
-    gate = _get_document_mutation_gate(doc_key)
-    acquired = gate.acquire(timeout=timeout)
-    if not acquired:
-        log.warning("MCP _document_mutation_gate timed out after %ss waiting for %s", timeout, doc_key)
-        raise BusyError(f"Timed out waiting for document mutation lock ({doc_key})")
-    try:
-        yield
-    finally:
-        gate.release()
-
-
-class BusyError(WriterAgentException):
-    """The VCL main thread is already processing another tool call."""
-
-    code: str = "SERVER_BUSY"
 
 
 # One session id for the whole soffice process, shared by every MCP client.
@@ -1018,7 +970,7 @@ class MCPProtocolHandler:
                 res = self._execute_long_running(tool_name, arguments, **exec_kwargs)
             else:
                 res = self._execute_with_backpressure(tool_name, arguments, **exec_kwargs)
-        except BusyError:
+        except document_mutation_gate.BusyError:
             raise
         except TimeoutError:
             # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
@@ -1122,7 +1074,7 @@ class MCPProtocolHandler:
             return (200, wire_types.jsonrpc_success(req_id, result))
         except ValueError as e:
             return (400, wire_types.jsonrpc_failure(req_id, wire_types.INVALID_PARAMS, str(e)))
-        except BusyError as e:
+        except document_mutation_gate.BusyError as e:
             log.warning("MCP %s: busy (%s)", method, e)
             return (429, wire_types.jsonrpc_failure(req_id, wire_types.SERVER_BUSY, str(e), {"retryable": True}))
         except TimeoutError as e:
@@ -1155,7 +1107,7 @@ class MCPProtocolHandler:
         """
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:
-            raise BusyError(_BUSY_MESSAGE)
+            raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
         holding = True
         try:
             from plugin.framework.queue_executor import get_current_send_cancellation
@@ -1170,10 +1122,10 @@ class MCPProtocolHandler:
             # before waiting so other documents can take it.
             _tool_semaphore.release()
             holding = False
-            with _document_mutation_gate(prepared.doc_key, enabled=True):
+            with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=True):
                 acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
                 if not acquired:
-                    raise BusyError(_BUSY_MESSAGE)
+                    raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
                 holding = True
                 try:
                     return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
@@ -1315,7 +1267,7 @@ class MCPProtocolHandler:
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
-        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=_tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=document_mutation_gate._tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Registry execute + elapsed/echo. Caller holds the mutation gate when the tool needs it.
@@ -1350,7 +1302,7 @@ class MCPProtocolHandler:
         Long-running tools call this on the HTTP worker. Sync UNO inside the
         registry is marshalled to the main thread from there.
         """
-        with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+        with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:

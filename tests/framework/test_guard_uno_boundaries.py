@@ -68,8 +68,8 @@ class TestGuardUnoBoundaries:
             patch("plugin.mcp.mcp_protocol._real_active_document", return_value=None),
             patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
-            patch("plugin.mcp.mcp_protocol._document_mutation_gate"),
-            patch("plugin.mcp.mcp_protocol._tool_needs_document_mutation_gate", return_value=False),
+            patch("plugin.mcp.document_mutation_gate._document_mutation_gate"),
+            patch("plugin.mcp.document_mutation_gate._tool_needs_document_mutation_gate", return_value=False),
         ):
             handler._execute_long_running("noop", {}, document_url=None)
 

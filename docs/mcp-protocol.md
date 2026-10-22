@@ -348,7 +348,7 @@ Implications for integrators:
 
 ### Concurrency and parallel `tools/call`
 
-External MCP hosts often fire several `tools/call` requests at once (e.g. research on one connection while another edits the document). WriterAgent uses **two layers** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py):
+External MCP hosts often fire several `tools/call` requests at once (e.g. research on one connection while another edits the document). WriterAgent uses **two layers** (global semaphore in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) and per-document gate in [`plugin/mcp/document_mutation_gate.py`](../plugin/mcp/document_mutation_gate.py)):
 
 | Layer | Applies to | Effect |
 |-------|------------|--------|

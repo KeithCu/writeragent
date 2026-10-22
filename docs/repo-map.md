@@ -18,6 +18,7 @@ Start here by task.
 | Area | Role | Paths |
 |------|------|-------|
 | Bootstrap / MCP | WriterAgent bootstrap, settings apply, MCP startup | [`plugin/main.py`](../plugin/main.py) |
+| MCP mutation gate | Per-document lock for mutating MCP `tools/call`; timeout raises `BusyError` (`SERVER_BUSY`); WriterAgent-only | [`plugin/mcp/document_mutation_gate.py`](../plugin/mcp/document_mutation_gate.py) — [framework/threading.md](framework/threading.md) |
 | LibrePy bootstrap | Core OXT: `=PY()`, Python menus, Settings → Python; no chat/MCP | [`plugin/main_core.py`](../plugin/main_core.py), [`plugin/librepy/`](../plugin/librepy/), [`plugin/calc/python/addin_librepy.py`](../plugin/calc/python/addin_librepy.py) |
 | Sidebar / send | Sidebar factory, panel, document resolution | [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py), [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py) |
 | Tool loop / chat FSM | Main chat tool loop and state machine | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py), [`plugin/chatbot/tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) |

@@ -65,7 +65,7 @@ def _tools_call(handler):
 
 
 def test_busy_error_stays_http_429():
-    from plugin.mcp.mcp_protocol import BusyError
+    from plugin.mcp.document_mutation_gate import BusyError
     from plugin.mcp import wire_types
 
     handler = _handler()
