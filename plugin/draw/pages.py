@@ -132,9 +132,8 @@ class DeleteSlide(ToolBase):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
-        page_idx = kwargs.get("page")
-        if page_idx is None:
-            return self._tool_error("page is required.")
+        page_idx = kwargs["page"]
+        assert page_idx is not None
         pages = bridge.get_pages()
         if page_idx < 0 or page_idx >= pages.getCount():
             return self._tool_error("Page index %s out of range." % page_idx)
@@ -278,9 +277,8 @@ class SetActivePage(ToolBase):
 
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
-        idx = kwargs.get("page")
-        if idx is None:
-            return self._tool_error("page is required.")
+        idx = kwargs["page"]
+        assert idx is not None
         if idx < 0 or idx >= pages.getCount():
             return self._tool_error("Page index %d out of range." % idx)
 
@@ -305,9 +303,8 @@ class DuplicateSlide(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        page_idx = kwargs.get("page")
-        if page_idx is None:
-            return self._tool_error("page is required.")
+        page_idx = kwargs["page"]
+        assert page_idx is not None
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         if page_idx < 0 or page_idx >= pages.getCount():
@@ -334,10 +331,9 @@ class MoveSlide(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
 
-        from_page = kwargs.get("from_page")
-        to_page = kwargs.get("to_page")
-        if from_page is None or to_page is None:
-            return self._tool_error("from_page and to_page are required.")
+        from_page = kwargs["from_page"]
+        to_page = kwargs["to_page"]
+        assert from_page is not None and to_page is not None
         bridge = DrawBridge(ctx.doc)
         try:
             ok = bridge.move_slide(from_page, to_page)
@@ -363,10 +359,9 @@ class RenameSlide(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        page_idx = kwargs.get("page")
-        name = kwargs.get("name")
-        if page_idx is None:
-            return self._tool_error("page is required.")
+        page_idx = kwargs["page"]
+        name = kwargs["name"]
+        assert page_idx is not None
         if not name:
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)
