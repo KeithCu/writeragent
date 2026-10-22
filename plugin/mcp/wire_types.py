@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """MCP / JSON-RPC wire shapes (stdlib only — mirrors official mcp.types subset).
 
-Used by plugin/mcp/mcp_protocol.py for parse/build without Pydantic or the mcp package.
+Used by plugin/mcp/mcp_protocol.py and plugin/mcp/mcp_session.py for parse/build without Pydantic or the mcp package.
 """
 
 from __future__ import annotations

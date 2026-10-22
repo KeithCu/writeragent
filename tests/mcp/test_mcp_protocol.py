@@ -427,9 +427,9 @@ class _NoHeaders:
 
 def test_notification_batch_includes_session_id(monkeypatch):
     """HTTP 202 for a notifications-only batch must refresh Mcp-Session-Id."""
-    import plugin.mcp.mcp_protocol as proto
+    import plugin.mcp.mcp_session as mcp_session
 
-    monkeypatch.setattr(proto, "_mcp_session_id", "sess-batch")
+    monkeypatch.setattr(mcp_session, "_mcp_session_id", "sess-batch")
     handler = MagicMock()
     handler.headers = _NoHeaders()
     sent: list[tuple[str, str]] = []
@@ -444,9 +444,9 @@ def test_notification_batch_includes_session_id(monkeypatch):
 
 
 def test_stale_batch_containing_initialize_is_404(monkeypatch):
-    import plugin.mcp.mcp_protocol as proto
+    import plugin.mcp.mcp_session as mcp_session
 
-    monkeypatch.setattr(proto, "_mcp_session_id", "live-session")
+    monkeypatch.setattr(mcp_session, "_mcp_session_id", "live-session")
 
     class _DeadHeaders:
         def get(self, name, default=None):

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 from plugin.mcp.wire_types import INVALID_REQUEST
-import plugin.mcp.mcp_protocol as proto
+import plugin.mcp.mcp_session as mcp_session
 
 def test_empty_batch_returns_400():
     services = MagicMock()
@@ -22,7 +22,7 @@ def test_batch_initialize_rejected():
 
     msg = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}}]
 
-    with patch.object(proto, "_mint_session_id_once") as mock_mint:
+    with patch.object(mcp_session, "_mint_session_id_once") as mock_mint:
         handler._send_json = MagicMock()
         handler._process_jsonrpc = MagicMock()
 

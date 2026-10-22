@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import plugin.mcp.mcp_protocol as mcp_protocol
+import plugin.mcp.mcp_session as mcp_session
 from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from plugin.mcp.cors import (
     get_allow_private_origins,
@@ -388,7 +388,7 @@ def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server, value):
     _assert_forbidden_origin(exc_info.value)
 
 def test_post_mcp_unsafe_origin_is_403_without_jsonrpc(mcp_server):
-    before = mcp_protocol._mcp_session_id
+    before = mcp_session._mcp_session_id
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -407,7 +407,7 @@ def test_post_mcp_unsafe_origin_is_403_without_jsonrpc(mcp_server):
     err = exc_info.value
     _assert_forbidden_origin(err)
     assert err.headers.get("Mcp-Session-Id") is None
-    assert mcp_protocol._mcp_session_id == before
+    assert mcp_session._mcp_session_id == before
 
 
 def test_post_mcp_no_origin_still_succeeds(mcp_server):

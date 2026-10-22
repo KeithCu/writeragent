@@ -31,7 +31,6 @@ import secrets
 import select
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import unquote
@@ -42,10 +41,9 @@ from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
-from plugin.mcp.cors import send_cors_headers
+import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
-    MCP_HTTP_MAX_BODY_BYTES,
     forget_sse_keepalive,
     note_sse_keepalive,
     read_json_body,
@@ -192,13 +190,6 @@ def _get_request_protocol_version(handler: Any) -> str | None:
     return None
 
 
-def _get_request_session_id(handler: Any) -> str | None:
-    value = handler.headers.get("Mcp-Session-Id")
-    if value:
-        return value.strip()
-    return None
-
-
 def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] | None:
     """Return (status, jsonrpc_body) when the HTTP Mcp-Protocol-Version header is unsupported."""
     requested = _get_request_protocol_version(handler)
@@ -206,14 +197,6 @@ def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] 
         return None
     log_unsupported_protocol_version(handler, requested)
     return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Unsupported MCP-Protocol-Version: %s" % requested))
-
-
-def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
-    """CORS plus streamable-HTTP MCP headers on every MCP transport response."""
-    send_cors_headers(handler, preflight=False)
-    handler.send_header("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION)
-    if session_id:
-        handler.send_header("Mcp-Session-Id", session_id)
 
 
 # Backpressure — one fast MCP tool body at a time (_execute_with_backpressure).
@@ -310,72 +293,6 @@ def _arguments_without_thread_guard_bypass(arguments: dict[str, Any]) -> dict[st
     return cleaned
 
 
-# One session id for the whole soffice process, shared by every MCP client.
-# Minted on first successful initialize; never rotated; never cleared on DELETE.
-_mcp_session_id = None
-_mcp_session_lock = threading.Lock()
-_SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
-
-
-def _mint_session_id_once() -> str:
-    """Assign uuid4 on first successful initialize; later calls keep that id."""
-    global _mcp_session_id
-    with _mcp_session_lock:
-        if _mcp_session_id is None:
-            _mcp_session_id = str(uuid.uuid4())
-        return _mcp_session_id
-
-
-def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
-    """Write HTTP 404 when Mcp-Session-Id is present and not the process id.
-
-    Spec clients re-initialize on 404, not 409 or silent success. No header is
-    allowed (CLI / first contact). A single ``initialize`` is always allowed —
-    that is recovery after restart. A stale header on a batch 404s the whole
-    request so we never process some items.
-    """
-    incoming = _get_request_session_id(handler)
-    if incoming is None:
-        return False
-    if isinstance(msg, dict) and msg.get("method") == "initialize":
-        return False
-    if incoming == _mcp_session_id:
-        return False
-    req_id = msg.get("id") if isinstance(msg, dict) else None
-    log.info("[MCP] stale session id %r (current=%r) — 404", incoming, _mcp_session_id)
-    # Drain unread body and send Connection: close so the kernel does
-    # not emit TCP RST on close, which manifests as Errno 104 on the client.
-    if msg is None and not getattr(handler, "_body_read", False):
-        raw_length = handler.headers.get("Content-Length") if hasattr(handler, "headers") and handler.headers else None
-        if raw_length:
-            try:
-                content_length = int(raw_length)
-                if 0 < content_length <= MCP_HTTP_MAX_BODY_BYTES:
-                    handler.rfile.read(content_length)
-                    setattr(handler, "_body_read", True)
-            except (TypeError, ValueError, OSError):
-                pass
-    handler.close_connection = True
-
-    def _headers(h: Any) -> None:
-        _send_mcp_response_headers(h, session_id=_mcp_session_id)
-        h.send_header("Connection", "close")
-
-    write_http_json(
-        handler,
-        404,
-        wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG),
-        extra_headers=_headers,
-    )
-    flush = getattr(handler.wfile, "flush", None)
-    if callable(flush):
-        try:
-            flush()
-        except OSError:
-            pass
-    return True
-
-
 def _echoable_jsonrpc_id(msg: Any) -> str | int | None:
     """Request id to copy onto a JSON-RPC error, or None when it cannot be detected.
 
@@ -447,7 +364,7 @@ class MCPProtocolHandler:
         """
         if handler is None:
             return None
-        session_id = _get_request_session_id(handler)
+        session_id = mcp_session._get_request_session_id(handler)
         if not session_id and hasattr(handler, "headers") and handler.headers:
             session_id = handler.headers.get("X-Session-Id") or handler.headers.get("X-Session-ID")
         addr = getattr(handler, "client_address", None)
@@ -488,7 +405,7 @@ class MCPProtocolHandler:
     ) -> None:
         if transport:
             log_mcp_transport_entry(handler, transport)
-        if _reject_stale_session(handler):
+        if mcp_session._reject_stale_session(handler):
             return
         if check_accept:
             accept = handler.headers.get("Accept", "")
@@ -500,7 +417,7 @@ class MCPProtocolHandler:
         stop_event = try_reserve_sse(tcp_server, sock)
         if stop_event is None:
             def _headers(h: Any) -> None:
-                _send_mcp_response_headers(h)
+                mcp_session._send_mcp_response_headers(h)
                 h.send_header("Allow", "POST, DELETE, OPTIONS")
 
             write_http_empty(handler, 405, extra_headers=_headers)
@@ -512,7 +429,7 @@ class MCPProtocolHandler:
             handler.send_header("Cache-Control", "no-cache")
             for name, value in extra_headers:
                 handler.send_header(name, value)
-            _send_mcp_response_headers(handler)
+            mcp_session._send_mcp_response_headers(handler)
             handler.end_headers()
             if open_log:
                 log.info("[SSE] GET stream opened")
@@ -539,7 +456,7 @@ class MCPProtocolHandler:
         log_mcp_transport_entry(handler, "mcp")
 
         def _headers(h: Any) -> None:
-            _send_mcp_response_headers(h)
+            mcp_session._send_mcp_response_headers(h)
             h.send_header("Allow", "GET, POST, OPTIONS")
 
         write_http_empty(handler, 405, extra_headers=_headers)
@@ -735,7 +652,7 @@ class MCPProtocolHandler:
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[MCP] <<< %s (id=%s)", method, req_id)
 
-        if _reject_stale_session(handler, msg):
+        if mcp_session._reject_stale_session(handler, msg):
             return
 
         is_initialize = isinstance(msg, dict) and msg.get("method") == "initialize"
@@ -768,21 +685,21 @@ class MCPProtocolHandler:
                 # session_id=None, so a notifications-only batch omits
                 # Mcp-Session-Id. A single notification already passes the
                 # process id. Use that same lambda.
-                write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+                write_http_empty(handler, 202, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
             return
 
         # Single request
         result = self._process_jsonrpc(msg, document_url=document_url, session=session)
         if result is None:
-            write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+            write_http_empty(handler, 202, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
             return
         status, response = result
 
         if is_initialize and status == 200:
-            _mint_session_id_once()
+            mcp_session._mint_session_id_once()
 
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
-        write_http_json(handler, status, response, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+        write_http_json(handler, status, response, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
 
     # ── MCP method handlers ──────────────────────────────────────────
 
@@ -1405,4 +1322,4 @@ class MCPProtocolHandler:
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
-        write_http_json(handler, status, data, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))

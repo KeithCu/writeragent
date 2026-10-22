@@ -1,14 +1,14 @@
 import pytest
 from unittest.mock import MagicMock
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
-import plugin.mcp.mcp_protocol as proto
+import plugin.mcp.mcp_session as mcp_session
 
 def test_batch_jsonrpc_includes_mcp_session_id():
     services = MagicMock()
     handler = MCPProtocolHandler(services)
 
     # We patch _mcp_session_id to simulate an initialized session
-    proto._mcp_session_id = "test-session-id"
+    mcp_session._mcp_session_id = "test-session-id"
 
     mock_http_handler = MagicMock()
     mock_http_handler.headers = {"Mcp-Session-Id": "test-session-id"}

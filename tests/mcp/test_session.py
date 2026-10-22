@@ -12,7 +12,7 @@ import urllib.request
 
 import pytest
 
-import plugin.mcp.mcp_protocol as mcp_protocol
+import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.wire_types import INVALID_REQUEST, MCP_PROTOCOL_VERSION
 
 
@@ -96,13 +96,13 @@ def test_post_without_session_id_still_works(mcp_server):
 
 
 def test_restart_makes_old_session_id_404(mcp_server):
-    previous = mcp_protocol._mcp_session_id
+    previous = mcp_session._mcp_session_id
     try:
         with _post_mcp(mcp_server, _initialize_payload(20)) as first:
             old_id = first.headers.get("Mcp-Session-Id")
             first.read()
         assert old_id
-        mcp_protocol._mcp_session_id = None
+        mcp_session._mcp_session_id = None
         with _post_mcp(mcp_server, _initialize_payload(21)) as second:
             new_id = second.headers.get("Mcp-Session-Id")
             second.read()
@@ -112,8 +112,8 @@ def test_restart_makes_old_session_id_404(mcp_server):
             _post_mcp(mcp_server, {"jsonrpc": "2.0", "id": 22, "method": "tools/list"}, session_id=old_id)
         assert exc_info.value.code == 404
     finally:
-        if mcp_protocol._mcp_session_id is None:
-            mcp_protocol._mcp_session_id = previous
+        if mcp_session._mcp_session_id is None:
+            mcp_session._mcp_session_id = previous
 
 
 def test_stale_session_id_on_get_sse_is_404(mcp_server):
