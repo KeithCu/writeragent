@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared AST edits for expression-statement call sites (release strip).
+"""Shared AST edits for statement stripping (release strip).
 
 No plugin module imports this. ``scripts/strip_code.py`` does, at build time.
 Used by [`scripts/strip_code.py`](../../scripts/strip_code.py) to remove
-``grammar_obs(...)``, logger ``.debug``/``.info``, and most ``print``/``pprint``
-statements from production bundles.
+assert statements, ``grammar_obs(...)``, logger ``.debug``/``.info``, and most
+``print``/``pprint`` statements from production bundles.
 
 Rules (one source of truth):
 
-* Only ``ast.Expr`` whose value is the matched call (not assignments / args).
 * Multi-line via ``lineno`` / ``end_lineno`` (1-based, matching ``ast``).
 * If a non-``Module`` suite would be empty after removals, keep one indented
   ``pass`` — otherwise ``if cond:`` with an empty body is a SyntaxError.
@@ -43,11 +42,11 @@ def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     return isinstance(func, ast.Name) and func.id in names
 
 
-def _discover_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.Expr]]:
-    """Parse once; return ``(tree, matching Expr nodes)``.
+def _discover_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.stmt]]:
+    """Parse once; return ``(tree, matching stmt nodes)``.
 
-    Shared by :func:`iter_matching_expr_statements` and
-    :func:`remove_expr_statements` so there is one matching implementation.
+    Shared by :func:`iter_matching_statements` and
+    :func:`remove_statements` so there is one matching implementation.
     """
     tree = ast.parse(source or "")
 
@@ -57,19 +56,40 @@ def _discover_expr_statements(source: str, should_remove: Callable[[ast.Expr], b
         if isinstance(last, ast.Expr):
             skip_node = last
 
-    found: list[ast.Expr] = []
+    found: list[ast.stmt] = []
 
     class FindVisitor(ast.NodeVisitor):
-        def visit_Expr(self, node: ast.Expr) -> None:
-            if skip_node is not None and node is skip_node:
-                self.generic_visit(node)
-                return
-            if should_remove(node):
-                found.append(node)
-            self.generic_visit(node)
+        def generic_visit(self, node: ast.AST) -> None:
+            if isinstance(node, ast.stmt):
+                if skip_node is not None and node is skip_node:
+                    super().generic_visit(node)
+                    return
+                if should_remove(node):
+                    found.append(node)
+            super().generic_visit(node)
 
     FindVisitor().visit(tree)
     return tree, found
+
+
+def _discover_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.Expr]]:
+    """Parse once; return ``(tree, matching Expr nodes)``.
+
+    Shared by :func:`iter_matching_expr_statements` and
+    :func:`remove_expr_statements` so there is one matching implementation.
+    """
+    tree, stmts = _discover_statements(
+        source,
+        lambda node: isinstance(node, ast.Expr) and should_remove(node),
+        skip_last_module_expr=skip_last_module_expr,
+    )
+    return tree, [s for s in stmts if isinstance(s, ast.Expr)]
+
+
+def iter_matching_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, skip_last_module_expr: bool = False) -> list[ast.stmt]:
+    """Discover matching statements in *source*."""
+    _tree, found = _discover_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
+    return found
 
 
 def iter_matching_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> list[ast.Expr]:
@@ -129,26 +149,26 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
             container = getattr(parent, attr)
             if isinstance(container, list) and node in container:
                 return container
-    if isinstance(parent, ast.Try):
-        for handler in parent.handlers:
+    if isinstance(parent, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+        for handler in getattr(parent, "handlers", []):
             if node in handler.body:
                 return handler.body
     return None
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
-def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
-    """Remove matching expression-statement nodes from *source*.
+def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
+    """Remove matching statement nodes from *source*.
 
-    Uses ``_discover_expr_statements`` — the same function
-    :func:`iter_matching_expr_statements` wraps — then applies line edits.
+    Uses ``_discover_statements`` — the same function
+    :func:`iter_matching_statements` wraps — then applies line edits.
     Dry-run callers use ``iter``; edit callers use this. One matching path.
     Returns ``(new_source, removed_count)``.
     """
     # Callable + ast.parse hangs deep check (same class as _rewrite_token_calls).
     # crosshair: off
     src = source or ""
-    tree, nodes_to_remove = _discover_expr_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
+    tree, nodes_to_remove = _discover_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
     if not nodes_to_remove:
         return src, 0
 
@@ -243,6 +263,21 @@ def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool
             new_lines.append(line)
 
     return "".join(new_lines), len(nodes_to_remove)
+
+
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
+def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
+    """Remove matching expression-statement nodes from *source*.
+
+    Uses ``remove_statements`` filtering for ``ast.Expr`` nodes.
+    Returns ``(new_source, removed_count)``.
+    """
+    return remove_statements(
+        source,
+        lambda node: isinstance(node, ast.Expr) and should_remove(node),
+        pass_comment=pass_comment,
+        skip_last_module_expr=skip_last_module_expr,
+    )
 
 
 # ast_source_offset splits lines on \r\n, \r, or \n, matching

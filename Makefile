@@ -177,8 +177,9 @@ help:
 	@echo "  make build                  Build .oxt with tests (regular build, no Cython)"
 	@echo "  make build-native           Build .oxt with Cython accelerator"
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
-	@echo "  make release                Typecheck + bandit, then stripped-bundle tests in /tmp,"
-	@echo "                              then build/register the release .oxt. (Cython if 'make native')"
+	@echo "  make release                Typecheck + bandit, then stripped-bundle tests in /tmp"
+	@echo "                              (asserts, debug/info, deal stripped), then build/register"
+	@echo "                              the release .oxt. (Cython if 'make native')"
 	@echo "  make release-verify         Run stripped-bundle verification tests without full release build"
 	@echo "  make release-no-test        Build release OXT and register it without running tests/verification"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
@@ -320,7 +321,7 @@ build-no-recording: ty ruff-for-build preview-translations vendor manifest compi
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 
 # Full verification: typecheck-full (includes bandit + basedpyright library walk), then a stripped-with-tests tree in /tmp
-# (tmpfs: faster compileall / pytest bytecode) so stripping doesn't break logic,
+# (tmpfs: faster compileall / pytest bytecode; asserts, debug/info logging, and deal stripped) so stripping doesn't break logic,
 # then build the clean release oxt in build/.
 schema-docs:
 	$(PYTHON) $(SCRIPTS)/generate_config_schema_docs.py

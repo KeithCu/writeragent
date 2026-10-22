@@ -8,6 +8,7 @@
 
 Release / ``--strip`` / ``--no-tests`` OXT assembly removes:
 
+* ``assert ...`` statements (like ``python -O``; replaced with ``pass`` if block becomes empty)
 * ``grammar_obs(...)`` / ``_grammar_obs(...)`` expression statements
 * Logger ``.debug(...)`` / ``.info(...)`` expression statements
 * ``print(...)`` / ``pprint(...)`` expression statements (except a keep-list)
@@ -49,8 +50,8 @@ from typing import TYPE_CHECKING
 
 from plugin.framework.ast_stmt_edit import (
     is_name_call_expr,
-    iter_matching_expr_statements,
-    remove_expr_statements,
+    iter_matching_statements,
+    remove_statements,
 )
 
 if TYPE_CHECKING:
@@ -131,16 +132,21 @@ def _is_logger_debug_or_info_call(node: ast.Expr) -> bool:
     return isinstance(func, ast.Attribute) and func.attr in LOGGER_STRIP_ATTRS
 
 
-def _walk_and_strip_expr_statements(
+def _is_assert_statement(node: ast.stmt) -> bool:
+    """True if ``node`` is an assert statement."""
+    return isinstance(node, ast.Assert)
+
+
+def _walk_and_strip_statements(
     bundle_path: str,
     *,
     label: str,
-    should_remove: Callable[[ast.Expr], bool],
+    should_remove: Callable[[ast.stmt], bool],
     pass_comment: str,
     dry_run: bool,
     skip_file: Callable[[str], bool] = should_skip_strip,
 ) -> None:
-    """Shared walk: dry-run report or ``remove_expr_statements`` rewrite."""
+    """Shared walk: dry-run report or ``remove_statements`` rewrite."""
     action = "Dry run: would strip" if dry_run else "Stripping"
     print(f"  {action} {label} from {bundle_path} using AST...")
 
@@ -158,7 +164,7 @@ def _walk_and_strip_expr_statements(
                     content = f.read()
 
                 if dry_run:
-                    nodes = iter_matching_expr_statements(content, should_remove)
+                    nodes = iter_matching_statements(content, should_remove)
                     if not nodes:
                         continue
                     lines = content.splitlines(keepends=True)
@@ -172,7 +178,7 @@ def _walk_and_strip_expr_statements(
                         print(f"    [DryRun] {rel_path}: L{start_line}-{end_line}: {snippet}")
                     continue
 
-                new_content, removed = remove_expr_statements(
+                new_content, removed = remove_statements(
                     content,
                     should_remove,
                     pass_comment=pass_comment,
@@ -191,6 +197,42 @@ def _walk_and_strip_expr_statements(
         )
 
     print(f"  Done: Stripped {label} from bundle.")
+
+
+def _walk_and_strip_expr_statements(
+    bundle_path: str,
+    *,
+    label: str,
+    should_remove: Callable[[ast.Expr], bool],
+    pass_comment: str,
+    dry_run: bool,
+    skip_file: Callable[[str], bool] = should_skip_strip,
+) -> None:
+    """Shared walk for expression statements."""
+    _walk_and_strip_statements(
+        bundle_path,
+        label=label,
+        should_remove=lambda node: isinstance(node, ast.Expr) and should_remove(node),
+        pass_comment=pass_comment,
+        dry_run=dry_run,
+        skip_file=skip_file,
+    )
+
+
+def strip_assert_statements(bundle_path: str, dry_run: bool = False) -> None:
+    """Remove ``assert ...`` statements from Python files.
+
+    LibreOffice runs an embedded Python interpreter without the ``-O`` flag.
+    Stripping assert statements at build time removes debug invariants and overhead
+    from production/release bundles just like ``python -O``.
+    """
+    _walk_and_strip_statements(
+        bundle_path,
+        label="assert statements",
+        should_remove=_is_assert_statement,
+        pass_comment="stripped assert",
+        dry_run=dry_run,
+    )
 
 
 def strip_grammar_obs_calls(bundle_path: str, dry_run: bool = False) -> None:
@@ -536,7 +578,8 @@ def omit_sidebar_test_hooks(bundle_path: str, dry_run: bool = False) -> None:
 
 
 def strip_production_code(bundle_path: str, dry_run: bool = False) -> None:
-    """Release-bundle entry point: strip obs/debug/info/print/deal, ``main_thread_only``, stub ``thread_guard``, omit sidebar test hooks."""
+    """Release-bundle entry point: strip asserts/obs/debug/info/print/deal, ``main_thread_only``, stub ``thread_guard``, omit sidebar test hooks."""
+    strip_assert_statements(bundle_path, dry_run=dry_run)
     strip_grammar_obs_calls(bundle_path, dry_run=dry_run)
     strip_log_debug_info_calls(bundle_path, dry_run=dry_run)
     strip_print_calls(bundle_path, dry_run=dry_run)
