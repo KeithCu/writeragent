@@ -563,7 +563,7 @@ def _copy_page_regions(
             # "Binary URP bridge disposed" (GHA 38526445257, 38584920511,
             # 38584636315). Same-document portion copy does not select, does
             # not use the clipboard, and does not run libxslt.
-            from .html_export import _copy_flow_into_xtext
+            from .range_copy import _copy_flow_into_xtext
 
             fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
             try:

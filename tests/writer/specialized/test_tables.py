@@ -18,9 +18,11 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     _hosted_in_band,
     _unknown_cell_message,
-    _writer_cell_position,
 )
-from plugin.writer.html_export import _writer_table_copy_layout
+from plugin.writer.range_copy import (
+    _writer_cell_position,
+    _writer_table_copy_layout,
+)
 
 
 def _col_letters(col_idx: int) -> str:
@@ -630,7 +632,7 @@ def test_writer_table_copy_layout_ignores_split_suffix_for_size():
 
 def test_copy_table_copies_merged_d2_by_name():
     """HTML copy must walk getCellNames(); range(cols) on cols=1 used to drop D2."""
-    from plugin.writer.html_export import _copy_table
+    from plugin.writer.range_copy import _copy_table
 
     src = FakeTable(
         5,

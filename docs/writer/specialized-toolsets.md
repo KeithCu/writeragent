@@ -447,7 +447,7 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   is `""`, not concatenated inner-table text. Writer results use `cells` / `cell_names`
   from `getCellNames()`; they do not return `matrix` (Draw still does).
 - **HTML export copies nested `TextTable`s.** `_copy_cell_xtext` in
-  [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) recreates an
+  [`plugin/writer/range_copy.py`](../../plugin/writer/range_copy.py) recreates an
   in-cell table via `_copy_table(..., dest_text=dest_cell)` and recurses. Copy walks
   `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
   helper stays in this shipped file, not `specialized.tables`). Images in

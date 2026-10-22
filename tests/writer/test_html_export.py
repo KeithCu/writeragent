@@ -71,7 +71,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
-        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
@@ -275,7 +275,7 @@ def test_apply_image_export_options_shortens_anchor_with_or_without_images():
 
 
 def test_copy_field_into_sets_offset():
-    from plugin.writer.html_export import _copy_field_into
+    from plugin.writer.range_copy import _copy_field_into
 
     src_field = MagicMock()
     src_field.getSupportedServiceNames.return_value = ["com.sun.star.text.textfield.PageNumber"]
@@ -305,7 +305,7 @@ def test_copy_field_into_sets_offset():
 
 
 def test_copy_flow_into_xtext_one_paragraph_text_then_field():
-    from plugin.writer.html_export import (
+    from plugin.writer.range_copy import (
         _COPIED_CHAR_PROPERTIES,
         _COPIED_PARA_PROPERTIES,
         _copy_flow_into_xtext,
@@ -333,8 +333,8 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     cursor = MagicMock()
     dest_text.createTextCursor.return_value = cursor
 
-    with patch("plugin.writer.html_export._copy_field_into", return_value=True) as mock_field_into, \
-         patch("plugin.writer.html_export._copy_properties") as mock_props, \
+    with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
+         patch("plugin.writer.range_copy._copy_properties") as mock_props, \
          patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
         res = _copy_flow_into_xtext(doc, src_text, dest_text)
 
@@ -351,7 +351,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
 
 def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
-    from plugin.writer.html_export import _PARAGRAPH_BREAK, _copy_flow_into_xtext
+    from plugin.writer.range_copy import _PARAGRAPH_BREAK, _copy_flow_into_xtext
 
     doc = MagicMock()
     src_text = MagicMock()
@@ -376,7 +376,7 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
     cursor = MagicMock()
     dest_text.createTextCursor.return_value = cursor
 
-    with patch("plugin.writer.html_export._copy_properties"):
+    with patch("plugin.writer.range_copy._copy_properties"):
         _copy_flow_into_xtext(doc, src_text, dest_text)
 
     dest_text.insertControlCharacter.assert_called_once_with(cursor, _PARAGRAPH_BREAK, False)
@@ -407,7 +407,7 @@ def test_xtext_to_content_propagates_export_error_and_closes():
     temp.getText.return_value = MagicMock()
     with (
         patch.object(html_export, "_open_hidden_writer", return_value=temp),
-        patch.object(html_export, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
         patch.object(
             html_export,
             "document_to_content",
@@ -521,7 +521,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
-        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
@@ -569,7 +569,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
-        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
@@ -646,7 +646,7 @@ def test_xtext_injects_nonzero_page_offset():
     fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
     with (
         patch.object(html_export, "_open_hidden_writer", return_value=temp),
-        patch.object(html_export, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
         patch.object(html_export, "extract_page_number_fields", return_value=fields),
         patch.object(html_export, "document_to_content", return_value=html),
     ):
@@ -657,7 +657,7 @@ def test_xtext_injects_nonzero_page_offset():
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
-    from plugin.writer.html_export import _copy_xtext_into_doc
+    from plugin.writer.range_copy import _copy_xtext_into_doc
 
     src_text = MagicMock()
     src_text.createEnumeration.return_value = _Enum([])
@@ -701,7 +701,8 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_export import _raise_if_empty_export, _supports_service, _writer_table_copy_layout
+    from plugin.writer.html_export import _raise_if_empty_export
+    from plugin.writer.range_copy import _supports_service, _writer_table_copy_layout
 
     class DisposedException(Exception):
         pass
@@ -787,7 +788,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
-        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
@@ -811,7 +812,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
-        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),

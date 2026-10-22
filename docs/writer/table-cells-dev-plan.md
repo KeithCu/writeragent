@@ -2,7 +2,7 @@
 
 **Status:** Locked 2026-09-21 (Keith + Chief). Implements [discussion #821](https://github.com/KeithCu/writeragent/discussions/821).
 
-**Code:** [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableList`, `TableGetCells`, `_hosted_in_band`). Draw/Impress uses the same tool names via [`plugin/draw/tables.py`](../../plugin/draw/tables.py). HTML copy: [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) `_copy_table`.
+**Code:** [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableList`, `TableGetCells`, `_hosted_in_band`). Draw/Impress uses the same tool names via [`plugin/draw/tables.py`](../../plugin/draw/tables.py). HTML copy: [`plugin/writer/range_copy.py`](../../plugin/writer/range_copy.py) `_copy_table`.
 
 This is a small read fix plus the same first-row bound on delete and HTML copy. No new tool, no rebuilt `matrix`, no visual spans / merge-split UX / `include_content`.
 
@@ -42,7 +42,7 @@ Host cells that contain a nested table keep using `_cell_matrix_text` (the cell'
 2. **2c** — Writer payload: always `cells` + `cell_names` from `getCellNames()` + `getCellByName` + `_cell_matrix_text`. **Stop returning `matrix` on Writer.** Keep `rows`, `cols`, `nesting`, `nested_in_cells`. Empty string = empty cell; missing key = not a cell.
 3. **3b** — Optional `cell=` on `table_get_cells` (one address). Reuse `_resolve_cell_name`. Shared helper for the "Its cells are: …" sample used by set/insert/get. Draw honors `cell=` via `parse_a1` (shared schema).
 4. **4a** — `table_list`: add `cell_count` (Writer: `len(getCellNames())` via the nesting pass; Draw: `rows*cols`). Description: if `cell_count != rows*cols`, not a rectangle — use get_cells/`cells`.
-5. **Same PR** — Fix `_hosted_in_band` to scan `getCellNames()` (not `range(cols)`). Writer base-52 name parser matching `SwXTextTable::GetCellPosition` (`A`, `Z`, `a`, `AA`; row via `toInt32` so `A1.1.1` is the `A1` band) lives in LibrePy-shipped [`html_export.py`](../../plugin/writer/html_export.py). Do **not** use spreadsheet `parse_a1` for Writer names; do **not** use the parser to rebuild `matrix`. Fix `_copy_table` the same way (merged tables must not drop D2).
+5. **Same PR** — Fix `_hosted_in_band` to scan `getCellNames()` (not `range(cols)`). Writer base-52 name parser matching `SwXTextTable::GetCellPosition` (`A`, `Z`, `a`, `AA`; row via `toInt32` so `A1.1.1` is the `A1` band) lives in LibrePy-shipped [`range_copy.py`](../../plugin/writer/range_copy.py). Do **not** use spreadsheet `parse_a1` for Writer names; do **not** use the parser to rebuild `matrix`. Fix `_copy_table` the same way (merged tables must not drop D2).
 6. **Reject** — Do not rebuild a wide fake `matrix`. Covered cells would become `""` and look like empty cells.
 
 Draw/Impress path: keep rectangular `matrix` / `rows` / `cols` (plus `cell=` if shared).

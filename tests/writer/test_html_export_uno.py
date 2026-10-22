@@ -70,7 +70,8 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
     nested.getCellByName("A1").setString("NEST_A")
     nested.getCellByName("B1").setString("NEST_B")
 
-    from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
+    from plugin.writer.html_export import _open_hidden_writer
+    from plugin.writer.range_copy import _copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 
@@ -119,7 +120,8 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
     cursor.mergeRange()
     table.getCellByName("D2").setString("Telèfon responsable")
 
-    from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
+    from plugin.writer.html_export import _open_hidden_writer
+    from plugin.writer.range_copy import _copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 

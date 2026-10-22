@@ -13,7 +13,7 @@ from typing import Any
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import is_disposed_exception, uno_probe
 
-from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
 from ..table_helpers import edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (

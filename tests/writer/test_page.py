@@ -1167,7 +1167,7 @@ def test_copy_page_regions_does_not_export_html():
     doc = MagicMock()
     doc.getDrawPage.return_value.getCount.return_value = 0
 
-    with patch("plugin.writer.html_export._copy_flow_into_xtext", return_value=1) as mock_flow, \
+    with patch("plugin.writer.range_copy._copy_flow_into_xtext", return_value=1) as mock_flow, \
          patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
          patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
         _copy_page_regions(doc, source, clone, uno_ctx=object(), services=None)

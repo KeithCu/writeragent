@@ -1324,25 +1324,25 @@ def test_copy_properties_skips_values_the_style_already_gives():
     """Copying an inherited value would make it a hand-set one on the copy, and the read would
     then report margin-right:0cm on every paragraph as if the user had set it."""
     from unittest.mock import MagicMock
-    from plugin.writer import html_export as hx
+    from plugin.writer import range_copy as rc
 
     src, dst, style = MagicMock(), MagicMock(), MagicMock()
     src.getPropertyValue.side_effect = {"ParaLeftMargin": 3251, "ParaRightMargin": 0}.get
     style.getPropertyValue.side_effect = {"ParaLeftMargin": 0, "ParaRightMargin": 0}.get
 
-    hx._copy_properties(src, dst, ("ParaLeftMargin", "ParaRightMargin"), style)
+    rc._copy_properties(src, dst, ("ParaLeftMargin", "ParaRightMargin"), style)
 
     dst.setPropertyValue.assert_called_once_with("ParaLeftMargin", 3251)
 
 
 def test_copy_properties_without_a_style_copies_everything_readable():
     from unittest.mock import MagicMock
-    from plugin.writer import html_export as hx
+    from plugin.writer import range_copy as rc
 
     src, dst = MagicMock(), MagicMock()
     src.getPropertyValue.side_effect = {"CharWeight": 150.0}.get
 
-    hx._copy_properties(src, dst, ("CharWeight",))
+    rc._copy_properties(src, dst, ("CharWeight",))
 
     dst.setPropertyValue.assert_called_once_with("CharWeight", 150.0)
 
@@ -1350,7 +1350,7 @@ def test_copy_properties_without_a_style_copies_everything_readable():
 def test_copy_properties_continues_past_one_the_target_refuses():
     """The temp document is a plain Writer doc and need not offer every source property."""
     from unittest.mock import MagicMock
-    from plugin.writer import html_export as hx
+    from plugin.writer import range_copy as rc
 
     src, dst = MagicMock(), MagicMock()
     src.getPropertyValue.side_effect = {"CharPosture": 1, "CharWeight": 150.0}.get
@@ -1361,7 +1361,7 @@ def test_copy_properties_continues_past_one_the_target_refuses():
 
     dst.setPropertyValue.side_effect = refuse_posture
 
-    hx._copy_properties(src, dst, ("CharPosture", "CharWeight"))
+    rc._copy_properties(src, dst, ("CharPosture", "CharWeight"))
 
     assert [c.args[0] for c in dst.setPropertyValue.call_args_list] == ["CharPosture", "CharWeight"]
 
@@ -1370,7 +1370,7 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
     """A refused Para* must not skip the portion Char* loop — that paint is why the
     temp-doc path exists (bold/colour on a range read)."""
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_export as hx
+    from plugin.writer import range_copy as rc
 
     portion = MagicMock()
     para = MagicMock()
@@ -1383,16 +1383,16 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
     temp_text.createTextCursorByRange.return_value = run
 
     def copy_side_effect(src, dst, names, style=None):
-        if names is hx._COPIED_PARA_PROPERTIES:
+        if names is rc._COPIED_PARA_PROPERTIES:
             raise RuntimeError("refused Para*")
 
-    with patch.object(hx, "_copy_properties", side_effect=copy_side_effect) as copy:
-        hx._paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
+    with patch.object(rc, "_copy_properties", side_effect=copy_side_effect) as copy:
+        rc._paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
 
     names_seen = [c.args[2] for c in copy.call_args_list]
-    assert hx._COPIED_PARA_PROPERTIES in names_seen
-    assert hx._COPIED_CHAR_PROPERTIES in names_seen
-    char_call = next(c for c in copy.call_args_list if c.args[2] is hx._COPIED_CHAR_PROPERTIES)
+    assert rc._COPIED_PARA_PROPERTIES in names_seen
+    assert rc._COPIED_CHAR_PROPERTIES in names_seen
+    char_call = next(c for c in copy.call_args_list if c.args[2] is rc._COPIED_CHAR_PROPERTIES)
     assert char_call.args[0] is portion
 
 
