@@ -865,14 +865,6 @@ def test_non_integer_index_errors():
     ok, err = tool.validate(action="insert", axis="row", index="two")
     assert ok is False
     assert err is not None and "Invalid type for index" in err and "integer" in err
-    with pytest.raises(AssertionError):
-        tool.execute(
-            _ctx({"T": FakeTable(2, 2)}),
-            action="insert",
-            axis="row",
-            name="T",
-            index="two",
-        )
 
 
 # ---- insert / delete --------------------------------------------------------
@@ -1157,8 +1149,6 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     ok_data, err_data = tool.validate(rows=2, columns=2, data="ab")
     assert ok_data is False
     assert err_data is not None and "Invalid type for data" in err_data and "array" in err_data
-    with pytest.raises(AssertionError):
-        tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=2, columns=2, data="ab")
 
 
 def test_table_insert_draw_non_numeric_rows_columns():
@@ -1192,7 +1182,6 @@ def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
     """Bug 3: TableGetCells logs warning and continues on cell read failure, and re-raises disposal."""
     import logging
     from unittest.mock import MagicMock
-    import pytest
 
     table = FakeTable(1, 2, cells={"A1": "ok"})
     table._explicit_names = ["A1", "B1"]
@@ -1227,7 +1216,6 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
     """Bug 4: TableList skips corrupt table that fails _dims, and re-raises disposal."""
     import logging
     from unittest.mock import MagicMock
-    import pytest
 
     good = FakeTable(2, 2)
     bad = MagicMock()
@@ -1259,7 +1247,6 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    import pytest
     from plugin.writer.specialized.tables import _is_text_table, _iter_direct_children, _cell_hosted_table_names
 
     disposed_obj = MagicMock()

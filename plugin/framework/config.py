@@ -657,9 +657,9 @@ def get_config_dict() -> dict[str, Any]:
     Copies each value the same way ``get_config`` does. Returning ``_cache.data``
     itself let a caller change memory without a write.
     """
-    config_data = _get_validated_config_dict()
-    assert isinstance(config_data, dict)
-    return {key: _copy_config_value(value) for key, value in config_data.items()}
+    data = _get_validated_config_dict()
+    assert isinstance(data, dict)
+    return {key: _copy_config_value(value) for key, value in data.items()}
 
 
 def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
