@@ -65,6 +65,7 @@ from plugin.scripting.audio_recorder_service import is_audio_recording_supported
 from plugin.chatbot.grammar_status import (
     format_grammar_status,
 )
+from plugin.chatbot.chat_sidebar_mode import SidebarModeController
 from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
 from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
 
@@ -329,6 +330,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _record_mouse_control: Any
     _voice: PanelVoiceController
     _events: PanelEventsController
+    _sidebar_mode: SidebarModeController
 
     def clear_pending_audio_wav(self) -> None:
         self._voice.clear_pending_audio_wav()
@@ -381,6 +383,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._send_busy = False
         self._active_mode = ""
         self._mode_topic = ""
+        self._sidebar_mode = SidebarModeController(self)
         self.panel = None
         self.client = None
         self.audio_wav_path = None
@@ -541,87 +544,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None  # Force client recreation if needed, though they usually share same config
 
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
-        """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            CHAT_MODE_WRITING_PLAN,
-            clear_brainstorming_session,
-            set_selector_mode_with_flags,
-        )
-
-        flags = getattr(self, "sidebar_mode_flags", None)
-        # Read _mode_topic before clear_brainstorming_session blanks
-        # it, or the writing-plan handoff is always "Implement the saved spec: ".
-        # selectItemPos often does not fire ChatModeListener, so the combo
-        # moves and the sidebar stays in the old mode until the user touches it.
-        # Apply the mode here.
-        topic = getattr(self, "_mode_topic", "") or ""
-        clear_brainstorming_session(self)
-        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
-        if spec_saved:
-            self._active_mode = CHAT_MODE_WRITING_PLAN
-            self._mode_topic = f"Implement the saved spec: {topic}"
-            if self.chat_mode_selector and flags:
-                set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
-            if callable(apply_fn):
-                apply_fn(CHAT_MODE_WRITING_PLAN)
-        else:
-            if self.chat_mode_selector and flags:
-                set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
-            if callable(apply_fn):
-                apply_fn(CHAT_MODE_CHAT)
+        self._sidebar_mode.on_brainstorming_session_finished(spec_saved)
 
     def on_librarian_session_finished(self) -> None:
-        """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            clear_librarian_session,
-            set_selector_mode_with_flags,
-        )
-
-        flags = getattr(self, "sidebar_mode_flags", None)
-        clear_librarian_session(self)
-        if self.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        # Do not rely on ComboBox item-changed: swap to doc_session, re-render Chat
-        # pane, and refresh [DOCUMENT CONTENT] for the next send.
-        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._sidebar_mode.on_librarian_session_finished()
 
     def on_writing_plan_session_finished(self) -> None:
-        """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            clear_writing_plan_session,
-            set_selector_mode_with_flags,
-        )
-
-        flags = getattr(self, "sidebar_mode_flags", None)
-        clear_writing_plan_session(self)
-        if self.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        # Same as librarian: the combo change does not reliably run ChatModeListener.
-        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._sidebar_mode.on_writing_plan_session_finished()
 
     def on_ppt_master_session_finished(self, exported: bool = False) -> None:
-        """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            clear_ppt_master_session,
-            set_selector_mode_with_flags,
-        )
-
-        del exported
-        flags = getattr(self, "sidebar_mode_flags", None)
-        clear_ppt_master_session(self)
-        if self.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._sidebar_mode.on_ppt_master_session_finished(exported)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         self._events.begin_inline_web_approval(query, tool, event)

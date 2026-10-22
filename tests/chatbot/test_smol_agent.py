@@ -1153,8 +1153,7 @@ def test_do_send_agent_backend_success_skips_builtin():
 
 
 def test_on_librarian_session_finished_applies_chat_mode():
-    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeFlags
-    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeController, SidebarModeFlags
 
     listener = SimpleNamespace(
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
@@ -1163,7 +1162,7 @@ def test_on_librarian_session_finished_applies_chat_mode():
         _active_mode="librarian",
     )
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-        SendButtonListener.on_librarian_session_finished(listener)  # type: ignore[misc]
+        SidebarModeController(listener).on_librarian_session_finished()
 
     assert listener._active_mode == ""
     mock_set.assert_called_once()

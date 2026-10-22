@@ -275,3 +275,93 @@ def clear_writing_plan_session(send_listener: Any) -> None:
     if getattr(send_listener, "_active_mode", "") == CHAT_MODE_WRITING_PLAN:
         send_listener._active_mode = ""
         send_listener._mode_topic = ""
+
+
+class SidebarModeController:
+    _panel: Any
+
+    def __init__(self, panel: Any) -> None:
+        self._panel = panel
+
+    def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
+        """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_CHAT,
+            CHAT_MODE_WRITING_PLAN,
+            clear_brainstorming_session,
+            set_selector_mode_with_flags,
+        )
+
+        flags = getattr(self._panel, "sidebar_mode_flags", None)
+        # Read _mode_topic before clear_brainstorming_session blanks
+        # it, or the writing-plan handoff is always "Implement the saved spec: ".
+        # selectItemPos often does not fire ChatModeListener, so the combo
+        # moves and the sidebar stays in the old mode until the user touches it.
+        # Apply the mode here.
+        topic = getattr(self._panel, "_mode_topic", "") or ""
+        clear_brainstorming_session(self._panel)
+        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
+        if spec_saved:
+            self._panel._active_mode = CHAT_MODE_WRITING_PLAN
+            self._panel._mode_topic = f"Implement the saved spec: {topic}"
+            if self._panel.chat_mode_selector and flags:
+                set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
+            if callable(apply_fn):
+                apply_fn(CHAT_MODE_WRITING_PLAN)
+        else:
+            if self._panel.chat_mode_selector and flags:
+                set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+            if callable(apply_fn):
+                apply_fn(CHAT_MODE_CHAT)
+
+    def on_librarian_session_finished(self) -> None:
+        """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_CHAT,
+            clear_librarian_session,
+            set_selector_mode_with_flags,
+        )
+
+        flags = getattr(self._panel, "sidebar_mode_flags", None)
+        clear_librarian_session(self._panel)
+        if self._panel.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        # Do not rely on ComboBox item-changed: swap to doc_session, re-render Chat
+        # pane, and refresh [DOCUMENT CONTENT] for the next send.
+        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)
+
+    def on_writing_plan_session_finished(self) -> None:
+        """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_CHAT,
+            clear_writing_plan_session,
+            set_selector_mode_with_flags,
+        )
+
+        flags = getattr(self._panel, "sidebar_mode_flags", None)
+        clear_writing_plan_session(self._panel)
+        if self._panel.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        # Same as librarian: the combo change does not reliably run ChatModeListener.
+        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)
+
+    def on_ppt_master_session_finished(self, exported: bool = False) -> None:
+        """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_CHAT,
+            clear_ppt_master_session,
+            set_selector_mode_with_flags,
+        )
+
+        del exported
+        flags = getattr(self._panel, "sidebar_mode_flags", None)
+        clear_ppt_master_session(self._panel)
+        if self._panel.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)

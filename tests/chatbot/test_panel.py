@@ -136,7 +136,11 @@ class TestHttpServerStatusEvents:
 
 class TestSidebarModeFinishApplies:
     def _listener(self) -> MagicMock:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, SidebarModeFlags
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_BRAINSTORMING,
+            SidebarModeController,
+            SidebarModeFlags,
+        )
 
         listener = MagicMock()
         listener.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
@@ -144,6 +148,7 @@ class TestSidebarModeFinishApplies:
         listener._apply_sidebar_mode_fn = MagicMock()
         listener._mode_topic = "Kitchen remodel"
         listener._active_mode = CHAT_MODE_BRAINSTORMING
+        listener._sidebar_mode = SidebarModeController(listener)
         return listener
 
     def test_saved_spec_keeps_topic_and_applies_writing_plan(self) -> None:

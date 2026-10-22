@@ -21,6 +21,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_WRITING_PLAN,
     LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
+    SidebarModeController,
     _modes_for,
     clear_brainstorming_session,
     clear_librarian_session,
@@ -228,3 +229,42 @@ def test_mode_from_label_dropped_from_check_all_fqns():
     fqns = cover_fqns_for_module(Path("plugin/chatbot/chat_sidebar_mode.py"), require_deal=True)
     assert not any(f.endswith(".mode_from_label") for f in fqns)
     assert any(f.endswith(".get_mode_labels") for f in fqns)
+
+
+def test_sidebar_mode_controller_brainstorming_finished():
+    panel = MagicMock()
+    panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    panel.chat_mode_selector = MagicMock()
+    panel._apply_sidebar_mode_fn = MagicMock()
+    panel._mode_topic = "Kitchen remodel"
+    panel._active_mode = CHAT_MODE_BRAINSTORMING
+
+    controller = SidebarModeController(panel)
+    with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
+        controller.on_brainstorming_session_finished(spec_saved=True)
+    assert panel._mode_topic == "Implement the saved spec: Kitchen remodel"
+    assert panel._active_mode == CHAT_MODE_WRITING_PLAN
+    assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
+    panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
+
+    # Without spec saved
+    panel._mode_topic = "Kitchen remodel"
+    panel._active_mode = CHAT_MODE_BRAINSTORMING
+    panel._apply_sidebar_mode_fn.reset_mock()
+    with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
+        controller.on_brainstorming_session_finished(spec_saved=False)
+    panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+
+
+def test_sidebar_mode_controller_other_modes_finished():
+    for meth_name in ("on_librarian_session_finished", "on_writing_plan_session_finished", "on_ppt_master_session_finished"):
+        panel = MagicMock()
+        panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
+        panel.chat_mode_selector = MagicMock()
+        panel._apply_sidebar_mode_fn = MagicMock()
+        panel._active_mode = "something"
+
+        controller = SidebarModeController(panel)
+        with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
+            getattr(controller, meth_name)()
+        panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
