@@ -358,6 +358,11 @@ def test_librepy_staged_bundle_imports_without_writeragent(tmp_path: Path):
         only=LIBREPY_VENDOR_PACKAGES,
     )
 
+    # In production LibrePy builds, thread_guard is replaced with release stubs.
+    from scripts.strip_code import replace_thread_guard_implementation
+
+    replace_thread_guard_implementation(str(staged))
+
     # Isolate subprocess to staged tree without editable finder hooks
     script = r"""
 import sys, types, os, importlib

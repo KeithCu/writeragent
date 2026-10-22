@@ -397,6 +397,7 @@ def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
     assert "def sync_host_dispatch()" in stubbed
     assert "def in_sync_host_dispatch() -> bool:" in stubbed
     assert "raise RuntimeError" not in stubbed
+    assert "THREAD_VIOLATION_MARK" in stubbed
 
     # Verify stub executes cleanly and provides functional sync_host_dispatch
     import plugin.framework.thread_guard as tg
@@ -407,6 +408,7 @@ def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
     with ns["sync_host_dispatch"]():
         assert ns["in_sync_host_dispatch"]() is True
     assert ns["in_sync_host_dispatch"]() is False
+    assert ns["THREAD_VIOLATION_MARK"] == tg.THREAD_VIOLATION_MARK
     assert ns["__all__"] == tg.__all__
 
 

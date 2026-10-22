@@ -578,4 +578,5 @@ __all__ = [
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",
+    "THREAD_VIOLATION_MARK",
 ]

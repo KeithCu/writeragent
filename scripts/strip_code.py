@@ -385,6 +385,13 @@ from typing import Any, Generator
 
 GUARD_ON = False
 
+# What was wrong: LibrePy and release builds failed on install with ImportError
+# for THREAD_VIOLATION_MARK when uno_listeners was imported by import_filter.py.
+# How it happened: THREAD_GUARD_RELEASE_STUB omitted THREAD_VIOLATION_MARK when replacing
+# thread_guard.py during strip_production_code().
+# Why this change fixes it: define THREAD_VIOLATION_MARK matching thread_guard.py's value.
+THREAD_VIOLATION_MARK = "UNO thread violation"
+
 _bg = threading.local()
 _sync_host = threading.local()
 
@@ -498,6 +505,7 @@ __all__ = [
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",
+    "THREAD_VIOLATION_MARK",
 ]
 '''
 
