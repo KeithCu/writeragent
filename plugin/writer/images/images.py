@@ -644,7 +644,7 @@ class ImageGetInfo(ToolWriterImageBase):
 
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_name = kwargs.get("name", "")
+        image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
         try:
@@ -835,7 +835,7 @@ class ImageSetProperties(ToolWriterImageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_name = kwargs.get("name", "")
+        image_name = kwargs["name"]
         if not image_name:
             return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
 
@@ -1181,7 +1181,7 @@ class ImageDownload(ToolWriterImageBase):
         return True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        url = kwargs.get("url", "")
+        url = kwargs["url"]
 
         verify_ssl = kwargs.get("verify_ssl", True)
         # A missing or null flag must not turn verification off.
@@ -1279,7 +1279,7 @@ class ImageInsert(ToolWriterImageBase):
         return True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_path = kwargs.get("path", "")
+        image_path = kwargs["path"]
 
         width_mm_val = kwargs.get("width_mm")
         if width_mm_val is not None and width_mm_val <= 0:
@@ -1439,7 +1439,7 @@ class ImageDelete(ToolWriterImageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_name = kwargs.get("name", "")
+        image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
         try:
@@ -1495,8 +1495,8 @@ class ImageReplace(ToolWriterImageBase):
         return True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_name = kwargs.get("name", "")
-        new_image_path = kwargs.get("path", "")
+        image_name = kwargs["name"]
+        new_image_path = kwargs["path"]
         sheet_index = kwargs.get("sheet_index")
 
         width_mm_val = kwargs.get("width_mm")
