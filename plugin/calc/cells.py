@@ -432,7 +432,7 @@ class ReadCellRange(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
-        rn = _range_args(kwargs.get("range"))
+        rn = _range_args(kwargs["range"])
 
         if len(rn) == 0:
             return self._tool_error("range is required")
@@ -555,7 +555,7 @@ class WriteCellRange(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs.get("range"))
+        rn = _range_args(kwargs["range"])
         source, source_err = _normalize_source_arg(kwargs.get("source"))
         if source_err:
             return self._tool_error(source_err)
@@ -695,8 +695,9 @@ class InsertCellHtml(ToolBase):
         from plugin.calc.address_utils import parse_address
         from plugin.calc.rich_html import insert_cell_html_rich
 
-        addr = (kwargs.get("cell") or "").strip()
-        html = kwargs.get("html")
+        addr = kwargs["cell"].strip()
+        html = kwargs["html"]
+        assert isinstance(html, str)
         if not addr:
             return self._tool_error("cell is required")
         try:
@@ -708,7 +709,7 @@ class InsertCellHtml(ToolBase):
         if ctx.services is not None and hasattr(ctx.services, "get"):
             config_svc = ctx.services.get("config")
 
-        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html if isinstance(html, str) else "", config_svc=config_svc)
+        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html, config_svc=config_svc)
         return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
 
 
@@ -743,7 +744,7 @@ class SetCellStyle(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs.get("range"))
+        rn = _range_args(kwargs["range"])
 
         # Strict color validation: callers/tests expect invalid color strings
         # to produce a consistent `{status:"error"}` payload rather than
@@ -879,7 +880,7 @@ class MergeCells(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs.get("range"))
+        rn = _range_args(kwargs["range"])
         raw_center = kwargs.get("center")
         if raw_center is None:
             center = True
@@ -937,7 +938,7 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs.get("range"))
+        rn = _range_args(kwargs["range"])
 
         raw_sc = kwargs.get("sort_column")
         if raw_sc is None:
@@ -957,11 +958,8 @@ class SortRange(ToolCalcRangeBase):
         else:
             ascending = raw_ascending
 
-        raw_has_header = kwargs.get("has_header")
-        if raw_has_header is None:
-            has_header = True
-        else:
-            has_header = raw_has_header
+        has_header: bool = kwargs["has_header"]
+        assert isinstance(has_header, bool)
 
         def _apply_sort(r: Any) -> str:
             return manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header)
@@ -1000,7 +998,8 @@ class DeleteStructure(ToolBase):
         # This happened because start and count were passed directly without validating
         # types and ranges. Validating start and count strictly returns tool errors before
         # modifying document structures.
-        structure_type: str = kwargs.get("structure_type") or ""
+        structure_type: str = kwargs["structure_type"]
+        assert structure_type in ("rows", "columns")
 
         count = kwargs.get("count", 1)
         if type(count) is not int or count < 1:
