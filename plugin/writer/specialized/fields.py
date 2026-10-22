@@ -14,7 +14,7 @@ from typing import Any
 
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
-from ..specialized_base import ToolWriterFieldBase
+from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import resolve_target_cursor
 
 
@@ -294,8 +294,7 @@ class FieldsInsert(ToolWriterFieldBase):
         "properties": {
             "field": {"type": "string", "description": ("The exact name of the text field service to create, excluding the 'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'.")},
             "properties": {"type": "object", "description": ("Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field."), "default": {}},
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the field."},
-            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+            **target_params("the field"),
         },
         "required": ["field"],
     }

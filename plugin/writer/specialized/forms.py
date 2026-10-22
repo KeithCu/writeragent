@@ -28,7 +28,7 @@ from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from ..specialized_base import ToolWriterFormBase
+from ..specialized_base import ToolWriterFormBase, enum_param, index_error
 from plugin.doc.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
@@ -101,7 +101,7 @@ def _control_value_fields(model: Any) -> dict[str, Any]:
     return info
 
 
-def _find_control_shape(dp: Any, index: Any = None, name: Any = None) -> tuple[Any, Any, dict[str, Any] | None]:
+def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> tuple[Any, Any, dict[str, Any] | None]:
     """Resolve a ControlShape by draw-page index or control/shape Name.
 
     Index is the draw-page shape index from form_list_controls (not a
@@ -109,16 +109,14 @@ def _find_control_shape(dp: Any, index: Any = None, name: Any = None) -> tuple[A
     Name is the stable address.
     """
     if index is not None:
-        try:
-            idx = int(index)
-        except (TypeError, ValueError):
-            return None, None, format_error_payload(ToolExecutionError(f"Invalid shape index: {index}"))
-        if idx < 0 or idx >= dp.getCount():
-            return None, None, format_error_payload(ToolExecutionError(f"Invalid shape index: {idx}"))
-        shape = dp.getByIndex(idx)
+        assert isinstance(index, int)
+        err = index_error(index, dp.getCount(), "draw-page shape")
+        if err:
+            return None, None, format_error_payload(ToolExecutionError(err))
+        shape = dp.getByIndex(index)
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
-            return None, None, format_error_payload(ToolExecutionError(f"Shape at index {idx} is not a form control"))
-        return idx, shape, None
+            return None, None, format_error_payload(ToolExecutionError(f"Shape at index {index} is not a form control"))
+        return index, shape, None
 
     wanted = (name or "").strip()
     if not wanted:
@@ -347,7 +345,7 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
 
 
 _CONTROL_PROPERTIES: dict[str, Any] = {
-    "control": {"type": "string", "enum": list(CONTROL_TYPE_MAP.keys()), "description": "The type of form control to create."},
+    "control": enum_param(list(CONTROL_TYPE_MAP), "The type of form control to create."),
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
     "name": {"type": "string", "description": "Internal name/key for the control."},
     "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},

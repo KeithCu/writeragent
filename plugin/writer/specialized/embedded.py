@@ -11,7 +11,7 @@
 
 from typing import Any
 
-from ..specialized_base import ToolWriterEmbeddedBase
+from ..specialized_base import ToolWriterEmbeddedBase, target_params
 from ..target_resolver import resolve_target_cursor
 
 
@@ -22,8 +22,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         "type": "object",
         "properties": {
             "object_type": {"type": "string", "description": "Target type, e.g. spreadsheet, chart."},
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the embedded object."},
-            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+            **target_params("the embedded object"),
         },
         "required": [],
     }

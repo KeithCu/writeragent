@@ -25,7 +25,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..specialized_base import ToolWriterMailMergeBase
+from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import resolve_target_cursor
 
 import uno
@@ -184,12 +184,11 @@ class RegisterDataSource(ToolWriterMailMergeBase):
                 "type": "string",
                 "description": "Path to the .ods, .csv, or .odb file to register. Required when action is 'register'.",
             },
-            "action": {
-                "type": "string",
-                "enum": ["register", "unregister"],
-                "description": "Action to perform: 'register' to add/update, or 'unregister' to remove.",
-                "default": "register",
-            },
+            "action": enum_param(
+                ["register", "unregister"],
+                "Action to perform: 'register' to add/update, or 'unregister' to remove.",
+                default="register",
+            ),
         },
         "required": ["name"],
     }
@@ -259,22 +258,12 @@ class InsertField(ToolWriterMailMergeBase):
                 "description": "Name of the table or sheet (e.g., 'Sheet1', 'Contacts').",
                 "default": "",
             },
-            "command_type": {
-                "type": "string",
-                "enum": ["table", "query", "command"],
-                "description": "Data command type: 'table' (0), 'query' (1), or 'command' (2).",
-                "default": "table",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to insert the field.",
-                "default": "selection",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and replace if target = 'search'.",
-            },
+            "command_type": enum_param(
+                ["table", "query", "command"],
+                "Data command type: 'table' (0), 'query' (1), or 'command' (2).",
+                default="table",
+            ),
+            **target_params("the field", default="selection"),
         },
         "required": ["column_name"],
     }
@@ -453,18 +442,16 @@ class RunMerge(ToolWriterMailMergeBase):
                 "type": "string",
                 "description": "Name of the table, query, or sheet in the data source.",
             },
-            "command_type": {
-                "type": "string",
-                "enum": ["table", "query", "command"],
-                "description": "Command type: 'table' (0), 'query' (1), or 'command' (2).",
-                "default": "table",
-            },
-            "output_type": {
-                "type": "string",
-                "enum": ["file", "printer", "mail"],
-                "description": "Destination for merge results: 'file' (default), 'printer', or 'mail'.",
-                "default": "file",
-            },
+            "command_type": enum_param(
+                ["table", "query", "command"],
+                "Command type: 'table' (0), 'query' (1), or 'command' (2).",
+                default="table",
+            ),
+            "output_type": enum_param(
+                ["file", "printer", "mail"],
+                "Destination for merge results: 'file' (default), 'printer', or 'mail'.",
+                default="file",
+            ),
             "output_path": {
                 "type": "string",
                 "description": "Directory path to save output files when output_type='file'.",
@@ -474,12 +461,11 @@ class RunMerge(ToolWriterMailMergeBase):
                 "description": "If True, merges all records into a single multi-page document. If False, creates separate files per record.",
                 "default": False,
             },
-            "file_format": {
-                "type": "string",
-                "enum": ["odt", "pdf"],
-                "description": "Output file format: 'odt' or 'pdf'. Default 'odt'.",
-                "default": "odt",
-            },
+            "file_format": enum_param(
+                ["odt", "pdf"],
+                "Output file format: 'odt' or 'pdf'. Default 'odt'.",
+                default="odt",
+            ),
             "file_name_prefix": {
                 "type": "string",
                 "description": "Base filename prefix for output files, or column name when file_name_from_column=True.",
