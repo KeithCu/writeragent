@@ -17,6 +17,7 @@ from typing import Any
 from plugin.framework.module_base import ModuleBase
 
 _TOOL_MODULES = (
+    "plugin.doc.diagnostics",
     "plugin.doc.document_research_tools",
     "plugin.doc.document_research_grep_tool",
     "plugin.embeddings.document_research_fts_tool",
@@ -24,6 +25,7 @@ _TOOL_MODULES = (
     "plugin.doc.find_tools_tool",
     "plugin.doc.python_domain_specialized",
     "plugin.doc.peer_message",
+    "plugin.doc.print_doc",
     "plugin.doc.undo",
 )
 
@@ -32,6 +34,5 @@ class CommonModule(ModuleBase):
     """Provides generic document tools (info, save, export)."""
 
     def initialize(self, services: Any) -> None:
-        # plugin.doc.diagnostics stays ToolBaseDummy, so discovery would register nothing.
         for name in _TOOL_MODULES:
             services.tools.auto_discover(import_module(name))

@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any
 
@@ -15,16 +14,6 @@ from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBaseDummy, ToolContext
 
 log = logging.getLogger(__name__)
-
-
-def _issue(kind: str, severity: str, paragraph_index: int, message: str, detail: str | None = None) -> dict[str, Any]:
-    return {
-        "type": kind,
-        "severity": severity,
-        "paragraph_index": paragraph_index,
-        "message": message,
-        "detail": message if detail is None else detail,
-    }
 
 
 class DocumentHealthCheck(ToolBaseDummy):
@@ -56,18 +45,18 @@ class DocumentHealthCheck(ToolBaseDummy):
 
                 # --- Empty heading check ---
                 if not text.strip():
-                    issues.append(_issue("empty_heading", "warning", i, "Empty heading level %d at paragraph %d." % (outline_level, i), "Heading level %d is empty." % outline_level))
+                    issues.append({"type": "empty_heading", "severity": "warning", "paragraph_index": i, "message": ("Empty heading level %d at paragraph %d." % (outline_level, i)), "detail": "Heading level %d is empty." % outline_level})
 
                 # --- Heading level jump check ---
                 if last_heading_level > 0 and outline_level > last_heading_level + 1:
                     issues.append(
-                        _issue(
-                            "heading_level_skip",
-                            "info",
-                            i,
-                            "Heading jumps from level %d to %d at paragraph %d: '%s'" % (last_heading_level, outline_level, i, heading_preview),
-                            "Heading jumps from level %d to %d (skips %s)." % (last_heading_level, outline_level, ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level))),
-                        )
+                        {
+                            "type": "heading_level_skip",
+                            "severity": "info",
+                            "paragraph_index": i,
+                            "message": ("Heading jumps from level %d to %d at paragraph %d: '%s'" % (last_heading_level, outline_level, i, heading_preview)),
+                            "detail": ("Heading jumps from level %d to %d (skips %s)." % (last_heading_level, outline_level, ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level)))),
+                        }
                     )
 
                 last_heading_level = outline_level
@@ -75,12 +64,13 @@ class DocumentHealthCheck(ToolBaseDummy):
                 # --- Large unstructured block check ---
                 if paragraphs_since_heading > 50:
                     issues.append(
-                        _issue(
-                            "large_block",
-                            "info",
-                            i - paragraphs_since_heading,
-                            "%d paragraphs without a heading before paragraph %d." % (paragraphs_since_heading, i),
-                        )
+                        {
+                            "type": "large_block",
+                            "severity": "info",
+                            "paragraph_index": i - paragraphs_since_heading,
+                            "message": ("%d paragraphs without a heading before paragraph %d." % (paragraphs_since_heading, i)),
+                            "detail": ("%d paragraphs without a heading before paragraph %d." % (paragraphs_since_heading, i)),
+                        }
                     )
                 paragraphs_since_heading = 0
             else:
@@ -89,12 +79,13 @@ class DocumentHealthCheck(ToolBaseDummy):
         # Check trailing large block (after last heading to end of doc).
         if paragraphs_since_heading > 50:
             issues.append(
-                _issue(
-                    "large_block",
-                    "info",
-                    len(para_ranges) - paragraphs_since_heading,
-                    "%d paragraphs without a heading at end of document." % paragraphs_since_heading,
-                )
+                {
+                    "type": "large_block",
+                    "severity": "info",
+                    "paragraph_index": len(para_ranges) - paragraphs_since_heading,
+                    "message": ("%d paragraphs without a heading at end of document." % paragraphs_since_heading),
+                    "detail": ("%d paragraphs without a heading at end of document." % paragraphs_since_heading),
+                }
             )
 
         # --- Broken bookmarks ---
@@ -111,7 +102,7 @@ class DocumentHealthCheck(ToolBaseDummy):
                     log.debug("bookmark %s getAnchor failed (%s)", name, type(exc).__name__)
                     continue
                 if anchor is None:
-                    issues.append(_issue("broken_bookmark", "warning", -1, "Bookmark '%s' has an empty anchor." % name))
+                    issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     continue
                 # `not anchor.getString()` flags every point bookmark. Heading
                 # `_mcp_` marks are inserted as a collapsed cursor, so their
@@ -125,9 +116,9 @@ class DocumentHealthCheck(ToolBaseDummy):
                 get_start = getattr(anchor, "getStart", None)
                 if callable(get_start) and uno_read(get_start, None) is not None:
                     continue
-                issues.append(_issue("broken_bookmark", "warning", -1, "Bookmark '%s' has an empty anchor." % name))
+                issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
             except Exception:
-                issues.append(_issue("broken_bookmark", "warning", -1, "Bookmark '%s' could not be read." % name))
+                issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
 
         # --- Orphan images (graphic objects without a URL) ---
         graphics = doc.getGraphicObjects()
@@ -140,7 +131,7 @@ class DocumentHealthCheck(ToolBaseDummy):
                     # Also check the Graphic property (LO 7.1+).
                     g = uno_read(lambda: obj.getPropertyValue("Graphic"), None)
                     if g is None:
-                        issues.append(_issue("orphan_image", "warning", -1, "Graphic object '%s' has no image data." % name))
+                        issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
             except Exception as exc:
                 log.debug("graphic %s health check failed (%s)", name, type(exc).__name__)
 
@@ -179,6 +170,7 @@ class SetDocumentProtection(ToolBaseDummy):
                     # Older LO versions may not support per-section
                     # passwords via setProtectionPassword.
                     # It requires byte arrays for ProtectionKey instead.
+                    import hashlib
                     section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
 
         return {"status": "ok", "protected": enabled, "sections_count": count}
