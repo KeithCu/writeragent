@@ -7,15 +7,7 @@ from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.chatbot.state_machine import UIEffectKind
 from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    ascii_bounded,
-    deal,
-    str_bounded,
-)
+from plugin.framework.deal_shim import deal
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.service import BaseState, FsmTransition
 
@@ -28,20 +20,6 @@ DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
     }
 )
 DELEGATE_TASK_CHAT_MAX = 120
-
-
-def _deal_cap(production: int) -> int:
-    # CrossHair floors these caps to 1. Production keeps the real bound.
-    return 1 if UNDER_CROSSHAIR else production
-
-
-# Display cap only (sidebar preview). Input sanity is DEAL_MAX_SOURCE (8192).
-_DEAL_TRUNCATE_TASK_LEN = _deal_cap(DEAL_MAX_SOURCE)
-_DEAL_TRUNCATE_MAX_LEN = _deal_cap(DELEGATE_TASK_CHAT_MAX)
-_DEAL_EMPTY_TC_LEN = _deal_cap(DEAL_MAX_CMD_ARGS)
-_DEAL_EMPTY_TOKEN_LEN = _deal_cap(DEAL_MAX_TOKEN)
-_DEAL_FUNC_ARG_TOKEN_LEN = _deal_cap(DEAL_MAX_TOKEN)
-_DEAL_FUNC_ARG_DICT_LEN = _deal_cap(DEAL_MAX_CMD_ARGS)
 _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
 
 
@@ -59,21 +37,6 @@ def _describe_empty_response_content(content: Any) -> str:
     return f"{len(content)} chars: {preview!r}..."
 
 
-@deal.pre(
-    lambda tool_calls, *_unused, **__: tool_calls is None
-    or (
-        type(tool_calls) is list
-        and len(tool_calls) <= _DEAL_EMPTY_TC_LEN
-        and all(
-            type(item) is dict
-            # Master dropped item.values() (values are not always tiny strings).
-            # Keep that keys-only shape; use the PR CrossHair length caps.
-            and len(item) <= _DEAL_EMPTY_TC_LEN
-            and all(type(k) is str and ascii_bounded(k, _DEAL_EMPTY_TOKEN_LEN) for k in item)
-            for item in tool_calls
-        )
-    )
-)
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     # crosshair: off
     if tool_calls is None:
@@ -83,25 +46,10 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     return "present"
 
 
-@deal.pre(
-    lambda round_num, response: isinstance(round_num, int)
-    and 0 <= round_num <= 10_000
-    and isinstance(response, dict)
-    and len(response) <= DEAL_MAX_CMD_ARGS
-)
-@deal.post(lambda result: isinstance(result, str) and "round=" in result)
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
     # crosshair: off
-    # Call the helper only for None or a list. Any other shape is present.
-    # Its @deal.pre accepts only None or a list; a provider dict or string
-    # raises PreContractError under pytest. Release OXTs stub deal, so the
-    # helper's non-list branch printed "present".
-    raw_calls = response.get("tool_calls")
-    if raw_calls is None or type(raw_calls) is list:
-        calls_note = _describe_empty_response_tool_calls(raw_calls)
-    else:
-        calls_note = "present"
+    calls_note = _describe_empty_response_tool_calls(response.get("tool_calls"))
     parts = [
         f"round={round_num}",
         f"finish_reason={response.get('finish_reason')!r}",
@@ -124,25 +72,6 @@ def is_delegate_gateway(func_name: str) -> bool:
     return func_name in DELEGATE_GATEWAY_TOOL_NAMES
 
 
-def _deal_func_args_ok_pytest(func_args: object) -> bool:
-    # Delegate tool arguments are LLM JSON. A task longer than
-    # DEAL_MAX_SOURCE, or a non-string value, raised PreContractError
-    # before the chat line could truncate. The body reads .get.
-    # CrossHair keeps the short string-only dict.
-    return isinstance(func_args, dict)
-
-
-def _deal_func_args_ok_crosshair(func_args: object) -> bool:
-    return type(func_args) is dict and len(func_args) <= _DEAL_FUNC_ARG_DICT_LEN and all(
-        type(k) is str and ascii_bounded(k, _DEAL_FUNC_ARG_TOKEN_LEN) and (v is None or (isinstance(v, str) and ascii_bounded(v, _DEAL_FUNC_ARG_TOKEN_LEN)))
-        for k, v in func_args.items()
-    )
-
-
-_deal_func_args_ok = _deal_func_args_ok_crosshair if UNDER_CROSSHAIR else _deal_func_args_ok_pytest
-
-
-@deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
     # crosshair: off
     domain = func_args.get("domain")
@@ -151,46 +80,21 @@ def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
     return "?"
 
 
-@deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def delegate_status_label(func_args: Mapping[str, Any]) -> str:
     # crosshair: off
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
-def _deal_truncate_task_ok_pytest(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
-    # The preview truncates. Capping the input at DEAL_MAX_SOURCE raised
-    # PreContractError on a long specialize task before that truncate.
-    return isinstance(task, str) and type(max_len) is int and max_len >= 1
-
-
-def _deal_truncate_task_ok_crosshair(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
-    return (
-        str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
-        and type(max_len) is int
-        and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
-    )
-
-
-_deal_truncate_task_ok = (
-    _deal_truncate_task_ok_crosshair if UNDER_CROSSHAIR else _deal_truncate_task_ok_pytest
-)
-
-
-@deal.pre(lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: _deal_truncate_task_ok(task, max_len))
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
     # crosshair: off
-    # Display-only helper. ascii_bounded on the *full* task PreContract-failed debug
-    # OXTs when specialize task was long / non-ASCII (GMP retest). Chat may show 120
-    # chars; specialize still gets kwargs["task"] intact (specialized_base.execute).
-    # str_bounded + DEAL_MAX_SOURCE is a sanity ceiling; CrossHair stays at 1.
+    # Display-only helper. Chat may show 120 chars; specialize still gets
+    # kwargs["task"] intact (specialized_base.execute).
     one_line = task.replace("\n", " ").replace("\r", " ").strip()
     if len(one_line) <= max_len:
         return one_line
     return one_line[: max_len - 3] + "..."
 
 
-@deal.pre(lambda func_args: _deal_func_args_ok(func_args))
-@deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""
     # crosshair: off
@@ -220,11 +124,6 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     return result_data.get("message") or result_data.get("status") or "done"
 
 
-@deal.pre(
-    # result_data is a real tool payload (nested dicts, long messages) — only require a plain dict.
-    # Tiny ascii value caps here crashed live debug chat after sheets delegate (AFC eval).
-    lambda func_args, result_data: _deal_func_args_ok(func_args) and type(result_data) is dict
-)
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     # crosshair: off
     """Completion line for delegate gateway tools (domain shown; success is short)."""
@@ -237,7 +136,6 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     return cache_block + f"[delegate ({domain}): done]\n"
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], str) and result[0] and result[1].endswith("\n"))
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
     # crosshair: off
@@ -248,7 +146,6 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
     return f"Running: {func_name}", f"[Running tool: {func_name}...]\n"
 
 
-@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
     # crosshair: off
@@ -277,7 +174,6 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     return f"[{func_name}: {note}]\n"
 
 
-@deal.post(lambda result: isinstance(result, str) and result.startswith("[Debug: params") and result.endswith("\n"))
 def format_replaced_zero_debug_line(func_args_str: str) -> str:
     """Preview parameters when apply_document_content finds 0 occurrences."""
     # crosshair: off
@@ -285,7 +181,6 @@ def format_replaced_zero_debug_line(func_args_str: str) -> str:
     return f"[Debug: params {params_display}]\n"
 
 
-@deal.post(lambda result: isinstance(result, dict))
 def object_dict_or_empty(value: object) -> dict[str, Any]:
     """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
     # crosshair: off
@@ -293,7 +188,6 @@ def object_dict_or_empty(value: object) -> dict[str, Any]:
     return cast("dict[str, Any]", value) if type(value) is dict else {}
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 3 and all(isinstance(x, str) for x in result))
 def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
     # crosshair: off
@@ -311,7 +205,6 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     return func_name, func_args_str, call_id
 
 
-@deal.post(lambda result: isinstance(result, list))
 def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
     """Copy *tool_calls*, giving each dict with a missing or blank id ``call_<round>_<index>``."""
     # crosshair: off
@@ -325,7 +218,6 @@ def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
     return out
 
 
-@deal.post(lambda result: isinstance(result, bool))
 def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     """True when apply_document_content reported zero replacements (structured or legacy message)."""
     # crosshair: off
@@ -446,7 +338,6 @@ class CleanupAudioEffect:
     pass
 
 
-@deal.post(lambda result: type(result) is bool)
 def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
     """True unless *state* is stopped and *effects* start more loop work.
 
@@ -455,6 +346,7 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
     stop may still append pending and emit ``TriggerNextToolEffect`` — the
     interpreter queues NEXT_TOOL; that NEXT_TOOL exits instead of spawning.
     """
+    # crosshair: off
     if not getattr(state, "is_stopped", False):
         return True
     if type(effects) is not list and type(effects) is not tuple:

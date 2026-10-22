@@ -1,6 +1,4 @@
-import pytest
 
-import deal
 from plugin.chatbot.tool_loop_state import (
     _describe_empty_response_tool_calls,
     ToolLoopState,
@@ -166,16 +164,8 @@ def test_stream_done_no_text_includes_debug_sidebar():
     assert debug_eff.text == debug_line
 
 
-def test_format_empty_model_response_debug_overflow_pre_fails_closed():
-    import pytest
-
-    import deal
-    from tests.harness.strip_bundle import deal_pre_present
-
-    if not deal_pre_present(format_empty_model_response_debug):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        format_empty_model_response_debug(10_001, {})
+def test_format_empty_model_response_debug_round_formatting():
+    assert "round=10001" in format_empty_model_response_debug(10_001, {})
     assert "round=10000" in format_empty_model_response_debug(10_000, {})
 
 
@@ -385,24 +375,13 @@ def test_truncate_delegate_task_past_source_cap_truncates():
     assert len(preview) == DELEGATE_TASK_CHAT_MAX
 
 
-def test_truncate_delegate_task_crosshair_floors_stay_tiny():
-    """UNDER_CROSSHAIR still floors input/preview maxima to 1; do not widen cover-all."""
-    import inspect
-
+def test_truncate_delegate_task_no_deal_scaffolding():
+    """Verify tool_loop_state no longer carries _deal_cap or _deal_truncate_task_ok shims."""
     from plugin.chatbot import tool_loop_state as tls
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR
-    from tests.harness.strip_bundle import skip_if_release_build
 
-    skip_if_release_build("@deal.pre stripped in release bundle")
-    assert UNDER_CROSSHAIR is False
-    assert tls._DEAL_TRUNCATE_TASK_LEN == DEAL_MAX_SOURCE
-    assert tls._DEAL_TRUNCATE_MAX_LEN == tls.DELEGATE_TASK_CHAT_MAX
-    src = inspect.getsource(tls)
-    assert "return 1 if UNDER_CROSSHAIR else production" in src
-    assert "_DEAL_TRUNCATE_TASK_LEN = _deal_cap(DEAL_MAX_SOURCE)" in src
-    assert "_DEAL_TRUNCATE_MAX_LEN = _deal_cap(DELEGATE_TASK_CHAT_MAX)" in src
-    assert "str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)" in src
-    assert "ascii_bounded(task, _DEAL_TRUNCATE_TASK_LEN)" not in src
+    assert not hasattr(tls, "_deal_cap")
+    assert not hasattr(tls, "_DEAL_TRUNCATE_TASK_LEN")
+    assert not hasattr(tls, "_deal_truncate_task_ok")
 
 
 def test_next_tool_delegate_gateway_shows_domain_and_task():
@@ -762,13 +741,9 @@ def test_tool_loop_event_default_data_is_not_shared():
 
 
 def test_format_empty_model_response_debug_non_list_tool_calls():
-    from tests.harness.strip_bundle import deal_pre_present
-
-    for raw in ({"id": "x"}, "not-a-list"):
+    for raw in ({"id": "x"}, "not-a-list", "oops"):
         note = format_empty_model_response_debug(0, {"tool_calls": raw, "content": None})
         assert "tool_calls=present" in note
-    if deal_pre_present(format_empty_model_response_debug):
-        assert "tool_calls=present" in format_empty_model_response_debug(0, {"tool_calls": "oops"})
 
 
 def test_stream_done_non_list_tool_calls_emits_empty_banner():
@@ -800,7 +775,7 @@ def test_format_tool_result_chat_text_null_message_uses_fallback():
 
 
 def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
-    """Ensure format_empty_model_response_debug and format_delegate_running_chat_line stay out of cover_fqns_for_module(..., require_deal=True)."""
+    """Ensure format_empty_model_response_debug and format_delegate_running_chat_line stay out of cover_fqns_for_module."""
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build
@@ -808,23 +783,21 @@ def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
 
-    fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=True)
-    assert not any(f.endswith(".format_empty_model_response_debug") for f in fqns)
-    assert not any(f.endswith(".format_delegate_running_chat_line") for f in fqns)
+    # Dropped from check-all (require_deal=True) because @deal was removed:
+    check_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=True)
+    assert not any(f.endswith(".format_empty_model_response_debug") for f in check_fqns)
+    assert not any(f.endswith(".format_delegate_running_chat_line") for f in check_fqns)
+
+    # Dropped from cover-all (require_deal=False) because # crosshair: off is retained:
+    cover_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=False)
+    assert not any(f.endswith(".format_empty_model_response_debug") for f in cover_fqns)
+    assert not any(f.endswith(".format_delegate_running_chat_line") for f in cover_fqns)
 
 
-def test_describe_empty_response_tool_calls_pre_rejects_non_list() -> None:
-    """Vacuous ``not list`` pre let CrossHair explore arbitrary objects (~5s / 5753 lines)."""
-    from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS
-    from tests.harness.strip_bundle import deal_pre_present
-
-    if not deal_pre_present(_describe_empty_response_tool_calls):
-        pytest.skip("@deal.pre stripped in release bundle")
+def test_describe_empty_response_tool_calls_handles_all_shapes() -> None:
+    """Formatter handles None, list, dict, and strings gracefully without contract errors."""
     assert _describe_empty_response_tool_calls(None) == "none"
     assert _describe_empty_response_tool_calls([{"id": 1}]) == "1"
-    with pytest.raises(deal.PreContractError):
-        _describe_empty_response_tool_calls("not-a-list")
-    with pytest.raises(deal.PreContractError):
-        _describe_empty_response_tool_calls([{"k": 1}] * (DEAL_MAX_CMD_ARGS + 1))
-    with pytest.raises(deal.PreContractError):
-        _describe_empty_response_tool_calls(["not-a-dict"])
+    assert _describe_empty_response_tool_calls("not-a-list") == "present"
+    assert _describe_empty_response_tool_calls({"k": 1}) == "present"
+    assert _describe_empty_response_tool_calls(["not-a-dict"]) == "1"
