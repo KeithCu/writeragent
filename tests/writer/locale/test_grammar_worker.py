@@ -100,7 +100,7 @@ def test_call_grammar_llm_single() -> None:
     item = _item()
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
         results, elapsed = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
@@ -115,7 +115,7 @@ def test_call_grammar_llm_batch() -> None:
     a, b = _item("A."), _item("B.")
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(a, a.text), (b, b.text)], "en-US", ec)
     assert len(results) == 2
@@ -130,7 +130,7 @@ def test_call_grammar_llm_passes_minimal_reasoning() -> None:
     item = _item()
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
         call_grammar_llm([(item, item.text)], "en-US", ec)
     _, kwargs = client.chat_completion_sync.call_args
@@ -143,7 +143,7 @@ def test_call_grammar_llm_empty_single_returns_clean_result() -> None:
     item = _item()
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
@@ -155,7 +155,7 @@ def test_language_detect_llm_sync_retries_on_empty() -> None:
     client = MagicMock()
     client.chat_completion_sync.side_effect = ["", '{"detected_language_bcp47": "en-US"}']
     ec = _ec(client)
-    with patch("plugin.framework.queue_executor.grammar_llm_request_gate"):
+    with patch("plugin.framework.llm_lanes.grammar_llm_request_gate"):
         out = language_detect_llm_sync(ec, [{"role": "user", "content": "Hi"}], 64)
     assert "en-US" in out
     assert client.chat_completion_sync.call_count == 2
@@ -327,7 +327,7 @@ def test_detect_via_llm_batch_success() -> None:
     ec = _ec(client)
 
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.put_cached_language") as mock_put:
         res = _detect_via_llm_batch([(a, a.text), (b, b.text)], "Detect language", ec)
 
@@ -344,7 +344,7 @@ def test_detect_via_llm_batch_mismatch_returns_nones() -> None:
     ec = _ec(client)
 
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"):
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"):
         res = _detect_via_llm_batch([(a, a.text), (b, b.text)], "Detect language", ec)
 
     assert res == [None, None]
@@ -361,7 +361,7 @@ def test_detect_via_llm_single_success_and_failure() -> None:
     ec = _ec(client)
 
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.put_cached_language") as mock_put:
         res1 = _detect_via_llm_single("Hola mundo.", "Detect language", ec)
         res2 = _detect_via_llm_single("Invalid sentence.", "Detect language", ec)
@@ -391,7 +391,7 @@ def test_run_llm_and_cache_batch_success() -> None:
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
@@ -443,7 +443,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
@@ -571,7 +571,7 @@ def test_language_validation_does_not_trust_persisted_grammar_heuristic() -> Non
         _lang_detect_cache.pop(item.text, None)
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
             with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", return_value=None):
-                with patch("plugin.framework.queue_executor.grammar_llm_request_gate", return_value=mock_lane):
+                with patch("plugin.framework.llm_lanes.grammar_llm_request_gate", return_value=mock_lane):
                     with patch(
                         "plugin.writer.locale.grammar_worker.detect_languages_for_chunk",
                         return_value=["en-US"],
@@ -646,7 +646,7 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         _lang_detect_cache.pop(item.text, None)
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
             with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", return_value=None):
-                with patch("plugin.framework.queue_executor.grammar_llm_request_gate", return_value=mock_lane):
+                with patch("plugin.framework.llm_lanes.grammar_llm_request_gate", return_value=mock_lane):
                     detected = detect_languages_for_chunk([(item, item.text)], "", ec)
         mock_client.chat_completion_sync.assert_called_once()
         assert detected == ["en-US"]

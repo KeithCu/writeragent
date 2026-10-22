@@ -46,7 +46,8 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import format_error_payload
-from plugin.framework.queue_executor import capture_send_stop, llm_request_lane
+from plugin.framework.llm_lanes import llm_request_lane
+from plugin.framework.queue_executor import capture_send_stop
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 

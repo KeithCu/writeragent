@@ -154,6 +154,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/blocking_wait.py",
     "plugin/framework/sidebar_column.py",
     "plugin/framework/queue_executor.py",
+    "plugin/framework/llm_lanes.py",
     "plugin/framework/uno_listeners.py",
     "plugin/framework/module_base.py",
     "plugin/framework/module_graph.py",
