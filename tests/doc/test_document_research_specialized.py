@@ -168,7 +168,7 @@ def test_document_research_outer_delegation_gets_document_research_tools(
     gw = r.get("delegate_to_specialized_writer_toolset")
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "list_nearby_files" in names
@@ -220,7 +220,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
             result = gw.execute_safe(ctx, domain="document_research", task="Get Q4 from the open budget")
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "send_peer_work" in names
@@ -290,7 +290,7 @@ def test_document_research_chat_append_on_delegate_read_document(
     gw = r.get("delegate_to_specialized_writer_toolset")
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     assert len(captured) == 1
     assert "Tool: delegate_read_document" in captured[0]
     assert "Budget.ods" in captured[0]
@@ -351,7 +351,7 @@ def test_document_research_return_idles_outer_after_peer_send(
             "send_peer_work",
             _accepted_peer_payload("work"),
         )
-        return "Ask handed off."
+        return {"status": "ok", "finished": True, "answer": "Ask handed off."}
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
@@ -406,7 +406,11 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
     from plugin.calc.cells import SortRange
     from plugin.framework.prompts import PEER_OUTER_DELIVERY_STILL_REQUIRED
 
-    mock_executor_cls.return_value.execute_safe.return_value = "Range A2:B5 sorted descending"
+    mock_executor_cls.return_value.execute_safe.return_value = {
+        "status": "ok",
+        "finished": True,
+        "answer": "Range A2:B5 sorted descending",
+    }
     mock_get_config.return_value = {}
     mock_agent_class.return_value = MagicMock()
 
@@ -470,7 +474,11 @@ def test_document_research_send_peer_result_skips_delivery_pending(
             "send_peer_result",
             _accepted_peer_payload("result"),
         )
-        return "Queued. You MUST call specialized_workflow_finished immediately."
+        return {
+            "status": "ok",
+            "finished": True,
+            "answer": "Queued. You MUST call specialized_workflow_finished immediately.",
+        }
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
     mock_get_config.return_value = {}
@@ -591,10 +599,10 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
                 result = gw.execute_safe(
                     ctx, domain="document_research", task="Deliver sorted table to peer"
                 )
-        assert result["status"] == "ok", code
+        assert result["status"] == "error", code
+        assert result["code"] == "SPECIALIZED_TOOL_ERROR", code
+        assert "peer send failed" in result["message"], code
         assert PEER_OUTER_IDLE_AFTER_SEND not in result["message"], code
-        assert PEER_OUTER_IDLE_AFTER_SEND not in str(result.get("result") or ""), code
-        assert PEER_OUTER_DELIVERY_STILL_REQUIRED in result["message"], code
         assert result.get("instruction") == PEER_OUTER_DELIVERY_STILL_REQUIRED, code
 
 
@@ -859,7 +867,8 @@ def test_document_research_delegation_includes_open_documents_context(
 
         gw = r.get("delegate_to_specialized_writer_toolset")
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
-        assert result["status"] == "ok"
+        assert result["status"] == "incomplete"
+        assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
         
         # Verify instructions passed to the agent
         instructions = mock_agent_class.call_args.kwargs.get("instructions", "")

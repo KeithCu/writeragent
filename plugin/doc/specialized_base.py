@@ -296,6 +296,8 @@ class DelegateToSpecializedBase(ToolBase):
         # (create_sheet, etc.) so specialized finish can forward them to the outer.
         captured_tool_results: list[Any] = []
         create_sheet_ran = False
+        workflow_finished = False
+        inner_tool_errors: list[dict[str, Any]] = []
 
         def _note_peer_send_result(name: str, result: Any) -> None:
             """Record delivery only after the tool returns accepted.
@@ -329,6 +331,11 @@ class DelegateToSpecializedBase(ToolBase):
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
+                if self.name == "specialized_workflow_finished":
+                    nonlocal workflow_finished
+                    workflow_finished = True
+                if isinstance(result, dict) and result.get("status") == "error":
+                    inner_tool_errors.append(result)
                 if isinstance(result, dict) and result.get("instruction"):
                     captured_tool_results.append(result)
                 _note_peer_send_result(self.name, result)
@@ -450,8 +457,15 @@ class DelegateToSpecializedBase(ToolBase):
         finally:
             ctx.active_domain = prev_active_domain
 
+        # Discussion #2029: a user-stop or crash dict that is already status: "error"
+        # is left unchanged.
+        if isinstance(final_ans, dict) and final_ans.get("status") == "error":
+            return final_ans
+
         if isinstance(final_ans, dict) and "status" in final_ans:
-            payload = final_ans
+            payload = dict(final_ans)
+            if "answer" in payload:
+                payload.setdefault("result", str(payload["answer"]))
         else:
             payload = {"status": "ok", "message": _(f"Specialized task ({domain}) completed."), "result": str(final_ans)}
         # Outer never sees create_sheet's inner-only ok string; forward the same
@@ -472,11 +486,56 @@ class DelegateToSpecializedBase(ToolBase):
         if not peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
             from plugin.framework.prompts import annotate_outer_peer_delivery_pending
 
-            return annotate_outer_peer_delivery_pending(payload)
+            payload = annotate_outer_peer_delivery_pending(payload)
 
-        if domain == "document_research":
+        elif domain == "document_research":
             from plugin.framework.prompts import annotate_outer_peer_wait
 
             # Idle-after-send for ask / accepted delivery sends.
-            return annotate_outer_peer_wait(payload, peer_send_invoked=peer_send_invoked)
+            payload = annotate_outer_peer_wait(payload, peer_send_invoked=peer_send_invoked)
+
+        # Discussion #2029:
+        # What was wrong: non-dict final answers (free text from subagents) and runs
+        # where inner tools raised errors were reported as status: "ok", masking errors
+        # and making unfinished subagent runs appear successful to the caller.
+        # How it happened: execute wrapped any non-status return in a provisional ok payload
+        # without inspecting inner tool execution results or requiring specialized_workflow_finished.
+        # Why this change fixes it: inner tool errors are converted to status: "error" with code
+        # SPECIALIZED_TOOL_ERROR and their messages (plus finish answer if present). Runs without
+        # specialized_workflow_finished returning and without tool errors become status: "incomplete"
+        # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
+        is_finished = workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
+        if inner_tool_errors:
+            tool_msgs: list[str] = []
+            for err in inner_tool_errors:
+                msg = err.get("message") or err.get("error")
+                if msg:
+                    tool_msgs.append(str(msg))
+                else:
+                    tool_msgs.append(str(err))
+            finish_answer = None
+            if isinstance(final_ans, dict):
+                finish_answer = final_ans.get("answer")
+            if not finish_answer and isinstance(payload.get("answer"), str):
+                finish_answer = payload.get("answer")
+            if finish_answer:
+                tool_msgs.append(str(finish_answer))
+            combined_message = "; ".join(tool_msgs) or "Specialized tool error."
+            payload["status"] = "error"
+            payload["code"] = "SPECIALIZED_TOOL_ERROR"
+            payload["message"] = combined_message
+            payload["error"] = combined_message
+        elif not is_finished:
+            if isinstance(final_ans, str):
+                model_text = final_ans
+            elif isinstance(final_ans, dict):
+                model_text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
+            elif final_ans is None:
+                model_text = ""
+            else:
+                model_text = str(final_ans)
+            payload["status"] = "incomplete"
+            payload["code"] = "SPECIALIZED_WORKFLOW_INCOMPLETE"
+            payload["message"] = model_text
+
         return payload

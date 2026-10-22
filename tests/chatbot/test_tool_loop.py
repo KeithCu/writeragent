@@ -774,8 +774,9 @@ def test_specialized_delegation_sub_agent_mode(
     assert active_domain == "initial_value"
 
     # Verify smolagents was executed and returned the summary
-    assert result["status"] == "ok"
-    assert "completed" in result["message"]
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert result["message"] == "Mocked agent summary"
     assert result["result"] == "Mocked agent summary"
 
     # Verify the tools passed to the sub-agent
@@ -850,7 +851,8 @@ def test_shapes_delegation_includes_canvas_in_instructions(
         domain="shapes",
         task="Add a rectangle",
     )
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
     assert "210.0" in instructions
@@ -957,7 +959,8 @@ def test_calc_specialized_delegation_sub_agent(
     
     result = gateway_tool.execute_safe(mock_ctx, domain="images", task="Insert image")
     
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["result"] == "Calc done"
     
     # Verify the domain tools passed
@@ -997,7 +1000,8 @@ def test_draw_specialized_delegation_sub_agent(
     
     result = gateway_tool.execute_safe(mock_ctx, domain="draw_test_domain", task="Create shape")
     
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["result"] == "Draw done"
     
     # Verify the domain tools passed
@@ -1039,7 +1043,8 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     gw = DelegateToSpecializedWriter()
     result = gw.execute(ctx, domain="python", task="compute primes")
 
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["result"] == "done"
     instructions = mock_build.call_args.kwargs["instructions"]
     assert "DO NOT import numpy" in instructions

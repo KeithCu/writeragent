@@ -539,7 +539,8 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="python", task="Add a footnote after the revenue sentence")
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     by_name = {tool.name: tool for tool in smol_tools}
     assert "delegate_tool_domains" in by_name

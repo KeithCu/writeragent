@@ -121,8 +121,11 @@ class TestWriterToolsSmoke:
             "nav_goto_page",
             "section_read",
             "nav_heading_children",
+            "get_page_objects",
         ):
             assert (name) in (names), f"expected structural tool {name!r}"
+        table_names = {t.name for t in registry.get_tools(doc=doc, active_domain="tables")}
+        assert "get_page_objects" not in table_names
 
     def test_indexes_domain_bibliography_overload(self):
         registry = get_tools()

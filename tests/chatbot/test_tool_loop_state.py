@@ -460,6 +460,27 @@ def test_tool_result_delegate_gateway_error():
     assert "No specialized tools found" in append_eff.text
 
 
+def test_tool_result_delegate_gateway_incomplete():
+    from plugin.chatbot.tool_loop_state import TriggerNextToolEffect, UpdateDocumentContextEffect
+
+    state = create_base_state()
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="call_delegate",
+        func_name="delegate_to_specialized_writer_toolset",
+        func_args_str='{"domain": "structural", "task": "Find page count"}',
+        result='{"status": "incomplete", "code": "SPECIALIZED_WORKFLOW_INCOMPLETE", "message": "Could not determine page."}',
+        mutates_document=True,
+    )
+    tr = next_state(state, event)
+    append_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append" and "incomplete" in e.text)
+    assert append_eff.text == "[delegate (structural) incomplete: Could not determine page.]\n"
+    # An incomplete hop does not refresh document context even if mutates_document was flagged.
+    assert not any(isinstance(e, UpdateDocumentContextEffect) for e in tr.effects)
+    # The outer tool loop still continues.
+    assert any(isinstance(e, TriggerNextToolEffect) for e in tr.effects)
+
+
 def test_apply_document_content_debug_uses_structured_replaced_count():
     # replaced_count == 0 but the message does NOT start with "Replaced 0 occurrence";
     # only the structured field should trigger the debug-params line (proves the consumer

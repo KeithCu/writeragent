@@ -113,7 +113,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     gateway = registry.get("delegate_to_specialized_calc_toolset")
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     mock_execute_on_main.assert_called()
     mock_get_calc_context.assert_called_once_with(mock_doc, ctx=ctx.ctx)
 
@@ -185,7 +185,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
         session.close()
 
     assert err is None, f"UNO touch from worker: {err}"
-    assert result is not None and result.get("status") == "ok"
+    assert result is not None and result.get("status") == "incomplete"
     mock_get_calc_context.assert_called_once()
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "[SPREADSHEET CONTEXT]" in instructions
@@ -234,7 +234,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="shapes", task="Add a rectangle")
 
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     mock_format_canvas.assert_called_once_with(mock_doc)
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
@@ -279,7 +279,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="footnotes", task="List footnotes")
 
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     assert mock_execute_on_main.call_count >= 1
 
 
@@ -328,7 +328,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
-    assert result["status"] == "ok"
+    assert result["status"] == "incomplete"
     mock_enqueue_index.assert_called_once_with(ctx.ctx, ctx.services, mock_doc)
     # Open-docs context plus list_v1_peers (peer catalog / inner ASK vs REPLY hint),
     # both gathered on the main thread with get_tools.
@@ -471,7 +471,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
         session.close()
 
     assert err is None, f"UNO touch from worker: {err}"
-    assert result is not None and result.get("status") == "ok"
+    assert result is not None and result.get("status") == "incomplete"
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Budget.ods" in instructions
     assert "send_peer_work" in instructions

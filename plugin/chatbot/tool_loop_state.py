@@ -231,6 +231,8 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":
         return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
+    if result_data.get("status") == "incomplete":
+        return f"[delegate ({domain}) incomplete: {_result_note(result_data)}]\n"
     cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
     return cache_block + f"[delegate ({domain}): done]\n"
 

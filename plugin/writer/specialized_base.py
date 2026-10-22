@@ -181,6 +181,13 @@ class ToolWriterBookmarkBase(ToolWriterSpecialBase):
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "structural"
     specialized_domain_description: ClassVar[str | None] = "Document navigation, headings, and structural summary."
+    # Discussion #2029: pull get_page_objects into the structural delegate toolset
+    # so the delegate can resolve physical page locations without failing over to
+    # full-document reads. The tool stays tier core so main chat still exposes it.
+    required_core_tools: ClassVar[frozenset[str] | None] = (
+        (ToolWriterSpecialBase.required_core_tools or frozenset())
+        | frozenset(["get_page_objects"])
+    )
 
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
