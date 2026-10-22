@@ -28,12 +28,13 @@ from plugin.writer.math.math_mml_convert import (
     insert_writer_math_formula,
     replace_writer_math_formula,
 )
-from plugin.writer.math.math_mml_export import (
-    convert_starmath_to_latex,
-    lookup_math_embed,
-    resolve_math_embed_name,
-    selected_math_embeds,
-)
+# What was wrong: Importing individual helper functions from math_mml_export into latex_dialog
+#   bound them locally at module load time. UNO and unit tests patch plugin.writer.math.math_mml_export.*,
+#   which failed to affect latex_dialog's calls to the unpatched local references.
+# How it happened: cf457aa16 (#1984) replaced module imports with direct function imports.
+# Why this change: Keep math_mml_export imported as a module and access helpers as module attributes
+#   (math_mml_export.selected_math_embeds, etc.) so test patches and dynamic overrides take effect.
+from plugin.writer.math import math_mml_export
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 
 log = logging.getLogger("writeragent.writer")
@@ -129,7 +130,7 @@ def _selection_latex_prefill(
 
     Returns ``(embed_name_or_none, latex, display, abort)``.
     """
-    hits = selected_math_embeds(doc)
+    hits = math_mml_export.selected_math_embeds(doc)
 
     if len(hits) > 1:
         msgbox(
@@ -143,7 +144,7 @@ def _selection_latex_prefill(
         return _SelectionLatexPrefill(None, last_latex, last_display, False)
 
     embed = hits[0]
-    name = resolve_math_embed_name(doc, embed)
+    name = math_mml_export.resolve_math_embed_name(doc, embed)
     if not name:
         msgbox(
             ctx,
@@ -155,7 +156,7 @@ def _selection_latex_prefill(
         inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
         starmath = str(getattr(inner, "Formula", "") or "").strip()
         if starmath:
-            exported = convert_starmath_to_latex(ctx, starmath)
+            exported = math_mml_export.convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
                 return _SelectionLatexPrefill(name, exported.latex, last_display, False)
     except Exception:
@@ -180,7 +181,7 @@ def _apply_latex_to_writer(
     starmath = conv_res.starmath or ""
 
     if target_name:
-        embed = lookup_math_embed(doc, target_name)
+        embed = math_mml_export.lookup_math_embed(doc, target_name)
         if embed is None:
             return False, _("The selected formula is no longer in the document.")
         try:

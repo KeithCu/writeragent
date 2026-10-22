@@ -36,9 +36,9 @@ def test_selection_latex_prefill_failed_export_returns_empty() -> None:
     doc = MagicMock()
     ctx = MagicMock()
 
-    with patch("plugin.writer.math.latex_dialog.selected_math_embeds", return_value=[embed]), \
-         patch("plugin.writer.math.latex_dialog.resolve_math_embed_name", return_value="Object1"), \
-         patch("plugin.writer.math.latex_dialog.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
+    with patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
+         patch("plugin.writer.math.math_mml_export.resolve_math_embed_name", return_value="Object1"), \
+         patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
          patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox:
         name, latex, display, abort = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
 

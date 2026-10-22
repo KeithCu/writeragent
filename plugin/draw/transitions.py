@@ -51,10 +51,32 @@ _ADVANCE_MODES: dict[int, str] = {0: "on_click", 1: "auto", 2: "semi_auto"}
 _SPEED_ENUM: dict[str, str] = {"slow": "SLOW", "medium": "MEDIUM", "fast": "FAST"}
 
 
+# What was wrong: In live PyUNO, com.sun.star.presentation.FadeEffect and AnimationSpeed
+#   are UNO enum modules/types and not top-level attributes of com.sun.star.presentation,
+#   so importing FadeEffect or AnimationSpeed directly from com.sun.star.presentation raised ImportError.
+# How it happened: 788b91a31 (#1996) changed the imports to `from com.sun.star.presentation import ...`.
+# Why this change: Catch (ImportError, AttributeError) and construct the uno.Enum instance via
+#   uno.Enum("com.sun.star.presentation....", ...) when direct attribute lookup is unavailable.
 def _fade_effect(enum_name: str) -> Any:
-    from com.sun.star.presentation import FadeEffect
+    try:
+        from com.sun.star.presentation import FadeEffect
 
-    return getattr(FadeEffect, enum_name)
+        return getattr(FadeEffect, enum_name)
+    except (ImportError, AttributeError):
+        import uno
+
+        return uno.Enum("com.sun.star.presentation.FadeEffect", enum_name)
+
+
+def _speed_enum(speed_key: str) -> Any:
+    try:
+        from com.sun.star.presentation import AnimationSpeed
+
+        return getattr(AnimationSpeed, _SPEED_ENUM[speed_key])
+    except (ImportError, AttributeError):
+        import uno
+
+        return uno.Enum("com.sun.star.presentation.AnimationSpeed", _SPEED_ENUM[speed_key])
 
 # Friendly name → AutoLayout constant in AUTOLAYOUT_ID.
 # Impress ``page.Layout`` is the LibreOffice AutoLayout enum
@@ -257,9 +279,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
             speed_key = str(speed).lower()
             if speed_key not in _SPEED_ENUM:
                 return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM.keys()))
-            from com.sun.star.presentation import AnimationSpeed
-
-            page.setPropertyValue("Speed", getattr(AnimationSpeed, _SPEED_ENUM[speed_key]))
+            page.setPropertyValue("Speed", _speed_enum(speed_key))
             updated.append("speed")
 
         # Auto-advance duration

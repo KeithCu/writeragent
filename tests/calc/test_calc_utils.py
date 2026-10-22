@@ -239,3 +239,12 @@ class TestCellValueAndType:
         assert type_name == "formula"
         cell.getError.assert_not_called()
 
+    def test_value_with_enum_type(self):
+        from plugin.calc.calc_utils import VALUE
+        cell = MagicMock()
+        cell.getType.return_value = VALUE
+        cell.getValue.return_value = 99.0
+        val, type_name = cell_value_and_type(cell)
+        assert val == 99.0
+        assert type_name == "value"
+

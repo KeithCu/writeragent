@@ -26,19 +26,16 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import UnoObjectError, uno_read
 
-# What was wrong: When generating tool proxies without LibreOffice, com.sun.star.table
-#   is mocked via MockFinder returning MockBase for CellContentType. Accessing
-#   CellContentType.EMPTY raised AttributeError (not caught by except ImportError),
-#   crashing imports of all calc modules importing calc_utils.
-# Why this change: Use getattr with fallback defaults and catch AttributeError so
-#   calc modules import cleanly in live LibreOffice, unit tests, and mock environments.
+# What was wrong: CellContentType was imported from com.sun.star.table, which is not an attribute
+# in live PyUNO (enum types are packages/modules in LibreOffice's python bridge). The resulting
+# ImportError caused EMPTY, VALUE, TEXT, FORMULA to fall back to integers (0, 1, 2, 3), but
+# cell.getType() returns uno.Enum instances in live LibreOffice. Since uno.Enum != int,
+# cell_value_and_type() fell through to "unknown", breaking date/time/duration enrichment.
+# How it happened: Refactor in cf457aa16 (#1984) and 48565691d (#1992) altered the enum import.
+# Why this change: Directly import enum members from com.sun.star.table.CellContentType so
+# live PyUNO binds genuine uno.Enum objects while mock/fallback environments retain int fallbacks.
 try:
-    from com.sun.star.table import CellContentType
-
-    EMPTY = getattr(CellContentType, "EMPTY", cast("Any", 0))
-    VALUE = getattr(CellContentType, "VALUE", cast("Any", 1))
-    TEXT = getattr(CellContentType, "TEXT", cast("Any", 2))
-    FORMULA = getattr(CellContentType, "FORMULA", cast("Any", 3))
+    from com.sun.star.table.CellContentType import EMPTY, FORMULA, TEXT, VALUE
 except (ImportError, AttributeError):
     EMPTY = cast("Any", 0)
     VALUE = cast("Any", 1)

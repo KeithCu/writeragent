@@ -51,18 +51,24 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
     if field is not None:
         out["field"] = field
 
+    # What was wrong: ff.Connection in live PyUNO is an uno.Enum instance representing
+    #   com.sun.star.sheet.FilterConnection. Calling int(cv) raised TypeError because uno.Enum
+    #   cannot be directly converted to int, and getConstantByName is not reliable on enum values.
+    # How it happened: d1152b3f4 (#1993) simplified connection inspection, attempting int(cv).
+    # Why this change: Check .value, string representation (.endswith(".OR")), or int equality
+    #   to robustly support both live PyUNO uno.Enum and mock integer representations.
     cv = uno_read(lambda: ff.Connection, None)
     if cv is not None:
         try:
-            if cv == uno_mod.getConstantByName("com.sun.star.sheet.FilterConnection.OR"):
+            if getattr(cv, "value", None) == "OR" or str(cv).endswith(".OR") or cv == 1:
                 out["connection"] = "OR"
-            elif cv == uno_mod.getConstantByName("com.sun.star.sheet.FilterConnection.AND"):
+            elif getattr(cv, "value", None) == "AND" or str(cv).endswith(".AND") or cv == 0:
                 out["connection"] = "AND"
             else:
                 out["connection"] = "OR" if int(cv) == 1 else "AND"
         except Exception as exc:
             reraise_if_disposed(exc)
-            out["connection"] = "OR" if int(cv) == 1 else "AND"
+            out["connection"] = "AND"
     else:
         out["connection"] = "AND"
 
