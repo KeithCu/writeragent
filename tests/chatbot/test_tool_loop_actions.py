@@ -1141,7 +1141,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
             patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True),
-            patch("plugin.framework.queue_executor.wait_for_approval", side_effect=fake_wait),
+            patch("plugin.framework.send_cancellation.wait_for_approval", side_effect=fake_wait),
         ):
             interpreter.execute(
                 SpawnToolWorkerEffect(
@@ -1230,7 +1230,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
 
 def test_tool_worker_keeps_spawn_scope_after_next_send():
     """execute_fn must use the scope captured at spawn, not the panel field."""
-    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
 
     host = FakeHost()
     old = SendCancellation()

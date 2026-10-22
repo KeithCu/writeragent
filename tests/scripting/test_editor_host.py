@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.managed_subprocess import _instances, _unregister_instance
-from plugin.framework.queue_executor import SendCancelled
+from plugin.framework.send_cancellation import SendCancelled
 from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
 from plugin.scripting.sandbox import wrap_command_for_sandbox

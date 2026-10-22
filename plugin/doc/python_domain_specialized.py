@@ -428,7 +428,7 @@ class DelegateToolDomains(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.queue_executor import SendCancelled
+        from plugin.framework.send_cancellation import SendCancelled
 
         names, names_err = normalize_domain_list(kwargs.get("domains"))
         if names_err or not names:

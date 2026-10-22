@@ -933,7 +933,7 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
 
 
 def test_stop_checker_exception_fails_closed():
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     class MockScope:
         def is_cancelled(self):

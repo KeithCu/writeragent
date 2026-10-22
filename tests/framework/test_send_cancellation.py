@@ -10,7 +10,8 @@ import pytest
 from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.queue_executor import SendCancellation, QueueExecutor, SendCancelled, agent_session, default_executor, is_agent_active, wait_for_approval
+from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, wait_for_approval
 
 
 def test_wait_for_approval_set_event_wins_over_stop():
@@ -170,7 +171,7 @@ def test_bound_cancel_wakes_only_that_scope():
     """Stop cancels marshals tagged with this send and leaves the rest queued."""
     import queue as queue_mod
 
-    from plugin.framework.queue_executor import _current_send_cancellation
+    from plugin.framework.send_cancellation import _current_send_cancellation
 
     with patch.object(default_executor, "_poke_main_thread"):
         with agent_session() as scope:
@@ -370,7 +371,7 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
 
 
 def test_stop_checker_stays_true_after_panel_clears_scope_reference():
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     scope = SendCancellation()
     stop_checker = bind_send_stop_checker(scope, lambda: False)
@@ -379,7 +380,7 @@ def test_stop_checker_stays_true_after_panel_clears_scope_reference():
 
 
 def test_bound_checker_ignores_a_replaced_scope_attribute():
-    from plugin.framework.queue_executor import bind_send_stop_checker, capture_send_stop
+    from plugin.framework.send_cancellation import bind_send_stop_checker, capture_send_stop
 
     class Host:
         def __init__(self, scope):
@@ -400,7 +401,7 @@ def test_bound_checker_ignores_a_replaced_scope_attribute():
 
 
 def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     scope = SendCancellation()
     checker = bind_send_stop_checker(scope, lambda: True)

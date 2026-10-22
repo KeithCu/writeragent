@@ -4,6 +4,7 @@ from tests.harness.strip_bundle import is_release_build
 import threading
 import time
 import plugin.framework.queue_executor as lc
+import plugin.framework.send_cancellation as sc
 import queue
 import pytest
 import plugin.framework.queue_executor as mt
@@ -13,13 +14,13 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.queue_executor import _WorkItem, execute_on_main_thread, post_to_main_thread, default_executor
 
 def test_agent_session_marks_active_with_nesting() -> None:
-    assert (lc.is_agent_active() is False)
-    with lc.agent_session():
-        assert (lc.is_agent_active() is True)
-        with lc.agent_session():
-            assert (lc.is_agent_active() is True)
-        assert (lc.is_agent_active() is True)
-    assert (lc.is_agent_active() is False)
+    assert (sc.is_agent_active() is False)
+    with sc.agent_session():
+        assert (sc.is_agent_active() is True)
+        with sc.agent_session():
+            assert (sc.is_agent_active() is True)
+        assert (sc.is_agent_active() is True)
+    assert (sc.is_agent_active() is False)
 
 
 @pytest.fixture(autouse=True)
@@ -664,7 +665,7 @@ def test_execute_refuses_fallback_during_agent_session():
         with (
             patch.object(default_executor, "_get_async_callback", return_value=None),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-            lc.agent_session(),
+            sc.agent_session(),
             pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
         ):
             default_executor.execute(lambda: res_holder.append(1))
@@ -834,7 +835,8 @@ class TestWorkItemClaimLockTimeoutRace:
         # Stop sets the scope flag, then drains whatever is still queued.
         # An item already removed is not marked cancelled. process_queue must
         # still skip it because the scope is cancelled.
-        from plugin.framework.queue_executor import QueueExecutor, SendCancellation, SendCancelled, _WorkItem
+        from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+        from plugin.framework.send_cancellation import SendCancellation, SendCancelled
         import uuid
 
         executed = []
@@ -853,7 +855,8 @@ class TestWorkItemClaimLockTimeoutRace:
         assert isinstance(item.exception, SendCancelled)
 
     def test_process_queue_runs_when_scope_is_active(self):
-        from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+        from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+        from plugin.framework.send_cancellation import SendCancellation
         import uuid
 
         executed = []
@@ -1003,7 +1006,8 @@ def test_cancel_drain_excludes_concurrent_enqueue():
 
 def test_cancel_after_claim_does_not_run():
     """scope.cancel() after the item is claimed and before fn() must not run it."""
-    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from plugin.framework.send_cancellation import SendCancellation
 
     qe = QueueExecutor()
     scope = SendCancellation()
@@ -1036,7 +1040,8 @@ def test_cancel_after_claim_does_not_run():
 
 def test_cancel_reput_pokes_kept_work():
     """Items kept for another send must be poked, or they sit until a later enqueue."""
-    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from plugin.framework.send_cancellation import SendCancellation
 
     qe = QueueExecutor()
     pokes: list[str] = []
@@ -1064,7 +1069,8 @@ def test_scoped_cancel_requeues_survivors_ahead_of_concurrent_enqueue():
     ``poke=False`` so the single poke is the one cancel issues after both
     locks are released.
     """
-    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from plugin.framework.send_cancellation import SendCancellation
 
     qe = QueueExecutor()
     probe = _ClaimLockProbe()
@@ -1128,7 +1134,8 @@ def test_scoped_cancel_requeues_survivors_ahead_of_concurrent_enqueue():
 
 
 def test_cancel_drops_pending_posts_for_that_scope_only():
-    from plugin.framework.queue_executor import QueueExecutor, SendCancellation
+    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.send_cancellation import SendCancellation
 
     qe = QueueExecutor()
     scope = SendCancellation()
@@ -1143,7 +1150,8 @@ def test_cancel_drops_pending_posts_for_that_scope_only():
 
 
 def test_flush_pending_posts_keeps_original_scope():
-    from plugin.framework.queue_executor import QueueExecutor, SendCancellation
+    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.send_cancellation import SendCancellation
 
     qe = QueueExecutor()
     scope = SendCancellation()
@@ -1317,7 +1325,7 @@ def test_wait_for_result_timeout_uses_qualname():
 
 def test_execute_accepts_and_passes_bound_scope() -> None:
     executor = mt.QueueExecutor()
-    scope = mt.SendCancellation()
+    scope = sc.SendCancellation()
 
     # We must mock _enqueue_work to see if it received bound_scope.
     # But execute is blocking, so we need _wait_for_result to return immediately.

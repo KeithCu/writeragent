@@ -31,7 +31,7 @@ from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
-from plugin.framework.queue_executor import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.chatbot import panel_voice as panel_voice_module
 from tests.harness.strip_bundle import is_release_build, module_source_contains
 
@@ -1776,7 +1776,7 @@ class TestClearButtonAndPeerDrain:
             with patch.object(listener, "dispatch", side_effect=RuntimeError("dispatch error")):
                 with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn:
                     with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
-                        with patch("plugin.framework.queue_executor.agent_session") as mock_session:
+                        with patch("plugin.framework.send_cancellation.agent_session") as mock_session:
                             mock_cancel_scope = MagicMock()
                             mock_cancel_scope.is_cancelled.return_value = False
                             mock_session.return_value.__enter__.return_value = mock_cancel_scope

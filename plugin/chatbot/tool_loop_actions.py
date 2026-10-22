@@ -45,7 +45,8 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.queue_executor import capture_send_stop, execute_on_main_thread
+from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.send_cancellation import capture_send_stop
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -567,7 +568,7 @@ def build_tool_execute_fn(
                         # Use setattr/getattr to avoid static attribute errors on Event.
                         setattr(event, "approved", False)
                         setattr(event, "query_override", None)
-                        from plugin.framework.queue_executor import wait_for_approval
+                        from plugin.framework.send_cancellation import wait_for_approval
 
                         if not put_for_turn(emit_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                             return (False, None)

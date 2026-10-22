@@ -628,7 +628,8 @@ def test_proxy_dir_raises_off_thread(monkeypatch):
 
 
 def test_violation_popup_is_unscoped(monkeypatch):
-    from plugin.framework.queue_executor import SendCancellation, _current_send_cancellation, default_executor
+    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
@@ -662,7 +663,8 @@ def test_violation_popup_is_unscoped(monkeypatch):
 def test_stop_does_not_drop_violation_popup(monkeypatch):
     import queue as queue_mod
 
-    from plugin.framework.queue_executor import SendCancellation, _current_send_cancellation, default_executor
+    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:

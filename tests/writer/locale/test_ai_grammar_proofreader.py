@@ -199,7 +199,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         patch("plugin.framework.config.get_config", side_effect=_get_config),
         patch("plugin.framework.config.get_config_int", return_value=0),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
-        patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
+        patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
     ):
         _run_llm_one(
@@ -233,7 +233,7 @@ def test_worker_does_not_pause_local_provider_when_agent_active() -> None:
         patch("plugin.framework.config.get_config", side_effect=_get_config),
         patch("plugin.framework.config.get_config_int", return_value=0),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
-        patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
+        patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as run_check,
         patch(
             "plugin.writer.locale.grammar_proofread_cache.cache_get_sentence",
@@ -398,7 +398,7 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
+        patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
         patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
@@ -426,7 +426,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
+        patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
         patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),

@@ -1053,7 +1053,7 @@ def test_image_replace_downloads_between_uno_calls():
 
 
 def test_image_insert_url_unscoped_after_download():
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.send_cancellation import SendCancelled
 
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
@@ -1081,7 +1081,7 @@ def test_image_insert_url_unscoped_after_download():
 
 
 def test_image_replace_url_existence_scoped_apply_unscoped():
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.send_cancellation import SendCancelled
 
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()

@@ -1238,7 +1238,7 @@ class TestToolIsolation:
         TOOL_DONE. Why: the worker is already abandoned; the caller delivers
         the timeout.
         """
-        from plugin.framework.queue_executor import SendCancellation
+        from plugin.framework.send_cancellation import SendCancellation
 
         release = threading.Event()
         scope = SendCancellation()

@@ -85,7 +85,7 @@ class FakePanel(ToolCallingMixin):
         self._terminal_status = "Ready"
 
     def resolve_stop_checker(self):
-        from plugin.framework.queue_executor import bind_send_stop_checker
+        from plugin.framework.send_cancellation import bind_send_stop_checker
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
 
@@ -1074,7 +1074,7 @@ def _run_captured_llm_worker(spawn):
     import queue
 
     from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
 
     panel, _session = setup_mock_panel()
     turn = current_turn(panel)

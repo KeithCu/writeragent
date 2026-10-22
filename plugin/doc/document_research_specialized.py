@@ -57,7 +57,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
         return domain_tools, finish_tools
 
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.send_cancellation import SendCancelled
     try:
         domain_tools, finish_tools = run_on_main(_fetch_inner_tools)
     except SendCancelled:
@@ -132,7 +132,7 @@ class DelegateReadDocument(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.queue_executor import SendCancelled
+        from plugin.framework.send_cancellation import SendCancelled
 
         path_or_name = kwargs.get("path_or_name")
         task = kwargs.get("task")

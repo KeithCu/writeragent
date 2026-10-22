@@ -1027,7 +1027,7 @@ class MCPProtocolHandler:
             raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
         holding = True
         try:
-            from plugin.framework.queue_executor import get_current_send_cancellation
+            from plugin.framework.send_cancellation import get_current_send_cancellation
 
             send_cancellation = get_current_send_cancellation()
             prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
@@ -1096,7 +1096,7 @@ class MCPProtocolHandler:
         Direct callers omit the argument and use the scope on this thread.
         """
         if send_cancellation is _SEND_CANCELLATION_UNSET:
-            from plugin.framework.queue_executor import get_current_send_cancellation
+            from plugin.framework.send_cancellation import get_current_send_cancellation
 
             send_cancellation = get_current_send_cancellation()
 
@@ -1233,7 +1233,7 @@ class MCPProtocolHandler:
         this method does not pass that keyword (see
         _arguments_without_thread_guard_bypass).
         """
-        from plugin.framework.queue_executor import get_current_send_cancellation
+        from plugin.framework.send_cancellation import get_current_send_cancellation
         send_cancellation = get_current_send_cancellation()
         prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
         if not isinstance(prepared, _PreparedMcpCall):

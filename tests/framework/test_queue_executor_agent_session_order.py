@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.framework.queue_executor import SendCancellation, agent_session, get_current_send_cancellation, is_agent_active
+from plugin.framework.send_cancellation import SendCancellation, agent_session, get_current_send_cancellation, is_agent_active
 
 
 def test_out_of_order_exit_never_restores_a_finished_scope():

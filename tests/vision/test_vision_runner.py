@@ -540,7 +540,7 @@ def test_stop_break_reports_partial_and_stopped():
 def test_send_cancelled_escapes_discovery_as_user_stopped():
     # What was wrong: SendCancelled during discovery escaped as generic VISION_ERROR.
     # Why this change: verify SendCancelled raises USER_STOPPED directly.
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.send_cancellation import SendCancelled
 
     with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=SendCancelled("cancel")):
         result = run_and_insert_vision_for_selection(MagicMock(), MagicMock(), helper="extract_text")

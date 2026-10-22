@@ -525,7 +525,7 @@ class SendButtonListener(BaseActionListener):
         ``lambda: self.stop_requested`` alone: that property reads the live field.
         See ``docs/framework/streaming-and-threading.md`` § Stop / cancellation.
         """
-        from plugin.framework.queue_executor import bind_send_stop_checker
+        from plugin.framework.send_cancellation import bind_send_stop_checker
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
 
@@ -1002,7 +1002,7 @@ class SendButtonListener(BaseActionListener):
                 self.clear_pending_audio_wav()
 
             case StartSendEffect():
-                from plugin.framework.queue_executor import SendCancellation
+                from plugin.framework.send_cancellation import SendCancellation
 
                 # Leave the first scope in place until that child exits.
                 # STT runs inside run_blocking_in_thread, which pumps the UI.
@@ -1116,7 +1116,7 @@ class SendButtonListener(BaseActionListener):
 
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
-        from plugin.framework.queue_executor import agent_session
+        from plugin.framework.send_cancellation import agent_session
 
         # A drain posted before StartSend learned STT was in flight must not
         # clear the first send's scope or dispatch SEND_COMPLETED under it.
@@ -1653,7 +1653,7 @@ class SendButtonListener(BaseActionListener):
         """
         from plugin.framework.i18n import _
         from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
-        from plugin.framework.queue_executor import SendCancellation, agent_session
+        from plugin.framework.send_cancellation import SendCancellation, agent_session
 
         clear_drain_capture()
 

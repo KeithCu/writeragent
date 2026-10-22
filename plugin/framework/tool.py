@@ -118,7 +118,7 @@ class ToolContext:
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
         read_only_target: When True, mutation tools are rejected (document_research sibling reads).
-        send_cancellation: Optional per-send :class:`~plugin.framework.queue_executor.SendCancellation`
+        send_cancellation: Optional per-send :class:`~plugin.framework.send_cancellation.SendCancellation`
             for worker-thread HTTP registration and stable stop checks.
         uno_services_supported: Cached UNO service names for the active document (sidebar/MCP);
             used for tool compatibility without touching ``doc`` off the main thread.

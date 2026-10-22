@@ -1316,7 +1316,7 @@ def test_run_cells_chat_stop_under_drain_skips_remainder():
     notebook Event.
     """
     from plugin.framework.async_drain_guard import drain_owner_scope
-    from plugin.framework.queue_executor import SendCancellation, agent_session
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
 
     ctx = MagicMock()
     cells = _three_cells()
@@ -1346,7 +1346,7 @@ def test_run_cells_chat_stop_under_drain_skips_remainder():
 def test_run_cells_already_cancelled_chat_skips_without_flush():
     """A latched chat Stop skips the batch even when the between-cell flush is a no-op."""
     from plugin.framework.async_drain_guard import drain_owner_scope
-    from plugin.framework.queue_executor import SendCancellation, agent_session
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
 
     ctx = MagicMock()
     cells = _three_cells()

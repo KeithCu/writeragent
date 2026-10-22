@@ -47,7 +47,7 @@ from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import format_error_payload
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.queue_executor import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 
@@ -385,7 +385,7 @@ class ToolCallingMixin:
         # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
         # picks up resolve_stop_checker() via get_current_send_cancellation when created on
         # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
-        from plugin.framework.queue_executor import get_current_send_cancellation
+        from plugin.framework.send_cancellation import get_current_send_cancellation
 
         if not self._panel.client:
             self._panel.client = LlmClient(api_config, self._panel.ctx)

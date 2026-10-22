@@ -89,7 +89,8 @@ class ListOpenDocuments(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.queue_executor import run_on_main, SendCancelled
+        from plugin.framework.queue_executor import run_on_main
+        from plugin.framework.send_cancellation import SendCancelled
         from plugin.doc.document_research import get_open_documents
 
         def _run() -> dict[str, Any]:

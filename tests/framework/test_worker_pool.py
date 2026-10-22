@@ -1125,7 +1125,7 @@ def test_run_in_background_keeps_submit_time_send_cancellation():
     Setting a new scope on the caller after the job has started must not
     change what get_current_send_cancellation returns inside that job.
     """
-    from plugin.framework.queue_executor import (
+    from plugin.framework.send_cancellation import (
         SendCancellation,
         _current_send_cancellation,
         get_current_send_cancellation,

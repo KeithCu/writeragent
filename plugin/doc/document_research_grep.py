@@ -415,7 +415,8 @@ def grep_nearby_files(
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
-    from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.send_cancellation import SendCancelled
 
     try:
         candidates, truncated_files, list_err = resolve_grep_candidates(

@@ -18,7 +18,7 @@ from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.config import get_config
 from plugin.framework.constants import folder_search_enabled
-from plugin.framework.queue_executor import get_current_send_cancellation
+from plugin.framework.send_cancellation import get_current_send_cancellation
 from plugin.framework.worker_pool import run_in_background
 
 __all__ = ["enqueue_folder_index", "ensure_index_wakeup"]

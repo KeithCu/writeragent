@@ -308,7 +308,7 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
 
 def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_get_tools):
     """Packet B2: Stop on send 2+ must close HTTP on the reused LlmClient."""
-    from plugin.framework.queue_executor import SendCancellation, agent_session
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
 
     mock_get_tools.get_schemas.return_value = []
     existing = test_instance.client

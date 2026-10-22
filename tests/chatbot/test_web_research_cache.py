@@ -583,7 +583,7 @@ def test_resolve_research_locale_uses_main_thread_for_doc():
 
 
 def test_resolve_research_locale_send_cancelled_falls_back():
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.send_cancellation import SendCancelled
 
     with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=SendCancelled()):
         assert resolve_research_locale(None, MagicMock()) == ("en_US", "english")

@@ -13,7 +13,8 @@ from plugin.doc.doc_type import is_calc, is_writer
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import SendCancelled, execute_on_main_thread
+from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.send_cancellation import SendCancelled
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import (
     HELPER_NAMES,

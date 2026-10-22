@@ -688,7 +688,8 @@ def test_sse_keepalive_readable_socket_uses_plain_recv():
 
 def test_mcp_execute_with_backpressure_captures_send_cancellation() -> None:
     from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
-    from plugin.framework.queue_executor import SendCancellation, QueueExecutor
+    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.send_cancellation import SendCancellation
 
     executor = MagicMock(spec=QueueExecutor)
     # mock _PreparedMcpCall so it bypasses isinstance check and we don't need real docs
@@ -707,7 +708,7 @@ def test_mcp_execute_with_backpressure_captures_send_cancellation() -> None:
 
     scope = SendCancellation()
 
-    with patch("plugin.framework.queue_executor.get_current_send_cancellation", return_value=scope):
+    with patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope):
         res = handler._execute_with_backpressure("my_tool", {})
 
     assert res == "final_result"

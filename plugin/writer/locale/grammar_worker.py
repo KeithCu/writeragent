@@ -33,7 +33,7 @@ from plugin.framework.grammar_rule_ids import (
 from .grammar_proofread_text import slice_preview_debug
 from .grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, next_enqueue_seq, grammar_queue
 
-from plugin.framework import config, llm_lanes, queue_executor
+from plugin.framework import config, llm_lanes, send_cancellation
 from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.grammar")
@@ -844,7 +844,7 @@ def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
     pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
-    if pause_during_agent and queue_executor.is_agent_active():
+    if pause_during_agent and send_cancellation.is_agent_active():
         from plugin.framework.config import get_grammar_provider
 
         # Local engines do not share the LLM request lane; only pause the LLM provider.

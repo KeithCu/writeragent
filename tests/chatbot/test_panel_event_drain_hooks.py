@@ -149,7 +149,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
 
         # Validate cleanup asserts
         from plugin.framework.async_drain_guard import get_drain_owner, get_drain_depth
-        from plugin.framework.queue_executor import _AGENT_OPEN_SCOPES
+        from plugin.framework.send_cancellation import _AGENT_OPEN_SCOPES
         from plugin.framework import async_stream
 
         assert get_drain_owner() is None
@@ -160,7 +160,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
 
 def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
     from plugin.framework.async_drain_guard import get_drain_owner, get_drain_depth
-    from plugin.framework.queue_executor import _AGENT_OPEN_SCOPES
+    from plugin.framework.send_cancellation import _AGENT_OPEN_SCOPES
     from plugin.framework import async_stream
     import plugin.framework.logging as logging_mod
 
@@ -216,7 +216,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
 
 def test_do_send_raises_before_drain_cleans_up() -> None:
     from plugin.framework.async_drain_guard import get_drain_owner, get_drain_depth
-    from plugin.framework.queue_executor import _AGENT_OPEN_SCOPES
+    from plugin.framework.send_cancellation import _AGENT_OPEN_SCOPES
     from plugin.framework import async_stream
     import plugin.framework.logging as logging_mod
 

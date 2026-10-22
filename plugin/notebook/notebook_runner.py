@@ -94,7 +94,7 @@ def _chat_stop_requested() -> bool:
     The notebook Event is never set by that button, so watching it left
     the rest of a chat-owned Run All running.
     """
-    from plugin.framework.queue_executor import get_current_send_cancellation
+    from plugin.framework.send_cancellation import get_current_send_cancellation
 
     scope = get_current_send_cancellation()
     return scope is not None and scope.is_cancelled()

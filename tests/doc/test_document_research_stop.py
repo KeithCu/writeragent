@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-from plugin.framework.queue_executor import SendCancelled
+from plugin.framework.send_cancellation import SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.tool import ToolContext
@@ -19,7 +19,7 @@ def test_delegate_read_document_closes_when_stopped(
     mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
     mock_open.return_value = (opened_model, "calc", None, True)
 
-    from plugin.framework.queue_executor import _current_send_cancellation
+    from plugin.framework.send_cancellation import _current_send_cancellation
 
     def mock_run_on_main(fn):
         if fn.__name__ == "_do_close":
@@ -64,7 +64,7 @@ def test_grep_nearby_files_closes_when_stopped(
     mock_resolve.return_value = ([MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")], False, None)
     mock_open.return_value = (opened_model, "calc", None, True)
 
-    from plugin.framework.queue_executor import _current_send_cancellation
+    from plugin.framework.send_cancellation import _current_send_cancellation
 
     def mock_execute_on_main(fn, *args, **kwargs):
         if fn.__name__ == "_close":
@@ -95,8 +95,8 @@ def test_grep_nearby_files_closes_when_stopped(
 
 
 def test_unscoped_post_executes_when_scope_is_cancelled() -> None:
-    from plugin.framework.queue_executor import (
-        QueueExecutor,
+    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.send_cancellation import (
         SendCancellation,
         _current_send_cancellation,
     )

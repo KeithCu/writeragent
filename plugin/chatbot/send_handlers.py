@@ -37,7 +37,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.queue_executor import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
@@ -1016,7 +1016,7 @@ class SendHandlersMixin:
                 def approval_cb(query_for_engine: str, tool_name: str, args: Any) -> Any:
 
 
-                    from plugin.framework.queue_executor import wait_for_approval
+                    from plugin.framework.send_cancellation import wait_for_approval
 
                     event = threading.Event()
                     # Use setattr/getattr to avoid static attribute errors on Event

@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-from plugin.framework.queue_executor import _current_send_cancellation, SendCancellation
+from plugin.framework.send_cancellation import _current_send_cancellation, SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 

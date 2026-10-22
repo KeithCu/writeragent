@@ -59,7 +59,7 @@ from .response_normalizers import prepare_chat_messages, strip_leaked_chat_templ
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
 from plugin.framework.constants import USER_AGENT
-from plugin.framework.queue_executor import get_current_send_cancellation
+from plugin.framework.send_cancellation import get_current_send_cancellation
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers

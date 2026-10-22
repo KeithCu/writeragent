@@ -1764,7 +1764,7 @@ def test_agent_backend_drops_output_after_abort():
 
 def _arm_spawn_scope(panel):
     """Bind resolve_stop_checker to the scope object, and record each call."""
-    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
 
     old = SendCancellation()
     panel._send_cancellation = old
@@ -1781,7 +1781,7 @@ def _arm_spawn_scope(panel):
 
 def _swap_scope_and_run(panel, old, calls, worker_fn):
     """Cancel the spawn scope, point the panel at the next send, then run the body."""
-    from plugin.framework.queue_executor import SendCancellation
+    from plugin.framework.send_cancellation import SendCancellation
 
     new = SendCancellation()
     old.cancel()
@@ -1798,7 +1798,7 @@ def _swap_scope_and_run(panel, old, calls, worker_fn):
 
 def test_run_search_keeps_spawn_scope_after_next_send():
     """A late run_search body must not bind the send that replaced the panel field."""
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     panel = DummyChatbotPanel()
     panel.session.messages = []
@@ -1836,7 +1836,7 @@ def test_run_search_keeps_spawn_scope_after_next_send():
 
 
 def test_direct_image_keeps_spawn_scope_after_next_send():
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     panel = DummyChatbotPanel()
     old, calls = _arm_spawn_scope(panel)
@@ -1873,7 +1873,7 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
 
 def test_agent_worker_keeps_spawn_checker_after_next_send():
-    from plugin.framework.queue_executor import bind_send_stop_checker
+    from plugin.framework.send_cancellation import bind_send_stop_checker
 
     panel = DummyChatbotPanel()
     panel.session.messages = []
@@ -1932,7 +1932,7 @@ def _run_blocking_now(ctx, func, *args, stop_checker=None, **kwargs):
 
 def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     """Stop on the first scope still aborts STT after the panel field moves."""
-    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
 
     panel = DummyChatbotPanel()
     panel.client = MagicMock()
@@ -1977,7 +1977,7 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
 
 def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     """A second STT call while the first is running must not delete that WAV."""
-    from plugin.framework.queue_executor import SendCancellation
+    from plugin.framework.send_cancellation import SendCancellation
 
     panel = DummyChatbotPanel()
     panel.client = MagicMock()
@@ -2010,7 +2010,7 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
 
 class TestSTTClientReset:
     def test_transcribe_cancelling_send_scope_does_not_stop_stt_client(self) -> None:
-        from plugin.framework.queue_executor import SendCancellation
+        from plugin.framework.send_cancellation import SendCancellation
 
         panel = DummyChatbotPanel()
         scope = SendCancellation()

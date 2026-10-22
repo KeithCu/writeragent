@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Callable
 
 from plugin.framework.errors import BlockingWaitStopped
 from plugin.framework.i18n import _
-# One-way: queue_executor must not import this module. The moved functions
+# One-way: send_cancellation must not import this module. The moved functions
 # look up get_current_send_cancellation in this module's globals; the function
-# object still reads queue_executor's ContextVar via its own __globals__.
-from plugin.framework.queue_executor import get_current_send_cancellation
+# object still reads send_cancellation's ContextVar via its own __globals__.
+from plugin.framework.send_cancellation import get_current_send_cancellation
 
 if TYPE_CHECKING:
     from collections.abc import Generator
