@@ -233,3 +233,13 @@ def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -
 
 # format_address → parse_address and column_to_index → index_to_column.
 inverse_ensure = inverse_ensure_for(crosshair=UNDER_CROSSHAIR)
+
+
+def asserts_enabled() -> bool:
+    """Return True if Python assert statements in production code are active."""
+    try:
+        assert False
+        return False
+    except AssertionError:
+        return True
+

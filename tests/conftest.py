@@ -15,6 +15,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.harness.strip_bundle import asserts_stripped, requires_asserts
+
+
+
+
 @pytest.fixture(autouse=True)
 def _drain_scheduler_override_for_tests():
     from plugin.framework.async_stream import set_drain_scheduler_override

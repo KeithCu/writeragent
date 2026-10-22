@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from tests.harness.strip_bundle import requires_asserts
+
 from plugin.scripting.python_runner import execute_and_insert_result
 from plugin.scripting.text_analytics import get_text_analytics_script_templates
 
@@ -129,4 +133,24 @@ def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
         assert 'text = ["Section one about revenue.", "Section two about budgets."]' in injected
         assert "text = \"[" not in injected
         assert "text = '[" not in injected
+
+
+@requires_asserts
+def test_text_analytics_input_type_assertions():
+    from plugin.scripting.python_runner import _prepare_rps_execution
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    code = get_text_analytics_script_templates()["full"]
+
+    with patch("plugin.scripting.python_runner.is_writer", return_value=True):
+        with patch("plugin.scripting.text_analytics.resolve_text_analytics_document_inputs", return_value=(123, {})):
+            with pytest.raises(AssertionError):
+                _prepare_rps_execution(ctx, doc, code)
+
+        with patch("plugin.scripting.text_analytics.resolve_text_analytics_document_inputs", return_value=("valid text", "not a dict")):
+            with pytest.raises(AssertionError):
+                _prepare_rps_execution(ctx, doc, code)
+
+
 

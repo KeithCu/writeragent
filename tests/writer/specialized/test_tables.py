@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.harness.strip_bundle import requires_asserts
+
 
 from plugin.writer.specialized.tables import (
     TableDelete,
@@ -867,6 +869,31 @@ def test_non_integer_index_errors():
     assert err is not None and "Invalid type for index" in err and "integer" in err
 
 
+@requires_asserts
+def test_manage_table_structure_non_integer_index_assertion():
+    tool = ManageTableStructure()
+    with pytest.raises(AssertionError):
+        tool.execute(
+            _ctx({"T": FakeTable(2, 2)}),
+            action="insert",
+            axis="row",
+            name="T",
+            index="two",
+        )
+
+
+@requires_asserts
+def test_manage_table_structure_bad_action_or_axis():
+    ctx = _ctx({"T": FakeTable(2, 2)})
+    tool = ManageTableStructure()
+    with pytest.raises(AssertionError):
+        tool.execute(ctx, action="merge", axis="row", name="T", index=0)
+    with pytest.raises(AssertionError):
+        tool.execute(ctx, action="insert", axis="diagonal", name="T", index=0)
+
+
+
+
 # ---- insert / delete --------------------------------------------------------
 
 def test_table_insert_nests_into_parent_cell():
@@ -1149,6 +1176,21 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     ok_data, err_data = tool.validate(rows=2, columns=2, data="ab")
     assert ok_data is False
     assert err_data is not None and "Invalid type for data" in err_data and "array" in err_data
+
+
+@requires_asserts
+def test_table_insert_non_list_data_assertion():
+    tool = TableInsert()
+    with pytest.raises(AssertionError):
+        tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=2, columns=2, data="ab")
+
+
+def test_table_set_cell_non_string_cell():
+    tool = TableSetCell()
+    ok, err = tool.validate(name="T", cell=123, text="new")
+    assert ok is False
+    assert err is not None and "cell" in err
+
 
 
 def test_table_insert_draw_non_numeric_rows_columns():

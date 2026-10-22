@@ -11,6 +11,8 @@ from plugin.writer.tracking import (
 )
 import pytest
 
+from tests.harness.strip_bundle import requires_asserts
+
 def _create_mock_ctx():
     ctx = MagicMock()
     
@@ -190,13 +192,19 @@ def test_track_changes_show():
     view_settings.setPropertyValue.assert_not_called()
 
 
+def test_track_changes_show_missing_required():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesShow()
+    with pytest.raises(KeyError):
+        tool.execute(ctx)
+
+
+@requires_asserts
 def test_track_changes_show_type_assertion():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesShow()
     with pytest.raises(AssertionError):
         tool.execute(ctx, show="not-a-bool")  # type: ignore[arg-type]
-    with pytest.raises(KeyError):
-        tool.execute(ctx)
 
 
 def test_track_changes_show_readback_mismatch():
@@ -446,11 +454,19 @@ def test_manage_tracked_changes_invalid_action():
     dispatcher.executeDispatch.assert_not_called()
 
 
-def test_manage_tracked_changes_index_type_assertion():
+@requires_asserts
+def test_manage_tracked_changes_index_string_assertion():
     ctx, dispatcher, _frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
     with pytest.raises(AssertionError):
         tool.execute(ctx, action="accept", index="two")  # type: ignore[arg-type]
+    dispatcher.executeDispatch.assert_not_called()
+
+
+@requires_asserts
+def test_manage_tracked_changes_index_bool_assertion():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
     with pytest.raises(AssertionError):
         tool.execute(ctx, action="accept", index=True)  # type: ignore[arg-type]
     dispatcher.executeDispatch.assert_not_called()

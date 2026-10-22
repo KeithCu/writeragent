@@ -174,6 +174,19 @@ def test_add_comment_schema_parent_name_optional():
     assert "parent_name" not in params["required"]
 
 
+def test_add_comment_reply_requires_content():
+    import pytest
+    from plugin.writer.specialized.comments import AddComment
+
+    ctx = MagicMock()
+    with pytest.raises(KeyError):
+        AddComment().execute(ctx, parent_name="some-parent")
+    res = AddComment().execute(ctx, parent_name="some-parent", content="")
+    assert res["status"] == "error"
+    assert "content" in res["message"].lower()
+    ctx.doc.getTextFields.assert_not_called()
+
+
 def test_add_comment_reply_unknown_parent():
     from plugin.writer.specialized.comments import AddComment
 

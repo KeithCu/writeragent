@@ -45,6 +45,7 @@ markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",
     "xdist_group(name): serialize tests that share a host path (pytest-xdist loadgroup)",
+    "requires_asserts: tests that expect assert statements to be executed (skipped in release builds)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:matplotlib.*",

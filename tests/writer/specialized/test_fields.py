@@ -15,6 +15,7 @@ except ImportError:
 
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer.specialized.fields import FieldsInsert, FieldsList, FieldsDelete
+from tests.harness.strip_bundle import requires_asserts
 
 
 @pytest.fixture
@@ -207,6 +208,11 @@ def test_fields_delete(mock_ctx):
 def test_fields_delete_validation_and_missing_ids(mock_ctx):
     tool = FieldsDelete()
 
+    # Schema rejects non-list
+    ok, err = tool.validate(ids="1")
+    assert ok is False
+    assert err is not None and "ids" in err
+
     # Boolean rejected
     res = tool.execute(mock_ctx, ids=[True])
     assert res["status"] == "error"
@@ -231,6 +237,13 @@ def test_fields_delete_validation_and_missing_ids(mock_ctx):
     assert res["requested_count"] == 2
     assert res["missing_ids"] == [1, 99]
     assert "comment_delete" in res["message"]
+
+
+@requires_asserts
+def test_fields_delete_non_list_ids_assertion(mock_ctx):
+    tool = FieldsDelete()
+    with pytest.raises(AssertionError):
+        tool.execute(mock_ctx, ids="1")
 
 
 def test_fields_delete_partial_missing_ids(mock_ctx):

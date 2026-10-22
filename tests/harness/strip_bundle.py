@@ -106,3 +106,24 @@ def skip_if_release_build(reason: str = "Test skipped in release builds") -> Non
     if is_release_build():
         pytest.skip(reason)
 
+
+def asserts_stripped() -> bool:
+    """True when assert statements are stripped in production code or under python -O."""
+    if not __debug__:
+        return True
+    try:
+        from plugin.framework.deal_shim import asserts_enabled
+
+        if not asserts_enabled():
+            return True
+    except Exception:
+        return is_release_build()
+    return False
+
+
+requires_asserts = pytest.mark.skipif(
+    asserts_stripped(),
+    reason="assert statements stripped in release bundle or under python -O",
+)
+
+

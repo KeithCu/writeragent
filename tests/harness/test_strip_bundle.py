@@ -55,3 +55,15 @@ def test_stripped_plugin_module_has_no_asserts_in_release() -> None:
     asserts = [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
     assert not asserts, f"Found {len(asserts)} assert statement(s) in {history_db.__name__}"
     compile(source, history_db.__file__, "exec")
+
+
+def test_asserts_stripped_matches_release_build() -> None:
+    from plugin.framework.deal_shim import asserts_enabled
+    from tests.harness.strip_bundle import asserts_stripped
+
+    if is_release_build() or not __debug__:
+        assert asserts_stripped() is True
+    else:
+        assert asserts_enabled() is True
+        assert asserts_stripped() is False
+

@@ -16,6 +16,8 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
+from tests.harness.strip_bundle import requires_asserts
+
 from plugin.tests.testing_utils import TestingFactory
 
 # Smallest AFC-style repro for the chat cap: 9×9 = 81 cells (cap is 80).
@@ -1636,7 +1638,12 @@ def test_insert_cell_html_execution_and_validation():
     with pytest.raises(KeyError):
         InsertCellHtml().execute(ctx, html="<b>bold</b>")
 
-    # Non-string html raises AssertionError
+
+@requires_asserts
+def test_insert_cell_html_non_string_assertion():
+    from plugin.calc.cells import InsertCellHtml
+
+    ctx = SimpleNamespace(doc=MagicMock())
     with pytest.raises(AssertionError):
         InsertCellHtml().execute(ctx, cell="A1", html=123)
 
@@ -1665,15 +1672,29 @@ def test_schema_required_params_direct_call_assertions():
     with pytest.raises(KeyError):
         SortRange().execute(ctx, has_header=True)
 
-    # SortRange has_header missing or wrong type
+    # SortRange has_header missing
     with pytest.raises(KeyError):
         SortRange().execute(ctx, range=["A1:B2"])
+
+    # DeleteStructure structure_type missing
+    with pytest.raises(KeyError):
+        DeleteStructure().execute(ctx, start=1)
+
+
+@requires_asserts
+def test_sort_range_has_header_type_assertion():
+    from plugin.calc.cells import SortRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
     with pytest.raises(AssertionError):
         SortRange().execute(ctx, range=["A1:B2"], has_header="true")
 
-    # DeleteStructure structure_type missing or invalid
-    with pytest.raises(KeyError):
-        DeleteStructure().execute(ctx, start=1)
+
+@requires_asserts
+def test_delete_structure_type_assertion():
+    from plugin.calc.cells import DeleteStructure
+
+    ctx = SimpleNamespace(doc=MagicMock())
     with pytest.raises(AssertionError):
         DeleteStructure().execute(ctx, structure_type="invalid", start=1)
 
