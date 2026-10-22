@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Chat sidebar panel logic: send/tool loop and button listeners.
 
-SendButtonListener drives the streaming tool-calling loop (via SendHandlersMixin /
+SendButtonListener drives the streaming tool-calling loop (composing SendHandlersMixin and
 ToolCallingMixin). StopButtonListener and ClearButtonListener are wired by
 panel_factory. ChatSession lives in chat_session.py. UNO UI element factory
 and XDL wiring remain in panel_factory.py.
@@ -268,7 +268,7 @@ def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -
     return text
 
 
-class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
+class SendButtonListener(BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
     ctx: Any
@@ -331,6 +331,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _voice: PanelVoiceController
     _events: PanelEventsController
     _sidebar_mode: SidebarModeController
+    _send_handlers: Any
+    _tool_calling: Any
 
     def clear_pending_audio_wav(self) -> None:
         self._voice.clear_pending_audio_wav()
@@ -459,6 +461,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
+
+        self._send_handlers = SendHandlersMixin(self)
+        self._tool_calling = ToolCallingMixin(self)
 
     @staticmethod
     def _mcp_subscribe_must_defer() -> bool:
@@ -1088,7 +1093,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             _stop_tts()
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
-    # _transcribe_audio_async is provided by SendHandlersMixin.
+    def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
+        return self._send_handlers._transcribe_audio(wav_path, stt_model)
 
     def _sync_has_text_from_query(self) -> None:
         """Ask is the source of truth after SEND_COMPLETED forces has_text False.
@@ -1772,16 +1778,62 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             query_text, model, doc_type_label, skip_append_user=True
         )
 
-    # _do_send_direct_image is provided by SendHandlersMixin.
+    # Forwarders to composed SendHandlersMixin and ToolCallingMixin.
+    def _run_librarian(self, query_text: str, model: Any) -> None:
+        self._send_handlers._run_librarian(query_text, model)
 
-    # _do_send_chat_with_tools is provided by ToolCallingMixin.
+    def _run_web_research(self, query_text: str, model: Any, is_deep_research: bool = False) -> None:
+        self._send_handlers._run_web_research(query_text, model, is_deep_research=is_deep_research)
 
-    # _do_send_via_agent_backend is provided by SendHandlersMixin.
+    def _run_deep_web_research(self, query_text: str, model: Any) -> None:
+        self._send_handlers._run_deep_web_research(query_text, model)
+
+    def _do_send_direct_image(self, query_text: str, model: Any) -> None:
+        self._send_handlers._do_send_direct_image(query_text, model)
+
+    def _run_brainstorming(self, query_text: str, model: Any) -> None:
+        self._send_handlers._run_brainstorming(query_text, model)
+
+    def _run_writing_plan(self, query_text: str, model: Any) -> None:
+        self._send_handlers._run_writing_plan(query_text, model)
+
+    def _run_ppt_master(self, query_text: str, model: Any) -> None:
+        self._send_handlers._run_ppt_master(query_text, model)
+
+    def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
+        self._send_handlers._do_send_via_agent_backend(query_text, model, doc_type_str)
+
+    def _execute_direct_image_effect(self, effect: Any) -> None:
+        self._send_handlers._execute_direct_image_effect(effect)
+
+    def _execute_agent_backend_effect(self, effect: Any) -> None:
+        self._send_handlers._execute_agent_backend_effect(effect)
+
+    def _execute_web_research_effect(self, effect: Any) -> None:
+        self._send_handlers._execute_web_research_effect(effect)
+
+    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
+        self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_str, skip_append_user=skip_append_user)
+
+    def _spawn_final_stream(self, q: Any, client: Any, max_tokens: int) -> None:
+        self._tool_calling._spawn_final_stream(q, client, max_tokens)
+
+    def _refresh_active_tools_for_session(self) -> None:
+        self._tool_calling._refresh_active_tools_for_session()
+
+    def _spawn_llm_worker(self, q: Any, client: Any, max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
+        self._tool_calling._spawn_llm_worker(q, client, max_tokens, tools, round_num, query_text=query_text, force_compact=force_compact)
+
+    @property
+    def _sm_state(self) -> Any:
+        return self._tool_calling._sm_state
+
+    @_sm_state.setter
+    def _sm_state(self, value: Any) -> None:
+        self._tool_calling._sm_state = value
 
     # Writer edit selection uses WriterStreamedRewriteSession (document compound undo). Broader
     # chat/tool undo grouping is still future work.
-
-    # _run_web_research is provided by SendHandlersMixin.
 
     def disposing(self, Source: Any = None) -> None:
         _stop_tts()

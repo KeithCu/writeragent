@@ -499,7 +499,7 @@ Simpler approach:
 | `panel.py` | Send/Stop/Clear listeners. |
 | `chat_sidebar_mode.py` | Mode dropdown constants, combo helpers, `clear_*`, and `SidebarModeController` session-finished callbacks. |
 | `chat_session.py` | `ChatSession`. Mode-switch, send, and mid-loop context refresh is `ChatSession.refresh_document_context`. |
-| `send_handlers.py` / `tool_loop.py` | Mixins on Send; call `ChatSession.refresh_document_context` on each send / mutating tool. |
+| `send_handlers.py` / `tool_loop.py` | Composed on SendButtonListener; call `ChatSession.refresh_document_context` on each send / mutating tool. |
 | `WriterAgentDialogs/ChatPanelDialog.xdl` | Panel UI; `dlg:withtitlebar="false"` |
 | `META-INF/manifest.xml` | Register panel factory, Sidebar.xcu, Factories.xcu |
 | `Makefile` / OXT bundle | Include `plugin/chatbot/panel*.py` and registry in the extension zip |

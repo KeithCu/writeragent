@@ -22,7 +22,7 @@ the area gotchas.
 - `panel_voice.py` — `PanelVoiceController` for voice lifecycle (STT child termination, TTS stop/wait, audio slice sync, hands-free recording gestures).
 - `panel_events.py` — `PanelEventsController` for MCP events, HTTP server events, and inline web search approval.
 - `chat_sidebar_mode.py` — mode dropdown constants, combobox helpers, `clear_*`, and `SidebarModeController`. `panel.py` keeps forwarders. `chat_sidebar_mode` does not import `panel`.
-- `send_handlers.py` / `tool_loop.py` — mixins on `SendButtonListener`. Route send / mid-loop refresh through `ChatSession.refresh_document_context`. Stay mixins (no `session.py` / `send.py`).
+- `send_handlers.py` / `tool_loop.py` — `SendHandlersMixin` and `ToolCallingMixin` composed onto `SendButtonListener`. Route send / mid-loop refresh through `ChatSession.refresh_document_context`. No `session.py` / `send.py`.
 - `dialogs.py` — shared XDL / msgbox / checkbox / translate kit. LibrePy Settings and Run Python Script import this.
 - `dialog_views.py` — WriterAgent Settings pages, provider buttons, venv probe UI. `input_box` (Edit/Extend selection) stays here; it is not a generic XDL helper.
 - `eval_dashboard_ui.py` — prompt-optimization eval dashboard XDL (`show_eval_dashboard`).

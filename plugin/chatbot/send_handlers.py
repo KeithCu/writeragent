@@ -1,6 +1,6 @@
 """SendHandlersMixin: specialized send paths for the chat sidebar.
 
-This mixin is used by SendButtonListener in panel.py and contains
+Composed onto SendButtonListener in panel.py and contains
 alternate send flows that would otherwise bloat that class:
 
 - Audio transcription fallback
@@ -175,6 +175,7 @@ def _agent_backend_label(adapter: Any, backend_id: str) -> str:
 
 
 class SendHandlerHost(Protocol):
+    _panel: Any
     ctx: Any
     client: "LlmClient | None"
 
@@ -240,7 +241,25 @@ class TypedEvent(Protocol):
 T = TypeVar("T", bound="SendHandlersMixin")
 
 
+class _PanelDescriptor:
+    """Descriptor that returns the parent panel host, or the instance itself when unset (e.g. in test subclasses)."""
+
+    def __get__(self, instance: Any, owner: Any = None) -> Any:
+        if instance is None:
+            return self
+        return instance.__dict__.get("_panel_obj", instance)
+
+    def __set__(self, instance: Any, value: Any) -> None:
+        instance.__dict__["_panel_obj"] = value
+
+
 class SendHandlersMixin:
+    _panel: Any = _PanelDescriptor()
+
+    def __init__(self, panel: Any = None) -> None:
+        if panel is not None:
+            self._panel = panel
+
     # Defaults satisfy basedpyright reportUninitializedInstanceVariable; panel __init__ overwrites.
     client: LlmClient | None = None
     audio_wav_path: str | None = None
@@ -286,17 +305,17 @@ class SendHandlersMixin:
 
         # getattr: a duck-typed host (the smol _do_send double) has no field
         # until this call sets it. Missing means nothing is in flight.
-        if getattr(self, "_stt_inflight", False):
+        if getattr(self._panel, "_stt_inflight", False):
             log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
             return ""
 
-        self._stt_inflight = True
+        self._panel._stt_inflight = True
         try:
             # Spawn-time scope. Do not call resolve_stop_checker inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope, stop_checker = capture_send_stop(self)
+            cancel_scope, stop_checker = capture_send_stop(self._panel)
             if stop_checker():
-                self._terminal_status = "Stopped"
+                self._panel._terminal_status = "Stopped"
                 return ""
 
             if uses_local_stt():
@@ -304,22 +323,22 @@ class SendHandlersMixin:
             else:
                 # Always create a fresh client to avoid reusing previous STT endpoint/key
                 api_config = get_api_config()
-                client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope, register_with_send=False)
+                client = LlmClient(api_config, self._panel.ctx, cancellation_scope=cancel_scope, register_with_send=False)
                 if cancel_scope is not None and not cancel_scope.is_cancelled():
                     clearer = getattr(client, "clear_stop", None)
                     if callable(clearer):
                         clearer()
 
             transcribing = status_for_transcription()
-            self._set_status(transcribing)
-            self._append_response("\n[" + transcribing + "]\n")
+            self._panel._set_status(transcribing)
+            self._panel._append_response("\n[" + transcribing + "]\n")
 
             def on_status(message: str) -> None:
                 # What was wrong: local Whisper model download status messages were lost.
                 # How it happened: on_status callback was dropped during cleanup.
                 # Why this change: post status updates to the UI thread so weight
                 # download progress is visible in the sidebar.
-                post_to_main_thread(self._set_status, message)
+                post_to_main_thread(self._panel._set_status, message)
 
             def _on_spawn(proc: Any) -> None:
                 def _kill() -> None:
@@ -327,7 +346,7 @@ class SendHandlersMixin:
 
                 # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
                 # not: the transcript is kept for the Ask box.
-                self._stt_kill = _kill
+                self._panel._stt_kill = _kill
 
             def _call() -> str:
                 return transcribe(
@@ -340,21 +359,21 @@ class SendHandlersMixin:
 
             try:
                 # Runs to the end: Stop keeps the transcript.
-                transcript_text = run_blocking_in_thread(self.ctx, _call)
+                transcript_text = run_blocking_in_thread(self._panel.ctx, _call)
             except Exception as e:
                 log.exception("Transcription error in _transcribe_audio")
-                self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
+                self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise
             if stop_checker():
                 log.info("Speech-to-text finished after Stop; preserving transcript for query box")
-                self._terminal_status = "Stopped"
+                self._panel._terminal_status = "Stopped"
                 return transcript_text
             return transcript_text
         finally:
-            self._stt_inflight = False
-            self._stt_kill = None
+            self._panel._stt_inflight = False
+            self._panel._stt_kill = None
             best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
-            self.audio_wav_path = None
+            self._panel.audio_wav_path = None
 
     def _run_unified_worker_drain_loop(
         self: SendHandlerHost, q: StreamQueue, worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
@@ -392,51 +411,51 @@ class SendHandlersMixin:
             # (librarian_switch_to_chat, brainstorming_finished) assigns the
             # host attributes and leaves the combo on the old mode.
             if payload.get("librarian_switch_to_chat") or payload.get("in_librarian_mode") is False:
-                finished_cb = getattr(self, "on_librarian_session_finished", None)
+                finished_cb = getattr(self._panel, "on_librarian_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
-                elif self._active_mode == CHAT_MODE_LIBRARIAN:
-                    self._active_mode = ""
+                elif self._panel._active_mode == CHAT_MODE_LIBRARIAN:
+                    self._panel._active_mode = ""
             if payload.get("brainstorming_finished") or payload.get("in_brainstorming_mode") is False:
                 spec_saved = bool(payload.get("spec_saved", False))
-                finished_cb = getattr(self, "on_brainstorming_session_finished", None)
+                finished_cb = getattr(self._panel, "on_brainstorming_session_finished", None)
                 if callable(finished_cb):
                     finished_cb(spec_saved=spec_saved)
-                elif self._active_mode == CHAT_MODE_BRAINSTORMING:
-                    self._active_mode = ""
-                    self._mode_topic = ""
+                elif self._panel._active_mode == CHAT_MODE_BRAINSTORMING:
+                    self._panel._active_mode = ""
+                    self._panel._mode_topic = ""
             if payload.get("writing_plan_finished") or payload.get("in_writing_plan_mode") is False:
-                finished_cb = getattr(self, "on_writing_plan_session_finished", None)
+                finished_cb = getattr(self._panel, "on_writing_plan_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
-                elif self._active_mode == CHAT_MODE_WRITING_PLAN:
-                    self._active_mode = ""
-                    self._mode_topic = ""
+                elif self._panel._active_mode == CHAT_MODE_WRITING_PLAN:
+                    self._panel._active_mode = ""
+                    self._panel._mode_topic = ""
             if payload.get("ppt_master_finished") or payload.get("in_ppt_master_mode") is False:
-                finished_cb = getattr(self, "on_ppt_master_session_finished", None)
+                finished_cb = getattr(self._panel, "on_ppt_master_session_finished", None)
                 if callable(finished_cb):
                     finished_cb(exported=bool(payload.get("exported", False)))
-                elif self._active_mode == CHAT_MODE_PPT_MASTER:
-                    self._active_mode = ""
-                    self._mode_topic = ""
+                elif self._panel._active_mode == CHAT_MODE_PPT_MASTER:
+                    self._panel._active_mode = ""
+                    self._panel._mode_topic = ""
 
-            if payload.get("in_librarian_mode") is False and self._active_mode == CHAT_MODE_LIBRARIAN:
-                self._active_mode = ""
-            if payload.get("in_brainstorming_mode") is False and self._active_mode == CHAT_MODE_BRAINSTORMING:
-                self._active_mode = ""
-                self._mode_topic = ""
-            if payload.get("in_writing_plan_mode") is False and self._active_mode == CHAT_MODE_WRITING_PLAN:
-                self._active_mode = ""
-                self._mode_topic = ""
-            if payload.get("in_ppt_master_mode") is False and self._active_mode == CHAT_MODE_PPT_MASTER:
-                self._active_mode = ""
-                self._mode_topic = ""
+            if payload.get("in_librarian_mode") is False and self._panel._active_mode == CHAT_MODE_LIBRARIAN:
+                self._panel._active_mode = ""
+            if payload.get("in_brainstorming_mode") is False and self._panel._active_mode == CHAT_MODE_BRAINSTORMING:
+                self._panel._active_mode = ""
+                self._panel._mode_topic = ""
+            if payload.get("in_writing_plan_mode") is False and self._panel._active_mode == CHAT_MODE_WRITING_PLAN:
+                self._panel._active_mode = ""
+                self._panel._mode_topic = ""
+            if payload.get("in_ppt_master_mode") is False and self._panel._active_mode == CHAT_MODE_PPT_MASTER:
+                self._panel._active_mode = ""
+                self._panel._mode_topic = ""
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
             # wrapper may still post STREAM_DONE so the drain unblocks.
             # That sentinel is not a successful answer.
-            live = current_turn(self)
+            live = current_turn(self._panel)
             if isinstance(live, TurnController) and not live.alive:
                 return
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
@@ -447,12 +466,12 @@ class SendHandlersMixin:
                 if current_state.handler_type != "agent":
                     answer = payload.get("assistant_content")
                     if isinstance(answer, str) and answer:
-                        persist_assistant_on_turn(self, content=answer)
+                        persist_assistant_on_turn(self._panel, content=answer)
                 _finish_specialized_session(payload)
             if current_state.handler_type == "agent":
                 text = "".join(agent_parts).strip()
                 if text:
-                    persist_assistant_on_turn(self, content=text)
+                    persist_assistant_on_turn(self._panel, content=text)
             dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped() -> None:
@@ -461,16 +480,16 @@ class SendHandlersMixin:
             # Only agent Stop used to store a row. Web and image pass no
             # on_stopped_callback, and finalize skips rerender after Stop,
             # so the painted partial never lands in session.messages.
-            turn = current_turn(self)
+            turn = current_turn(self._panel)
             partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
             if isinstance(turn, TurnController):
-                turn.close_stopped(self, partial)
+                turn.close_stopped(self._panel, partial)
             if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
-            live = current_turn(self)
+            live = current_turn(self._panel)
             if isinstance(live, TurnController) and not live.alive:
                 return
             dispatch_event(ErrorEvent(e))
@@ -481,7 +500,7 @@ class SendHandlersMixin:
             # where the assistant row should be.
             err_msg = format_error_for_display(e)
             append_text = ui_lines_for_handler_error(current_state.handler_type, err_msg)[1]
-            persist_assistant_on_turn(self, content=append_text.strip())
+            persist_assistant_on_turn(self._panel, content=append_text.strip())
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # worker_q is the q passed to run_async_worker_with_drain. worker_fn
@@ -490,19 +509,19 @@ class SendHandlersMixin:
             # drain wrapper would queue a second STREAM_DONE.
             worker_fn()
 
-        turn = current_turn(self)
+        turn = current_turn(self._panel)
         if isinstance(turn, TurnController) and turn.queue is None:
             # The drain owns the queue. The worker wrapper only calls put.
             turn.queue = q
         try:
             run_async_worker_with_drain(
-                self.ctx,
+                self._panel.ctx,
                 worker_wrapper,
                 apply_chunk,
                 on_stream_done,
                 on_error,
-                on_status_fn=self._set_status,
-                stop_checker=self.resolve_stop_checker(),
+                on_status_fn=self._panel._set_status,
+                stop_checker=self._panel.resolve_stop_checker(),
                 on_stopped_fn=on_stopped,
                 name="chatbot-send-handler",
                 q=q,
@@ -515,15 +534,15 @@ class SendHandlersMixin:
                 # Event-driven drains return before the stream ends; aborting
                 # here on the way out would drop the turn while chunks are
                 # still landing.
-                abort_turn(self)
+                abort_turn(self._panel)
 
             defer_until_drain_done(_abort_after_drain)
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
-        interpreter = EffectInterpreter(self)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         # Store the user row once here, before the append, like web
         # research; the fold then sees it and only paints. The StartEvent
         # user append already folds the prompt into the session, and the
@@ -541,11 +560,11 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
         # The user row was stored by _do_send_direct_image before StartEvent.
-        drain_q, q = _send_worker_queues(self)
+        drain_q, q = _send_worker_queues(self._panel)
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
         source_image = _direct_image_source_arg(model)
@@ -553,21 +572,21 @@ class SendHandlersMixin:
         # the image worker. getText is UNO; the LRU write emits config:changed
         # and refreshes sidebar controls, which must stay on the UI thread.
         aspect_ratio_str = "Square"
-        if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
-            aspect_ratio_str = self.aspect_ratio_selector.getText()
+        if self._panel.aspect_ratio_selector and hasattr(self._panel.aspect_ratio_selector, "getText"):
+            aspect_ratio_str = self._panel.aspect_ratio_selector.getText()
         from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_ENUMS, canonical_aspect_label
 
         aspect_ratio_str = canonical_aspect_label(str(aspect_ratio_str or ""))
         mapped_aspect = IMAGE_ASPECT_RATIO_ENUMS.get(aspect_ratio_str, "square")
         image_model_text = ""
-        if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
-            image_model_text = self.image_model_selector.getText()
+        if self._panel.image_model_selector and hasattr(self._panel.image_model_selector, "getText"):
+            image_model_text = self._panel.image_model_selector.getText()
         base_size_val: int | str = DEFAULT_IMAGE_BASE_SIZE
-        if self.base_size_input:
-            if hasattr(self.base_size_input, "getText"):
-                base_size_val = self.base_size_input.getText()
-            elif hasattr(self.base_size_input.getModel(), "Text"):
-                base_size_val = get_control_text(self.base_size_input)
+        if self._panel.base_size_input:
+            if hasattr(self._panel.base_size_input, "getText"):
+                base_size_val = self._panel.base_size_input.getText()
+            elif hasattr(self._panel.base_size_input.getModel(), "Text"):
+                base_size_val = get_control_text(self._panel.base_size_input)
         try:
             base_size_int = int(base_size_val)
         except (ValueError, TypeError):
@@ -577,13 +596,13 @@ class SendHandlersMixin:
 
         # Spawn-time scope. The body must not call resolve_stop_checker or
         # read _send_cancellation: Stop clears the field and the next send replaces it.
-        cancel_scope, stop_checker = capture_send_stop(self)
+        cancel_scope, stop_checker = capture_send_stop(self._panel)
 
         def run_direct_image() -> None:
             try:
                 from plugin.main import get_tools
 
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=getattr(self._panel, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
@@ -612,7 +631,7 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.CHUNK, note_line))
                 q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
-                doc_type = getattr(self, "cached_doc_type", None) or "unknown"
+                doc_type = getattr(self._panel, "cached_doc_type", None) or "unknown"
                 if stop_checker():
                     log.debug("Direct image path cancelled by Stop [doc: %s]: %s", doc_type, e)
                 else:
@@ -632,21 +651,21 @@ class SendHandlersMixin:
             # their drain, which draws the stop line; the image path has to
             # do the same or Image-mode Stop shows no '[Stopped by user]'
             # until a later repaint.
-            if self.stop_requested:
+            if self._panel.stop_requested:
                 from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-                finalize_sidebar_assistant_response(self, allow_rerender=False)
+                finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
             # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
             # here made image Stop look like a normal finish. The agent path
             # below keeps both Error and Stopped.
-            if self._terminal_status not in ("Error", "Stopped"):
-                self._terminal_status = "Ready"
+            if self._panel._terminal_status not in ("Error", "Stopped"):
+                self._panel._terminal_status = "Ready"
 
         defer_until_drain_done(_image_ready)
 
     def _do_send_via_agent_backend(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
-        interpreter = EffectInterpreter(self)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="agent", status="ready")
 
         # User row is stored after the backend exists. Writing it here left
@@ -667,17 +686,17 @@ class SendHandlersMixin:
         process-worker slot policy: one live child, drop a dead child,
         shutdown is explicit. This is not a ``BaseProcessWorker``.
         """
-        held = getattr(self, "_acp_backend", None)
-        held_id = getattr(self, "_acp_backend_id", None)
+        held = getattr(self._panel, "_acp_backend", None)
+        held_id = getattr(self._panel, "_acp_backend_id", None)
         if held is not None and held_id == backend_id:
             return held
         if held is not None:
             best_effort(held.shutdown, "ACP shutdown on backend switch")
-            self._acp_backend = None
-            self._acp_backend_id = None
+            self._panel._acp_backend = None
+            self._panel._acp_backend_id = None
         adapter = get_backend(backend_id)
-        self._acp_backend = adapter
-        self._acp_backend_id = backend_id
+        self._panel._acp_backend = adapter
+        self._panel._acp_backend_id = backend_id
         return adapter
 
     def _execute_agent_backend_effect(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
@@ -688,13 +707,13 @@ class SendHandlersMixin:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
 
         def _handle_early_error(exception_instance: Exception) -> None:
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
+            self._panel._terminal_status = "Error"
+            self._panel._set_status(_("Error"))
 
             # Step 1: dispatch ErrorEvent to current state machine (this will persist the banner)
             step = next_state(current_state, ErrorEvent(exception_instance))
@@ -703,10 +722,10 @@ class SendHandlersMixin:
                 interpreter.interpret(eff)
 
             # Step 2: Ensure turn is closed out properly, just as _do_send_direct_image does
-            defer_until_drain_done(lambda: abort_turn(self))
+            defer_until_drain_done(lambda: abort_turn(self._panel))
 
         try:
-            turn_session.refresh_document_context(model, self.ctx)
+            turn_session.refresh_document_context(model, self._panel.ctx)
             doc_context = turn_session.document_context
         except Exception as e:
             if is_disposed_exception(e):
@@ -723,21 +742,21 @@ class SendHandlersMixin:
         # Why: an unknown id is already normalized to builtin by normalize_backend_id,
         # so get_backend / _retained_agent_backend always returns an adapter.
         adapter = self._retained_agent_backend(backend_id)
-        if not adapter.is_available(self.ctx):
+        if not adapter.is_available(self._panel.ctx):
 
 
             _handle_early_error(ValueError(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id))))
             return
 
         turn_session.add_user_message(query_text)
-        self._append_response(query_text, role="user")
+        self._panel._append_response(query_text, role="user")
 
-        drain_q, q = _send_worker_queues(self)
+        drain_q, q = _send_worker_queues(self._panel)
         # Spawn-time scope. run_agent must not call resolve_stop_checker:
         # Stop clears the field and the next send replaces it.
         # prepare_turn publishes this turn's id before Stop can be registered,
         # so a Stop that lands before send() aborts this turn only.
-        cancel_scope, stop_checker = capture_send_stop(self)
+        cancel_scope, stop_checker = capture_send_stop(self._panel)
         if hasattr(adapter, "prepare_turn"):
             adapter.prepare_turn()
         if cancel_scope is not None and hasattr(adapter, "stop"):
@@ -799,13 +818,13 @@ class SendHandlersMixin:
             # Option to auto-approve tools from external agents
             prompt_for_permission = as_bool(get_config("agent_backend.prompt_for_permission"))
 
-            if self.stop_requested:
+            if self._panel.stop_requested:
                 approved = False
             elif not prompt_for_permission:
                 approved = True
             else:
                 try:
-                    approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))
+                    approved = show_approval_dialog(self._panel.ctx, description, tool_name, parent_frame=getattr(self._panel, "frame", None))
                 except Exception as e:
                     log.error("Error showing approval dialog: %s", e)
                     approved = False
@@ -816,8 +835,8 @@ class SendHandlersMixin:
         self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
 
         def _agent_ready() -> None:
-            if self._terminal_status not in ("Error", "Stopped"):
-                self._terminal_status = "Ready"
+            if self._panel._terminal_status not in ("Error", "Stopped"):
+                self._panel._terminal_status = "Ready"
 
         defer_until_drain_done(_agent_ready)
 
@@ -825,17 +844,17 @@ class SendHandlersMixin:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
         from plugin.chatbot.librarian import get_suggested_user_name
 
-        _reset_active_run_flags(self)
-        interpreter = EffectInterpreter(self)
+        _reset_active_run_flags(self._panel)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")  # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
 
         # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
-        self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
+        self._panel._librarian_suggested_user_name = get_suggested_user_name(self._panel.ctx)
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        self._active_mode = CHAT_MODE_LIBRARIAN
+        self._panel._active_mode = CHAT_MODE_LIBRARIAN
         turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -844,98 +863,98 @@ class SendHandlersMixin:
         interpreter.current_state = current_state
 
         # Manually set the run_librarian flag to distinguish from web research in effect execution
-        setattr(self, "_active_run_librarian", True)
+        setattr(self._panel, "_active_run_librarian", True)
 
         try:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
 
     def _run_brainstorming(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the brainstorming sub-agent and stream its result into the response area."""
-        _reset_active_run_flags(self)
-        interpreter = EffectInterpreter(self)
+        _reset_active_run_flags(self._panel)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        self._active_mode = CHAT_MODE_BRAINSTORMING
+        self._panel._active_mode = CHAT_MODE_BRAINSTORMING
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
         interpreter.current_state = current_state
 
-        setattr(self, "_active_run_brainstorming", True)
+        setattr(self._panel, "_active_run_brainstorming", True)
 
         try:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
 
     def _run_writing_plan(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the writing plan sub-agent and stream its result into the response area."""
-        _reset_active_run_flags(self)
-        interpreter = EffectInterpreter(self)
+        _reset_active_run_flags(self._panel)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        self._active_mode = CHAT_MODE_WRITING_PLAN
+        self._panel._active_mode = CHAT_MODE_WRITING_PLAN
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
         interpreter.current_state = current_state
 
-        setattr(self, "_active_run_writing_plan", True)
+        setattr(self._panel, "_active_run_writing_plan", True)
 
         try:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
 
     def _run_ppt_master(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the PPT-Master sub-agent (Impress/Draw sidebar mode)."""
-        _reset_active_run_flags(self)
-        interpreter = EffectInterpreter(self)
+        _reset_active_run_flags(self._panel)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        self._active_mode = CHAT_MODE_PPT_MASTER
+        self._panel._active_mode = CHAT_MODE_PPT_MASTER
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
         interpreter.current_state = current_state
 
-        setattr(self, "_active_run_ppt_master", True)
+        setattr(self._panel, "_active_run_ppt_master", True)
 
         try:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
 
     def _run_web_research(self: SendHandlerHost, query_text: str, model: Any, is_deep_research: bool = False) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
-        _reset_active_run_flags(self)
-        interpreter = EffectInterpreter(self)
+        _reset_active_run_flags(self._panel)
+        interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self)
+        turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
 
         if is_deep_research:
-            setattr(self, "_active_run_deep_research", True)
+            setattr(self._panel, "_active_run_deep_research", True)
 
         turn_session.add_user_message(query_text)
 
@@ -947,7 +966,7 @@ class SendHandlersMixin:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
 
     def _run_deep_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run Deep Research sidebar session (sub-agent with apply_document_content)."""
@@ -955,16 +974,16 @@ class SendHandlersMixin:
 
     def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.main import get_tools
-        is_librarian = bool(getattr(self, "_active_run_librarian", False))
-        is_brainstorming = bool(getattr(self, "_active_run_brainstorming", False))
-        is_writing_plan = bool(getattr(self, "_active_run_writing_plan", False))
-        is_ppt_master = bool(getattr(self, "_active_run_ppt_master", False))
-        is_deep_research = bool(getattr(self, "_active_run_deep_research", False))
-        _reset_active_run_flags(self)
+        is_librarian = bool(getattr(self._panel, "_active_run_librarian", False))
+        is_brainstorming = bool(getattr(self._panel, "_active_run_brainstorming", False))
+        is_writing_plan = bool(getattr(self._panel, "_active_run_writing_plan", False))
+        is_ppt_master = bool(getattr(self._panel, "_active_run_ppt_master", False))
+        is_deep_research = bool(getattr(self._panel, "_active_run_deep_research", False))
+        _reset_active_run_flags(self._panel)
 
 
 
-        drain_q, q = _send_worker_queues(self)
+        drain_q, q = _send_worker_queues(self._panel)
         # Read show_thinking before spawning the thread so apply_chunk can use it
         show_thinking = as_bool(get_config("chatbot.show_search_thinking"))
 
@@ -972,13 +991,13 @@ class SendHandlersMixin:
 
         from plugin.chatbot.web_research_chat import format_sub_agent_conversation_history
 
-        history_text = format_sub_agent_conversation_history(self.session, current_query=query_text)
+        history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
         # Spawn-time scope. run_search must not call resolve_stop_checker or
         # read _send_cancellation: Stop clears the field and the next send replaces it.
-        cancel_scope, stop_checker = capture_send_stop(self)
+        cancel_scope, stop_checker = capture_send_stop(self._panel)
 
         def run_search() -> None:
-            doc_type = getattr(self, "cached_doc_type", None) or "writer"
+            doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
 
@@ -1019,7 +1038,7 @@ class SendHandlersMixin:
                 # run_search runs on the chatbot-send-handler worker;
                 # get_ctx() is main-thread-only. Panel bootstrap ctx matches
                 # tool_loop.execute_fn (async tools marshal UNO reads themselves).
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 if is_librarian:
                     res = get_tools().execute(
@@ -1029,7 +1048,7 @@ class SendHandlersMixin:
                         **{
                             "query": query_text,
                             "history_text": history_text,
-                            "suggested_user_name": getattr(self, "_librarian_suggested_user_name", None),
+                            "suggested_user_name": getattr(self._panel, "_librarian_suggested_user_name", None),
                         },
                     )
                     result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
@@ -1044,13 +1063,13 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
                     elif data.get("status") == "switch_mode":
                         # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True, "assistant_content": answer}))
                     else:
@@ -1060,7 +1079,7 @@ class SendHandlersMixin:
                         # Mode flag rides the one STREAM_DONE so the UI thread applies it.
                         q.put((StreamQueueKind.STREAM_DONE, {**_specialized_tool_error_payload(note), "in_librarian_mode": False}))
                 elif is_brainstorming:
-                    topic = getattr(self, "_mode_topic", "") or ""
+                    topic = getattr(self._panel, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "brainstorming_session",
                         tctx,
@@ -1080,7 +1099,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1088,7 +1107,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Brainstorming complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1100,7 +1119,7 @@ class SendHandlersMixin:
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_writing_plan:
-                    topic = getattr(self, "_mode_topic", "") or ""
+                    topic = getattr(self._panel, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "writing_plan_session",
                         tctx,
@@ -1120,7 +1139,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1128,7 +1147,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Writing plan complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1140,7 +1159,7 @@ class SendHandlersMixin:
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_ppt_master:
-                    topic = getattr(self, "_mode_topic", "") or ""
+                    topic = getattr(self._panel, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "ppt_master_session",
                         tctx,
@@ -1160,7 +1179,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1168,7 +1187,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("PPT-Master session complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1199,7 +1218,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1227,7 +1246,7 @@ class SendHandlersMixin:
                         if not isinstance(answer, str):
                             answer = str(answer)
                         cache_block = format_research_cache_result_chat(data)
-                        self._record_assistant_start = True
+                        self._panel._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
                         done_payload["assistant_content"] = cache_block + answer
                     else:
@@ -1248,16 +1267,16 @@ class SendHandlersMixin:
             tool_name = item[2] if len(item) > 2 else ""
             event_obj = item[3] if len(item) > 3 else None
             if event_obj is not None:
-                self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
+                self._panel.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
         def _finalize_research() -> None:
-            _reset_active_run_flags(self)
+            _reset_active_run_flags(self._panel)
             from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-            finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
+            finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 
         defer_until_drain_done(_finalize_research)
 

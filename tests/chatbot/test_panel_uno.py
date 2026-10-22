@@ -97,7 +97,7 @@ class TestChatModelLogic(unittest.TestCase):
              patch('plugin.chatbot.tool_loop.validate_api_config', return_value=(True, "")), \
              patch('plugin.chatbot.tool_loop.running_turn', return_value=MagicMock()), \
              patch('plugin.chatbot.tool_loop.current_turn', return_value=MagicMock()), \
-             patch.object(self.listener, '_start_tool_calling_async'):
+             patch.object(self.listener._tool_calling, '_start_tool_calling_async'):
 
             self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
             mock_sync.assert_called_once_with(self.ctx, self.model_selector)
@@ -125,7 +125,7 @@ class TestChatModelLogic(unittest.TestCase):
              patch('plugin.chatbot.tool_loop.validate_api_config', return_value=(True, "")), \
              patch('plugin.chatbot.tool_loop.running_turn', return_value=MagicMock()), \
              patch('plugin.chatbot.tool_loop.current_turn', return_value=MagicMock()), \
-             patch.object(self.listener, '_start_tool_calling_async'):
+             patch.object(self.listener._tool_calling, '_start_tool_calling_async'):
 
             self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
             self.assertTrue(True)

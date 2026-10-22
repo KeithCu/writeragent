@@ -128,9 +128,9 @@ Examples: [`plugin/chatbot/dialogs.py`](../../plugin/chatbot/dialogs.py) (`TabLi
 
 Runtime UNO uses **`queryInterface`** heavily; return types are often opaque. Class-based `queryInterface` can be unreliable under pyuno (see `AGENTS.md`); typing-wise, code may need **`# type: ignore[attr-defined]`** or narrow casts after a successful query. Draw/Writer code that obtains `XSelectionSupplier` and similar follows this pattern.
 
-### 5. Mixins: **`Protocol` for the host**
+### 5. Host protocols: **`Protocol` for the host**
 
-`ToolCallingMixin` and send handlers are mixed into large panel classes. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/chatbot/send_handlers.py`](../../plugin/chatbot/send_handlers.py) declare the attributes and methods the mixin expects so `self` is checkable without circular imports.
+`ToolCallingMixin` and `SendHandlersMixin` are composed onto `SendButtonListener`. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/chatbot/send_handlers.py`](../../plugin/chatbot/send_handlers.py) declare the attributes and methods expected on `self._panel` so code is checkable without circular imports.
 
 ### 6. `TYPE_CHECKING` imports
 
