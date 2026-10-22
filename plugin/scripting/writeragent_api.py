@@ -1091,14 +1091,14 @@ class _FormsProxy:
         return _rpc_call("form_create", fields=fields)
 
     def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> dict[str, Any]:
-        """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets.
+        """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets.
 
         Args:
-            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox, button.
+            control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox, button, listbox.
             name (required): Internal name/key for the control.
             label (optional): Label text for the control (e.g. 'I agree').
             group_name (optional): Group name for radio buttons (mutually exclusive in the same group).
-            items (optional): List of options for a combobox.
+            items (optional): List of options for a combobox or list box.
             placeholder (optional): Placeholder/hint text for text fields.
             default_value (optional): Initial value for text or date fields.
             width (optional): Width in 100ths of mm (default varies by type).
@@ -1127,7 +1127,7 @@ class _FormsProxy:
             label (optional): New label text.
             text (optional): New text value (for text fields).
             state (optional): Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted).
-            items (optional): New item list (for comboboxes).
+            items (optional): New item list (for comboboxes or list boxes).
             x (optional):
             y (optional):
             width (optional):
