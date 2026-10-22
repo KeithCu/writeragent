@@ -9,6 +9,8 @@ raises RuntimeException: End of content node doesn't have the proper start node.
 """
 from unittest.mock import MagicMock
 
+import pytest
+
 from plugin.writer.structural import GetPageObjects, _at_page_anchor_page, _with_left_body_locked
 
 
@@ -60,8 +62,13 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
     doc.getTextTables.return_value = _empty_named_collection()
     doc.getTextFrames.return_value = _empty_named_collection()
 
+    def _shape_props(name: str):
+        if name == "AnchorType":
+            return at_para
+        raise RuntimeError(f"no {name}")
+
     shape = MagicMock()
-    shape.getPropertyValue.side_effect = lambda name: at_para if name == "AnchorType" else 1
+    shape.getPropertyValue.side_effect = _shape_props
     shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     shape.Name = "Box"
     shape.getString.return_value = "label"
@@ -218,8 +225,15 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     doc.getTextTables.return_value = _empty_named_collection()
     doc.getTextFrames.return_value = _empty_named_collection()
 
+    def _page_shape_props(name: str):
+        if name == "AnchorType":
+            return at_page
+        if name == "AnchorPageNo":
+            return 2
+        raise RuntimeError(f"no {name}")
+
     shape = MagicMock()
-    shape.getPropertyValue.side_effect = lambda name: at_page if name == "AnchorType" else 2
+    shape.getPropertyValue.side_effect = _page_shape_props
     shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     shape.Name = "PageBox"
     shape.getString.return_value = ""
@@ -237,6 +251,118 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     assert len(result["shapes"]) == 1
     assert result["shapes"][0]["name"] == "PageBox"
     vc.gotoRange.assert_not_called()
+
+
+def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
+    """One shape whose position cannot be read must not abort the page (#2028)."""
+    import logging
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    def anchor_props(name, extra):
+        if name == "AnchorType":
+            return at_page
+        if name == "AnchorPageNo":
+            return 2
+        if name in extra:
+            return extra[name]
+        raise RuntimeError("no %s" % name)
+
+    bad = MagicMock()
+    bad.getPropertyValue.side_effect = lambda name: anchor_props(name, {})
+    bad.getShapeType.return_value = "FrameShape"
+    bad.Name = "Fly"
+    bad.getString.return_value = ""
+    bad.getPosition.side_effect = RuntimeError("position cannot be determined with this method")
+
+    pos = SimpleNamespace(X=10, Y=20)
+    size = SimpleNamespace(Width=30, Height=40)
+    good = MagicMock()
+    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"Position": pos, "Size": size})
+    good.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    good.Name = "Box"
+    good.getString.return_value = ""
+
+    draw = MagicMock()
+    draw.getCount.return_value = 2
+    draw.getByIndex.side_effect = [bad, good]
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value = _empty_named_collection()
+    doc.getTextTables.return_value = _empty_named_collection()
+    doc.getTextFrames.return_value = _empty_named_collection()
+    doc.getDrawPage.return_value = draw
+
+    with caplog.at_level(logging.WARNING):
+        result = GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 2)
+
+    assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
+    assert result["shapes"][0]["geometry"] is None
+    assert result["shapes"][1]["geometry"] == {"x": 10, "y": 20, "width": 30, "height": 40}
+    bad.getPosition.assert_called_once()
+    good.getPosition.assert_not_called()
+    good.getSize.assert_not_called()
+    assert any("Fly" in rec.message for rec in caplog.records)
+
+
+def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
+    """Disposal during geometry read must abort scan and propagate DocumentDisposedError."""
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+    from plugin.framework.errors import DocumentDisposedError
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    def anchor_props(name, extra):
+        if name == "AnchorType":
+            return at_page
+        if name == "AnchorPageNo":
+            return 2
+        if name in extra:
+            return extra[name]
+        raise RuntimeError("no %s" % name)
+
+    bad = MagicMock()
+    bad.getPropertyValue.side_effect = lambda name: anchor_props(name, {})
+    bad.getShapeType.return_value = "FrameShape"
+    bad.Name = "Fly"
+    bad.getString.return_value = ""
+    bad.getPosition.side_effect = DocumentDisposedError("Document was closed")
+
+    pos = SimpleNamespace(X=10, Y=20)
+    size = SimpleNamespace(Width=30, Height=40)
+    good = MagicMock()
+    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"Position": pos, "Size": size})
+    good.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    good.Name = "Box"
+    good.getString.return_value = ""
+
+    draw = MagicMock()
+    draw.getCount.return_value = 2
+    draw.getByIndex.side_effect = [bad, good]
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value = _empty_named_collection()
+    doc.getTextTables.return_value = _empty_named_collection()
+    doc.getTextFrames.return_value = _empty_named_collection()
+    doc.getDrawPage.return_value = draw
+
+    with pytest.raises(DocumentDisposedError):
+        GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 2)
+
+    bad.getPosition.assert_called_once()
+    good.getPosition.assert_not_called()
+    good.getSize.assert_not_called()
 
 
 def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):

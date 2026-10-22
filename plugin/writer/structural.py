@@ -27,6 +27,7 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
+from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
@@ -247,9 +248,27 @@ class GetPageObjects(ToolBase):
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
                 shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
-                pos = shape.getPosition()
-                size = shape.getSize()
-                shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
+                # What was wrong: getPosition()/getSize() sat outside the per-shape
+                # try, so one shape aborted get_page_objects (#2028).
+                # How: Writer draw-page flys are SwXFrame. SwXFrame::getPosition
+                # (sw/source/core/unocore/unoframe.cxx) always throws RuntimeException
+                # "position cannot be determined with this method". Drawing shapes
+                # often have no Position/Size property and only answer the methods
+                # (same split as images._object_size).
+                # Why: properties first, methods when the property is None. Any
+                # failure keeps the shape with geometry None. Disposal still propagates.
+                shape_info["geometry"] = None
+                try:
+                    pos = safe_get_property(shape, "Position")
+                    if pos is None:
+                        pos = shape.getPosition()
+                    size = safe_get_property(shape, "Size")
+                    if size is None:
+                        size = shape.getSize()
+                    shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.warning("Failed to read geometry for draw shape '%s': %s", shape_name, exc)
                 shapes.append(shape_info)
 
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
