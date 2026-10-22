@@ -244,11 +244,20 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         out_bee = _exec(doc, ctx, "apply_design", {"design": "beehive"})
         assert out_bee.get("status") == "ok", out_bee
         master = doc.getDrawPages().getByIndex(0).MasterPage
-        has_bee_group = any(
-            "GroupShape" in str(getattr(master.getByIndex(j), "ShapeType", "") or "")
-            and int(master.getByIndex(j).getCount()) > 0
-            for j in range(int(master.getCount()))
-        )
+        has_bee_group = False
+        for j in range(int(master.getCount())):
+            sh = master.getByIndex(j)
+            if "GroupShape" in str(getattr(sh, "ShapeType", "") or ""):
+                # On macOS LibreOffice, some shapes with GroupShape in ShapeType
+                # raise com.sun.star.uno.RuntimeException on getCount() or lack it;
+                # treat them as unpopulated groups and keep looking for the cloned group chrome.
+                try:
+                    count = int(sh.getCount()) if hasattr(sh, "getCount") else 0
+                except Exception:
+                    count = 0
+                if count > 0:
+                    has_bee_group = True
+                    break
         assert has_bee_group, "Beehive cloned master missing populated GroupShape"
 
     # Vivid
