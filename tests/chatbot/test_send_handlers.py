@@ -17,6 +17,7 @@ from plugin.contrib.smolagents.models import ChatMessage, ChatMessageToolCall, C
 
 class DummyChatbotPanel(SendHandlersMixin):
     def __init__(self):
+        self._send_handlers = self  # fake panel plays the composed SendHandlersMixin role
         self.ctx = MockContext()
         setattr(self.ctx, "getServiceManager", MagicMock())
         self.stop_requested = False
@@ -768,6 +769,7 @@ def test_acp_approval_default_and_dead_turn():
 
     class DummyHost(SendHandlersMixin):
         def __init__(self):
+            self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
@@ -815,6 +817,7 @@ def test_acp_approval_auto_approve_when_configured():
 
     class DummyHost(SendHandlersMixin):
         def __init__(self):
+            self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()

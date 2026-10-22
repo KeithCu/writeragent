@@ -64,6 +64,7 @@ class MockSession:
 class FakePanel(ToolCallingMixin):
     """A minimal mock implementation of the Chatbot panel that uses ToolCallingMixin."""
     def __init__(self, ctx, session):
+        self._tool_calling = self  # fake panel plays the composed ToolCallingMixin role
         self.ctx = ctx
         self.session = session
         self.sidebar_state = SidebarCompositeState(

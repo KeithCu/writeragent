@@ -673,8 +673,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             else:
                 host.session.add_user_message(combined)
             turn.active_query_text = combined
-            tool_calling = getattr(host, "_tool_calling", host)
-            tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], tool_calling._sm_state.round_num, query_text=combined)
+            host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num, query_text=combined)
             return True
         except Exception:
             log.exception("STT fallback after native-audio error failed")
