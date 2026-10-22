@@ -32,11 +32,14 @@ This is a hint, not a reading-order parser.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from plugin.framework.errors import is_disposed_exception, is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
+
+log = logging.getLogger(__name__)
 
 # Placeholder-only text: underscores, leaders, box drawings, whitespace.
 _NEAR_EMPTY_RE = re.compile(r"^[\s._\-–—•·□■☐☑☒╳]+$")
@@ -110,22 +113,22 @@ def control_snapshot(model: Any) -> dict[str, Any]:
         try:
             info["text"] = model.Text
         except Exception:
-            pass
+            log.debug("control snapshot Text read failed", exc_info=True)
     if hasattr(model, "State"):
         try:
             info["state"] = int(model.State)
         except Exception:
-            pass
+            log.debug("control snapshot State read failed", exc_info=True)
     if hasattr(model, "StringItemList"):
         try:
             info["items"] = list(model.StringItemList)
         except Exception:
-            pass
+            log.debug("control snapshot StringItemList read failed", exc_info=True)
     if hasattr(model, "SelectedItems"):
         try:
             info["selected"] = list(model.SelectedItems)
         except Exception:
-            pass
+            log.debug("control snapshot SelectedItems read failed", exc_info=True)
     return info
 
 
@@ -148,6 +151,7 @@ def _readable_control_type(model: Any) -> str:
             if model is not None and model.supportsService(service):
                 return type_str
         except Exception:
+            log.debug("supportsService(%s) failed", service, exc_info=True)
             continue
     return "unknown"
 
@@ -175,7 +179,7 @@ def _shape_text(shape: Any) -> str:
         if hasattr(shape, "getString"):
             return shape.getString() or ""
     except Exception:
-        pass
+        log.debug("shape getString failed", exc_info=True)
     return ""
 
 
@@ -405,7 +409,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
             if title:
                 node["alt_title"] = title
         except Exception:
-            pass
+            log.debug("shape Description/Title read failed", exc_info=True)
 
         geom = _shape_geometry(shape)
         if geom:
@@ -419,7 +423,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
                     s_text = _shape_text(start_shape).strip()
                     node["connected_start"] = {"name": s_name, "text": s_text}
             except Exception:
-                pass
+                log.debug("connector StartShape read failed", exc_info=True)
             try:
                 end_shape = shape.getPropertyValue("EndShape")
                 if end_shape:
@@ -427,7 +431,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
                     e_text = _shape_text(end_shape).strip()
                     node["connected_end"] = {"name": e_name, "text": e_text}
             except Exception:
-                pass
+                log.debug("connector EndShape read failed", exc_info=True)
 
         style: dict[str, Any] = {}
         for prop in ["FillColor", "LineColor", "ZOrder", "RotateAngle", "LineWidth"]:
@@ -439,7 +443,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
                     else:
                         style[prop] = val
             except Exception:
-                pass
+                log.debug("shape style property %s read failed", prop, exc_info=True)
 
         try:
             geom_props = shape.getPropertyValue("CustomShapeGeometry")
@@ -447,7 +451,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
                 for p in geom_props:
                     if p.Name == "Type":
                         node["custom_shape_type"] = p.Value
-        except Exception:
+        except Exception:  # noqa: S110 - CustomShapeGeometry is absent on ordinary shapes; logging each miss floods get_draw_tree
             pass
 
         if style:

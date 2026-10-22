@@ -75,7 +75,7 @@ def _is_table_shape(shape: Any) -> bool:
         if st and "TableShape" in str(st):
             return True
     except Exception:
-        pass
+        log.debug("getShapeType failed during table probe", exc_info=True)
     try:
         return bool(shape.supportsService("com.sun.star.drawing.TableShape"))
     except Exception:
@@ -117,12 +117,12 @@ def iter_table_shapes(doc: Any) -> list[dict[str, Any]]:
                 try:
                     rows, cols = table_dims(model)
                 except Exception:
-                    pass
+                    log.debug("table_dims failed", exc_info=True)
             name = ""
             try:
                 name = str(shape.Name or "")
             except Exception:
-                pass
+                log.debug("table shape Name read failed", exc_info=True)
             out.append({"page": page_i, "index": shape_i, "name": name, "rows": rows, "cols": cols, "shape": shape, "model": model})
     return out
 
@@ -282,7 +282,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             try:
                 shape.setPropertyValue(prop, val)
             except Exception:
-                pass
+                log.debug("TableShape setPropertyValue %s failed", prop, exc_info=True)
         page.add(shape)
         added = True
         shape.setSize(Size(width, height))

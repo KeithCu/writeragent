@@ -81,11 +81,12 @@ def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
         if c2 > a_col:
             rects.append((a_col + 1, a_row, c2, a_row))
         for rc1, rr1, rc2, rr2 in rects:
-            try:
-                r_ref = _rect_to_a1(rc1, rr1, rc2, rr2)
-                _clear_range_object(sheet.getCellRangeByName(r_ref))
-            except Exception:
-                pass
+            best_effort(
+                lambda: _clear_range_object(
+                    sheet.getCellRangeByName(_rect_to_a1(rc1, rr1, rc2, rr2))
+                ),
+                "excel_py apply: clear spill rect failed",
+            )
 
 
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
@@ -139,30 +140,16 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
     def _rollback() -> None:
         for sh, a1, prev_f in reversed(overwritten_formulas):
-            try:
-                sh.getCellRangeByName(a1).setFormula(prev_f)
-            except Exception:
-                pass
+            best_effort(lambda: sh.getCellRangeByName(a1).setFormula(prev_f), f"excel_py rollback setFormula failed for {a1}")
         for sh, a1, prev_s in reversed(overwritten_bank_strings):
-            try:
-                sh.getCellRangeByName(a1).setString(prev_s)
-            except Exception:
-                pass
+            best_effort(lambda: sh.getCellRangeByName(a1).setString(prev_s), f"excel_py rollback setString failed for {a1}")
         named_ranges = getattr(doc, "NamedRanges", None)
         if named_ranges is not None and hasattr(named_ranges, "removeByName"):
             for name in reversed(added_defined_names):
-                try:
-                    if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(name):
-                        named_ranges.removeByName(name)
-                except Exception:
-                    pass
+                best_effort(lambda: named_ranges.removeByName(name) if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(name) else None, f"excel_py rollback removeByName failed for {name}")
         if hasattr(sheets, "removeByName"):
             for sh_name in reversed(inserted_sheets):
-                try:
-                    if sheets.hasByName(sh_name):
-                        sheets.removeByName(sh_name)
-                except Exception:
-                    pass
+                best_effort(lambda: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None, f"excel_py rollback remove sheet failed for {sh_name}")
 
     try:
         for code_sheet, sheet_bank in sorted(bank.items()):
@@ -184,7 +171,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
                         named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
                         added_defined_names.append(expected_def)
                 except Exception:
-                    pass
+                    log.debug("excel_py apply: add defined name %s failed", expected_def, exc_info=True)
 
             if CODE_SHEET_NOTE_CELL not in sheet_bank:
                 note_cell = bank_sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL)

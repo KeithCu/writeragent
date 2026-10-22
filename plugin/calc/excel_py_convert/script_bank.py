@@ -286,13 +286,13 @@ def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # pyrigh
             if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(expected_def):
                 return True
         except Exception:
-            pass
+            log.debug("script bank named-range probe failed for %s", expected_def, exc_info=True)
     try:
         val = sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).getString()
         if val == CODE_SHEET_NOTE:
             return True
     except Exception:
-        pass
+        log.debug("script bank note-cell probe failed for %s", code_sheet, exc_info=True)
     return False
 
 

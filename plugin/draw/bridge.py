@@ -922,7 +922,7 @@ class DrawBridge:
                             if 0 <= idx < count:
                                 return idx
                     except Exception:
-                        pass
+                        log.debug("page.getNumber failed; using shape identity", exc_info=True)
 
                 from plugin.framework.uno_context import uno_same
 

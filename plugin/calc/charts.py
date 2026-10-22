@@ -1449,7 +1449,7 @@ class UpsertChart(ToolBaseDummy):
         try:
             log.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
         except Exception:
-            pass
+            log.debug("TextEmbeddedObject getImplementationName failed", exc_info=True)
 
         # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
         chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
@@ -1461,7 +1461,7 @@ class UpsertChart(ToolBaseDummy):
         try:
             chart_obj.Name = name
         except Exception:
-            pass
+            log.debug("set chart Name before insert failed", exc_info=True)
 
         log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
 
@@ -1473,7 +1473,7 @@ class UpsertChart(ToolBaseDummy):
                     PARAGRAPH_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
                     text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
                 except Exception:
-                    pass
+                    log.debug("insert PARAGRAPH_BREAK before chart failed", exc_info=True)
 
             text.insertTextContent(cursor, chart_obj, False)
             log.info("Successfully inserted chart object into text.")
@@ -1493,7 +1493,7 @@ class UpsertChart(ToolBaseDummy):
         try:
             chart_obj.Name = name
         except Exception:
-            pass
+            log.debug("set chart Name after insert failed", exc_info=True)
 
         try:
             from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
@@ -1514,7 +1514,7 @@ class UpsertChart(ToolBaseDummy):
                 chart_obj.Width = rect.Width
                 chart_obj.Height = rect.Height
             except Exception:
-                pass
+                log.debug("chart Width/Height attribute fallback failed", exc_info=True)
 
         # 5. Wait for model initialization. One idle pump that never returns
         # freezes the UI; the helper stops at a hard timeout or when idle does not arrive.

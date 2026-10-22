@@ -628,7 +628,7 @@ def _reimport_graphic(
             try:
                 os.remove(path)
             except Exception:
-                pass
+                log.debug("clone_master graphic: remove temp %s failed", path, exc_info=True)
     return False
 
 

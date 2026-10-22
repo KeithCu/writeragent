@@ -1110,7 +1110,7 @@ class CellManipulator:
             except CalcError:
                 raise
             except Exception:
-                pass
+                log.debug("array-formula intersection probe failed for %s", range_str, exc_info=True)
 
             # UNO often yields str(e) == ""; keep a usable message for the agent.
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__

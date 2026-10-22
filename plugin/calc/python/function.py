@@ -1084,7 +1084,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
                 if isinstance(item, (datetime.datetime, datetime.date)):
                     return _coerce_spill_value(item, null_dt)
             except Exception:
-                pass
+                log.debug("numpy datetime item() failed", exc_info=True)
         text = str(val)
         if text in ("NaT", "NaTType"):
             return "", {"is_temporal": False, "is_empty": True}
@@ -1097,7 +1097,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
                 if isinstance(item, datetime.timedelta):
                     return _coerce_spill_value(item, null_dt)
             except Exception:
-                pass
+                log.debug("numpy timedelta item() failed", exc_info=True)
 
     if isinstance(val, str):
         stripped = val.strip()
@@ -1118,7 +1118,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             try:
                 serial = duration_serial_from_iso(stripped)
                 return serial, {"is_temporal": True, "input_category": "duration", "serial": serial, "is_empty": False}
-            except Exception:
+            except (ValueError, OverflowError):
                 pass
         cat = match_iso_temporal(stripped)
         if cat is not None:
@@ -1135,7 +1135,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
                     t = datetime.time.fromisoformat(stripped)
                     serial = _time_day_fraction(t)
                     return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
-            except Exception:
+            except ValueError:
                 pass
         return val, {"is_temporal": False, "is_empty": False}
 

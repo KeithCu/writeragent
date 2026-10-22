@@ -66,7 +66,7 @@ def _read_shape_property(shape: Any, name: str) -> Any:
     try:
         return getattr(shape, name)
     except Exception:
-        pass
+        log.debug("read shape property %s via getattr failed", name, exc_info=True)
     getter = getattr(shape, "getPropertyValue", None)
     if callable(getter):
         try:

@@ -95,7 +95,7 @@ def _hidden_undo(doc: Any) -> Iterator[None]:
 
             raw_doc = _unwrap_uno(doc)
         except Exception:
-            pass
+            log.debug("collabora PY rewrite: unwrap undo doc failed", exc_info=True)
         if hasattr(raw_doc, "getUndoManager"):
             um = raw_doc.getUndoManager()
             if um is not None:
@@ -112,7 +112,7 @@ def _hidden_undo(doc: Any) -> Iterator[None]:
                             um.lock()
                             locked = True
                     except Exception:
-                        pass
+                        log.debug("collabora PY rewrite: UndoManager.lock fallback failed", exc_info=True)
     except Exception:
         um = None
     try:
@@ -150,6 +150,7 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
         try:
             cell_range = formula_cells.getByIndex(i)
         except Exception:
+            log.debug("collabora PY rewrite: getByIndex(%s) failed", i, exc_info=True)
             continue
 
         try:
@@ -163,6 +164,7 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
                 except Exception:
                     log.debug("collabora PY rewrite: setFormula failed", exc_info=True)
         except Exception:
+            log.debug("collabora PY rewrite: formula range scan failed", exc_info=True)
             continue
     return changed
 

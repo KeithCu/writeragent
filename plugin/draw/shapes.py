@@ -318,7 +318,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         try:
             shape.setPropertyValue(prop, value)
         except Exception:
-            pass
+            log.debug("setPropertyValue %s failed", prop, exc_info=True)
     if not apply_autofit:
         return
     try:
@@ -330,7 +330,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
 
         shape.setPropertyValue("TextFitToSize", fit_enum.AUTOFIT)
     except Exception:
-        pass
+        log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
 
 
 def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
@@ -610,7 +610,7 @@ class UpsertShape(_AnyDocumentShapeTool):
                 try:
                     page.remove(shape)
                 except Exception:
-                    pass
+                    log.debug("remove half-built shape failed", exc_info=True)
                 raise
 
             page_index = _page_index_for(bridge, page)

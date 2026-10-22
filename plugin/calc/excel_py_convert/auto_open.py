@@ -232,7 +232,7 @@ def _doc_from_event(event: Any) -> Any | None:
         controller = getattr(event, "ViewController", None)
         if controller is not None and hasattr(controller, "getModel"):
             return controller.getModel()
-    except Exception:
+    except Exception:  # noqa: S110 - disposed ViewController; probe falls through to Source
         pass
     source = None
     try:
@@ -246,7 +246,7 @@ def _doc_from_event(event: Any) -> Any | None:
             ctrl = source.getCurrentController()
             if ctrl is not None and hasattr(ctrl, "getModel"):
                 return ctrl.getModel()
-    except Exception:
+    except Exception:  # noqa: S110 - getCurrentController throws on hidden factory OnNew; probe falls through
         pass
     return None
 
