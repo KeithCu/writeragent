@@ -39,6 +39,7 @@ def _insert_and_select_graphic(ctx, doc):
 class _DirectImageHost(SendHandlersMixin):
     def __init__(self, ctx):
         self.ctx = ctx
+        self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
         self.stop_requested = False
         self._active_mode = ""
         self._mode_topic = ""
