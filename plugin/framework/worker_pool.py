@@ -55,14 +55,14 @@ from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import ToolExecutionError, WorkerPoolError
 
+# Thread-safety guard (Layer A): tag threads born here so assert_main_thread
+# can name the offending background task in diagnostics.
+from plugin.framework import thread_guard
+
 log = logging.getLogger("writeragent.framework.worker_pool")
 
 _DEFAULT_STDERR_TAIL_CHARS = 8192
 _MAX_STREAM_LINE_CHARS = 1024 * 1024
-
-# Thread-safety guard (Layer A): tag threads born here so assert_main_thread
-# can name the offending background task in diagnostics.
-from plugin.framework import thread_guard
 
 _pool_lock = threading.Lock()
 _pool_worker_local = threading.local()
