@@ -317,7 +317,7 @@ def test_evaluate_formula_cleanup_failure_when_eval_fails_returns_error(monkeypa
 
 def test_evaluate_formula_none_parameters():
     doc = _EvalDoc()
-    res1 = EvaluateFormula().execute(_eval_ctx(doc), formula=None)
+    res1 = EvaluateFormula().execute(_eval_ctx(doc), formula="")
     assert res1["status"] == "error"
     assert "formula is required" in res1["message"]
 

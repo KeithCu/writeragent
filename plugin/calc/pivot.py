@@ -148,11 +148,11 @@ class CreatePivotTable(ToolCalcPivotBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         bridge = CalcBridge(doc)
-        pivot_name = (kwargs.get("name") or "").strip()
+        pivot_name = kwargs["name"].strip()
         if not pivot_name:
             return self._tool_error("name is required.")
 
-        data_fields = kwargs.get("data_fields") or []
+        data_fields = kwargs["data_fields"]
         if not data_fields:
             return self._tool_error("data_fields must be a non-empty array of header names.")
 
@@ -170,8 +170,8 @@ class CreatePivotTable(ToolCalcPivotBase):
             dest_sheet = bridge.get_active_sheet()
         dest_idx = _sheet_index_by_name(doc, dest_sheet.getName())
 
-        range_str = kwargs.get("source_range") or ""
-        dest_cell = (kwargs.get("destination_cell") or "").strip()
+        range_str = kwargs["source_range"]
+        dest_cell = kwargs["destination_cell"].strip()
         if not range_str or not dest_cell:
             return self._tool_error("source_range and destination_cell are required.")
 
@@ -215,7 +215,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        name = (kwargs.get("name") or "").strip()
+        name = kwargs["name"].strip()
         if not name:
             return self._tool_error("name is required.")
         sheet_name = kwargs.get("sheet")
