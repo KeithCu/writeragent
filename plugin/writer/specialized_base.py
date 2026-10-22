@@ -249,4 +249,4 @@ class SpecializedWorkflowFinished(ToolBase):
     is_final_answer_tool: bool = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return {"status": "ok", "finished": True, "answer": kwargs.get("answer"), "message": "Specialized task complete. Normal toolset restored."}
+        return {"status": "ok", "finished": True, "answer": kwargs["answer"], "message": "Specialized task complete. Normal toolset restored."}

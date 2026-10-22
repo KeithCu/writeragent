@@ -48,7 +48,7 @@ class GrepNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        pattern = kwargs.get("pattern")
+        pattern = kwargs["pattern"]
         if not pattern:
             return self._tool_error("pattern is required")
 

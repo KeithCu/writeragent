@@ -134,8 +134,8 @@ class DelegateReadDocument(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.send_cancellation import SendCancelled
 
-        path_or_name = kwargs.get("path_or_name")
-        task = kwargs.get("task")
+        path_or_name = kwargs["path_or_name"]
+        task = kwargs["task"]
         if not path_or_name or not task:
             return self._tool_error("path_or_name and task are required")
 
