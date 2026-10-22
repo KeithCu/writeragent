@@ -168,7 +168,14 @@ class DelegateToSpecializedBase(ToolBase):
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = _field_from_tool_arguments(arguments, "domain")
-        if domain in self._READ_ONLY_DOMAINS:
+        # Bugfix: Model or client passed a non-string domain (e.g. a nested dict or list) in tool
+        # arguments. When mcp_protocol._tool_needs_document_mutation_gate checked
+        # requires_document_lock prior to schema validation, `domain in self._READ_ONLY_DOMAINS`
+        # raised TypeError: unhashable type: 'dict'.
+        # Checking isinstance(domain, str) ensures non-string domains safely fall back to requiring
+        # the document lock (safe default), allowing execute() to subsequently return the standard
+        # invalid-domain error.
+        if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
             if domain == "vision":
                 return True
             return False
@@ -177,6 +184,14 @@ class DelegateToSpecializedBase(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         domain = kwargs.get("domain")
         task = kwargs.get("task")
+
+        # Bugfix: Non-string domain (e.g. unhashable dict or None) cannot match any registered
+        # domain and would fail inside ToolRegistry.get_tools frozenset lookups. Return the
+        # standard invalid-domain error directly.
+        if not isinstance(domain, str):
+            return self._tool_error(
+                f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
+            )
 
         status_callback = getattr(ctx, "status_callback", None)
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
