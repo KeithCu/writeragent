@@ -19,6 +19,7 @@ the area gotchas.
 - `panel_factory.py` — UNO `XUIElementFactory` / XDL load / control wiring / listener attach. Resolves the document from the frame (`get_document_from_frame`). Does **not** import or call `get_document_context_for_chat`.
 - `panel.py` — `ChatSession` + button listeners. `ChatSession.refresh_document_context` rebuilds system prompt + `[DOCUMENT CONTENT]` on Chat-mode switch, each send, and mid-loop refresh after a mutating tool.
 - `panel_voice.py` — `PanelVoiceController` for voice lifecycle (STT child termination, TTS stop/wait, audio slice sync, hands-free recording gestures).
+- `panel_events.py` — `PanelEventsController` for MCP events, HTTP server events, and inline web search approval.
 - `send_handlers.py` / `tool_loop.py` — mixins on `SendButtonListener`. Route send / mid-loop refresh through `ChatSession.refresh_document_context`. Stay mixins (no `session.py` / `send.py`).
 - `dialogs.py` — shared XDL / msgbox / checkbox / translate kit. LibrePy Settings and Run Python Script import this.
 - `dialog_views.py` — WriterAgent Settings pages, provider buttons, venv probe UI. `input_box` (Edit/Extend selection) stays here; it is not a generic XDL helper.
