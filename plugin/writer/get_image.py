@@ -104,15 +104,9 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
         return None, "could not render page %d: %s" % (page, e)
     finally:
         if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+            best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
         if saved is not None:
-            try:
-                vc.gotoRange(saved, False)
-            except Exception:
-                pass
+            best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after page render")
 
 
 def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
@@ -168,10 +162,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
         return None, "could not render page %d: %s" % (page, e)
     finally:
         if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+            best_effort(lambda: os.remove(tmp_path), "draw page render: remove temp png failed")
 
 
 def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:

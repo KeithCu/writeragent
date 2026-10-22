@@ -31,7 +31,12 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, resolve_exception_message
+from plugin.framework.errors import (
+    ToolExecutionError,
+    best_effort,
+    reraise_if_disposed,
+    resolve_exception_message,
+)
 from plugin.framework.queue_executor import execute_on_main_thread, _SCOPE_UNSET
 from plugin.framework.thread_guard import on_main_thread
 from ..specialized_base import ToolWriterImageBase
@@ -599,10 +604,7 @@ class ImageList(ToolWriterImageBase):
                     skipped.append({"name": name, "error": resolve_exception_message(exc)})
         finally:
             if vc is not None and saved_vc is not None:
-                try:
-                    vc.gotoRange(saved_vc, False)
-                except Exception:
-                    pass
+                best_effort(lambda: vc.gotoRange(saved_vc, False), "image_list: restore view cursor failed")
 
         result: dict[str, Any] = {"status": "ok", "images": images, "count": len(images)}
         if skipped:
@@ -1715,10 +1717,7 @@ def _download_image_to_cache(
                         raw_io = getattr(fp, "raw", None)
                         sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
                 if sock is not None and hasattr(sock, "settimeout"):
-                    try:
-                        sock.settimeout(1.0)
-                    except Exception:
-                        pass
+                    best_effort(lambda: sock.settimeout(1.0), "image download: could not set socket timeout")
 
                 total = 0
                 initial_bytes = b""

@@ -50,6 +50,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.framework.errors import (
+    DocumentDisposedError,
     ToolExecutionError,
     format_error_payload,
     reraise_if_disposed,
@@ -180,8 +181,8 @@ def _doc_table_count(doc: Any) -> int | None:
         count = uno_read(lambda: tables.getCount(), None)
         if isinstance(count, int):
             return count
-    except Exception:
-        pass
+    except DocumentDisposedError:
+        return None
     return None
 
 

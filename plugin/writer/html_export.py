@@ -236,12 +236,14 @@ def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
         if _supports_service(el, "com.sun.star.text.TextTable"):
             try:
                 names = el.getCellNames() or ()
-            except Exception:
+            except Exception as exc:
+                log.debug("_iter_xtext_paragraphs: getCellNames failed: %s", exc)
                 continue
             for name in names:
                 try:
                     cell = el.getCellByName(name)
-                except Exception:
+                except Exception as exc:
+                    log.debug("_iter_xtext_paragraphs: getCellByName failed: %s", exc)
                     continue
                 yield from _iter_xtext_paragraphs(cell)
             continue
@@ -276,8 +278,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
                     in_delete = not in_delete
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_iter_ruby_spans: RedlineType unreadable: %s", exc)
             continue
         if in_delete:
             continue
@@ -486,17 +488,17 @@ def _copy_properties(src: Any, dst: Any, names: tuple[str, ...], style: Any = No
     for name in names:
         try:
             value = src.getPropertyValue(name)
-        except Exception:
+        except Exception:  # noqa: S112 - expected missing property in the per-portion _copy_properties loop
             continue
         if style is not None:
             try:
                 if value == style.getPropertyValue(name):
                     continue
-            except Exception:
+            except Exception:  # noqa: S110 - style property missing is expected; compare failure still copies the value
                 pass
         try:
             dst.setPropertyValue(name, value)
-        except Exception:
+        except Exception:  # noqa: S112 - dest may lack this property; one miss must not skip the rest or flood the portion loop
             continue
 
 
@@ -925,10 +927,7 @@ def _range_to_content_via_temp_doc(
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
-            try:
-                temp_doc.close(True)
-            except Exception:
-                pass
+            best_effort(lambda: temp_doc.close(True), "_range_to_content_via_temp_doc: close temp doc failed")
 
 
 
@@ -1101,10 +1100,7 @@ def _supports_service(obj: Any, name: str) -> bool:
 
 
 def _goto_doc_end(doc: Any) -> None:
-    try:
-        doc.getCurrentController().getViewCursor().gotoEnd(False)
-    except Exception:
-        pass
+    best_effort(lambda: doc.getCurrentController().getViewCursor().gotoEnd(False), "_goto_doc_end: view cursor unavailable")
 
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
@@ -1170,16 +1166,16 @@ def _copy_cell_xtext(
             try:
                 dest_text.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
                 dest_cursor.gotoNextParagraph(False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_cell_xtext: paragraph break failed: %s", exc)
         first_para = False
         try:
             portions = para.createEnumeration()
         except Exception:
             try:
                 dest_text.insertString(dest_cursor, para.getString(), False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_cell_xtext: paragraph text fallback failed: %s", exc)
             continue
         while portions.hasMoreElements() is True:
             try:
@@ -1190,7 +1186,8 @@ def _copy_cell_xtext(
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
-                except Exception:
+                except Exception as exc:
+                    log.debug("_copy_cell_xtext: TextField unreadable: %s", exc)
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             else:
@@ -1309,7 +1306,8 @@ def _copy_table(
             try:
                 src_cell = src_table.getCellByName(cell_name)
                 dest_cell = dest_table.getCellByName(cell_name)
-            except Exception:
+            except Exception as exc:
+                log.debug("_copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
             _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
     else:
@@ -1319,7 +1317,8 @@ def _copy_table(
                 try:
                     src_cell = src_table.getCellByPosition(col, row)
                     dest_cell = dest_table.getCellByPosition(col, row)
-                except Exception:
+                except Exception as exc:
+                    log.debug("_copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
                 _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
     _goto_doc_end(dest_doc)
@@ -1362,16 +1361,16 @@ def _copy_xtext_by_portions(
             try:
                 dest_text.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
                 dest_cursor.gotoNextParagraph(False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_xtext_by_portions: paragraph break failed: %s", exc)
         first_para = False
         try:
             portions = el.createEnumeration()
         except Exception:
             try:
                 dest_text.insertString(dest_cursor, el.getString(), False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_xtext_by_portions: paragraph text fallback failed: %s", exc)
             continue
         while portions.hasMoreElements() is True:
             try:
@@ -1382,7 +1381,8 @@ def _copy_xtext_by_portions(
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
-                except Exception:
+                except Exception as exc:
+                    log.debug("_copy_xtext_by_portions: TextField unreadable: %s", exc)
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             elif kind == "Text":
@@ -1447,8 +1447,8 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     except Exception:
         try:
             dest_text.insertString(cursor, src_text.getString() if src_text else "", False)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("_copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
     if not enum:
         return 0
@@ -1468,20 +1468,20 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         if not first_para:
             try:
                 dest_text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_flow_into_xtext: paragraph break failed: %s", exc)
             try:
                 cursor.gotoNextParagraph(False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_flow_into_xtext: gotoNextParagraph failed: %s", exc)
         first_para = False
         try:
             portions = el.createEnumeration()
         except Exception:
             try:
                 dest_text.insertString(cursor, el.getString() if el else "", False)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_copy_flow_into_xtext: paragraph text fallback failed: %s", exc)
             para_cursor = dest_text.createTextCursor()
             para_cursor.gotoEnd(False)
             para_cursor.gotoStartOfParagraph(False)
@@ -1498,7 +1498,8 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
-                except Exception:
+                except Exception as exc:
+                    log.debug("_copy_flow_into_xtext: TextField unreadable: %s", exc)
                     continue
                 if _copy_field_into(doc, dest_text, cursor, field):
                     fields_copied += 1
@@ -1575,7 +1576,8 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             # `is True`: MagicMock supportsService() is truthy.
             if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
                 continue
-        except Exception:
+        except Exception as exc:
+            log.debug("_copy_anchored_graphics: skip shape: %s", exc)
             continue
         def copy_one() -> None:
             clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
@@ -1839,9 +1841,6 @@ def xtext_to_content(
         return content
     finally:
         if temp_doc is not None:
-            try:
-                temp_doc.close(True)
-            except Exception:
-                pass
+            best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
 
 

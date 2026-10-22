@@ -413,6 +413,7 @@ def _write_char_look(cursor: Any, props: dict[str, Any]) -> None:
         try:
             cursor.setPropertyValue(name, value)
         except Exception:
+            log.debug("outline hyperlink: could not restore %s", name, exc_info=True)
             continue
 
 

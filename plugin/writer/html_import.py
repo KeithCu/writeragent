@@ -624,8 +624,8 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
         for prop in _KEPT_IMAGE_PROPS:
             try:
                 props[prop] = obj.getPropertyValue(prop)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("_swap_image_placeholders: skip property %s: %s", prop, exc)
         marker = "wa%simg%d" % (nonce, len(kept))
         kept.append(_KeptImage(marker, name, obj, obj.getPropertyValue("Graphic"),
                                obj.getPropertyValue("AnchorType"), obj.getSize(), props))
@@ -1008,7 +1008,7 @@ def _selection_is_draw_shape(obj: Any) -> bool:
         if is_graphic_object(obj):
             return True
     except Exception:
-        pass
+        log.debug("_selection_is_draw_shape: graphic probe failed", exc_info=True)
     if _uno_service_true(obj, "com.sun.star.drawing.Shape"):
         return True
     if _uno_service_true(obj, "com.sun.star.drawing.CustomShape"):

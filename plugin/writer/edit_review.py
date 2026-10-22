@@ -50,7 +50,7 @@ import time
 import uuid
 from typing import Any, Callable, ClassVar, Iterator
 
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_scan as _review_scan
 
@@ -457,6 +457,7 @@ class EditReviewSession:
                     s = rl.getPropertyValue("RedlineStart")
                     e = rl.getPropertyValue("RedlineEnd")
                 except Exception:
+                    log.debug("EditReviewSession: redline span unreadable", exc_info=True)
                     continue
                 if s is not None and e is not None:
                     ranges.append((s, e))
@@ -483,10 +484,7 @@ class EditReviewSession:
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
         finally:
             if mgr is not None:
-                try:
-                    mgr.leaveUndoContext()
-                except Exception:
-                    pass
+                best_effort(mgr.leaveUndoContext, "EditReviewSession: leaveUndoContext failed")
 
         # No bookmark → do not register. ChangeRecord with bookmark="" makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:

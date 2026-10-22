@@ -343,6 +343,7 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
             elif r.kind == "Insert":
                 entry["new"] += text
         except Exception:
+            log.debug("inline_review: agent_changes row text unreadable", exc_info=True)
             continue
     return list(grouped.values())
 
@@ -373,6 +374,7 @@ def _group_rows_by_text(rows: list[RedlineRow]) -> list[tuple[Any, list[RedlineR
                     found = True
                     break
             except Exception:
+                log.debug("inline_review: uno_same failed while grouping redlines", exc_info=True)
                 continue
         if not found:
             groups.append((t, [r]))
@@ -505,6 +507,7 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
                         sel_idx = i
                         break
                 except Exception:
+                    log.debug("inline_review: selection span compare failed", exc_info=True)
                     continue
         if sel_idx is not None:
             chosen_idx = (sel_idx + 1) % n if forward else (sel_idx - 1) % n
@@ -515,11 +518,13 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
                     if not uno_same(stop_text, cur_text):
                         continue
                 except Exception:
+                    log.debug("inline_review: uno_same failed while locating the adjacent change", exc_info=True)
                     continue
                 try:
                     if cur_text.compareRegionStarts(cur_start, right) != 1:
                         anchor = i
                 except Exception:
+                    log.debug("inline_review: compareRegionStarts failed while locating the adjacent change", exc_info=True)
                     continue
             if forward:
                 chosen_idx = (anchor + 1) % n
@@ -562,6 +567,7 @@ def cursor_in_agent_change(model: Any, view: RedlineView | None = None) -> str |
                 continue
             return r.token
         except Exception:
+            log.debug("inline_review: cursor_in_agent_change span compare failed", exc_info=True)
             continue
     return None
 

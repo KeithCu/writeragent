@@ -27,7 +27,7 @@ import tempfile
 from typing import Any, Iterable, Iterator, Literal, TypedDict
 
 import uno
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.uno_context import create_property_value as create_property_value
 from plugin.framework.url_utils import path_to_file_url
 from .math.html_math_segment import html_fragment_contains_mixed_math  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -148,10 +148,7 @@ def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Iterator[t
             os.close(fd)
         yield (path, path_to_file_url(path))
     finally:
-        try:
-            os.unlink(path)
-        except Exception:
-            pass
+        best_effort(lambda: os.unlink(path), "temp buffer unlink failed")
 
 
 # ---------------------------------------------------------------------------
