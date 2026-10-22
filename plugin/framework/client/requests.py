@@ -17,7 +17,8 @@ from urllib.request import Request
 
 from plugin.framework.constants import USER_AGENT
 
-from .http_transport import HttpResult, LlmHttpTransport, origin_and_path
+from .http_security import origin_and_path
+from .http_transport import HttpResult, LlmHttpTransport
 
 
 def sync_request(

@@ -947,7 +947,7 @@ def test_transport_send_sets_auto_open_zero():
 
 def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
     """_apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
-    from plugin.framework.client.http_transport import _SECRET_HEADER_NAMES, _apply_redirect
+    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, _apply_redirect
 
     assert "cookie" in _SECRET_HEADER_NAMES
     assert "proxy-authorization" in _SECRET_HEADER_NAMES

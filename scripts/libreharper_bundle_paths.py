@@ -77,6 +77,10 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     # unopkg add executes that module; omitting the shared transport fails
     # install the same way a missing client/errors.py did.
     "plugin/framework/client/http_transport.py",
+    # http_transport.py does ``from . import http_security``, and requests.py imports origin_and_path from it.
+    "plugin/framework/client/http_security.py",
+    # client/__init__.py is stubbed by slim_libreharper_package_inits and required by missing_module_level_plugin_imports.
+    "plugin/framework/client/__init__.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
     # requests.py does ``from .errors import _format_http_error_response``.

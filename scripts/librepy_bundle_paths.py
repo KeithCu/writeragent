@@ -161,6 +161,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/requests.py",
     # sync_request is a URL adapter over LlmHttpTransport (stop, timeout, retry, redaction).
     "plugin/framework/client/http_transport.py",
+    # http_transport.py does from . import http_security, and requests.py imports origin_and_path from it.
+    "plugin/framework/client/http_security.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
     "plugin/framework/client/ssl_helpers.py",

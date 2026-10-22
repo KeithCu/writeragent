@@ -68,7 +68,8 @@ from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoin
 
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response, append_zai_unknown_model_hint
-from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json, redact_secrets
+from .http_security import redact_secrets
+from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json
 from .request_controls import RETRY_MAX_ATTEMPTS, backoff_delay_sec, clear_host_gap, emit_retry_status, remember_host_gap, request_model_from_body, wait_abortable
 from .stream_normalizer import (
     THINKING_DELTA_KEYS,

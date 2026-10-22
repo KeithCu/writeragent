@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from plugin.audio.tts_models import _notify_tts_status
 from plugin.audio.tts_voices import _resolve_tts_voice
-from plugin.framework.client.http_transport import public_target
+from plugin.framework.client.http_security import public_target
 from plugin.framework.i18n import _
 
 __all__ = [

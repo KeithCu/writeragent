@@ -208,7 +208,7 @@ def test_sync_request_ipv6_literal_keeps_brackets():
     What was wrong: ``hostname`` strips brackets, so ``http://[::1]:11434/v1``
     became ``http://::1:11434`` and ``_explicit_port`` raised ``INVALID_URL``.
     """
-    from plugin.framework.client.http_transport import origin_and_path
+    from plugin.framework.client.http_security import origin_and_path
 
     origin, path = origin_and_path("http://[::1]:11434/v1")
     assert origin == "http://[::1]:11434"
@@ -259,7 +259,7 @@ def test_sync_request_ipv6_redirect_stays_parseable():
 
 
 def test_sync_request_bad_port_is_network_error():
-    from plugin.framework.client.http_transport import origin_and_path, public_target
+    from plugin.framework.client.http_security import origin_and_path, public_target
 
     for url in ("http://localhost:1a34/v1", "http://localhost:99999/v1"):
         with pytest.raises(NetworkError) as raised:
@@ -281,7 +281,7 @@ def test_sync_request_malformed_bracket_url_is_network_error():
     ``http://[::1]extra``, and ``http://[]/v1`` before ``_explicit_port``.
     ``sync_request`` calls ``origin_and_path`` outside its try.
     """
-    from plugin.framework.client.http_transport import _apply_redirect, origin_and_path, public_target
+    from plugin.framework.client.http_security import _apply_redirect, origin_and_path, public_target
 
     for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
         with pytest.raises(NetworkError) as raised:
