@@ -1385,7 +1385,7 @@ class ImageInsert(ToolWriterImageBase):
                 paragraph_index = resolved.get("para_index")
 
             if paragraph_index is not None and doc_svc:
-                target_para, _unused = doc_svc.find_paragraph_element(doc, paragraph_index)
+                target_para = doc_svc.find_paragraph_element(doc, paragraph_index)
                 if target_para is None:
                     return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
                 text_cursor = doc.getText().createTextCursorByRange(target_para.getEnd())

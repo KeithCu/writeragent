@@ -4,11 +4,12 @@ import os
 import xml.etree.ElementTree as ET
 
 from scripts.manifest_common import (
+    _DLG_NS,
+    _dlg,
     require_widget,
     write_if_changed as _write_if_changed,
 )
 
-_DLG_NS = "http://openoffice.org/2000/dialog"
 _SCRIPT_NS = "http://openoffice.org/2000/script"
 _OOR_NS = "http://openoffice.org/2001/registry"
 _XS_NS = "http://www.w3.org/2001/XMLSchema"
@@ -17,11 +18,6 @@ ET.register_namespace("dlg", _DLG_NS)
 ET.register_namespace("script", _SCRIPT_NS)
 ET.register_namespace("oor", _OOR_NS)
 ET.register_namespace("xs", _XS_NS)
-
-
-def _dlg(local):
-    """Qualified name in dlg: namespace."""
-    return "{%s}%s" % (_DLG_NS, local)
 
 
 def _oor(local):

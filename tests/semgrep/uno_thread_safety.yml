@@ -69,7 +69,6 @@ rules:
           - pattern: get_document_uno_services(...)
           - pattern: get_document_type(...)
           - pattern: get_full_document_text(...)
-          - pattern: get_document_end(...)
           - pattern: get_document_length(...)
           - pattern: get_text_cursor_at_range(...)
           - pattern: get_text_cursor_at_range_reached(...)

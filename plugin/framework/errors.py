@@ -585,6 +585,10 @@ def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details:
     return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
 
+def user_stopped_payload(message: str = "Document read stopped by user.") -> dict[str, Any]:
+    return {"status": "error", "code": "USER_STOPPED", "message": message}
+
+
 class UnoObjectError(WriterAgentException):
     """LibreOffice UNO interface failures (stale docs, missing properties)."""
 

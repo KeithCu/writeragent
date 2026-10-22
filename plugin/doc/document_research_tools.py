@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Literal
 
 from plugin.doc.document_research import list_nearby_files
+from plugin.framework.errors import user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
 
 
@@ -62,7 +63,7 @@ class ListNearbyFiles(ToolBase):
                 stop_checker=ctx.stop_checker,
             )
         except InterruptedError:
-            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+            return user_stopped_payload()
 
 
 class ListOpenDocuments(ToolBase):
@@ -101,7 +102,7 @@ class ListOpenDocuments(ToolBase):
         try:
             return run_on_main(_run)
         except SendCancelled:
-            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+            return user_stopped_payload()
 
 
 class GetGuidance(ToolBase):

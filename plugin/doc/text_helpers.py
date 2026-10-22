@@ -14,7 +14,6 @@ load ``document_helpers`` → chat context / ``DocumentService``.
 
 from __future__ import annotations
 
-import functools
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -34,6 +33,8 @@ from plugin.framework.errors import (
 )
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import uno_same
+
+log = logging.getLogger(__name__)
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 # uno_read default where None is a real UNO result.
@@ -97,21 +98,26 @@ def _writer_char_count(model: Any) -> int:
                 step //= 2
         return count
     except UnoObjectError:
-        logging.getLogger(__name__).exception("_writer_char_count failed")
+        log.exception("_writer_char_count failed")
         return 0
+
+
+def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
+    get_pos_text = getattr(position, "getText", None)
+    if not callable(get_pos_text):
+        return True
+    pos_text = safe_call(get_pos_text, step_label)
+    body = safe_call(model.getText, "Get document text")
+    return uno_same(pos_text, body)
 
 
 def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
     """Character offset of a UNO text position from document start (no prefix getString())."""
-    get_pos_text = getattr(target_start, "getText", None)
-    if callable(get_pos_text):
-        pos_text = safe_call(get_pos_text, "Get position text")
-        body = safe_call(model.getText, "Get document text")
-        if not uno_same(pos_text, body):
-            # Selection is in a table cell, frame, or header. compareRegionStarts
-            # against the body raises, and the handler below used to return 0,
-            # which is the document start.
-            return -1
+    if not _position_text_is_body(model, target_start, "Get position text"):
+        # Selection is in a table cell, frame, or header. compareRegionStarts
+        # against the body raises, and the handler below used to return 0,
+        # which is the document start.
+        return -1
     if doc_len <= 0:
         return 0
     try:
@@ -145,7 +151,7 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
                 return offset
         return doc_len
     except UnoObjectError:
-        logging.getLogger(__name__).exception("_char_offset_of_position failed")
+        log.exception("_char_offset_of_position failed")
         return 0
 
 
@@ -183,7 +189,7 @@ def selected_text_range(controller: Any) -> Any:
         if rng is None:
             continue
         if hasattr(rng, "supportsService"):
-            svc_val = uno_read(functools.partial(rng.supportsService, "com.sun.star.drawing.Shape"), _FAILED)
+            svc_val = uno_read(lambda: rng.supportsService("com.sun.star.drawing.Shape"), _FAILED)
             if svc_val is True or (type(svc_val) is int and svc_val == 1):
                 continue
 
@@ -199,7 +205,9 @@ def selected_text_range(controller: Any) -> Any:
 
         cmp_val = None
         if rng_text is not None and hasattr(rng_text, "compareRegionStarts") and start is not None and end is not None:
-            cmp_val = uno_read(functools.partial(rng_text.compareRegionStarts, start, end), None)
+            target_text = rng_text
+            assert target_text is not None
+            cmp_val = uno_read(lambda: target_text.compareRegionStarts(start, end), None)
 
         if type(cmp_val) is int:
             if cmp_val != 0:
@@ -263,7 +271,7 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
             return (0, 0)
         return (start_offset, end_offset)
     except UnoObjectError:
-        logging.getLogger(__name__).exception("get_selection_range failed")
+        log.exception("get_selection_range failed")
         return (0, 0)
 
 
@@ -404,14 +412,14 @@ def _visible_portions(
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
                     in_delete = not in_delete
             except Exception as exc:
-                logging.getLogger(__name__).debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
+                log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
             continue
         if in_delete:
             continue
         try:
             chunk = portion.getString()
         except Exception as exc:
-            logging.getLogger(__name__).debug("visible portion getString failed (%s)", type(exc).__name__)
+            log.debug("visible portion getString failed (%s)", type(exc).__name__)
             continue
         # A Frame portion (as-character formula/object) has no text but html export
         # still needs it in place; it adds zero to offsets.
@@ -473,7 +481,7 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
         # How: the except replaced `parts` with the unfiltered range string.
         # Why: return the deletion-free prefix. Do not call getString() here.
         reraise_if_disposed(exc, object_type="TextRange")
-        logging.getLogger(__name__).debug(
+        log.debug(
             "get_string_without_tracked_deletions: portion walk stopped early", exc_info=True)
         return "".join(parts)
 
@@ -509,7 +517,7 @@ def get_document_path(model: Any) -> str | None:
             return None
         return str(uno.fileUrlToSystemPath(url))
     except Exception as e:
-        logging.getLogger(__name__).debug("get_document_path exception: %s", type(e).__name__)
+        log.debug("get_document_path exception: %s", type(e).__name__)
         return None
 
 
@@ -536,7 +544,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                 try:
                     outline_level = safe_call(element.getPropertyValue, "Get OutlineLevel", "OutlineLevel")
                 except UnoObjectError as e:
-                    logging.getLogger(__name__).debug("build_heading_tree could not get OutlineLevel: %s", e)
+                    log.debug("build_heading_tree could not get OutlineLevel: %s", e)
 
                 if isinstance(outline_level, int) and outline_level > 0:
                     while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
@@ -566,7 +574,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
         # UnoObjectError), so disposal propagates unhandled while UnoObjectError is
         # logged and re-raised here.
         # Why: a failed walk is not an empty outline.
-        logging.getLogger(__name__).exception("build_heading_tree error")
+        log.exception("build_heading_tree error")
         raise
 
 
@@ -693,26 +701,8 @@ def get_selection_text(model: Any) -> str | None:
         # safe_call maps disposal to DocumentDisposedError; do not swallow it.
         raise
     except Exception as exc:
-        logging.getLogger(__name__).debug("get_selection_text failed (%s)", type(exc).__name__)
+        log.debug("get_selection_text failed (%s)", type(exc).__name__)
     return None
-
-
-@main_thread_only
-def get_document_end(model: Any, max_chars: int = 4000) -> str:
-    """Get the last max_chars of the document."""
-    try:
-        check_disposed(model, "Document Model")
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", False)
-        safe_call(cursor.gotoStart, "Cursor gotoStart", True)  # expand backward to select from start to end
-        full = get_string_without_tracked_deletions(cursor)
-        if len(full) <= max_chars:
-            return full
-        return full[-max_chars:]
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_document_end failed")
-        return ""
 
 
 def _read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
@@ -752,14 +742,10 @@ def _writer_excerpt_overlaps_selection(
     exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
     if exc_cursor is None:
         return False
-    get_pos_text = getattr(sel_start_pos, "getText", None)
-    if callable(get_pos_text):
-        sel_text = safe_call(get_pos_text, "Get selection text")
-        body = safe_call(model.getText, "Get document text")
-        if not uno_same(sel_text, body):
-            # Different XText (table, frame, header). compareRegionStarts
-            # against the body raises and used to fail the whole chat context.
-            return False
+    if not _position_text_is_body(model, sel_start_pos, "Get selection text"):
+        # Different XText (table, frame, header). compareRegionStarts
+        # against the body raises and used to fail the whole chat context.
+        return False
     text = safe_call(model.getText, "Get document text")
     exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
     exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
@@ -808,7 +794,7 @@ def get_document_length(model: Any) -> int:
         length = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
         return length
     except UnoObjectError:
-        logging.getLogger(__name__).exception("get_document_length failed")
+        log.exception("get_document_length failed")
         return 0
 
 
@@ -850,7 +836,7 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
         # Why: with no saved position, do not move the view cursor. The action
         # still runs (page numbers); it must not be preceded by a jump to the start.
         reraise_if_disposed(exc, object_type="ViewCursor")
-        logging.getLogger(__name__).debug(
+        log.debug(
             "with_view_cursor_left_body_locked: clone failed; not moving the view cursor",
             exc_info=True,
         )
@@ -860,7 +846,7 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
         vc.gotoRange(doc.getText().getStart(), False)
         in_body = True
     except Exception as exc:
-        logging.getLogger(__name__).debug("with_view_cursor_left_body_locked: gotoRange to body start failed (%s)", type(exc).__name__)
+        log.debug("with_view_cursor_left_body_locked: gotoRange to body start failed (%s)", type(exc).__name__)
     if in_body:
         doc.lockControllers()
     try:
@@ -872,7 +858,7 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
             try:
                 vc.gotoRange(saved, False)
             except Exception as exc:
-                logging.getLogger(__name__).debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
+                log.debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
 
 
 @main_thread_only
@@ -926,7 +912,7 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
             remaining -= n
         return cursor, fully_reached
     except UnoObjectError:
-        logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
+        log.exception("get_text_cursor_at_range failed")
         return None, False
 
 

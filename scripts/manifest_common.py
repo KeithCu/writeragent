@@ -124,20 +124,6 @@ def add_button(board, field_id, label_text, left, top, width, height):
     return ET.SubElement(board, _dlg("button"), attrs)
 
 
-def add_helper(board, helper_id, helper_text, left, top, width, height):
-    """Add a small helper text below a field."""
-    attrs = {
-        _dlg("id"): helper_id,
-        _dlg("tab-index"): "0",
-        _dlg("left"): str(left),
-        _dlg("top"): str(top),
-        _dlg("width"): str(width),
-        _dlg("height"): str(height),
-        _dlg("value"): helper_text,
-    }
-    return ET.SubElement(board, _dlg("text"), attrs)
-
-
 def require_widget(schema, allowed: frozenset[str], *, where: str) -> str:
     widget = schema.get("widget") or "text"
     if widget not in allowed:

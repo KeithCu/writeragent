@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.doc.doc_type import doc_type_title_for_label
 from plugin.framework.prompts import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -48,8 +49,8 @@ def _doc_filter(doc: Any) -> dict[str, Any]:
 def _agent_label_for_doc_type(doc_type: str | None) -> str | None:
     if not doc_type:
         return None
-    return {"calc": "Calc", "draw": "Draw", "impress": "Draw",
-            "writer": "Writer"}.get(doc_type.lower())
+    title = doc_type_title_for_label(doc_type)
+    return None if title == "Unknown" else title
 
 
 def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx: Any = None) -> str:

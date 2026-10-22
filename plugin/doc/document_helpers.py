@@ -94,24 +94,24 @@ def _dispatch_calc_draw_text(
     max_chars: int,
     chat: bool,
     ctx: Any | None = None,
-) -> tuple[bool, str]:
+) -> str | None:
     if doc_type == _doc_type.DocumentType.CALC:
         if chat:
             from plugin.calc.analyzer import get_calc_context_for_chat
 
-            return (True, get_calc_context_for_chat(model, max_chars, ctx))
+            return get_calc_context_for_chat(model, max_chars, ctx)
         from plugin.calc.analyzer import get_full_calc_text
 
-        return (True, get_full_calc_text(model, max_chars))
+        return get_full_calc_text(model, max_chars)
 
     if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
         from plugin.draw.bridge import get_draw_context_for_chat
 
         if chat:
-            return (True, get_draw_context_for_chat(model, max_chars, ctx))
-        return (True, get_draw_context_for_chat(model, max_chars))
+            return get_draw_context_for_chat(model, max_chars, ctx)
+        return get_draw_context_for_chat(model, max_chars)
 
-    return (False, "")
+    return None
 
 
 @main_thread_only
@@ -126,8 +126,8 @@ def get_full_document_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MA
         check_disposed(model, "Document Model")
         doc_type = _doc_type.get_document_type(model)
 
-        handled, text = _dispatch_calc_draw_text(model, doc_type, max_chars, chat=False)
-        if handled:
+        text = _dispatch_calc_draw_text(model, doc_type, max_chars, chat=False)
+        if text is not None:
             return text
 
         if doc_type == _doc_type.DocumentType.WRITER:
@@ -185,8 +185,8 @@ def get_document_context_for_chat(
     try:
         doc_type = _doc_type.get_document_type(model)
 
-        handled, text = _dispatch_calc_draw_text(model, doc_type, max_context, chat=True, ctx=ctx)
-        if handled:
+        text = _dispatch_calc_draw_text(model, doc_type, max_context, chat=True, ctx=ctx)
+        if text is not None:
             return text
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
@@ -655,7 +655,7 @@ class DocumentService(ServiceBase):
     def is_draw(self, doc: Any) -> bool:
         return _doc_type.is_draw(doc)
 
-    def get_full_text(self, doc: Any, max_chars: int = 8000) -> str:
+    def get_full_text(self, doc: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
         return get_full_document_text(doc, max_chars)
 
     def get_document_length(self, doc: Any) -> int:
@@ -675,16 +675,9 @@ class DocumentService(ServiceBase):
 
         Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """
-        # What was wrong: Hand-rolled cursor save used doc.getText().createTextCursorByRange(vc.getStart()),
-        # which raised RuntimeException ("End of content node doesn't have the proper start node")
-        # when the view cursor was located inside a table cell or frame (#1422). The exception was caught
-        # and returned fallback 1. It also restored the cursor before unlocking controllers.
-        # How it happened: An outdated cursor-save pattern remained in document_helpers.py while structural.py
-        # had already solved nested XText handling.
-        # Why this change: Uses _text_helpers.with_view_cursor_left_body_locked to cleanly save/restore
-        # the cursor across nested XText, and raises ToolExecutionError when paragraph or page resolution fails.
+        # See text_helpers.with_view_cursor_left_body_locked.
         check_disposed(model, "Document Model")
-        element, _ = self.find_paragraph_element(model, para_index)
+        element = self.find_paragraph_element(model, para_index)
         if element is None:
             raise ToolExecutionError("Paragraph index %d not found in document" % para_index)
 
@@ -719,10 +712,7 @@ class DocumentService(ServiceBase):
 
     def get_page_count(self, model: Any) -> int:
         """Return page count of a Writer document."""
-        # What was wrong: Hand-rolled cursor save used doc.getText().createTextCursorByRange(vc.getStart()),
-        # which threw RuntimeException when vc sat in a table cell or frame, causing get_page_count to return 0.
-        # How it happened: Same outdated cursor save pattern as get_page_for_paragraph.
-        # Why this change: Uses with_view_cursor_left_body_locked while maintaining soft-fail 0 for tree/outline callers.
+        # See text_helpers.with_view_cursor_left_body_locked.
         try:
             check_disposed(model, "Document Model")
             controller = safe_call(model.getCurrentController, "Get current controller")
@@ -790,9 +780,9 @@ class DocumentService(ServiceBase):
         """
         return resolve_locator(doc, locator)
 
-    def find_paragraph_element(self, doc: Any, para_index: int) -> tuple[Any, None]:
-        """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""
+    def find_paragraph_element(self, doc: Any, para_index: int) -> Any | None:
+        """Return the paragraph element for the given index, or None if out of range."""
         ranges = _get_paragraph_ranges(doc)
         if 0 <= para_index < len(ranges):
-            return (ranges[para_index], None)
-        return (None, None)
+            return ranges[para_index]
+        return None

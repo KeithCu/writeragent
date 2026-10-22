@@ -11,9 +11,55 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from plugin.framework.errors import reraise_if_disposed, uno_probe
+
+
+def compile_search_pattern(
+    pattern: str,
+    *,
+    regex: bool = False,
+    case_sensitive: bool = False,
+) -> re_mod.Pattern[str] | None:
+    """Compile a regex search pattern or return None for plain text search."""
+    if not regex:
+        return None
+    flags = 0 if case_sensitive else re_mod.IGNORECASE
+    try:
+        return re_mod.compile(pattern, flags)
+    except re_mod.error as e:
+        raise ValueError(f"Invalid regex: {e}") from e
+
+
+def _match_spans(
+    ptext: str,
+    pattern: str,
+    *,
+    regex: bool = False,
+    compiled: re_mod.Pattern[str] | None = None,
+    case_sensitive: bool = False,
+    needle: str | None = None,
+) -> Iterator[str]:
+    """Yield matching text spans within *ptext*."""
+    if regex and compiled is not None:
+        for m in compiled.finditer(ptext):
+            yield m.group()
+    else:
+        haystack = ptext if case_sensitive else ptext.lower()
+        if needle is None:
+            needle = pattern if case_sensitive else pattern.lower()
+        step = max(1, len(needle))
+        pos = 0
+        while True:
+            pos = haystack.find(needle, pos)
+            if pos == -1:
+                break
+            yield ptext[pos : pos + len(pattern)]
+            pos += step
 
 
 def _build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
@@ -39,16 +85,11 @@ def search_paragraph_texts(
         return [], 0
 
     para_count = len(para_texts)
-    compiled = None
-    if regex:
-        flags = 0 if case_sensitive else re_mod.IGNORECASE
-        try:
-            compiled = re_mod.compile(pattern, flags)
-        except re_mod.error as e:
-            raise ValueError(f"Invalid regex: {e}") from e
+    compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
 
     matches: list[dict[str, Any]] = []
     total_count = 0
+    needle = pattern if case_sensitive else pattern.lower()
 
     for i, ptext in enumerate(para_texts):
         if stop_checker and stop_checker():
@@ -56,24 +97,10 @@ def search_paragraph_texts(
         if not ptext:
             continue
 
-        if regex and compiled is not None:
-            for m in compiled.finditer(ptext):
-                total_count += 1
-                if len(matches) < max_results:
-                    matches.append(_build_paragraph_match(m.group(), i, context_paragraphs, para_count, para_texts))
-        else:
-            haystack = ptext if case_sensitive else ptext.lower()
-            needle = pattern if case_sensitive else pattern.lower()
-            step = max(1, len(needle))
-            pos = 0
-            while True:
-                pos = haystack.find(needle, pos)
-                if pos == -1:
-                    break
-                total_count += 1
-                if len(matches) < max_results:
-                    matches.append(_build_paragraph_match(ptext[pos : pos + len(pattern)], i, context_paragraphs, para_count, para_texts))
-                pos += step
+        for m_text in _match_spans(ptext, pattern, regex=regex, compiled=compiled, case_sensitive=case_sensitive, needle=needle):
+            total_count += 1
+            if len(matches) < max_results:
+                matches.append(_build_paragraph_match(m_text, i, context_paragraphs, para_count, para_texts))
 
     return matches, total_count
 

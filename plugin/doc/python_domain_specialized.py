@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.doc_type import doc_type_title_for_label
+from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -214,20 +215,22 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     added = True
             if not added and not hid_script_tools:
                 log.warning("Domain tool agent: no tools for domain %s", domain)
+        def _first_tool_named(registry: Any, name: str) -> ToolBase | None:
+            for tool in registry.get_tools(names=[name], exclude_tiers=(), filter_doc_type=False):
+                if tool.name == name:
+                    return tool
+            return None
+
         # Not returned by a non-python domain lookup. The inner script is how
         # bulk shape placement reaches writeragent_api.
         if _VENV_SCRIPT_TOOL not in seen:
-            extra = registry.get_tools(names=[_VENV_SCRIPT_TOOL], exclude_tiers=(), filter_doc_type=False)
-            for tool in extra:
-                if tool.name == _VENV_SCRIPT_TOOL:
-                    venv.append(tool)
-                    break
+            tool = _first_tool_named(registry, _VENV_SCRIPT_TOOL)
+            if tool is not None:
+                venv.append(tool)
         if _FINISH_TOOL not in seen:
-            extra = registry.get_tools(names=[_FINISH_TOOL], exclude_tiers=(), filter_doc_type=False)
-            for tool in extra:
-                if tool.name == _FINISH_TOOL:
-                    finish.append(tool)
-                    break
+            tool = _first_tool_named(registry, _FINISH_TOOL)
+            if tool is not None:
+                finish.append(tool)
         return body + venv + finish
 
     fetched: list[ToolBase] = run_on_main(_fetch)
@@ -441,9 +444,9 @@ class DelegateToolDomains(ToolBase):
 
         stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
         if stop_checker is not None and stop_checker():
-            return self._tool_error("Domain tool agent stopped by user.", code="USER_STOPPED")
+            return user_stopped_payload("Domain tool agent stopped by user.")
 
         try:
             return run_inner_domain_tool_agent(ctx, names, task.strip())
         except SendCancelled:
-            return self._tool_error("Domain tool agent stopped by user.", code="USER_STOPPED")
+            return user_stopped_payload("Domain tool agent stopped by user.")

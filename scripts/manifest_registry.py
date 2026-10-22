@@ -6,8 +6,10 @@ Menus and accelerators are hand-written in extension/ and extension-core/ (Addon
 import os
 import xml.etree.ElementTree as ET
 
-from manifest_xdl import _dlg, _pretty_name, _DLG_NS
+from manifest_xdl import _pretty_name
 from scripts.manifest_common import (
+    _DLG_NS,
+    _dlg,
     add_label as _common_add_label,
     add_checkbox as _common_add_checkbox,
     add_textfield as _common_add_textfield,
@@ -377,31 +379,17 @@ def generate_update_xml(root_dir, feed="update.xml"):
 
     feed_map = {
         "update.xml": ("update.xml.tpl", "update.xml"),
-        "writeragent": ("update.xml.tpl", "update.xml"),
         "update-librepy.xml": ("update-librepy.xml.tpl", "update-librepy.xml"),
-        "librepy": ("update-librepy.xml.tpl", "update-librepy.xml"),
         "update-libreharper.xml": ("update-libreharper.xml.tpl", "update-libreharper.xml"),
-        "libreharper": ("update-libreharper.xml.tpl", "update-libreharper.xml"),
     }
-    if feed == "all":
-        feeds = [
-            ("update.xml.tpl", "update.xml"),
-            ("update-librepy.xml.tpl", "update-librepy.xml"),
-            ("update-libreharper.xml.tpl", "update-libreharper.xml"),
-        ]
-    elif isinstance(feed, (list, tuple)):
-        feeds = [feed_map[f] for f in feed if f in feed_map]
-    else:
-        feeds = [feed_map.get(feed, (f"{feed}.tpl", feed))]
-
-    for tpl_name, out_name in feeds:
-        tpl_path = os.path.join(root_dir, "plugin", tpl_name)
-        update_path = os.path.join(root_dir, out_name)
-        if not os.path.exists(tpl_path):
-            # Optional: feed might not be present in every project setup
-            continue
-        with open(tpl_path) as f:
-            content = f.read()
-        content = content.replace("{{VERSION}}", EXTENSION_VERSION)
-        _write_if_changed(update_path, content)
-        print("  Generated %s with version %s" % (out_name, EXTENSION_VERSION))
+    tpl_name, out_name = feed_map[feed]
+    tpl_path = os.path.join(root_dir, "plugin", tpl_name)
+    update_path = os.path.join(root_dir, out_name)
+    if not os.path.exists(tpl_path):
+        # Optional: feed might not be present in every project setup
+        return
+    with open(tpl_path) as f:
+        content = f.read()
+    content = content.replace("{{VERSION}}", EXTENSION_VERSION)
+    _write_if_changed(update_path, content)
+    print("  Generated %s with version %s" % (out_name, EXTENSION_VERSION))

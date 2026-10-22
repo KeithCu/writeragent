@@ -26,8 +26,9 @@ from plugin.doc.document_research import (
     _USE_DEFAULT,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
-from plugin.doc.paragraph_search import search_paragraph_texts
+from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.errors import user_stopped_payload
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger(__name__)
@@ -229,15 +230,7 @@ def _grep_text_in_draw(
     shape_cap: int = _DRAW_GREP_SHAPE_CAP,
     stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[dict[str, Any]], int, bool]:
-    import re as re_mod
-
-    compiled = None
-    if regex:
-        flags = 0 if case_sensitive else re_mod.IGNORECASE
-        try:
-            compiled = re_mod.compile(pattern, flags)
-        except re_mod.error as e:
-            raise ValueError(f"Invalid regex: {e}") from e
+    compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
 
     matches: list[dict[str, Any]] = []
     shapes_visited = 0
@@ -411,18 +404,14 @@ def grep_nearby_files(
     if not pattern:
         return {"status": "error", "message": "pattern is required"}
 
-    if regex:
-        import re as re_mod
-
-        flags = 0 if case_sensitive else re_mod.IGNORECASE
-        try:
-            re_mod.compile(pattern, flags)
-        except re_mod.error as e:
-            # Bugfix: an invalid regex was raised inside each opened file, so
-            # grep_nearby_files opened every candidate, searched nothing, and
-            # appended the same error once per file. The pattern does not
-            # depend on the document. Fail once, before listing or opening.
-            return {"status": "error", "message": f"Invalid regex: {e}"}
+    try:
+        compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
+    except ValueError as exc:
+        # Bugfix: an invalid regex was raised inside each opened file, so
+        # grep_nearby_files opened every candidate, searched nothing, and
+        # appended the same error once per file. The pattern does not
+        # depend on the document. Fail once, before listing or opening.
+        return {"status": "error", "message": str(exc)}
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
@@ -436,7 +425,7 @@ def grep_nearby_files(
             stop_checker=stop_checker,
         )
     except InterruptedError:
-        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+        return user_stopped_payload()
 
     if list_err:
         return {"status": "error", "message": list_err}
@@ -474,7 +463,7 @@ def grep_nearby_files(
         try:
             model, doc_type, open_err, opened_for_document_research = execute_on_main_thread(_open)
         except SendCancelled:
-            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+            return user_stopped_payload()
 
         files_scanned += 1
 
@@ -498,7 +487,7 @@ def grep_nearby_files(
             try:
                 matches, match_count, partial, search_err = execute_on_main_thread(_search)
             except SendCancelled:
-                return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+                return user_stopped_payload()
         finally:
             def _close() -> None:
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
@@ -546,7 +535,7 @@ def grep_nearby_files(
             break
 
     if user_stopped:
-        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+        return user_stopped_payload()
 
     result: dict[str, Any] = {
         "status": "ok",

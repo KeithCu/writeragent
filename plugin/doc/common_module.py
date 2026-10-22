@@ -11,46 +11,27 @@ when this file is present so ``load_modules`` still finds it on ``plugin.doc``.
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
 from plugin.framework.module_base import ModuleBase
+
+_TOOL_MODULES = (
+    "plugin.doc.document_research_tools",
+    "plugin.doc.document_research_grep_tool",
+    "plugin.embeddings.document_research_fts_tool",
+    "plugin.doc.document_research_specialized",
+    "plugin.doc.find_tools_tool",
+    "plugin.doc.python_domain_specialized",
+    "plugin.doc.peer_message",
+    "plugin.doc.undo",
+)
 
 
 class CommonModule(ModuleBase):
     """Provides generic document tools (info, save, export)."""
 
-    services: Any
-
     def initialize(self, services: Any) -> None:
-        self.services = services
-
-        from . import (
-            diagnostics,
-            document_research_grep_tool,
-            document_research_specialized,
-            document_research_tools,
-            find_tools_tool,
-            peer_message,
-            python_domain_specialized,
-            print_doc,
-            undo,
-        )
-        from plugin.embeddings import (
-            document_research_fts_tool,
-        )
-
-        discovery_modules = (
-            diagnostics,
-            document_research_tools,
-            document_research_grep_tool,
-            document_research_fts_tool,
-            document_research_specialized,
-            find_tools_tool,
-            python_domain_specialized,
-            peer_message,
-            print_doc,
-            undo,
-        )
-
-        for module in discovery_modules:
-            services.tools.auto_discover(module)
+        # plugin.doc.diagnostics stays ToolBaseDummy, so discovery would register nothing.
+        for name in _TOOL_MODULES:
+            services.tools.auto_discover(import_module(name))

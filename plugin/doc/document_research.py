@@ -19,7 +19,7 @@ import uno
 from plugin.doc.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path, normalize_file_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
 from plugin.framework.uno_context import resolve_document_by_url
 from plugin.framework.url_utils import path_to_file_url
 
@@ -505,7 +505,7 @@ def list_nearby_files(
     try:
         exclude_path, open_paths, listing_root = run_on_main(_fetch_uno_state)
     except SendCancelled:
-        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+        return user_stopped_payload()
 
     if listing_root:
         try:
@@ -520,7 +520,7 @@ def list_nearby_files(
             )
             return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
         except InterruptedError:
-            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+            return user_stopped_payload()
         except OSError as e:
             return {"status": "error", "message": str(e), "details": {"path": listing_root}}
 

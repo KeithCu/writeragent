@@ -67,13 +67,12 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
         raise ValueError("data_array and formula_array row counts differ")
 
     end_row = start_row + len(data_array) - 1
-    row_widths = [len(row) for row in data_array]
-    if not row_widths:
+    if not data_array:
         used_range = format_address(start_col, start_row)
         model = SheetModel(sheet_name=sheet_name, used_range=used_range, cells={})
         return attach_graph_to_model(model)
 
-    end_col = start_col + max(row_widths) - 1
+    end_col = start_col + max(len(row) for row in data_array) - 1
     used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=True)
     cells: dict[str, CellRecord] = {}
 
@@ -110,7 +109,7 @@ def _used_range_address(sheet: Any) -> Any:
 def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
     """Ingest an open Calc sheet via bulk ``getDataArray`` / ``getFormulaArray``."""
     addr = range_addr if range_addr is not None else _used_range_address(sheet)
-    sheet_name = sheet.getName() if hasattr(sheet, "getName") else ""
+    sheet_name = sheet.getName()
 
     cell_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
     data_array = cell_range.getDataArray()

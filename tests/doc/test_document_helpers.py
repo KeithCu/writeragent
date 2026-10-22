@@ -396,7 +396,7 @@ def test_get_page_for_paragraph_uses_find_element(mock_find):
 
     ds = DocumentService()
     # Mock find_paragraph_element to return our specific element
-    mock_find.return_value = (mock_element, None)
+    mock_find.return_value = mock_element
 
     page = ds.get_page_for_paragraph(mock_doc, 42)
 
@@ -433,7 +433,7 @@ def test_get_page_for_paragraph_handles_zero_page(mock_find):
     mock_element.getAnchor.return_value = mock_anchor
 
     ds = DocumentService()
-    mock_find.return_value = (mock_element, None)
+    mock_find.return_value = mock_element
 
     page = ds.get_page_for_paragraph(mock_doc, 10)
 
@@ -452,7 +452,7 @@ def test_get_page_for_paragraph_missing_element_raises(mock_find):
     from plugin.framework.errors import ToolExecutionError
 
     mock_doc = MagicMock()
-    mock_find.return_value = (None, None)
+    mock_find.return_value = None
 
     ds = DocumentService()
     with pytest.raises(ToolExecutionError, match="Paragraph index 999 not found"):
@@ -487,7 +487,7 @@ def test_get_page_for_paragraph_handles_nested_xtext_cursor(mock_find):
     mock_element = MagicMock()
     mock_anchor = MagicMock()
     mock_element.getAnchor.return_value = mock_anchor
-    mock_find.return_value = (mock_element, None)
+    mock_find.return_value = mock_element
 
     ds = DocumentService()
     page = ds.get_page_for_paragraph(mock_doc, 45)
@@ -515,7 +515,7 @@ def test_get_page_for_paragraph_persistent_zero_raises(mock_find):
 
     mock_element = MagicMock()
     mock_element.getAnchor.return_value = MagicMock()
-    mock_find.return_value = (mock_element, None)
+    mock_find.return_value = mock_element
 
     ds = DocumentService()
     with pytest.raises(ToolExecutionError, match="getPage returned 0"):

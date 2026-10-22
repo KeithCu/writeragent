@@ -13,6 +13,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
+from plugin.framework.errors import user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.queue_executor import run_on_main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
@@ -152,7 +153,7 @@ class DelegateReadDocument(ToolBase):
         try:
             opened = run_on_main(_open_on_main)
         except SendCancelled:
-            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+            return user_stopped_payload()
 
         if isinstance(opened, dict) and opened.get("status") == "error":
             return opened
@@ -161,7 +162,7 @@ class DelegateReadDocument(ToolBase):
         try:
             stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
             if stop_checker is not None and stop_checker():
-                return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+                return user_stopped_payload()
             result = run_inner_read_agent(ctx, model, doc_type, str(task))
         finally:
             def _do_close() -> None:
