@@ -11,6 +11,7 @@ from plugin.writer.specialized.indexes import (
     IndexesRefreshTocEntry,
     IndexesListCites,
     IndexesListTocEntries,
+    _commit_toc_mutation,
     _compose_toc_line,
     _paragraph_element,
     canonicalize_bibliography_field_name,
@@ -952,3 +953,90 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
     assert res["code"] == "ROLLBACK_FAILED"
     assert "undo broke" in res["message"]
     assert "insert failed" in res["message"]
+
+
+def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect_fails():
+    tool = IndexesDeleteTocEntry()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    idx = MagicMock()
+    idx.getPropertyValue.return_value = True
+
+    def bad_mutate():
+        raise RuntimeError("mutation crash")
+
+    def set_pv(prop, val):
+        if prop == "IsProtected" and val is True:
+            raise RuntimeError("restore protect crash")
+
+    idx.setPropertyValue.side_effect = set_pv
+
+    res = _commit_toc_mutation(
+        tool,
+        doc,
+        idx,
+        bad_mutate,
+        failure_message="Edit failed: %s",
+        failure_code="CUSTOM_MUTATE_FAIL",
+    )
+    assert res is not None
+    assert res["status"] == "error"
+    assert res["code"] == "CUSTOM_MUTATE_FAIL"
+    assert "mutation crash" in res["message"]
+
+
+def test_commit_toc_mutation_restore_protect_failure_returns_error():
+    tool = IndexesDeleteTocEntry()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    idx = MagicMock()
+    idx.getPropertyValue.return_value = True
+
+    def good_mutate():
+        return None
+
+    def set_pv(prop, val):
+        if prop == "IsProtected" and val is True:
+            raise RuntimeError("restore protect crash")
+
+    idx.setPropertyValue.side_effect = set_pv
+
+    res = _commit_toc_mutation(
+        tool,
+        doc,
+        idx,
+        good_mutate,
+        failure_message="Edit failed: %s",
+    )
+    assert res is not None
+    assert res["status"] == "error"
+    assert "Could not restore table-of-contents protection" in res["message"]
+
+
+def test_commit_toc_mutation_success():
+    tool = IndexesDeleteTocEntry()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    idx = MagicMock()
+    idx.getPropertyValue.return_value = True
+
+    def good_mutate():
+        return None
+
+    res = _commit_toc_mutation(
+        tool,
+        doc,
+        idx,
+        good_mutate,
+        failure_message="Edit failed: %s",
+    )
+    assert res is None

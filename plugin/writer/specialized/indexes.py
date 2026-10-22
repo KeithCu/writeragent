@@ -487,17 +487,29 @@ def _commit_toc_mutation(
     def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
             _set_protected(idx, False)
+        restore_err: dict[str, Any] | None = None
         try:
-            return mutate()
+            res = mutate()
         finally:
             if was_protected:
                 try:
                     _set_protected(idx, True)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    return tool._tool_error(
+                    # Bugfix: Returning inside a finally block swallowed any active
+                    # exception raised by mutate() (and triggers SyntaxWarning under
+                    # PEP 765 in Python 3.14+). This happened because early code
+                    # returned tool._tool_error directly inside the except block
+                    # within finally. We stash the protection restore error in
+                    # restore_err and return it after finally exits, allowing any
+                    # mutate() exception to propagate cleanly while preserving rollback
+                    # on protection restore failure.
+                    restore_err = tool._tool_error(
                         "Could not restore table-of-contents protection; the edit was rolled back."
                     )
+        if restore_err is not None:
+            return restore_err
+        return res
 
     undo_title = next_agent_edit_undo_title()
     try:
