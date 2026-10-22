@@ -78,7 +78,7 @@ class AliasLoader(importlib.abc.Loader):
             try:
                 setattr(mod, _SAVED_ATTRS_KEY, saved)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("Could not save preserved attrs on %s", self.real_name, exc_info=True)
         self._saved_attrs = saved
         return mod
 
@@ -219,7 +219,7 @@ def ensure_utf8_stdio() -> None:
             try:
                 reconfigure(encoding="utf-8", errors="replace")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("ensure_utf8_stdio: reconfigure failed", exc_info=True)
 
 
 def ensure_plugin_on_path(module_file: str, levels_up: int = 3, also_add_lib: bool = False, also_add_contrib: bool = False, also_add_plugin_dir: bool = False, also_add_vendor: bool = False) -> str:

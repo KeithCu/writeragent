@@ -308,13 +308,13 @@ class OptionalFlushFileHandler(logging.FileHandler):
     def close(self) -> None:
         try:
             super().flush()
-        except Exception:
+        except Exception:  # noqa: S110  handler teardown; a debug log re-enters this FileHandler
             pass
         # FileHandler.close calls the overridden flush(), which can raise
         # during teardown after the explicit parent flush already ran.
         try:
             super().close()
-        except Exception:
+        except Exception:  # noqa: S110  FileHandler.close during teardown; a debug log re-enters this handler
             pass
 
 
@@ -354,7 +354,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     if current is not None:
         try:
             current.close()
-        except Exception:
+        except Exception:  # noqa: S110  closing the debug FileHandler being replaced; a log call re-enters it
             pass
     handler = OptionalFlushFileHandler(path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
@@ -390,7 +390,7 @@ def _strip_stray_handlers(logger: logging.Logger) -> bool:
         try:
             logger.removeHandler(handler)
             handler.close()
-        except Exception:
+        except Exception:  # noqa: S110  stripping a stray handler; logging the close failure can re-enter it
             pass
     return has_matching
 
@@ -407,7 +407,7 @@ def _ensure_debug_file_handler(logger: logging.Logger) -> None:
             logger.removeHandler(existing)
             try:
                 existing.close()
-            except Exception:
+            except Exception:  # noqa: S110  closing a duplicate debug handler; a log call re-enters it
                 pass
     if handler not in logger.handlers:
         logger.addHandler(handler)
@@ -505,14 +505,14 @@ def _install_global_exception_hooks() -> None:
                 payload = format_error_payload(exc_value)
                 msg += f"\nPayload context: {payload.get('details', {})}"
             except Exception:
-                pass
+                log.debug("excepthook: format_error_payload failed", exc_info=True)
             log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:
+        except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
             pass
         try:
             _original_excepthook(exc_type, exc_value, exc_tb)
         except Exception:
-            pass
+            log.debug("original sys.excepthook failed", exc_info=True)
 
     setattr(_writeragent_excepthook, "_writeragent_hook", True)
     sys.excepthook = _writeragent_excepthook
@@ -533,14 +533,14 @@ def _install_global_exception_hooks() -> None:
                 payload = format_error_payload(args.exc_value)
                 msg += f"\nPayload context: {payload.get('details', {})}"
             except Exception:
-                pass
+                log.debug("threading excepthook: format_error_payload failed", exc_info=True)
             log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:
+        except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
             pass
         try:
             _original_threading_excepthook(args)
         except Exception:
-            pass
+            log.debug("original threading.excepthook failed", exc_info=True)
 
     setattr(_writeragent_threading_excepthook, "_writeragent_hook", True)
     threading.excepthook = _writeragent_threading_excepthook
@@ -551,7 +551,7 @@ def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
     try:
         logger = log
         logger.error(f"[{context}] Exception", exc_info=ex)
-    except Exception:
+    except Exception:  # noqa: S110  log_exception's own logger.error failed; logging again can recurse
         pass
 
 
@@ -606,7 +606,7 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
                     if isinstance(inner_dict, dict) and "message" in inner_dict:
                         res_str = inner_dict["message"]
         except Exception:
-            pass
+            log.debug("format_tool_result_for_display: content parse failed", exc_info=True)
 
         val_repr = repr(res_str)
         if len(val_repr) > 150:
@@ -664,8 +664,8 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
         # remains DEBUG so the agent logger's own level still admits the line
         # when the parent log_level is set to WARN.
         _agent_logger.log(logging.DEBUG, "[Agent] %s", json.dumps(payload, ensure_ascii=False))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("agent_log dropped payload (%s)", type(exc).__name__)
 
 
 def note_activity() -> None:
@@ -709,7 +709,7 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
 
             post_to_main_thread(_clear_hung_status, ctrl_to_clear)
         except Exception:
-            pass
+            log.debug("watchdog: failed to post Hung-status clear", exc_info=True)
 
 
 def _clear_hung_status(status_control: Any) -> None:
@@ -817,7 +817,7 @@ def _watchdog_loop(status_control: Any) -> None:
             # log is itself guarded so a broken handler cannot end the thread.
             try:
                 log.exception("watchdog tick failed")
-            except Exception:
+            except Exception:  # noqa: S110  watchdog tick logger failed; a nested log can kill this dedicated thread
                 pass
 
 

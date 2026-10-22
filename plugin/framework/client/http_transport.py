@@ -483,10 +483,10 @@ class LlmHttpTransport:
                 if sock:
                     sock.shutdown(socket.SHUT_RDWR)
             except Exception:
-                pass
+                log.debug("persistent socket shutdown failed", exc_info=True)
             self._persistent_conn.close()
         except Exception:
-            pass
+            log.debug("persistent connection close failed", exc_info=True)
         self._persistent_conn = None
         self._conn_key = None
 
@@ -498,7 +498,7 @@ class LlmHttpTransport:
         try:
             conn.close()
         except Exception:
-            pass
+            log.debug("stopped connection close failed", exc_info=True)
 
     def send(
         self,
@@ -884,7 +884,7 @@ class LlmHttpTransport:
             try:
                 sock.settimeout(1.0)
             except Exception:
-                pass
+                log.debug("response socket settimeout failed", exc_info=True)
 
         chunks: list[bytes] = []
         total = 0

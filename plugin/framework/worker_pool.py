@@ -626,7 +626,7 @@ def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT
             try:
                 stream.close()
             except Exception:
-                pass
+                log.debug("%s close failed", name, exc_info=True)
 
     thread = run_in_background(_loop, name=name, dedicated=True)
     tail.attach_thread(thread)

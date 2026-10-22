@@ -469,7 +469,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             try:
                 sock.close()
             except Exception:
-                pass
+                log.debug("listening socket close failed", exc_info=True)
         self.sockets.clear()
 
     def server_activate(self) -> None:

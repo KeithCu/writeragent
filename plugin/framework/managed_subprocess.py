@@ -457,7 +457,7 @@ class ManagedSubprocess:
                     try:
                         proc.wait(timeout=1.0)
                     except Exception:
-                        pass
+                        log.debug("managed subprocess wait after failed start failed", exc_info=True)
                     for s in (proc.stdin, proc.stdout, proc.stderr):
                         if s:
                             try:

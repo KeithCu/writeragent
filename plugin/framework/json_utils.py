@@ -409,7 +409,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         # attempt: a contract error is an AssertionError, and mypy rejects
         # that dynamically loaded class in an except clause. Any failure
         # returns default.
-        pass
+        log.debug("safe_json_loads repair failed", exc_info=True)
 
     return default
 

@@ -191,35 +191,35 @@ def resolve_exception_message(e: Any) -> str:
         raw = getattr(e, "Message", None)
         if isinstance(raw, str) and raw.strip():
             msg = raw.strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger("writeragent.errors").debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
     if not msg:
         try:
             raw = str(e)
             if isinstance(raw, str) and raw.strip():
                 msg = raw.strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
     if not msg:
         cause = None
         try:
             cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger("writeragent.errors").debug("resolve_exception_message: cause lookup failed (%s)", type(exc).__name__)
         if cause is not None and cause is not e:
             try:
                 raw = getattr(cause, "Message", None)
                 if isinstance(raw, str) and raw.strip():
                     msg = raw.strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger("writeragent.errors").debug("resolve_exception_message: cause Message unreadable (%s)", type(exc).__name__)
             if not msg:
                 try:
                     raw = str(cause)
                     if isinstance(raw, str) and raw.strip():
                         msg = raw.strip()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(cause) failed (%s)", type(exc).__name__)
     if not msg:
         if isinstance(e, BaseException):
             msg = type(e).__name__.strip() or "BaseException"

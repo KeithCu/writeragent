@@ -545,7 +545,8 @@ class TestAgentLog:
         log.setLevel(logging.DEBUG)
         agent_log("test.py:3", "lock", data={"lock": threading.Lock()})
         handler.flush()
-        assert len(handler.buffer) == 0
+        assert not any("[Agent]" in getattr(r, "message", "") or "[Agent]" in str(r.msg) for r in handler.buffer)
+        assert any("agent_log dropped payload" in getattr(r, "message", "") or "agent_log dropped payload" in str(r.msg) for r in handler.buffer)
 
     def test_agent_log_emits_when_parent_level_is_warning(self):
         import plugin.framework.logging as logging_mod

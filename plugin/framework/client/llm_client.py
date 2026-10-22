@@ -1099,14 +1099,14 @@ class LlmClient:
                             if remaining:
                                 log.debug("Consumed extra %d bytes after loop" % len(remaining))
                         except Exception:
-                            pass
+                            log.debug("stream trailing read failed", exc_info=True)
                         # Honor Connection: close so we don't try to reuse when the server closed.
                         self._close_if_connection_close(response)
                     else:
                         try:
                             self._close_connection()
                         except Exception:
-                            pass
+                            log.debug("stream close after non-clean finish failed", exc_info=True)
 
             except CONNECTION_ERRORS as e:
                 # stop() closes the socket, so the blocked read raises here.

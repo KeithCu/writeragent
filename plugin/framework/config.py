@@ -331,7 +331,7 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
         # AssertionError, and mypy rejects that class in an except clause.
         # A failure falls through the existing unrepairable path. A
         # successful repair still returns the dict above.
-        pass
+        log.debug("config JSON repair failed", exc_info=True)
 
     return None
 

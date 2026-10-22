@@ -102,13 +102,13 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
             if active is not None:
                 frames_to_try.append(active)
         except Exception:
-            pass
+            log.debug("menu icon DPI: getActiveFrame failed", exc_info=True)
         try:
             frames = desktop.getFrames()
             for i in range(int(frames.getCount())):
                 frames_to_try.append(frames.getByIndex(i))
         except Exception:
-            pass
+            log.debug("menu icon DPI: getFrames failed", exc_info=True)
         for frame in frames_to_try:
             if frame is None:
                 continue
@@ -121,7 +121,7 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
                     if w is not None:
                         wins.append(w)
                 except Exception:
-                    pass
+                    log.debug("menu icon DPI: %s failed", name, exc_info=True)
     except Exception:
         log.debug("candidate windows failed", exc_info=True)
     # Dedupe by id while preserving order.
@@ -218,6 +218,7 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
             try:
                 raw = int(access.getByName(key))
             except Exception:
+                log.debug("menu icon DPI: config key %s unreadable", key, exc_info=True)
                 continue
             if raw <= 0:
                 continue

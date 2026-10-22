@@ -497,6 +497,7 @@ def _read_runtime_uid(model: Any) -> str:
             if isinstance(raw, str) and raw:
                 return raw
         except Exception:
+            log.debug("runtime uid accessor failed", exc_info=True)
             continue
     return ""
 
@@ -570,7 +571,7 @@ def uno_same(a: Any, b: Any) -> bool:
         if a == b:
             return True
     except Exception:
-        pass
+        log.debug("uno_same equality probe failed", exc_info=True)
     try:
         import uno
 
