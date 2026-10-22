@@ -1460,6 +1460,15 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
         assert res.get("code") == "TOOL_EXECUTION_ERROR"
 
 
+def test_delete_structure_schema_start_type_is_integer():
+    from plugin.calc.cells import DeleteStructure
+
+    assert DeleteStructure.parameters is not None
+    start_prop = DeleteStructure.parameters["properties"]["start"]
+    assert start_prop["type"] == "integer"
+    assert "e.g. 5" in start_prop["description"]
+
+
 def test_delete_structure_disposal_propagates():
     from plugin.calc.cells import DeleteStructure
 

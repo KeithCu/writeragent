@@ -986,7 +986,7 @@ class DeleteStructure(ToolBase):
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
-            "start": {"type": "string", "description": ('For rows: 1-based row number (e.g. "5"); for columns: column letter (e.g. "C").')},
+            "start": {"type": "integer", "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").')},
             "count": {"type": "integer", "description": "Number to delete (default 1)."},
         },
         "required": ["structure_type", "start"],
