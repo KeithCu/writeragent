@@ -50,7 +50,7 @@ from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
-from .specialized_base import ToolWriterStyleBase
+from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
@@ -894,7 +894,7 @@ class ApplyStyle(FrameworkToolBase):
         "properties": {
             "style": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
             "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family. Default: ParagraphStyles.")},
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the style."},
+            "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
