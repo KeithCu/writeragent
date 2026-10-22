@@ -39,211 +39,7 @@ log = logging.getLogger("writeragent.writer")
 _FAILED: Any = object()
 
 
-# StarWriter HTML import has no ruby rule: <ruby>漢字<rt>かんじ</rt></ruby> becomes
-# concatenated body text. Strip <rt> before import, then set RubyText on the base.
-_RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.DOTALL)
-_RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
-_RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_GO_RIGHT_CHUNK = 8192
-
-
-class _ImportRubySpan(NamedTuple):
-    base: str
-    reading: str
-    is_above: bool
-    visible_offset: int
-
-
-def _visible_html_text(fragment: str) -> str:
-    """Tag-stripped, entity-unescaped text of an HTML fragment."""
-    if not fragment:
-        return ""
-    return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
-
-
-def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
-    """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
-
-    Each span is ``(base, reading, is_above, visible_offset)`` in document order.
-    ``visible_offset`` is the base's index in the tag-stripped, entity-decoded
-    text of *html* (readings omitted). StarWriter concatenates ruby children,
-    so the import must see base only; ``RubyText`` is painted afterwards via
-    ``_apply_ruby_spans``, which starts at this offset instead of the first
-    copy of the base.
-    """
-    if not html or not isinstance(html, str) or "<ruby" not in html.lower():
-        return html, []
-    spans: list[_ImportRubySpan] = []
-    out: list[str] = []
-    visible_len = 0
-    pos = 0
-    for match in _RUBY_BLOCK_RE.finditer(html):
-        before = html[pos:match.start()]
-        out.append(before)
-        # Offset in the text StarWriter will keep, not in the HTML source.
-        # An earlier identical base (plain 漢字 before <ruby>漢字</ruby>) must
-        # not receive this reading.
-        visible_len += len(_visible_html_text(before))
-        attrs = match.group(1) or ""
-        inner = match.group(2) or ""
-        rt_m = _RT_RE.search(inner)
-        reading = _visible_html_text(rt_m.group(1) if rt_m else "").strip()
-        base_html = _RP_RE.sub("", inner)
-        base_html = _RT_RE.sub("", base_html)
-        base = _visible_html_text(base_html)
-        is_above = "under" not in attrs.lower()
-        if base and reading:
-            spans.append(_ImportRubySpan(base, reading, is_above, visible_len))
-        out.append(base_html)
-        visible_len += len(base)
-        pos = match.end()
-    out.append(html[pos:])
-    return "".join(out), spans
-
-
-def _go_right(cursor: Any, n: int, expand: bool) -> bool:
-    """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
-    while n > 0:
-        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
-        if not cursor.goRight(step, expand):
-            return False
-        n -= step
-    return True
-
-
-def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None:
-    """Create live ruby on the selected base run (same as the UNO seed probe)."""
-    cursor.setPropertyValue("RubyText", reading)
-    # RubyIsAbove and RubyAdjust are on the same cursor that just took RubyText.
-    cursor.setPropertyValue("RubyIsAbove", bool(is_above))
-    cursor.setPropertyValue("RubyAdjust", 0)
-
-
-def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
-    """``getString()`` length from the start of *text_obj* to *cursor*.
-
-    Captured before import so we can apply ruby only to the inserted suffix.
-    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
-    """
-    # Returning 0 painted ruby at the start of the text and bound the reading
-    # to an earlier copy of the same base. A closed document must raise.
-    prefix = text_obj.createTextCursor()
-    prefix.gotoStart(False)
-    prefix.gotoRange(cursor.getStart(), True)
-    return len(prefix.getString() or "")
-
-
-def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
-    """Character count before *cursor* when *spans* is non-empty, else 0.
-
-    Building the prefix cursor and calling ``getString()`` reads the entire
-    text before the insert point, which is wasted when there is no ruby.
-    """
-    if not spans or text_obj is None or cursor is None:
-        return 0
-    return _prefix_char_count(text_obj, cursor)
-
-
-def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
-    """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
-
-    After a StarWriter import the document has base characters only. Offsets
-    come from ``getString()`` then ``goRight`` — they agree on plain imported
-    body text (no fields/ruby yet).
-    """
-    if not spans or text_obj is None:
-        return
-    def read_imported() -> tuple[Any, str]:
-        origin = text_obj.getStart()
-        hay = text_obj.createTextCursorByRange(origin)
-        hay.gotoEnd(True)
-        return origin, hay.getString() or ""
-
-    got = uno_read(read_imported, None)
-    if got is None:
-        return
-    origin, haystack = got
-    # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
-    # are relative to that suffix, not to earlier document text.
-    anchor = skip_chars if skip_chars > 0 else 0
-    pos = anchor
-
-    cur: Any = None
-    cur_pos = 0
-
-    for item in spans:
-        base, reading = item[0], item[1]
-        is_above = bool(item[2])
-        if not base or not reading:
-            continue
-
-        # The span's fourth item is the base's visible-text offset, so a repeated
-        # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
-        offset = item[3]
-        target_offset = (anchor + offset) if offset is not None and offset >= 0 else None
-
-        idx = -1
-        if target_offset is not None and target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
-            idx = target_offset
-        else:
-            if target_offset is not None:
-                log.debug("_apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
-            idx = haystack.find(base, pos)
-
-        if idx < 0:
-            log.debug("_apply_ruby_spans: base %r not found in imported text", base)
-            continue
-
-        try:
-            if cur is None:
-                cur = text_obj.createTextCursorByRange(origin)
-                cur_pos = 0
-
-            delta = idx - cur_pos
-            if delta < 0:
-                cur = text_obj.createTextCursorByRange(origin)
-                cur_pos = 0
-                delta = idx
-
-            if delta > 0 and not _go_right(cur, delta, False):
-                cur = None
-                continue
-            cur_pos = idx
-
-            sel = text_obj.createTextCursorByRange(cur)
-            if not _go_right(sel, len(base), True):
-                cur = None
-                continue
-
-            if sel.getString() != base:
-                resync = 0
-                while sel.getString() != base and resync < 50 and _go_right(cur, 1, False):
-                    cur_pos += 1
-                    resync += 1
-                    sel = text_obj.createTextCursorByRange(cur)
-                    if not _go_right(sel, len(base), True):
-                        break
-
-            if sel.getString() != base:
-                log.debug(
-                    "_apply_ruby_spans: offset mismatch want %r got %r",
-                    base, sel.getString(),
-                )
-                _go_right(cur, len(base), False)
-                cur_pos = idx + len(base)
-                pos = cur_pos
-                continue
-
-            _set_ruby_on_range(sel, reading, is_above)
-            _go_right(cur, len(base), False)
-            cur_pos = cur_pos + len(base)
-            pos = idx + len(base)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.warning("_apply_ruby_spans: failed for %r", base, exc_info=True)
-            cur = None
-            pos = idx + len(base)
+from . import html_ruby
 
 
 _BLOCK_MARKUP_RE = re.compile(
@@ -527,7 +323,7 @@ def html_to_plain_text(html_string: str, ctx: Any = None, config_svc: Any = None
         return html_string.strip()
     from plugin.framework.html_stripper import html_to_search_text
 
-    stripped, _unused_ruby = extract_and_strip_ruby(html_string)
+    stripped, _unused_ruby = html_ruby.extract_and_strip_ruby(html_string)
     return html_to_search_text(stripped).strip()
 
 
@@ -827,13 +623,13 @@ def _insert_mixed_html_and_math_at_cursor(
 
             # Expand literal \n and \t for plain HTML without math
             chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
-            chunk, seg_ruby = extract_and_strip_ruby(chunk)
+            chunk, seg_ruby = html_ruby.extract_and_strip_ruby(chunk)
 
             sub = _ensure_html_linebreaks(chunk)
-            seg_ruby_skip = _ruby_skip(cursor.getText(), cursor, seg_ruby)
+            seg_ruby_skip = html_ruby._ruby_skip(cursor.getText(), cursor, seg_ruby)
             _insert_starwriter_html_at_cursor(model, cursor, sub, config_svc=config_svc)
             if seg_ruby:
-                _apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
+                html_ruby._apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
         if seg.kind == "tex":
             res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
@@ -913,12 +709,12 @@ def _insert_mixed_or_plain_html(
     has_math = html_fragment_contains_mixed_math(clean)
     if not has_math:
         # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
-        clean, ruby_spans = extract_and_strip_ruby(clean)
+        clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
     else:
         ruby_spans = []
     styled = apply_styles and any(block_styles)
     text_obj = cursor.getText()
-    ruby_skip = _ruby_skip(text_obj, cursor, ruby_spans)
+    ruby_skip = html_ruby._ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
     # The math path moves *cursor* past each segment, so keep the paragraph before the insert.
@@ -948,7 +744,7 @@ def _insert_mixed_or_plain_html(
         _apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     if not has_math:
-        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
+        html_ruby._apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
     if model is not None:
         _restore_field_placeholders(model, text_obj, nonce=nonce)
 
@@ -1069,14 +865,14 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     inline_html = rewrite_exported_field_spans(content, nonce=nonce)
     inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
     # Same <rt> handling as the other import paths: StarWriter would glue the reading onto the base.
-    inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
+    inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
     # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
     # its trailing space and fused with the next word. Put edge whitespace in as text.
     core = inline_html.strip()
     lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
     trail = inline_html[len(inline_html.rstrip()):]
     text = cursor.getText()
-    ruby_skip = _ruby_skip(text, cursor, ruby_spans)
+    ruby_skip = html_ruby._ruby_skip(text, cursor, ruby_spans)
     if lead:
         text.insertString(cursor, lead, False)
     if trail:
@@ -1086,7 +882,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
         cursor.goLeft(len(trail), False)
     if core:
         insert_html_fragment_at_cursor(cursor, core, wrap=False, config_svc=config_svc, model=None)
-    _apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
+    html_ruby._apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
     if model is not None:
         _restore_field_placeholders(model, text, nonce=nonce)
 
@@ -1293,10 +1089,10 @@ def _replace_single_range_with_content(
         nonce = uuid.uuid4().hex[:8]
         inline_html = rewrite_exported_field_spans(prepared, nonce=nonce)
         inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
-        inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
-        ruby_skip = _ruby_skip(text_obj, anchor, ruby_spans)
+        inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+        ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
         insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
-        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
+        html_ruby._apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
         if model is not None:
             _restore_field_placeholders(model, text_obj, nonce=nonce)
         # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
@@ -1757,7 +1553,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded = expanded.replace("\\n", "\n").replace("\\t", "\t")
-    expanded, ruby_spans = extract_and_strip_ruby(expanded)
+    expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = rewrite_exported_field_spans(expanded, nonce=nonce)
     prepared = _ensure_html_linebreaks(rewritten)
     cursor = text_obj.createTextCursor()
@@ -1794,7 +1590,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False, config_svc=config_svc, model=None,
         )
-        _apply_ruby_spans(text_obj, ruby_spans)
+        html_ruby._apply_ruby_spans(text_obj, ruby_spans)
         if model is not None:
             _restore_field_placeholders(model, text_obj, nonce=nonce)
 
@@ -2070,7 +1866,7 @@ def replace_preserving_format(
             slice_len = len(old_slice)
 
             if old_slice == new_slice:
-                if not _go_right(main_cursor, slice_len, False):
+                if not html_ruby._go_right(main_cursor, slice_len, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -2080,7 +1876,7 @@ def replace_preserving_format(
             while p < slice_len and old_slice[p] == new_slice[p]:
                 p += 1
             if p > 0:
-                if not _go_right(main_cursor, p, False):
+                if not html_ruby._go_right(main_cursor, p, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -2093,7 +1889,7 @@ def replace_preserving_format(
             diff_len = slice_len - p - s
             if diff_len > 0:
                 sel = text.createTextCursorByRange(main_cursor)
-                if not _go_right(sel, diff_len, True):
+                if not html_ruby._go_right(sel, diff_len, True):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -2101,7 +1897,7 @@ def replace_preserving_format(
                 main_cursor.gotoRange(sel.getEnd(), False)
 
             if s > 0:
-                if not _go_right(main_cursor, s, False):
+                if not html_ruby._go_right(main_cursor, s, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -2124,7 +1920,7 @@ def replace_preserving_format(
                 while i < overlap and new_text[i] == old_text[i]:
                     i += 1
                 k = i - run_start
-                if not _go_right(main_cursor, k, False):
+                if not html_ruby._go_right(main_cursor, k, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )

@@ -11,7 +11,7 @@ Public entries: ``document_to_content`` and ``xtext_to_content``
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
 semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_import.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
+base run (``html_ruby.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import re
 import time
 import zlib
 from html import escape as html_escape
-from typing import Any, ClassVar, Iterator
+from typing import Any, Iterator
 
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
@@ -42,26 +42,6 @@ log = logging.getLogger("writeragent.writer")
 # uno_read default where None is a real UNO result.
 _FAILED: Any = object()
 
-
-class _RubySpan:
-    """One CJK ruby (furigana) pair collected from Writer portions.
-
-    ``start`` / ``end`` are offsets in the paragraph's visible text (base only;
-    ruby marks have empty ``getString()``). Used to keep range export from
-    wrapping a base that was trimmed out of the copied window.
-    """
-
-    base: str
-    reading: str
-    start: int
-    end: int
-    __slots__: ClassVar[tuple[str, ...]] = ("base", "reading", "start", "end")
-
-    def __init__(self, base: str, reading: str, start: int = 0, end: int = 0) -> None:
-        self.base = base
-        self.reading = reading
-        self.start = start
-        self.end = end
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
@@ -109,120 +89,6 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
     return content if include_images else strip_embedded_image_data(content)
 
 
-def _ruby_parts(span: Any) -> tuple[str, str]:
-    """``(base, reading)`` from a ``_RubySpan`` or a 2-tuple (unit tests)."""
-    if isinstance(span, (tuple, list)):
-        return span[0], span[1]
-    return span.base, span.reading
-
-
-def _inside_ruby_element(html: str, index: int) -> bool:
-    """True when *index* sits inside an existing ``<ruby>…</ruby>``."""
-    last_open = html.rfind("<ruby", 0, index)
-    if last_open < 0:
-        return False
-    last_close = html.rfind("</ruby>", 0, index)
-    return last_close < last_open
-
-
-def _index_in_tag(html: str, index: int) -> bool:
-    """True when *index* is inside ``<...>`` (attribute text is not body text)."""
-    last_lt = html.rfind("<", 0, index)
-    if last_lt < 0:
-        return False
-    last_gt = html.rfind(">", 0, index)
-    return last_gt < last_lt
-
-
-def _find_contiguous(html: str, needle: str, start: int = 0) -> tuple[int, int] | None:
-    """Offsets of *needle* as a raw substring that is not inside a tag."""
-    if not html or not needle:
-        return None
-    idx = start
-    while True:
-        found = html.find(needle, idx)
-        if found < 0:
-            return None
-        if not _index_in_tag(html, found):
-            return found, found + len(needle)
-        idx = found + 1
-
-
-def _only_tags_or_ws(fragment: str) -> bool:
-    """True when *fragment* has no body text (tags and whitespace only)."""
-    i = 0
-    n = len(fragment)
-    while i < n:
-        ch = fragment[i]
-        if ch.isspace():
-            i += 1
-            continue
-        if ch != "<":
-            return False
-        close = fragment.find(">", i)
-        if close < 0:
-            return False
-        i = close + 1
-    return True
-
-
-def _ruby_markup(base: str, reading: str) -> str:
-    return "<ruby>%s<rt>%s</rt></ruby>" % (html_escape(base), html_escape(reading))
-
-
-def inject_ruby_into_html(html: str, spans: list[Any]) -> str:
-    """Rewrite glued or dropped ruby encodings to semantic ``<ruby><rt>``.
-
-    The XHTML Writer filter has no ``text:ruby`` rule, so full export concatenates
-    base + reading (``漢字かんじです``). Range/portion-copy never paints ``RubyText``
-    — that property lives on the empty Ruby *start* mark, not the Text run —
-    so range export used to drop the reading. Both become
-    ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply recreates portions in
-    ``html_import`` (strip ``<rt>``, then ``RubyText`` on the base run).
-
-    Replacements stay inside a single text node (or wrap the base node and
-    delete a following reading node). Crossing a tag with a wrapper used to
-    emit ``<span><ruby>…</span>…`` — browsers recover, but it is not HTML we
-    want the agent to copy.
-    """
-    if not html or not spans:
-        return html
-    pos = 0
-    parts = []
-    for span in spans:
-        base, reading = _ruby_parts(span)
-        if not base or not reading:
-            continue
-        glued = _find_contiguous(html, base + reading, pos)
-        if glued is not None and not _inside_ruby_element(html, glued[0]):
-            start, end = glued
-            parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading))
-            pos = end
-            continue
-        base_at = _find_contiguous(html, base, pos)
-        if base_at is None or _inside_ruby_element(html, base_at[0]):
-            continue
-        start, end = base_at
-        reading_at = _find_contiguous(html, reading, end)
-        if (
-            reading_at is not None
-            and _only_tags_or_ws(html[end:reading_at[0]])
-            and not _inside_ruby_element(html, reading_at[0])
-        ):
-            # Bold/span around the base: keep those tags, drop the glued reading.
-            parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading))
-            parts.append(html[end:reading_at[0]])
-            pos = reading_at[1]
-            continue
-        parts.append(html[pos:start])
-        parts.append(_ruby_markup(base, reading))
-        pos = end
-    parts.append(html[pos:])
-    return "".join(parts)
-
-
 def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
     enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
@@ -251,89 +117,7 @@ def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
             yield el
 
 
-def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
-    """Yield ``_RubySpan`` for each Ruby start/end pair in *para*.
-
-    Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
-    ``RubyText`` / ``RubyIsAbove`` / ``RubyAdjust``; the base is a normal
-    ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
-    base only — reading is not a text field.
-    """
-    portion_enum = uno_read(lambda: para.createEnumeration(), _FAILED)
-    if portion_enum is _FAILED:
-        return
-    in_delete = False
-    in_ruby = False
-    reading = ""
-    base_parts: list[str] = []
-    base_start = 0
-    offset = 0
-    while portion_enum.hasMoreElements() is True:
-        try:
-            portion = portion_enum.nextElement()
-            kind = portion.getPropertyValue("TextPortionType")
-        except Exception:
-            break
-        if kind == "Redline":
-            try:
-                if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = not in_delete
-            except Exception as exc:
-                log.debug("_iter_ruby_spans: RedlineType unreadable: %s", exc)
-            continue
-        if in_delete:
-            continue
-        if kind == "Ruby":
-            if not in_ruby:
-                reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
-                in_ruby = True
-                base_parts = []
-                base_start = offset
-            else:
-                base = "".join(base_parts)
-                if base and reading:
-                    yield _RubySpan(base, reading, base_start, base_start + len(base))
-                in_ruby = False
-                reading = ""
-                base_parts = []
-            continue
-        chunk = uno_read(lambda: portion.getString() or "", "")
-        if not chunk:
-            continue
-        if in_ruby:
-            base_parts.append(chunk)
-        offset += len(chunk)
-
-
-def iter_ruby_spans(text_obj: Any) -> Iterator[_RubySpan]:
-    """Document-order ruby pairs under *text_obj* (body or cell), including tables."""
-    for para in _iter_xtext_paragraphs(text_obj):
-        yield from _iter_ruby_spans_in_paragraph(para)
-
-
-def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_RubySpan]:
-    """Ruby pairs whose entire base lies inside the copied visible-text window."""
-    out = []
-    for span in _iter_ruby_spans_in_paragraph(para):
-        if span.start >= trim_start and span.end <= trim_end:
-            out.append(span)
-    return out
-
-
-def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None = None) -> str:
-    """Walk the live model and rewrite *content* when ruby is (or may be) present.
-
-    *fodt_has_ruby* is True/False from the paired FODT sidecar, or None when
-    that export failed. False skips the portion walk on the common no-ruby path.
-    """
-    if not content:
-        return content
-    if fodt_has_ruby is False:
-        return content
-    spans = best_effort(lambda: list(iter_ruby_spans(model.getText())), "_inject_ruby_from_model: portion walk failed")
-    if spans is None:
-        return content
-    return inject_ruby_into_html(content, spans)
+from . import html_ruby
 
 
 def _record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, display_block: bool) -> str:
@@ -883,7 +667,7 @@ def _range_to_content_via_temp_doc(
             # RubyText lives on the empty Ruby start mark, not the Text run, so
             # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
             # Collect source spans and rewrite the exported HTML after XHTML.
-            copied_ruby.extend(_ruby_spans_in_window(el, trim_start, trim_end))
+            copied_ruby.extend(html_ruby._ruby_spans_in_window(el, trim_start, trim_end))
             added_any = True
 
         if not added_any:
@@ -911,7 +695,7 @@ def _range_to_content_via_temp_doc(
         content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
         content = _substitute_math_placeholders(content, math_records, ctx)
-        content = inject_ruby_into_html(content, copied_ruby)
+        content = html_ruby.inject_ruby_into_html(content, copied_ruby)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
         return content
@@ -1023,7 +807,7 @@ def document_to_content(
         content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
         content = _apply_image_export_options(content, include_images=include_images)
         content = _inject_exported_math_tex(model, ctx, content)
-        content = _inject_ruby_from_model(model, content, fodt_has_ruby)
+        content = html_ruby._inject_ruby_from_model(model, content, fodt_has_ruby)
         _raise_if_empty_export(model, content, "the XHTML export came back empty")
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
@@ -1052,7 +836,7 @@ def document_to_content(
             content = format_mod._strip_html_boilerplate(content)
             content = _apply_image_export_options(content, include_images=include_images)
             content = _inject_exported_math_tex(model, ctx, content)
-            content = _inject_ruby_from_model(model, content, None)
+            content = html_ruby._inject_ruby_from_model(model, content, None)
             _raise_if_empty_export(model, content, "the HTML export came back empty")
             if max_chars and len(content) > max_chars:
                 content = _truncate_html(content, max_chars)

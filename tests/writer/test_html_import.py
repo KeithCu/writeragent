@@ -5,11 +5,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.html_import import (
-    _apply_ruby_spans,
     _ensure_html_linebreaks,
     content_has_markup,
-    extract_and_strip_ruby,
     replace_xtext_with_html,
+)
+from plugin.writer.html_ruby import (
+    _apply_ruby_spans,
+    extract_and_strip_ruby,
 )
 
 
@@ -150,7 +152,8 @@ def test_ruby_spans_forward_cursor_walk():
 
 
 def test_mixed_math_segments_produce_separate_ruby_spans_without_tex_source():
-    from plugin.writer.html_import import extract_and_strip_ruby, segment_html_with_mixed_math
+    from plugin.writer.html_import import segment_html_with_mixed_math
+    from plugin.writer.html_ruby import extract_and_strip_ruby
 
     content = "<p><ruby>東<rt>ひがし</rt></ruby> \\(x^2 + y^2\\) <ruby>西<rt>にし</rt></ruby></p>"
     segs = segment_html_with_mixed_math(content)
@@ -328,7 +331,7 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
     model.getUndoManager.return_value = undo_mgr
 
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
-         patch("plugin.writer.html_import._apply_ruby_spans"), \
+         patch("plugin.writer.html_ruby._apply_ruby_spans"), \
          patch("plugin.writer.html_import._restore_field_placeholders", side_effect=RuntimeError("field failed")):
         with pytest.raises(RuntimeError, match="field failed"):
             replace_xtext_with_html(text, "<p>New</p>", model=model)
@@ -425,12 +428,12 @@ def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
 def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_ruby
 
     cursor = MagicMock()
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
-         patch.object(html_import, "_prefix_char_count", return_value=7), \
-         patch.object(html_import, "_apply_ruby_spans") as paint:
+         patch.object(html_ruby, "_prefix_char_count", return_value=7), \
+         patch.object(html_ruby, "_apply_ruby_spans") as paint:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<ruby>漢字<rt>かんじ</rt></ruby>")
     assert frag.call_args.args[1] == "漢字"
     assert paint.call_args.args[1] == [("漢字", "かんじ", True, 0)]
@@ -439,10 +442,10 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
 
 def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_ruby
 
     cursor = MagicMock()
-    with patch.object(html_import, "_prefix_char_count") as count, \
+    with patch.object(html_ruby, "_prefix_char_count") as count, \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
         html_import._insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
     count.assert_not_called()
@@ -450,10 +453,10 @@ def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
 
 def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_ruby
 
     cursor = MagicMock()
-    with patch.object(html_import, "_prefix_char_count") as count, \
+    with patch.object(html_ruby, "_prefix_char_count") as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor"):
         html_import._insert_mixed_or_plain_html(MagicMock(), MagicMock(), cursor, "<p>hi</p>")
     count.assert_not_called()
@@ -461,10 +464,10 @@ def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
 
 def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_ruby
 
     cursor = MagicMock()
-    with patch.object(html_import, "_prefix_char_count") as count, \
+    with patch.object(html_ruby, "_prefix_char_count") as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
          patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
         html_import._insert_mixed_html_and_math_at_cursor(
@@ -475,13 +478,13 @@ def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
 
 def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_ruby
 
     cursor = MagicMock()
     calls = []
-    with patch.object(html_import, "_prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
+    with patch.object(html_ruby, "_prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
-         patch.object(html_import, "_apply_ruby_spans") as paint, \
+         patch.object(html_ruby, "_apply_ruby_spans") as paint, \
          patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
         html_import._insert_mixed_html_and_math_at_cursor(
             MagicMock(), MagicMock(), cursor, "<p><ruby>漢字<rt>かんじ</rt></ruby></p> \\(x^2\\)"

@@ -113,7 +113,8 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     """Compare scratch getString() with html_to_search_text after ruby strip."""
     skip_windows_leftover_hidden_load("html_to_search_text oracle swriter")
     from plugin.framework.html_stripper import html_to_search_text
-    from plugin.writer.html_import import extract_and_strip_ruby, insert_html_fragment_at_cursor
+    from plugin.writer.html_import import insert_html_fragment_at_cursor
+    from plugin.writer.html_ruby import extract_and_strip_ruby
 
     fixtures = [
         "<p>First paragraph</p><p>Second paragraph</p>",
@@ -253,7 +254,7 @@ def test_escape_prose_angle_brackets_survives_starwriter_filter_uno(ctx: Any, do
 
 
 def _project_body_paragraphs(doc: Any) -> list[tuple[str, str, list[tuple[str, str]]]]:
-    from plugin.writer.html_export import _iter_ruby_spans_in_paragraph
+    from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
 
     enum = doc.getText().createEnumeration()
     paras = []
@@ -284,7 +285,7 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
     """Live round-trip harness testing HTML import/export projection and idempotence."""
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
-    from plugin.writer.html_export import _iter_ruby_spans_in_paragraph
+    from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
     from plugin.writer.images.image_tools import insert_image
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")

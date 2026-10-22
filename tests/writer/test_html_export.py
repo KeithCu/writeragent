@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.html_export import _range_to_content_via_temp_doc, inject_ruby_into_html, xtext_to_content
+from plugin.writer.html_export import _range_to_content_via_temp_doc, xtext_to_content
+from plugin.writer.html_ruby import inject_ruby_into_html
 
 
 class _Enum:
@@ -72,7 +73,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
         patch("plugin.writer.html_export._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -522,7 +523,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
         patch("plugin.writer.html_export._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
         pytest.raises(DocumentDisposedError),
     ):
@@ -570,7 +571,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
         patch("plugin.writer.html_export._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -600,14 +601,14 @@ def test_truncate_html_keeps_tag_and_entity_closed():
 
 
 def test_document_to_content_max_chars_does_not_split_a_tag():
-    from plugin.writer import html_export
+    from plugin.writer import html_export, html_ruby
 
     long_html = '<p><a href="https://example.com/very-long-path">visible</a></p>'
     with (
         patch.object(html_export, "_export_xhtml", return_value=long_html),
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
         patch.object(html_export, "_inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch.object(html_export, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
+        patch.object(html_ruby, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
             side_effect=lambda xhtml, parents, overrides: xhtml,
@@ -788,7 +789,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
         patch("plugin.writer.html_export._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
         patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -812,7 +813,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
         patch("plugin.writer.html_export._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
         patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
         patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
