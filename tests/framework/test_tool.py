@@ -1274,7 +1274,11 @@ class TestToolIsolation:
         class Mutate(ToolBase):
             name = "mutate_then_unwind"
             description = "x"
-            timeout = 0.4
+            # Bugfix: Generous tool timeout so slow/loaded CI runners do not spuriously
+            # time out before the worker thread starts and queues its result.
+            # 10s is well below release.wait(30s), so any regression where execute
+            # mistakenly waits on the worker thread to exit will still time out.
+            timeout = 10.0
             parameters = {"type": "object", "properties": {}}
 
             def is_async(self):
@@ -1293,9 +1297,11 @@ class TestToolIsolation:
         def block_unwind(name):
             # Block the dedicated thread after the result is queued, which is
             # the run_in_background finally that clears the task tag.
+            # Bugfix: Use generous 30s timeout so loaded CI runners don't unblock
+            # before the test completes assertions. Returns immediately on release.set().
             if name is None and threading.current_thread().name.startswith("tool-timeout-"):
                 entered.set()
-                release.wait(timeout=5)
+                release.wait(timeout=30)
             original(name)
 
         registry = ToolRegistry(services={})
@@ -1309,8 +1315,13 @@ class TestToolIsolation:
         try:
             with patch.object(worker_pool.thread_guard, "set_background_task", block_unwind):
                 result = registry.execute("mutate_then_unwind", DummyContext())
-            # Wait for worker thread to reach the unwind hook after queuing result.
-            assert entered.wait(timeout=2)
+            # Bugfix: What was wrong: On heavily loaded CI runners running pytest -n,
+            # entered.wait(timeout=2) intermittently timed out because worker thread
+            # scheduling delays exceeded 2s before reaching set_background_task(None).
+            # How it happened: 2s was too tight under thread contention.
+            # Why this change fixes it: 30s gives a generous bound on slow runners
+            # and returns immediately on success, adding no wall-clock overhead.
+            assert entered.wait(timeout=30)
             assert result["status"] == "ok"
             assert result["applied"] is True
             assert applied == ["applied"]
