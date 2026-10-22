@@ -2233,14 +2233,14 @@ def test_brainstorming_send_replaces_writing_plan_topic():
     send.chat_mode_selector = MagicMock()
     send._active_mode = CHAT_MODE_WRITING_PLAN
     send._mode_topic = "Old Writing Plan Topic"
-    send._run_brainstorming = MagicMock()
+    send._send_handlers._run_brainstorming = MagicMock()
 
     with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_BRAINSTORMING), \
          patch("plugin.chatbot.dialogs.get_control_text", return_value="New Brainstorming Query"):
         send._do_send()
 
     assert send._mode_topic == "New Brainstorming Query"
-    send._run_brainstorming.assert_called_once()
+    send._send_handlers._run_brainstorming.assert_called_once()
 
 
 def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():

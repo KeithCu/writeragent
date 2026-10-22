@@ -1538,29 +1538,29 @@ class SendButtonListener(BaseActionListener):
 
             if sidebar_mode == CHAT_MODE_LIBRARIAN:
                 log.info("_do_send: using librarian onboarding agent")
-                self._run_librarian(query_text, model)
+                self._send_handlers._run_librarian(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
                 log.info("_do_send: using web research sub-agent — skip chat model and direct image")
-                self._run_web_research(query_text, model)
+                self._send_handlers._run_web_research(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
                 log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
-                self._run_deep_web_research(query_text, model)
+                self._send_handlers._run_deep_web_research(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_IMAGE:
                 log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
-                self._do_send_direct_image(query_text, model)
+                self._send_handlers._do_send_direct_image(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
                 if self._active_mode != CHAT_MODE_BRAINSTORMING or not self._mode_topic:
                     self._mode_topic = query_text
                 log.info("_do_send: using brainstorming sub-agent")
-                self._run_brainstorming(query_text, model)
+                self._send_handlers._run_brainstorming(query_text, model)
                 return
 
             # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
@@ -1568,14 +1568,14 @@ class SendButtonListener(BaseActionListener):
                 if not self._mode_topic:
                     self._mode_topic = query_text
                 log.info("_do_send: using writing plan sub-agent")
-                self._run_writing_plan(query_text, model)
+                self._send_handlers._run_writing_plan(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
                 if self._active_mode != CHAT_MODE_PPT_MASTER or not self._mode_topic:
                     self._mode_topic = query_text
                 log.info("_do_send: using PPT-Master sub-agent")
-                self._run_ppt_master(query_text, model)
+                self._send_handlers._run_ppt_master(query_text, model)
                 return
 
             # Agent backend: use external agent instead of built-in LLM.
@@ -1591,7 +1591,7 @@ class SendButtonListener(BaseActionListener):
                 agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
                 if agent_backend_id and agent_backend_id != "builtin":
                     log.info("_do_send: using agent backend %s" % agent_backend_id)
-                    self._do_send_via_agent_backend(query_text, model, doc_type_label)
+                    self._send_handlers._do_send_via_agent_backend(query_text, model, doc_type_label)
                     return
             except Exception as exc:
                 log.exception("_do_send: agent backend check failed")
@@ -1602,8 +1602,7 @@ class SendButtonListener(BaseActionListener):
                 return
 
             # Regular Chat with Tools or Streams
-            # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
-            getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_label)
+            self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_label)
 
         except Exception:
             # Bugfix: this except used to put the Ask text back after
@@ -1774,63 +1773,9 @@ class SendButtonListener(BaseActionListener):
         if not already_appended:
             self.session.add_user_message(query_text)
             self._append_response(query_text, role="user")
-        getattr(self, "_do_send_chat_with_tools")(
+        self._tool_calling._do_send_chat_with_tools(
             query_text, model, doc_type_label, skip_append_user=True
         )
-
-    # Forwarders to composed SendHandlersMixin and ToolCallingMixin.
-    def _run_librarian(self, query_text: str, model: Any) -> None:
-        self._send_handlers._run_librarian(query_text, model)
-
-    def _run_web_research(self, query_text: str, model: Any, is_deep_research: bool = False) -> None:
-        self._send_handlers._run_web_research(query_text, model, is_deep_research=is_deep_research)
-
-    def _run_deep_web_research(self, query_text: str, model: Any) -> None:
-        self._send_handlers._run_deep_web_research(query_text, model)
-
-    def _do_send_direct_image(self, query_text: str, model: Any) -> None:
-        self._send_handlers._do_send_direct_image(query_text, model)
-
-    def _run_brainstorming(self, query_text: str, model: Any) -> None:
-        self._send_handlers._run_brainstorming(query_text, model)
-
-    def _run_writing_plan(self, query_text: str, model: Any) -> None:
-        self._send_handlers._run_writing_plan(query_text, model)
-
-    def _run_ppt_master(self, query_text: str, model: Any) -> None:
-        self._send_handlers._run_ppt_master(query_text, model)
-
-    def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
-        self._send_handlers._do_send_via_agent_backend(query_text, model, doc_type_str)
-
-    def _execute_direct_image_effect(self, effect: Any) -> None:
-        self._send_handlers._execute_direct_image_effect(effect)
-
-    def _execute_agent_backend_effect(self, effect: Any) -> None:
-        self._send_handlers._execute_agent_backend_effect(effect)
-
-    def _execute_web_research_effect(self, effect: Any) -> None:
-        self._send_handlers._execute_web_research_effect(effect)
-
-    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
-        self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_str, skip_append_user=skip_append_user)
-
-    def _spawn_final_stream(self, q: Any, client: Any, max_tokens: int) -> None:
-        self._tool_calling._spawn_final_stream(q, client, max_tokens)
-
-    def _refresh_active_tools_for_session(self) -> None:
-        self._tool_calling._refresh_active_tools_for_session()
-
-    def _spawn_llm_worker(self, q: Any, client: Any, max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
-        self._tool_calling._spawn_llm_worker(q, client, max_tokens, tools, round_num, query_text=query_text, force_compact=force_compact)
-
-    @property
-    def _sm_state(self) -> Any:
-        return self._tool_calling._sm_state
-
-    @_sm_state.setter
-    def _sm_state(self, value: Any) -> None:
-        self._tool_calling._sm_state = value
 
     # Writer edit selection uses WriterStreamedRewriteSession (document compound undo). Broader
     # chat/tool undo grouping is still future work.

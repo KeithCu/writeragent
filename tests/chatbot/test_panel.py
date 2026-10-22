@@ -2371,7 +2371,7 @@ class TestPanelR14Fixes:
             patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
             patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT),
             patch("plugin.framework.config.get_config", return_value="builtin"),
-            patch.object(listener, "_do_send_chat_with_tools", side_effect=_fake_chat_with_tools),
+            patch.object(listener._tool_calling, "_do_send_chat_with_tools", side_effect=_fake_chat_with_tools),
             patch.object(listener, "_restore_query_text") as mock_restore,
         ):
             listener._get_document_model = MagicMock(return_value=MagicMock())
@@ -2418,7 +2418,7 @@ class TestPanelR14Fixes:
         assert listener.sidebar_state.tool_loop is None
 
         with pytest.raises(RuntimeError, match="without active session"):
-            _ = listener._sm_state
+            _ = listener._tool_calling._sm_state
 
         tl = ToolLoopState(
             round_num=0,
@@ -2427,11 +2427,11 @@ class TestPanelR14Fixes:
             status="Thinking...",
             async_tools=frozenset(),
         )
-        listener._sm_state = tl
+        listener._tool_calling._sm_state = tl
         assert listener.sidebar_state.tool_loop is tl
-        assert listener._sm_state.round_num == 0
+        assert listener._tool_calling._sm_state.round_num == 0
 
-        listener._sm_state = None
+        listener._tool_calling._sm_state = None
         assert listener.sidebar_state.tool_loop is None
 
 

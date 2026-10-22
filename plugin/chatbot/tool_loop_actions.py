@@ -491,9 +491,6 @@ class ToolLoopActionHost(Protocol):
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
-    def _refresh_active_tools_for_session(self) -> None: ...
-    def _spawn_llm_worker(self, q: Any, client: Any, max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None: ...
-    def _spawn_final_stream(self, q: Any, client: Any, max_tokens: int) -> None: ...
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
 
 
@@ -668,6 +665,7 @@ class ToolLoopEffectInterpreter:
         """Run one effect and return True when the drain loop should exit."""
 
         host = self.host
+        tool_calling: Any = getattr(host, "_tool_calling", host)
         if isinstance(effect, ExitLoopEffect):
             return True
         if isinstance(effect, TriggerNextToolEffect):
@@ -677,7 +675,7 @@ class ToolLoopEffectInterpreter:
             q = spawn_queue(turn) if turn is not None else None
             if turn is None or q is None or turn.active_client is None:
                 return True
-            host._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
+            tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
                 return True
@@ -692,8 +690,8 @@ class ToolLoopEffectInterpreter:
             q = spawn_queue(turn) if turn is not None else None
             if turn is None or q is None or turn.active_client is None:
                 return True
-            host._refresh_active_tools_for_session()
-            host._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
+            tool_calling._refresh_active_tools_for_session()
+            tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
             self._update_activity_state(effect)
         elif isinstance(effect, CleanupAudioEffect):

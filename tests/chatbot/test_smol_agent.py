@@ -92,6 +92,16 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
     query_control = MagicMock()
     query_control.getModel.return_value = True
 
+    send_handlers = SimpleNamespace(
+        _run_writing_plan=MagicMock(),
+        _run_librarian=MagicMock(),
+        _do_send_direct_image=MagicMock(),
+        _do_send_via_agent_backend=MagicMock(),
+    )
+    tool_calling = SimpleNamespace(
+        _do_send_chat_with_tools=MagicMock(),
+    )
+
     return SimpleNamespace(
         ctx=MagicMock(),
         ensure_path_fn=None,
@@ -109,12 +119,9 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
         _append_response=MagicMock(),
-        _run_writing_plan=MagicMock(),
-        _run_librarian=MagicMock(),
-        _do_send_chat_with_tools=MagicMock(),
-        _do_send_direct_image=MagicMock(),
-        _do_send_via_agent_backend=MagicMock(),
         _restore_query_text=MagicMock(),
+        _send_handlers=send_handlers,
+        _tool_calling=tool_calling,
     )
 
 
@@ -1039,8 +1046,8 @@ def test_do_send_enters_librarian_when_selector_is_librarian():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._run_librarian.assert_called_once()
-    listener._do_send_chat_with_tools.assert_not_called()
+    listener._send_handlers._run_librarian.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
 
 
 def test_do_send_writer_writing_plan_uses_subagent():
@@ -1051,8 +1058,8 @@ def test_do_send_writer_writing_plan_uses_subagent():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._run_writing_plan.assert_called_once()
-    listener._do_send_chat_with_tools.assert_not_called()
+    listener._send_handlers._run_writing_plan.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
 
 
 def test_do_send_calc_writing_plan_stays_on_chat_tools():
@@ -1064,8 +1071,8 @@ def test_do_send_calc_writing_plan_stays_on_chat_tools():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._run_writing_plan.assert_not_called()
-    listener._do_send_chat_with_tools.assert_called_once()
+    listener._send_handlers._run_writing_plan.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
 
 
 def test_do_send_chat_even_when_user_memory_missing():
@@ -1080,8 +1087,8 @@ def test_do_send_chat_even_when_user_memory_missing():
         mock_store.return_value.read.return_value = ""
         SendButtonListener._do_send(listener)
 
-    listener._run_librarian.assert_not_called()
-    listener._do_send_chat_with_tools.assert_called_once()
+    listener._send_handlers._run_librarian.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
     mock_store.assert_not_called()
 
 
@@ -1093,8 +1100,8 @@ def test_do_send_uses_document_chat_when_selector_is_chat():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._run_librarian.assert_not_called()
-    listener._do_send_chat_with_tools.assert_called_once()
+    listener._send_handlers._run_librarian.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
 
 
 def test_do_send_agent_backend_exception_does_not_start_builtin():
@@ -1102,15 +1109,15 @@ def test_do_send_agent_backend_exception_does_not_start_builtin():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
     listener = _make_listener()
-    listener._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
+    listener._send_handlers._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
     with patches[0], patches[1], patches[2], patches[3], patch(
         "plugin.acp.registry.normalize_backend_id", return_value="hermes"
     ), patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._do_send_via_agent_backend.assert_called_once()
-    listener._do_send_chat_with_tools.assert_not_called()
+    listener._send_handlers._do_send_via_agent_backend.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
     assert listener._terminal_status == "Error"
     assert listener._set_status.call_args[0][0] == "Error"
     shown = listener._append_response.call_args[0][0]
@@ -1129,8 +1136,8 @@ def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
     ), patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._do_send_via_agent_backend.assert_not_called()
-    listener._do_send_chat_with_tools.assert_not_called()
+    listener._send_handlers._do_send_via_agent_backend.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
     assert listener._terminal_status == "Error"
     shown = listener._append_response.call_args[0][0]
     assert "config boom" in shown
@@ -1147,8 +1154,8 @@ def test_do_send_agent_backend_success_skips_builtin():
     ), patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._do_send_via_agent_backend.assert_called_once()
-    listener._do_send_chat_with_tools.assert_not_called()
+    listener._send_handlers._do_send_via_agent_backend.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
     listener._append_response.assert_not_called()
 
 

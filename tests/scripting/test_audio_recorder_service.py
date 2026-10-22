@@ -326,7 +326,7 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
     assert recovered is None
-    host._spawn_llm_worker.assert_not_called()
+    host._tool_calling._spawn_llm_worker.assert_not_called()
     mock_remove.assert_not_called()
     assert host.audio_wav_path == "/fake/a.wav"
     texts = [str(call.args[0]) for call in host._append_response.call_args_list]
