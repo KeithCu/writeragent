@@ -637,10 +637,10 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     stt_model = get_stt_model()
     # Local Whisper does not need an endpoint model id. Endpoint STT still does.
     local_stt = uses_local_stt()
-    retry_q = None
-    if turn is not None and getattr(turn, "alive", False):
-        retry_q = getattr(turn, "batcher", None) or getattr(turn, "queue", None)
-    if (stt_model or local_stt) and retry_q is not None and host._active_client is not None:
+    if turn is None or not getattr(turn, "alive", False):
+        return False
+    retry_q = getattr(turn, "batcher", None) or getattr(turn, "queue", None)
+    if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
             transcript = host._transcribe_audio(host.audio_wav_path, stt_model)
@@ -665,15 +665,15 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
                 host._terminal_status = ""
                 return None
-            combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
+            combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
             if host.session.messages and host.session.messages[-1].get("role") == "user":
                 host.session.messages[-1]["content"] = combined
                 if getattr(host.session, "db", None):
                     host.session.db.update_last_user_content(combined)
             else:
                 host.session.add_user_message(combined)
-            host._active_query_text = combined
-            host._spawn_llm_worker(retry_q, host._active_client, host._active_max_tokens, host._active_tools or [], host._sm_state.round_num, query_text=combined)
+            turn.active_query_text = combined
+            host._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._sm_state.round_num, query_text=combined)
             return True
         except Exception:
             log.exception("STT fallback after native-audio error failed")

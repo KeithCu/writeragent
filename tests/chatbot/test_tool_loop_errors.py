@@ -226,13 +226,13 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     from plugin.chatbot.tool_loop_actions import current_turn
 
     test_instance.audio_wav_path = "/fake/path/audio.wav"
-    test_instance._active_query_text = "hello"
     live = current_turn(test_instance)
+    live.active_query_text = "hello"
     live.queue = MagicMock()
     live.batcher = None
-    test_instance._active_client = MagicMock()
-    test_instance._active_max_tokens = 128
-    test_instance._active_tools = []
+    live.active_client = MagicMock()
+    live.active_max_tokens = 128
+    live.active_tools = []
     live.model = MagicMock()
     test_instance.session.messages.append({"role": "user", "content": [{"type": "input_audio"}]})
     test_instance.sidebar_state = dataclasses.replace(
@@ -276,13 +276,13 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     from plugin.chatbot.tool_loop_actions import current_turn
 
     test_instance.audio_wav_path = "/fake/path/audio.wav"
-    test_instance._active_query_text = ""
     live = current_turn(test_instance)
+    live.active_query_text = ""
     live.queue = MagicMock()
     live.batcher = None
-    test_instance._active_client = MagicMock()
-    test_instance._active_max_tokens = 128
-    test_instance._active_tools = []
+    live.active_client = MagicMock()
+    live.active_max_tokens = 128
+    live.active_tools = []
     test_instance._spawn_llm_worker = MagicMock()
     test_instance._transcribe_audio = MagicMock(return_value="   ")
     test_instance.sidebar_state = dataclasses.replace(
@@ -405,10 +405,10 @@ def _prime_active_tool_loop(instance):
     live._last_compact_reason = None
     live._last_compact_tokens_before = None
     live._last_compact_tokens_after = None
-    instance._active_client = MagicMock()
-    instance._active_max_tokens = 128
-    instance._active_tools = []
-    instance._active_query_text = "hello"
+    live.active_client = MagicMock()
+    live.active_max_tokens = 128
+    live.active_tools = []
+    live.active_query_text = "hello"
     instance.sidebar_state = dataclasses.replace(
         instance.sidebar_state,
         tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),

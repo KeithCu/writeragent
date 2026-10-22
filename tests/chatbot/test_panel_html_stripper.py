@@ -13,7 +13,6 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.panel import SendButtonListener
 from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper
@@ -21,18 +20,16 @@ from plugin.framework.html_stripper import StreamingHTMLStripper
 
 def _make_plain_send_listener():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from tests.conftest import make_mock_send_button_listener
 
-    with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
-        send = SendButtonListener.__new__(SendButtonListener)
-        send.ctx = MagicMock()
-        send.rich_text_widget = None
-        send.response_control = MagicMock()
-        send.response_control.getModel.return_value = MagicMock()
-        send.session = None
-        send._scroll_response_to_bottom = MagicMock()
-        send.queue_executor = MagicMock()
-        begin_send_turn(send, "chat")
-        return send
+    send = make_mock_send_button_listener()
+    send.rich_text_widget = None
+    send.response_control = MagicMock()
+    send.response_control.getModel.return_value = MagicMock()
+    send.session = None
+    send._scroll_response_to_bottom = MagicMock()
+    begin_send_turn(send, "chat")
+    return send
 
 
 def _turn(send):

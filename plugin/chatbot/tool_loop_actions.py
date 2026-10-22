@@ -12,7 +12,10 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from plugin.framework.client.llm_client import LlmClient
 
 from plugin.chatbot.tool_loop_state import (
     DELEGATE_GATEWAY_TOOL_NAMES,
@@ -93,6 +96,12 @@ class TurnController:
     _last_compact_reason: str | None
     _last_compact_tokens_before: int | None
     _last_compact_tokens_after: int | None
+    active_client: "LlmClient | None"
+    active_max_tokens: int
+    active_tools: list[dict[str, Any]] | None
+    active_execute_tool_fn: Callable[..., Any] | None
+    active_query_text: str | None
+    active_supports_status: bool
 
     def __init__(
         self,
@@ -121,6 +130,12 @@ class TurnController:
         self._last_compact_reason = None
         self._last_compact_tokens_before = None
         self._last_compact_tokens_after = None
+        self.active_client = None
+        self.active_max_tokens = 0
+        self.active_tools = None
+        self.active_execute_tool_fn = None
+        self.active_query_text = None
+        self.active_supports_status = False
 
     @property
     def alive(self) -> bool:
@@ -470,12 +485,6 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    _active_client: Any
-    _active_max_tokens: int
-    _active_tools: list[dict[str, Any]]
-    _active_execute_tool_fn: Callable[..., Any]
-    _active_query_text: str | None
-    _active_supports_status: bool
     _terminal_status: str
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -665,9 +674,9 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, SpawnFinalStreamEffect):
             turn = running_turn(host)
             q = spawn_queue(turn) if turn is not None else None
-            if q is None:
+            if turn is None or q is None or turn.active_client is None:
                 return True
-            host._spawn_final_stream(q, host._active_client, host._active_max_tokens)
+            host._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
                 return True
@@ -680,10 +689,10 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, SpawnLLMWorkerEffect):
             turn = running_turn(host)
             q = spawn_queue(turn) if turn is not None else None
-            if q is None:
+            if turn is None or q is None or turn.active_client is None:
                 return True
             host._refresh_active_tools_for_session()
-            host._spawn_llm_worker(q, host._active_client, host._active_max_tokens, host._active_tools, effect.round_num, query_text=host._active_query_text)
+            host._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
             self._update_activity_state(effect)
         elif isinstance(effect, CleanupAudioEffect):
@@ -807,12 +816,14 @@ class ToolLoopEffectInterpreter:
         # replace both while this tool is still in flight, so the old call
         # runs against the new send. The failure path closes over the same
         # values.
-        execute_tool_fn = host._active_execute_tool_fn
+        execute_tool_fn = turn.active_execute_tool_fn
+        if execute_tool_fn is None:
+            return True
         # Same object execute_fn receives as ``doc``. It was captured on the
         # turn at spawn. A later send must not retarget this call or the
         # disposed-document check.
         spawn_doc = model
-        supports_status = host._active_supports_status
+        supports_status = turn.active_supports_status
         # Scope and checker from this send. execute_fn must not read the
         # panel field when the tool later runs.
         bound_scope, bound_stop = capture_send_stop(host)

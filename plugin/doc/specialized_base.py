@@ -45,7 +45,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
 
     Nested specializes (ranges/sheets/…) otherwise look "done" to the outer and it
     Ready-s without ``document_research`` → ``send_peer_result``. Probe the live
-    panel listener's ``_active_query_text`` and last user ``session.messages``
+    panel listener's active turn ``active_query_text`` and last user ``session.messages``
     entry; RuntimeUID lookup is UNO so marshal to the main thread.
     """
     from plugin.framework.prompts import looks_like_peer_work_envelope
@@ -66,7 +66,10 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         listener = getattr(panel, "send_listener", None)
         if listener is None:
             return False
-        if looks_like_peer_work_envelope(getattr(listener, "_active_query_text", None)):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(listener)
+        if turn is not None and looks_like_peer_work_envelope(getattr(turn, "active_query_text", None)):
             return True
         session = getattr(listener, "session", None)
         messages = getattr(session, "messages", None) if session is not None else None

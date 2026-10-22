@@ -467,22 +467,21 @@ class TestSkipLegacyStreamChunk:
 
 class TestRerenderRichControlScroll:
     def test_rerender_delegates_to_widget(self):
-        from plugin.chatbot.panel import SendButtonListener
+        from tests.conftest import make_mock_send_button_listener
 
-        with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
-            send = SendButtonListener.__new__(SendButtonListener)
-            widget = MagicMock()
-            send.rich_text_widget = widget
-            send.session = MagicMock()
-            send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
-            send._assistant_stream_start_len = 100
+        send = make_mock_send_button_listener()
+        widget = MagicMock()
+        send.rich_text_widget = widget
+        send.session = MagicMock()
+        send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
+        send._assistant_stream_start_len = 100
 
-            send.rerender_rich_text_session()
+        send.rerender_rich_text_session()
 
-            widget.rerender_last_assistant_if_html.assert_called_once_with(
-                send.session,
-                100,
-            )
+        widget.rerender_last_assistant_if_html.assert_called_once_with(
+            send.session,
+            100,
+        )
 
 
 class TestRichTextChatWidget:

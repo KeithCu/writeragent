@@ -588,7 +588,10 @@ def test_refresh_active_tools_for_session():
         panel.cached_doc_type = "writer"
         panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
         session.active_specialized_domain = "tables"
-        panel._active_tools = [{"function": {"name": "stale"}}]
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+
+        turn = begin_send_turn(panel, "chat")
+        turn.active_tools = [{"function": {"name": "stale"}}]
 
         panel._refresh_active_tools_for_session()
 
@@ -600,7 +603,7 @@ def test_refresh_active_tools_for_session():
             ctx=panel.ctx,
             doc=None,
         )
-        assert panel._active_tools == [{"function": {"name": "fresh"}}]
+        assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
     finally:
         if old_main is not None:
             sys.modules["plugin.main"] = old_main

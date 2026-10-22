@@ -1,15 +1,12 @@
 from unittest.mock import MagicMock, patch
-from plugin.chatbot.panel import SendButtonListener
 from plugin.chatbot.tool_loop_actions import TurnController
 
 
 def test_mcp_result_preserves_concurrent_requests():
     """Verify that earlier concurrent MCP requests are not dropped by later request IDs."""
-    listener = SendButtonListener.__new__(SendButtonListener)
-    listener.ctx = MagicMock()
-    listener._panel_teardown = False
-    listener._mcp_event_bus = MagicMock()
-    listener._last_mcp_turn = {}
+    from tests.conftest import make_mock_send_button_listener
+
+    listener = make_mock_send_button_listener()
 
     turn_mock = MagicMock(spec=TurnController)
     turn_mock.alive = True

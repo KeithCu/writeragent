@@ -14,21 +14,18 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_send_listener():
-    from plugin.chatbot.panel import SendButtonListener
+    from tests.conftest import make_mock_send_button_listener
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-    with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
-        send = SendButtonListener.__new__(SendButtonListener)
-        send.rich_text_widget = MagicMock()
-        send.rich_text_widget.get_text_length.return_value = 500
-        send.queue_executor = MagicMock()
-        send._record_assistant_start = False
-        send._assistant_stream_start_len = None
-        send.session = MagicMock()
-        send.session.messages = []
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-
-        begin_send_turn(send, "chat")
-        return send
+    send = make_mock_send_button_listener()
+    send.rich_text_widget = MagicMock()
+    send.rich_text_widget.get_text_length.return_value = 500
+    send.queue_executor = MagicMock()
+    send._record_assistant_start = False
+    send._assistant_stream_start_len = None
+    send.session.messages = []
+    begin_send_turn(send, "chat")
+    return send
 
 
 class TestRichAppendResponse:

@@ -460,20 +460,6 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
             ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
 
 
-def _get_mcp_turn_lock(listener: Any) -> threading.Lock:
-    """Return the MCP turn lock for the listener, allocating lazily if absent.
-
-    Bugfix: duck-typed listeners (e.g. test DummyListener) borrow _on_mcp_result
-    without inheriting from SendButtonListener. Allocating lazily if missing
-    ensures MCP turn popping and synchronization work without raising AttributeError.
-    """
-    lock = getattr(listener, "_mcp_turn_lock", None)
-    if lock is None:
-        lock = threading.Lock()
-        listener._mcp_turn_lock = lock
-    return lock
-
-
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -503,13 +489,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _stt_inflight: bool
     _stt_kill: Any
     _send_busy: bool
-    _in_librarian_mode: bool
-    _in_brainstorming_mode: bool
-    _brainstorming_topic: str
-    _in_writing_plan_mode: bool
-    _writing_plan_topic: str
-    _in_ppt_master_mode: bool
-    _ppt_master_topic: str
+    _active_mode: str
+    _mode_topic: str
     panel: Any
     audio_wav_path: str | None
     _acp_backend: Any
@@ -534,29 +515,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
+    _mcp_turn_lock: threading.Lock
     _stop_mouse_listener: Any
     _stop_mouse_control: Any
     _record_mouse_listener: Any
     _record_mouse_control: Any
 
-    @property
-    def _mcp_turn_lock(self) -> threading.Lock:
-        # Bugfix: tests build SendButtonListener via __new__ without calling __init__,
-        # or access _mcp_turn_lock before __init__ finishes, raising AttributeError.
-        # Allocating lazily on access guarantees the lock is always available.
-        lock = self.__dict__.get("_mcp_turn_lock")
-        if lock is None:
-            lock = threading.Lock()
-            self.__dict__["_mcp_turn_lock"] = lock
-        return lock
-
-    @_mcp_turn_lock.setter
-    def _mcp_turn_lock(self, val: threading.Lock) -> None:
-        self.__dict__["_mcp_turn_lock"] = val
-
     def clear_pending_audio_wav(self) -> None:
         """Clear and delete any un-sent audio recording."""
-        if hasattr(self, "audio_wav_path") and self.audio_wav_path:
+        if self.audio_wav_path:
             import os
 
             try:
@@ -616,13 +583,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._stt_inflight = False
         self._stt_kill = None
         self._send_busy = False
-        self._in_librarian_mode = False
-        self._in_brainstorming_mode = False
-        self._brainstorming_topic = ""
-        self._in_writing_plan_mode = False
-        self._writing_plan_topic = ""
-        self._in_ppt_master_mode = False
-        self._ppt_master_topic = ""
+        self._active_mode = ""
+        self._mode_topic = ""
         self.panel = None
         self.client = None
         self.audio_wav_path = None
@@ -635,12 +597,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._turn = None
         self._last_mcp_turn = {}
         self._mcp_turn_lock = threading.Lock()
-        self._active_client: Any = None
-        self._active_max_tokens: Any = None
-        self._active_tools: Any = None
-        self._active_execute_tool_fn: Any = None
-        self._active_query_text: Any = None
-        self._active_supports_status: Any = None
         self._record_assistant_start = False
         self._assistant_stream_start_len: int | None = None
         self._approval_event = None
@@ -839,17 +795,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         )
 
         flags = getattr(self, "sidebar_mode_flags", None)
-        # Read _brainstorming_topic before clear_brainstorming_session blanks
+        # Read _mode_topic before clear_brainstorming_session blanks
         # it, or the writing-plan handoff is always "Implement the saved spec: ".
         # selectItemPos often does not fire ChatModeListener, so the combo
         # moves and the sidebar stays in the old mode until the user touches it.
         # Apply the mode here.
-        topic = getattr(self, "_brainstorming_topic", "") or ""
+        topic = getattr(self, "_mode_topic", "") or ""
         clear_brainstorming_session(self)
         apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
         if spec_saved:
-            self._in_writing_plan_mode = True
-            self._writing_plan_topic = f"Implement the saved spec: {topic}"
+            self._active_mode = CHAT_MODE_WRITING_PLAN
+            self._mode_topic = f"Implement the saved spec: {topic}"
             if self.chat_mode_selector and flags:
                 set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
             if callable(apply_fn):
@@ -1270,10 +1226,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # prevents data races and stops late requests from storing turns after teardown.
         rid = str(kwargs.get("req_id", ""))
         turn = current_turn(self)
-        with _get_mcp_turn_lock(self):
-            if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
+        with self._mcp_turn_lock:
+            if self._panel_teardown or getattr(self, "ctx", None) is None:
                 return
-            kept = {k: v for k, v in getattr(self, "_last_mcp_turn", {}).items() if getattr(v, "alive", False)}
+            kept = {k: v for k, v in self._last_mcp_turn.items() if getattr(v, "alive", False)}
             kept[rid] = turn
             self._last_mcp_turn = kept
         from plugin.framework.logging import format_tool_call_for_display
@@ -1295,7 +1251,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
         rid = str(kwargs.get("req_id", ""))
-        with _get_mcp_turn_lock(self):
+        with self._mcp_turn_lock:
             last_turn = self._last_mcp_turn.pop(rid, None)
         if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
             return
@@ -2236,23 +2192,23 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 return
 
             if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
-                if not self._brainstorming_topic:
-                    self._brainstorming_topic = query_text
+                if self._active_mode != CHAT_MODE_BRAINSTORMING or not self._mode_topic:
+                    self._mode_topic = query_text
                 log.info("_do_send: using brainstorming sub-agent")
                 self._run_brainstorming(query_text, model)
                 return
 
             # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
             if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
-                if not getattr(self, "_writing_plan_topic", None):
-                    self._writing_plan_topic = query_text
+                if not self._mode_topic:
+                    self._mode_topic = query_text
                 log.info("_do_send: using writing plan sub-agent")
                 self._run_writing_plan(query_text, model)
                 return
 
             if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
-                if not getattr(self, "_ppt_master_topic", None):
-                    self._ppt_master_topic = query_text
+                if self._active_mode != CHAT_MODE_PPT_MASTER or not self._mode_topic:
+                    self._mode_topic = query_text
                 log.info("_do_send: using PPT-Master sub-agent")
                 self._run_ppt_master(query_text, model)
                 return
@@ -2498,9 +2454,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
-        with _get_mcp_turn_lock(self):
-            if hasattr(self, "_last_mcp_turn"):
-                self._last_mcp_turn.clear()
+        with self._mcp_turn_lock:
+            self._last_mcp_turn.clear()
         # Drop silence auto-stop lambdas before cleanup. They stay on the
         # recorder and post UI work after this listener is gone, and stop
         # then re-enters the panel.
@@ -2816,13 +2771,10 @@ class ClearButtonListener(BaseActionListener):
             # send; abort again when it was idle so a worker that outlived
             # the button cannot paint onto the new list.
             abort_turn(self.send_listener)
-            # Reset mode topics so the next prompt sets a fresh one. Clear
-            # wipes session history; leaving _brainstorming_topic,
-            # _writing_plan_topic, and _ppt_master_topic lets _do_send reuse
+            # Reset mode topic so the next prompt sets a fresh one. Clear
+            # wipes session history; leaving _mode_topic lets _do_send reuse
             # the stale topic with an empty history.
-            self.send_listener._brainstorming_topic = ""
-            self.send_listener._writing_plan_topic = ""
-            self.send_listener._ppt_master_topic = ""
+            self.send_listener._mode_topic = ""
         self.session.clear()
 
         greeting = self.greeting

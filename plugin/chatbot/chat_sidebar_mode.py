@@ -220,14 +220,17 @@ def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) 
 
 def clear_brainstorming_session(send_listener: Any) -> None:
     """Drop in-progress brainstorming state (dropdown change or normal exit)."""
-    send_listener._in_brainstorming_mode = False
-    send_listener._brainstorming_topic = ""
+    # Writing Plan is left set across dropdown applies, so a clear for another mode must not blank this slot.
+    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_BRAINSTORMING:
+        send_listener._active_mode = ""
+        send_listener._mode_topic = ""
 
 
 def clear_ppt_master_session(send_listener: Any) -> None:
     """Drop in-progress PPT-Master state."""
-    send_listener._in_ppt_master_mode = False
-    send_listener._ppt_master_topic = ""
+    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_PPT_MASTER:
+        send_listener._active_mode = ""
+        send_listener._mode_topic = ""
 
 
 def is_image_mode(mode: str) -> bool:
@@ -263,10 +266,12 @@ def mark_librarian_invoked() -> None:
 
 def clear_librarian_session(send_listener: Any) -> None:
     """Drop sticky librarian flag only — do not wipe librarian ChatSession history."""
-    send_listener._in_librarian_mode = False
+    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_LIBRARIAN:
+        send_listener._active_mode = ""
 
 
 def clear_writing_plan_session(send_listener: Any) -> None:
     """Drop in-progress writing plan state."""
-    send_listener._in_writing_plan_mode = False
-    send_listener._writing_plan_topic = ""
+    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_WRITING_PLAN:
+        send_listener._active_mode = ""
+        send_listener._mode_topic = ""

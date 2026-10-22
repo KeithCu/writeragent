@@ -47,6 +47,12 @@ from plugin.chatbot.tool_loop_actions import (
     persist_assistant_on_turn,
     running_turn,
 )
+from plugin.chatbot.chat_sidebar_mode import (
+    CHAT_MODE_BRAINSTORMING,
+    CHAT_MODE_LIBRARIAN,
+    CHAT_MODE_PPT_MASTER,
+    CHAT_MODE_WRITING_PLAN,
+)
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -176,13 +182,9 @@ class SendHandlerHost(Protocol):
     def stop_requested(self) -> bool: ...
 
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
-    _in_librarian_mode: bool
+    _active_mode: str
+    _mode_topic: str
     _librarian_suggested_user_name: str | None
-    _in_brainstorming_mode: bool
-    _brainstorming_topic: str
-    _in_writing_plan_mode: bool
-    _writing_plan_topic: str
-    _in_ppt_master_mode: bool
     _active_run_librarian: bool
     _active_run_brainstorming: bool
     _active_run_writing_plan: bool
@@ -248,10 +250,8 @@ class SendHandlersMixin:
     _acp_backend: Any = None
     _acp_backend_id: str | None = None
     _librarian_suggested_user_name: str | None = None
-    _in_librarian_mode: bool = False
-    _in_brainstorming_mode: bool = False
-    _in_writing_plan_mode: bool = False
-    _in_ppt_master_mode: bool = False
+    _active_mode: str = ""
+    _mode_topic: str = ""
     _active_run_librarian: bool = False
     _active_run_brainstorming: bool = False
     _active_run_writing_plan: bool = False
@@ -395,37 +395,42 @@ class SendHandlersMixin:
                 finished_cb = getattr(self, "on_librarian_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
-                else:
-                    self._in_librarian_mode = False
+                elif self._active_mode == CHAT_MODE_LIBRARIAN:
+                    self._active_mode = ""
             if payload.get("brainstorming_finished") or payload.get("in_brainstorming_mode") is False:
                 spec_saved = bool(payload.get("spec_saved", False))
                 finished_cb = getattr(self, "on_brainstorming_session_finished", None)
                 if callable(finished_cb):
                     finished_cb(spec_saved=spec_saved)
-                else:
-                    self._in_brainstorming_mode = False
+                elif self._active_mode == CHAT_MODE_BRAINSTORMING:
+                    self._active_mode = ""
+                    self._mode_topic = ""
             if payload.get("writing_plan_finished") or payload.get("in_writing_plan_mode") is False:
                 finished_cb = getattr(self, "on_writing_plan_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
-                else:
-                    self._in_writing_plan_mode = False
+                elif self._active_mode == CHAT_MODE_WRITING_PLAN:
+                    self._active_mode = ""
+                    self._mode_topic = ""
             if payload.get("ppt_master_finished") or payload.get("in_ppt_master_mode") is False:
                 finished_cb = getattr(self, "on_ppt_master_session_finished", None)
                 if callable(finished_cb):
                     finished_cb(exported=bool(payload.get("exported", False)))
-                else:
-                    self._in_ppt_master_mode = False
+                elif self._active_mode == CHAT_MODE_PPT_MASTER:
+                    self._active_mode = ""
+                    self._mode_topic = ""
 
-
-            if "in_librarian_mode" in payload:
-                self._in_librarian_mode = payload["in_librarian_mode"]
-            if "in_brainstorming_mode" in payload:
-                self._in_brainstorming_mode = payload["in_brainstorming_mode"]
-            if "in_writing_plan_mode" in payload:
-                self._in_writing_plan_mode = payload["in_writing_plan_mode"]
-            if "in_ppt_master_mode" in payload:
-                self._in_ppt_master_mode = payload["in_ppt_master_mode"]
+            if payload.get("in_librarian_mode") is False and self._active_mode == CHAT_MODE_LIBRARIAN:
+                self._active_mode = ""
+            if payload.get("in_brainstorming_mode") is False and self._active_mode == CHAT_MODE_BRAINSTORMING:
+                self._active_mode = ""
+                self._mode_topic = ""
+            if payload.get("in_writing_plan_mode") is False and self._active_mode == CHAT_MODE_WRITING_PLAN:
+                self._active_mode = ""
+                self._mode_topic = ""
+            if payload.get("in_ppt_master_mode") is False and self._active_mode == CHAT_MODE_PPT_MASTER:
+                self._active_mode = ""
+                self._mode_topic = ""
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
@@ -830,7 +835,7 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
-        self._in_librarian_mode = True
+        self._active_mode = CHAT_MODE_LIBRARIAN
         turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -856,7 +861,7 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
-        self._in_brainstorming_mode = True
+        self._active_mode = CHAT_MODE_BRAINSTORMING
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -880,7 +885,7 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
-        self._in_writing_plan_mode = True
+        self._active_mode = CHAT_MODE_WRITING_PLAN
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -904,7 +909,7 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
-        self._in_ppt_master_mode = True
+        self._active_mode = CHAT_MODE_PPT_MASTER
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -1055,7 +1060,7 @@ class SendHandlersMixin:
                         # Mode flag rides the one STREAM_DONE so the UI thread applies it.
                         q.put((StreamQueueKind.STREAM_DONE, {**_specialized_tool_error_payload(note), "in_librarian_mode": False}))
                 elif is_brainstorming:
-                    topic = getattr(self, "_brainstorming_topic", "") or ""
+                    topic = getattr(self, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "brainstorming_session",
                         tctx,
@@ -1095,7 +1100,7 @@ class SendHandlersMixin:
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_writing_plan:
-                    topic = getattr(self, "_writing_plan_topic", "") or ""
+                    topic = getattr(self, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "writing_plan_session",
                         tctx,
@@ -1135,7 +1140,7 @@ class SendHandlersMixin:
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_ppt_master:
-                    topic = getattr(self, "_ppt_master_topic", "") or ""
+                    topic = getattr(self, "_mode_topic", "") or ""
                     res = get_tools().execute(
                         "ppt_master_session",
                         tctx,

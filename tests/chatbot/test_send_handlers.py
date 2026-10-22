@@ -1,5 +1,11 @@
 from unittest.mock import MagicMock, patch
 
+from plugin.chatbot.chat_sidebar_mode import (
+    CHAT_MODE_BRAINSTORMING,
+    CHAT_MODE_LIBRARIAN,
+    CHAT_MODE_PPT_MASTER,
+    CHAT_MODE_WRITING_PLAN,
+)
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue
 from plugin.chatbot.send_handlers import SendHandlersMixin
@@ -14,7 +20,8 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.ctx = MockContext()
         setattr(self.ctx, "getServiceManager", MagicMock())
         self.stop_requested = False
-        self._in_librarian_mode = False
+        self._active_mode = ""
+        self._mode_topic = ""
         self.responses = []
         self.thinking_flags = []
         self.status_history = []
@@ -734,7 +741,7 @@ def test_agent_stop_with_no_chunks_stores_placeholder():
 def test_brainstorm_finish_runs_on_stream_done():
     panel = DummyChatbotPanel()
     panel.on_brainstorming_session_finished = MagicMock()
-    panel._in_brainstorming_mode = True
+    panel._active_mode = CHAT_MODE_BRAINSTORMING
 
     def worker(q) -> None:
         q.put((StreamQueueKind.STREAM_DONE, {"brainstorming_finished": True, "spec_saved": True}))
@@ -745,13 +752,13 @@ def test_brainstorm_finish_runs_on_stream_done():
 
 def test_writing_plan_finish_without_callback_clears_mode_flag():
     panel = DummyChatbotPanel()
-    panel._in_writing_plan_mode = True
+    panel._active_mode = CHAT_MODE_WRITING_PLAN
 
     def worker(q) -> None:
         q.put((StreamQueueKind.STREAM_DONE, {"writing_plan_finished": True}))
 
     _drive_unified_drain(panel, worker, "web")
-    assert panel._in_writing_plan_mode is False
+    assert panel._active_mode == ""
 
 
 
@@ -1281,7 +1288,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
                 with patch("plugin.chatbot.librarian.get_suggested_user_name", return_value="Keith"):
                     panel._run_librarian("Hello", model)  # type: ignore
 
-    assert panel._in_librarian_mode is True
+    assert panel._active_mode == CHAT_MODE_LIBRARIAN
     mock_registry.execute.assert_called_once()
     args, kwargs = mock_registry.execute.call_args
     assert args[0] == "librarian_onboarding"
@@ -1357,7 +1364,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
                 panel._run_librarian("Done", model)  # type: ignore
 
-    assert panel._in_librarian_mode is False
+    assert panel._active_mode == ""
     mock_registry.execute.assert_called_once()
 
 
@@ -2100,13 +2107,13 @@ def test_mode_flags_stuck_fix():
     panel = DummyChatbotPanel()
     with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
         panel._run_librarian("query", MagicMock())
-        assert not panel._in_librarian_mode
+        assert panel._active_mode == ""
         panel._run_brainstorming("query", MagicMock())
-        assert not getattr(panel, "_in_brainstorming_mode", False)
+        assert panel._active_mode == ""
         panel._run_writing_plan("query", MagicMock())
-        assert not getattr(panel, "_in_writing_plan_mode", False)
+        assert panel._active_mode == ""
         panel._run_ppt_master("query", MagicMock())
-        assert not getattr(panel, "_in_ppt_master_mode", False)
+        assert panel._active_mode == ""
 
 def test_execute_agent_backend_effect_errors():
     panel = DummyChatbotPanel()
@@ -2190,14 +2197,14 @@ def test_record_assistant_start_on_ui_thread_for_web_research():
 
 def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
     """A tool error that sets in_*_mode False runs the on_*_session_finished callback (which resets the combo)."""
-    for mode_attr, payload_key, callback_name in [
-        ("_in_librarian_mode", "in_librarian_mode", "on_librarian_session_finished"),
-        ("_in_brainstorming_mode", "in_brainstorming_mode", "on_brainstorming_session_finished"),
-        ("_in_writing_plan_mode", "in_writing_plan_mode", "on_writing_plan_session_finished"),
-        ("_in_ppt_master_mode", "in_ppt_master_mode", "on_ppt_master_session_finished"),
+    for mode_val, payload_key, callback_name in [
+        (CHAT_MODE_LIBRARIAN, "in_librarian_mode", "on_librarian_session_finished"),
+        (CHAT_MODE_BRAINSTORMING, "in_brainstorming_mode", "on_brainstorming_session_finished"),
+        (CHAT_MODE_WRITING_PLAN, "in_writing_plan_mode", "on_writing_plan_session_finished"),
+        (CHAT_MODE_PPT_MASTER, "in_ppt_master_mode", "on_ppt_master_session_finished"),
     ]:
         panel = DummyChatbotPanel()
-        setattr(panel, mode_attr, True)
+        panel._active_mode = mode_val
         callback = MagicMock()
         setattr(panel, callback_name, callback)
 
@@ -2210,8 +2217,30 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
 
         panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
 
-        assert getattr(panel, mode_attr) is False
+        assert panel._active_mode == ""
         callback.assert_called_once()
+
+
+def test_brainstorming_send_replaces_writing_plan_topic():
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_BRAINSTORMING,
+        CHAT_MODE_WRITING_PLAN,
+    )
+    from tests.conftest import make_mock_send_button_listener
+
+    send = make_mock_send_button_listener()
+    send.cached_doc_type = "writer"
+    send.chat_mode_selector = MagicMock()
+    send._active_mode = CHAT_MODE_WRITING_PLAN
+    send._mode_topic = "Old Writing Plan Topic"
+    send._run_brainstorming = MagicMock()
+
+    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_BRAINSTORMING), \
+         patch("plugin.chatbot.dialogs.get_control_text", return_value="New Brainstorming Query"):
+        send._do_send()
+
+    assert send._mode_topic == "New Brainstorming Query"
+    send._run_brainstorming.assert_called_once()
 
 
 def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():

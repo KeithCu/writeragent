@@ -140,27 +140,49 @@ def test_populate_mode_selector_sets_string_item_list_on_model():
 
 def test_clear_brainstorming_session_resets_flags():
     listener = MagicMock()
-    listener._in_brainstorming_mode = True
-    listener._brainstorming_topic = "topic"
+    listener._active_mode = CHAT_MODE_BRAINSTORMING
+    listener._mode_topic = "topic"
     clear_brainstorming_session(listener)
-    assert listener._in_brainstorming_mode is False
-    assert listener._brainstorming_topic == ""
+    assert listener._active_mode == ""
+    assert listener._mode_topic == ""
+
+
+def test_clear_brainstorming_session_skips_when_in_writing_plan():
+    listener = MagicMock()
+    listener._active_mode = CHAT_MODE_WRITING_PLAN
+    listener._mode_topic = "plan topic"
+    clear_brainstorming_session(listener)
+    assert listener._active_mode == CHAT_MODE_WRITING_PLAN
+    assert listener._mode_topic == "plan topic"
 
 
 def test_clear_writing_plan_session_resets_flags():
     listener = MagicMock()
-    listener._in_writing_plan_mode = True
-    listener._writing_plan_topic = "topic"
+    listener._active_mode = CHAT_MODE_WRITING_PLAN
+    listener._mode_topic = "topic"
     clear_writing_plan_session(listener)
-    assert listener._in_writing_plan_mode is False
-    assert listener._writing_plan_topic == ""
+    assert listener._active_mode == ""
+    assert listener._mode_topic == ""
+
+
+def test_clear_ppt_master_session_resets_flags():
+    from plugin.chatbot.chat_sidebar_mode import clear_ppt_master_session
+
+    listener = MagicMock()
+    listener._active_mode = CHAT_MODE_PPT_MASTER
+    listener._mode_topic = "topic"
+    clear_ppt_master_session(listener)
+    assert listener._active_mode == ""
+    assert listener._mode_topic == ""
 
 
 def test_clear_librarian_session_resets_flag_only():
     listener = MagicMock()
-    listener._in_librarian_mode = True
+    listener._active_mode = CHAT_MODE_LIBRARIAN
+    listener._mode_topic = "preserved topic"
     clear_librarian_session(listener)
-    assert listener._in_librarian_mode is False
+    assert listener._active_mode == ""
+    assert listener._mode_topic == "preserved topic"
 
 
 def test_librarian_default_mode_first_then_chat():

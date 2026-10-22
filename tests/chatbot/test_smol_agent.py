@@ -102,7 +102,8 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         chat_mode_selector=MagicMock(),
         model_selector=MagicMock(),
         query_control=query_control,
-        _in_librarian_mode=in_librarian_mode,
+        _active_mode="librarian" if in_librarian_mode else "",
+        _mode_topic="",
         _terminal_status="Ready",
         _stt_inflight=False,
         _set_status=MagicMock(),
@@ -1159,12 +1160,12 @@ def test_on_librarian_session_finished_applies_chat_mode():
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
         chat_mode_selector=MagicMock(),
         _apply_sidebar_mode_fn=MagicMock(),
-        _in_librarian_mode=True,
+        _active_mode="librarian",
     )
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
         SendButtonListener.on_librarian_session_finished(listener)  # type: ignore[misc]
 
-    assert listener._in_librarian_mode is False
+    assert listener._active_mode == ""
     mock_set.assert_called_once()
     assert mock_set.call_args[0][1] == CHAT_MODE_CHAT
     listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)

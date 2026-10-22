@@ -252,13 +252,15 @@ def test_native_audio_stt_fallback_replaces_db_row():
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
-    host._active_query_text = "typed query"
-    host._active_client = MagicMock()
     host._turn.alive = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "chat-model"
     host._turn.endpoint = "https://example"
+    host._turn.active_query_text = "typed query"
+    host._turn.active_client = MagicMock()
+    host._turn.active_max_tokens = 100
+    host._turn.active_tools = []
 
     # Session has the audio-included message in memory
     audio_msg = {"role": "user", "content": [{"type": "text", "text": "typed query"}, {"type": "input_audio"}]}
@@ -298,13 +300,15 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
-    host._active_query_text = "hello"
-    host._active_client = MagicMock()
     host._turn.alive = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "chat-model"
     host._turn.endpoint = "https://example"
+    host._turn.active_query_text = "hello"
+    host._turn.active_client = MagicMock()
+    host._turn.active_max_tokens = 100
+    host._turn.active_tools = []
 
     def _stopped(_path, _model):
         host._terminal_status = "Stopped"
@@ -337,13 +341,15 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
-    host._active_query_text = "typed query"
-    host._active_client = MagicMock()
     host._turn.alive = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "turn-captured-model"
     host._turn.endpoint = "https://captured-endpoint"
+    host._turn.active_query_text = "typed query"
+    host._turn.active_client = MagicMock()
+    host._turn.active_max_tokens = 100
+    host._turn.active_tools = []
 
     audio_msg = {"role": "user", "content": [{"type": "text", "text": "typed query"}, {"type": "input_audio"}]}
     host.session.messages = [audio_msg]

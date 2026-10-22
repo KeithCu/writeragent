@@ -12,7 +12,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from plugin.chatbot.panel import SendButtonListener, _relabel_button
+from plugin.chatbot.panel import _relabel_button
 from plugin.chatbot.send_state import UpdateUIEffect
 
 
@@ -110,7 +110,9 @@ def test_end_of_turn_effect_keeps_the_shared_width():
     That pinned width (``_fixed_send_width``) is gone; the relabel keeps the
     rect the layout gave the button.
     """
-    send = SendButtonListener.__new__(SendButtonListener)
+    from tests.conftest import make_mock_send_button_listener
+
+    send = make_mock_send_button_listener()
     send.send_control = _Button("Send", "Send", (16, 700, 79, 24))
     send.send_control.peer.label = "Send"
     send.stop_control = None

@@ -34,7 +34,7 @@ sequenceDiagram
 |-------|---------|
 | Turn 0 | User selects Brainstorming; first Send sets topic |
 | Turns 1..N | Panel routes Send to `brainstorming_session` (bypasses main tool loop) |
-| Exit | `reply_to_user` + `brainstorming_finished=true` clears `_in_brainstorming_mode` |
+| Exit | `reply_to_user` + `brainstorming_finished=true` clears `_active_mode` |
 
 Implementation: [`plugin/chatbot/brainstorming.py`](../../plugin/chatbot/brainstorming.py), [`plugin/chatbot/panel.py`](../../plugin/chatbot/panel.py), [`plugin/chatbot/send_handlers.py`](../../plugin/chatbot/send_handlers.py).
 

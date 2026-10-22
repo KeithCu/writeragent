@@ -10,6 +10,7 @@ if _repo_root not in sys.path:
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
 import time
 import types
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -794,3 +795,44 @@ def pytest_sessionfinish(session, exitstatus):
                 "MagicMock/ exists under the repo root after the suite — config path isolation leaked",
                 red=True,
             )
+
+
+def make_mock_send_button_listener(
+    session: Any = None,
+    ctx: Any = None,
+    **overrides: Any,
+) -> Any:
+    """Build a SendButtonListener with real __init__ run and mocked controls."""
+    from plugin.chatbot.panel import SendButtonListener
+
+    if session is None:
+        session = MagicMock()
+        session.messages = []
+    if ctx is None:
+        ctx = MagicMock()
+
+    with patch("plugin.framework.config.get_config_str", return_value=""), \
+         patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), \
+         patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True), \
+         patch.object(SendButtonListener, "_subscribe_mcp_events", lambda self: None):
+        listener = SendButtonListener(
+            ctx,
+            MagicMock(),  # frame
+            MagicMock(),  # send_control
+            MagicMock(),  # stop_control
+            MagicMock(),  # query_control
+            MagicMock(),  # response_control
+            MagicMock(),  # image_model_selector
+            MagicMock(),  # model_selector
+            MagicMock(),  # status_control
+            session,
+        )
+    for k, v in overrides.items():
+        setattr(listener, k, v)
+    return listener
+
+
+@pytest.fixture
+def mock_send_listener():
+    """Shared pytest fixture returning a mock SendButtonListener."""
+    return make_mock_send_button_listener()

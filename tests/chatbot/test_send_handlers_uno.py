@@ -40,7 +40,8 @@ class _DirectImageHost(SendHandlersMixin):
     def __init__(self, ctx):
         self.ctx = ctx
         self.stop_requested = False
-        self._in_librarian_mode = False
+        self._active_mode = ""
+        self._mode_topic = ""
         self.responses = []
         self.status_history = []
         self._terminal_status = None

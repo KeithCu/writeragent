@@ -107,19 +107,9 @@ class ToolLoopHost(Protocol):
     sidebar_state: Any
     _terminal_status: str
 
-    # Session I/O handles for the effect interpreter (not FSM control state).
-    # The queue, stripper, and document model live on ``_turn``.
-    _active_client: "LlmClient"
-    _active_max_tokens: int
-    _active_tools: list[dict[str, Any]]
-    _active_execute_tool_fn: Callable[..., Any]
-    _active_query_text: str | None
-    _active_supports_status: bool
     _assistant_stream_start_len: int | None
     _record_assistant_start: bool
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None
-    _in_brainstorming_mode: bool
-    _brainstorming_topic: str
     _turn: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -246,15 +236,9 @@ class ToolCallingMixin:
     audio_wav_path: str | None = None
     sidebar_state: Any = None
     _terminal_status: str = "Ready"
-    _active_tools: list[dict[str, Any]] | None = None
     _record_assistant_start: bool = False
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None = None
     _turn: Any = None
-    _active_client: LlmClient | None = None
-    _active_max_tokens: int = 0
-    _active_execute_tool_fn: Callable[..., Any] | None = None
-    _active_query_text: str | None = None
-    _active_supports_status: bool = False
 
     @property
     def _sm_state(self: ToolLoopHost) -> ToolLoopState:
@@ -542,16 +526,18 @@ class ToolCallingMixin:
         In-place specialized delegation updates the session after ``delegate`` or
         ``specialized_workflow_finished``; each LLM round must see the matching list.
         """
+        turn = current_turn(self)
+        if not isinstance(turn, TurnController):
+            return
         try:
             from plugin.main import get_tools
 
             turn_session = session_for_turn(self)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
-            bound = current_turn(self)
-            refresh_doc = bound.model if isinstance(bound, TurnController) and bound.model is not None else None
+            refresh_doc = turn.model if turn.model is not None else None
             if refresh_doc is None and hasattr(self, "_get_document_model"):
                 refresh_doc = self._get_document_model()
-            self._active_tools = get_tools().get_schemas(
+            turn.active_tools = get_tools().get_schemas(
                 "openai",
                 doc_type=getattr(self, "cached_doc_type", None),
                 uno_services_supported=getattr(self, "cached_uno_services", None),
@@ -561,7 +547,7 @@ class ToolCallingMixin:
             )
             from plugin.doc.peer_message import log_peer_tool_on_wire
 
-            log_peer_tool_on_wire(self._active_tools)
+            log_peer_tool_on_wire(turn.active_tools)
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
 
@@ -888,7 +874,8 @@ class ToolCallingMixin:
                             ]
                             clean_text = "\n".join(t for t in text_parts if t).strip()
                             if not clean_text:
-                                clean_text = getattr(self, "_active_query_text", "") or ""
+                                turn = current_turn(self)
+                                clean_text = (turn.active_query_text if turn else "") or ""
                             msg["content"] = clean_text
                             if getattr(self.session, "db", None) and hasattr(self.session.db, "update_last_user_content"):
                                 self.session.db.update_last_user_content(clean_text)
@@ -906,10 +893,10 @@ class ToolCallingMixin:
             if (
                 not stopped
                 and retry_q is not None
-                and self._active_client is not None
+                and isinstance(live_turn, TurnController)
+                and live_turn.active_client is not None
                 and not is_process_death_error(crash_blob)
                 and is_context_overflow_error(crash_blob)
-                and isinstance(live_turn, TurnController)
                 and live_turn._overflow_compact_attempts < MAX_OVERFLOW_COMPACTION_ATTEMPTS
                 and should_retry_overflow(
                     live_turn._overflow_compact_attempts,
@@ -922,11 +909,11 @@ class ToolCallingMixin:
                 self._set_status("Compacting conversation...")
                 self._spawn_llm_worker(
                     retry_q,
-                    self._active_client,
-                    self._active_max_tokens,
-                    self._active_tools or [],
+                    live_turn.active_client,
+                    live_turn.active_max_tokens,
+                    live_turn.active_tools or [],
                     self._sm_state.round_num,
-                    query_text=self._active_query_text,
+                    query_text=live_turn.active_query_text,
                     force_compact=True,
                 )
                 return True
@@ -1003,11 +990,11 @@ class ToolCallingMixin:
             if turn.model is None:
                 turn.model = model
 
-            self._active_client = client
-            self._active_max_tokens = max_tokens
-            self._active_tools = tools
-            self._active_execute_tool_fn = execute_tool_fn
-            self._active_query_text = query_text
+            turn.active_client = client
+            turn.active_max_tokens = max_tokens
+            turn.active_tools = tools
+            turn.active_execute_tool_fn = execute_tool_fn
+            turn.active_query_text = query_text
             self._tool_loop_interpreter = ToolLoopEffectInterpreter(self)
 
             # Read config once for web research thinking display
@@ -1019,7 +1006,7 @@ class ToolCallingMixin:
 
             # Check once whether execute_tool_fn accepts status_callback
             sig = inspect.signature(execute_tool_fn)
-            self._active_supports_status = "status_callback" in sig.parameters or "kwargs" in sig.parameters
+            turn.active_supports_status = "status_callback" in sig.parameters or "kwargs" in sig.parameters
 
             # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
 
@@ -1046,11 +1033,11 @@ class ToolCallingMixin:
                 flush_pending=_flush_active_batcher,
                 on_drain_started=lambda: self._spawn_llm_worker(
                     spawn_queue(turn),
-                    self._active_client,
-                    self._active_max_tokens,
-                    self._active_tools,
+                    client,
+                    turn.active_max_tokens,
+                    turn.active_tools or [],
                     self._sm_state.round_num,
-                    query_text=self._active_query_text,
+                    query_text=turn.active_query_text,
                 ),
             )
 

@@ -136,14 +136,14 @@ class TestHttpServerStatusEvents:
 
 class TestSidebarModeFinishApplies:
     def _listener(self) -> MagicMock:
-        from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, SidebarModeFlags
 
         listener = MagicMock()
         listener.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         listener.chat_mode_selector = MagicMock()
         listener._apply_sidebar_mode_fn = MagicMock()
-        listener._brainstorming_topic = "Kitchen remodel"
-        listener._in_brainstorming_mode = True
+        listener._mode_topic = "Kitchen remodel"
+        listener._active_mode = CHAT_MODE_BRAINSTORMING
         return listener
 
     def test_saved_spec_keeps_topic_and_applies_writing_plan(self) -> None:
@@ -152,8 +152,8 @@ class TestSidebarModeFinishApplies:
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
             SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=True)
-        assert listener._writing_plan_topic == "Implement the saved spec: Kitchen remodel"
-        assert listener._brainstorming_topic == ""
+        assert listener._mode_topic == "Implement the saved spec: Kitchen remodel"
+        assert listener._active_mode == CHAT_MODE_WRITING_PLAN
         assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
         listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
 
@@ -1952,16 +1952,14 @@ class TestPanelR3Fixes:
 
     def test_clear_resets_mode_topics(self) -> None:
         listener = _make_send_listener()
-        listener._brainstorming_topic = "Write a sci-fi outline"
-        listener._writing_plan_topic = "Plan chapter 1"
-        listener._ppt_master_topic = "Create keynote template"
+        listener._active_mode = "brainstorming"
+        listener._mode_topic = "Write a sci-fi outline"
 
         clear = ClearButtonListener(listener.session, None, None, send_listener=listener)
         clear.on_action_performed(MagicMock())
 
-        assert listener._brainstorming_topic == ""
-        assert listener._writing_plan_topic == ""
-        assert listener._ppt_master_topic == ""
+        assert listener._mode_topic == ""
+        assert listener._active_mode == "brainstorming"
 
     def test_stop_tts_helper(self) -> None:
         from plugin.chatbot.panel import _stop_tts

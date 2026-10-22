@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 
-from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn  # noqa: E402
+from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn, current_turn  # noqa: E402
 from plugin.chatbot.tool_loop_state import (  # noqa: E402
     AddMessageEffect,
     ExitLoopEffect,
@@ -53,12 +53,6 @@ class FakeHost:
         self.session = FakeSession()
         self.image_model_selector = None
         self.audio_wav_path = None
-        self._active_client = Mock()
-        self._active_max_tokens = 100
-        self._active_tools = [{"function": {"name": "tool"}}]
-        self._active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
-        self._active_query_text = "question"
-        self._active_supports_status = False
         self._terminal_status = "Ready"
         self.appended = []
         self.statuses = []
@@ -70,6 +64,102 @@ class FakeHost:
 
         turn = begin_send_turn(self, "chat", model=Mock(name="doc"))
         turn.queue = queue.Queue()
+        turn.active_client = Mock()
+        turn.active_max_tokens = 100
+        turn.active_tools = [{"function": {"name": "tool"}}]
+        turn.active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
+        turn.active_query_text = "question"
+        turn.active_supports_status = False
+
+    @property
+    def _active_client(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_client if turn else None
+
+    @_active_client.setter
+    def _active_client(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_client = value
+
+    @property
+    def _active_max_tokens(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_max_tokens if turn else 0
+
+    @_active_max_tokens.setter
+    def _active_max_tokens(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_max_tokens = value
+
+    @property
+    def _active_tools(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_tools if turn else None
+
+    @_active_tools.setter
+    def _active_tools(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_tools = value
+
+    @property
+    def _active_execute_tool_fn(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_execute_tool_fn if turn else None
+
+    @_active_execute_tool_fn.setter
+    def _active_execute_tool_fn(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_execute_tool_fn = value
+
+    @property
+    def _active_query_text(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_query_text if turn else None
+
+    @_active_query_text.setter
+    def _active_query_text(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_query_text = value
+
+    @property
+    def _active_supports_status(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return turn.active_supports_status if turn else False
+
+    @_active_supports_status.setter
+    def _active_supports_status(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.active_supports_status = value
 
     @property
     def _active_q(self):
@@ -203,7 +293,7 @@ def test_spawn_llm_worker_effect_refreshes_tools_before_spawning():
     interpreter.execute(SpawnLLMWorkerEffect(round_num=3))
 
     assert host.refreshed_tools == 1
-    assert host.spawned_llm == [(host._active_q, host._active_client, 100, host._active_tools, 3, "question")]
+    assert host.spawned_llm == [(host._active_q, current_turn(host).active_client, 100, current_turn(host).active_tools, 3, "question")]
 
 
 def test_sync_tool_disposed_document_queues_error_not_tool_done():
@@ -1096,13 +1186,13 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     import threading
 
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
-    from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.send_state import SendButtonState
     from plugin.chatbot.sidebar_state import SidebarCompositeState
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
-    with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
-        send = SendButtonListener.__new__(SendButtonListener)
+    from tests.conftest import make_mock_send_button_listener
+
+    send = make_mock_send_button_listener()
     send.ctx = MagicMock()
     send.rich_text_widget = None
     send.response_control = MagicMock()
@@ -1217,6 +1307,8 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
 
     # Force current_turn to return a mock TurnController
     mock_turn = MagicMock()
+    mock_turn.active_execute_tool_fn = MagicMock(return_value={"status": "ok"})
+    mock_turn.active_supports_status = False
     mock_turn.put = MagicMock(return_value=True)
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.current_turn", lambda host: mock_turn)
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.TurnController", MagicMock)
@@ -1563,3 +1655,19 @@ def test_put_flushes_pending_chunks_before_control_item():
     turn.abort()
     assert raw_q.empty()
     assert turn.put((StreamQueueKind.CHUNK, "more")) is False
+
+
+def test_new_turn_starts_clean_without_copying_previous_turn_client():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+
+    host = MagicMock()
+    host.session = MagicMock()
+    host.session.messages = []
+    first_turn = begin_send_turn(host, "chat")
+    client = MagicMock()
+    first_turn.active_client = client
+
+    second_turn = begin_send_turn(host, "chat")
+    assert current_turn(host) is second_turn
+    assert second_turn.active_client is None
+    assert first_turn.active_client is client

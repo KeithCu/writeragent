@@ -1,20 +1,12 @@
 from unittest.mock import MagicMock, patch
-from plugin.chatbot.panel import SendButtonListener
 from plugin.chatbot.tool_loop_actions import TurnController
 
 def get_dummy_listener():
-    class DummyListener:
-        def __init__(self):
-            self.ctx = MagicMock()
-            self._panel_teardown = False
-            self._last_mcp_turn = {}
+    from tests.conftest import make_mock_send_button_listener
 
-        def _append_response(self, text):
-            pass
-
-        _on_mcp_result = SendButtonListener._on_mcp_result
-
-    return DummyListener()
+    listener = make_mock_send_button_listener()
+    listener._append_response = MagicMock()
+    return listener
 
 def test_on_mcp_result_drops_stale_turn():
     listener = get_dummy_listener()
