@@ -16,25 +16,12 @@
 
 """Centralized management for background worker threads and external subprocesses.
 
-Background threads created here are tagged (via thread_guard) so that the
-UNO main-thread runtime guard (Layer A) can name the offending task on violation.
-
-Concurrency: all background Python work must start here
-(``run_in_background``), not via raw ``threading.Thread``. Short
-fire-and-forget jobs share a **fixed-size daemon pool** (unbounded queue).
-Servers, pipe drains, LLM streams, and anything another thread will
-``join()`` must pass ``dedicated=True`` so they do not occupy a pool slot
-forever. ``_pool_lock`` only covers creating the pool or swapping it
-out. ``reset_background_pool_for_tests`` joins the old pool after
-releasing that lock, so a job can call ``run_in_background`` during
-reset. ``submit`` and the shutdown drain share a lock so a test reset cannot
-enqueue work behind the worker sentinels. ``StderrTail``’s lock is only
-the bounded stderr buffer from a child process. Never ``join()`` a pooled
-job from another pooled job (the pool can deadlock). Each pool worker sets
-a thread-local in ``_DaemonWorkPool._run`` for the life of that thread.
-``BackgroundHandle.join`` reads that flag. ``Thread.name`` is not the check.
-Shutdown still renames workers to ``wa-bg-retired-N`` so a count of live
-``wa-bg-N`` threads ignores them. Map: docs/framework/threading.md.
+Lock rules:
+- ``_pool_lock``: Guards creating or swapping the global pool instance; released before joining workers so nested ``run_in_background`` calls during reset do not deadlock.
+- ``_submit_lock``: Held across shutdown, queue drain, and sentinel queuing; prevents new tasks from being enqueued behind exit sentinels.
+- ``StderrTail._lock``: Protects only the bounded child stderr chunk deque and character count; synchronizes background drain appends with consumer reads.
+- No pooled joins from pool workers: Enforced via thread-local flag in ``BackgroundHandle.join``; prevents deadlocking the fixed-size pool when all workers block on queued tasks.
+- Dedicated threads for blocking jobs: Servers, long pipes, and join targets pass ``dedicated=True``; prevents permanently exhausting fixed pool worker slots.
 """
 
 from __future__ import annotations
@@ -75,7 +62,6 @@ def _in_pool_worker() -> bool:
 _pool: "_DaemonWorkPool | None" = None
 _pool_size_override: int | None = None
 # shutdown() joins in slices so a KeyboardInterrupt can land between them.
-# One slice used to return while the in-flight job was still running.
 _POOL_SHUTDOWN_JOIN_SLICE_SEC = 5.0
 
 
@@ -131,12 +117,8 @@ class BackgroundHandle:
             return
         if fut.done():
             return
-        # Bugfix: What was wrong: a dedicated Thread.name is the caller's name
-        # argument, so name="wa-bg-..." or "wa-bg-retired-..." took the deadlock path.
-        # How: join used startswith("wa-bg-"), and shutdown keeps the wa-bg- prefix
-        # on retired threads so the old check would still see them.
-        # Why: the flag is set only in _run and is not a contextvar, so caller_ctx.run
-        # cannot clear it and a dedicated thread never sets it.
+        # The pool-worker flag is set only in _run and is not a contextvar, so
+        # caller_ctx.run cannot clear it and a dedicated thread never sets it.
         # A finished future needs no pool worker; checking fut.done() first avoids a
         # false deadlock.
         if _in_pool_worker():
@@ -146,13 +128,9 @@ class BackgroundHandle:
         except FuturesTimeoutError:
             return
         except BaseException as exc:
-            # Bugfix: result() re-raised the worker's SystemExit onto the
-            # joiner while the already-done path returned quietly. Happened
-            # because _run sets BaseException on the future via set_exception(exc)
-            # while join previously caught only Exception. Swallowing the worker's
-            # stored exception returns when the raised object is the one stored on
-            # the future, and re-raises when it is not (e.g. KeyboardInterrupt
-            # raised on the joining thread).
+            # Swallowing the worker's stored exception returns when the raised object
+            # is the one stored on the future, and re-raises when it is not (e.g.
+            # KeyboardInterrupt raised on the joining thread).
             if _future_stored_this_exception(fut, exc):
                 return
             raise
@@ -219,9 +197,7 @@ class _DaemonWorkPool:
             return fut
 
     def _run(self) -> None:
-        # Bugfix: What was wrong: deadlock detection relied on Thread.name.
-        # How: a dedicated thread named wa-bg-* or retired workers false-positive deadlocked.
-        # Why: the flag has to be set before caller_ctx.run, and it has to be a
+        # The flag has to be set before caller_ctx.run, and it has to be a
         # thread-local so the copied context does not drop it while the job is inside join.
         _pool_worker_local.active = True
         while True:
@@ -234,10 +210,7 @@ class _DaemonWorkPool:
             try:
                 fn()
             except BaseException as exc:
-                # Bugfix: BaseException (SystemExit, KeyboardInterrupt, GeneratorExit)
-                # in a pooled fire-and-forget job was set on the Future and never logged,
-                # silently swallowing unexpected exits if no caller called join().
-                # Log it with log.exception before setting on the Future so it is visible.
+                # Log BaseException before setting on the Future so unexpected exits are visible.
                 log.exception("Unhandled %s in pooled background job", type(exc).__name__)
                 # Pool workers must complete the Future even on SystemExit/KeyboardInterrupt.
                 # Dedicated run_in_background threads catch Exception only (those must unwind).
@@ -249,11 +222,9 @@ class _DaemonWorkPool:
         with self._submit_lock:
             self._shutdown = True
             # Drop the live pool prefix so tests (and diagnostics) do not count
-            # retiring workers as the new pool. Happened when a prior 8-worker
-            # pool's join timed out and a leftover ``wa-bg-3`` sat next to a
-            # 2-worker reset pool's ``wa-bg-0`` / ``wa-bg-1``. The deadlock guard
-            # does not read this name. Retired workers still have the pool-worker
-            # thread-local set. The prefix change is what live ``wa-bg-N`` counts skip.
+            # retiring workers as the new pool. The deadlock guard does not read
+            # this name. Retired workers still have the pool-worker thread-local set.
+            # The prefix change is what live ``wa-bg-N`` counts skip.
             for i, t in enumerate(self._threads):
                 t.name = f"wa-bg-retired-{i}"
             if cancel_futures:
@@ -348,9 +319,8 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     :return: A :class:`BackgroundHandle` with ``join`` / ``is_alive``.
     """
 
-    # Stop cancellation is a contextvar on the send thread. Pool and dedicated
-    # workers did not inherit it, so marshal items they enqueued had scope None
-    # and survived cancel_pending_work.
+    # Stop cancellation is a contextvar on the send thread; copy caller context
+    # so enqueued items inherit it and respect cancel_pending_work.
     caller_ctx = contextvars.copy_context()
 
     def _worker() -> None:
@@ -397,12 +367,7 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
             fut = pool.submit(_run_in_caller_context)
             break
         except _PoolShutdown:
-            # Bugfix: What was wrong: the retry matched the substring
-            # "background pool is shut down" inside any RuntimeError, so a reworded
-            # message skipped the retry and a different RuntimeError with that text
-            # retried.
-            # How: submit and the except each spelled the sentence.
-            # Why: _PoolShutdown is the only signal, and the _pool is pool check
+            # _PoolShutdown is the only signal, and the _pool is pool check
             # still re-raises when reset did not publish a replacement.
             # A future submit already queued can still be cancelled by
             # reset_background_pool_for_tests (cancel_futures=True); join returns
@@ -665,9 +630,8 @@ class AsyncProcess:
             self._popen_kwargs.setdefault(key, value)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        # Force binary pipes. text=True was documented as keeping the
-        # caller's encoding, but _read_stream reads the binary buffer and
-        # decodes UTF-8. A TextIOWrapper plus that read desyncs the two
+        # Force binary pipes. _read_stream reads the binary buffer and
+        # decodes UTF-8; a TextIOWrapper plus that read desyncs the two
         # buffers. No AsyncProcess caller passes text=True (the tunnel uses
         # the binary default). encoding, errors, or universal_newlines
         # would still open text mode after text=False.
@@ -689,16 +653,12 @@ class AsyncProcess:
 
     def start(self) -> None:
         """Starts the process and its monitoring threads."""
-        # Bugfix: The wait thread for the previous child used to call the same
-        # on_exit_cb(rc) as the new child, and a handler that treats any exit as
-        # "the process died" could tear the replacement down. The generation is
-        # the child's identity; only the latest one notifies.
+        # The generation is the child's identity; only the latest one notifies.
         self._child_generation += 1
         generation = self._child_generation
         if self.process is not None and self.process.poll() is None:
-            # A second start() used to leak the previous Popen. terminate()
-            # returns before the child is dead so it cannot join callback
-            # threads on this stack. Wait here, without those joins.
+            # terminate() returns before the child is dead so it cannot join
+            # callback threads on this stack. Wait here, without those joins.
             old = self.process
             self.terminate()
             try:
@@ -730,17 +690,10 @@ class AsyncProcess:
             # self.process later: a second start() replaces them.
             wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, generation, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
         except BaseException:
-            # Bugfix: What was wrong: If a reader or wait thread failed to start
-            # after Popen succeeded, the child process was leaked alive with no
-            # wait thread to reap it or call on_exit_cb.
-            # How: self.process was assigned and the child was already running,
-            # but run_in_background could raise (e.g. Thread.start -> RuntimeError).
-            # Callers such as tunnel.py catch the exception and drop the object
-            # without calling terminate().
-            # Why: Wrap the thread spawns; on failure, clear self.process and the
-            # handle fields, kill the child and wait with a 1.0s timeout directly on
-            # this stack (since terminate()'s reaper would need another thread),
-            # close unattached pipes via _close_child_pipes, and re-raise.
+            # On thread spawn failure, clear self.process and the handle fields,
+            # kill the child and wait with a 1.0s timeout directly on this stack
+            # (since terminate()'s reaper would need another thread), close
+            # unattached pipes via _close_child_pipes, and re-raise.
             self.process = None
             self._stdout_thread = None
             self._stderr_thread = None
@@ -761,13 +714,11 @@ class AsyncProcess:
         self._wait_thread = wait_thread
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
-        # Bugfix: The old pending += chunk buffer had no cap and rescanned the
-        # full accumulated text on every chunk. Feed only new text, hold pieces
-        # in a list until a newline is found, and cap the unjoined buffer at
-        # _MAX_STREAM_LINE_CHARS to deliver partial lines instead of leaking memory.
-        # Short reads go through ``_iter_decoded_chunks`` so a UTF-8 code point
-        # split across reads is not replaced twice. The callback try/except stays
-        # inside the loop: a bad callback must not close the pipe early.
+        # Feed only new text, hold pieces in a list until a newline is found, and
+        # cap the unjoined buffer at _MAX_STREAM_LINE_CHARS to deliver partial lines
+        # instead of leaking memory. Short reads go through ``_iter_decoded_chunks``
+        # so a UTF-8 code point split across reads is not replaced twice. The callback
+        # try/except stays inside the loop: a bad callback must not close the pipe early.
         parts: list[str] = []
         length = 0
         warned = False
@@ -832,14 +783,8 @@ class AsyncProcess:
             handle.join(timeout=timeout)
 
     def _close_child_pipes(self, proc: subprocess.Popen[Any] | None, *, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
-        # Bugfix: What was wrong: terminate captured proc for the signal and for
-        # _reap, then _close_child_pipes read self.process again and could close
-        # the replacement child's stdin (and its stdout/stderr when that child had
-        # no reader handle yet).
-        # How: Popen.terminate releases the GIL, and start assigns self.process
-        # before it stores the new reader handles.
-        # Why: the helper now closes the Popen the caller passed, the same capture
-        # _wait_for_exit and _reap already use.
+        # Closes the Popen the caller passed, the same capture _wait_for_exit
+        # and _reap use.
         if proc is None:
             return
         if proc.stdin is not None:
@@ -936,7 +881,7 @@ class AsyncProcess:
                 proc.terminate()
             except OSError:
                 log.debug("terminate: process already gone", exc_info=True)
-        # Bugfix: On Linux, close() of a read fd does not interrupt a reader
+        # On Linux, close() of a read fd does not interrupt a reader
         # blocked in os.read (bufsize=0). The child's exit produces the EOF that
         # wakes the read. Closing the read end prematurely discards unread bytes
         # and causes the child's shutdown write to fail with EPIPE. Always close
