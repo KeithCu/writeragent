@@ -251,7 +251,7 @@ def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) 
     impl = "?"
     try:
         impl = model.getImplementationName()
-    except Exception:
+    except Exception:  # noqa: S110 - disposed UNO model probe during error log formatting
         pass
     if cached_doc_type:
         return "impl=%s doc_type=%s" % (impl, cached_doc_type)

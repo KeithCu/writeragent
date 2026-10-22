@@ -129,13 +129,15 @@ extend-exclude = [
 skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "TC"]
+select = ["E4", "E7", "E9", "F", "S110", "S112", "TC"]
 # UNO/bootstrap often uses imports after path setup; one-line if/for with colon is legacy style.
 extend-ignore = ["E402", "E701"]
 
 [tool.ruff.lint.per-file-ignores]
 # tests/ are not in ty/mypy/basedpyright scope; TYPE_CHECKING moves are busywork there.
-"tests/**" = ["TC001", "TC002", "TC003"]
+"tests/**" = ["S110", "S112", "TC001", "TC002", "TC003"]
+"scripts/**" = ["S110", "S112"]
+"compute_service/**" = ["S110", "S112"]
 
 [tool.ruff.lint.flake8-type-checking]
 quote-annotations = true

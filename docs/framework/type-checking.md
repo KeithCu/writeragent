@@ -154,6 +154,7 @@ Prefer **specific** ignore codes (`attr-defined`, `override`, `unresolved-import
 
 - **`Protocol`** for mixin hosts (e.g. tool-loop mixins).
 - **`TYPE_CHECKING`** + **`ruff`** `TC` rules for imports used only in hints.
+- **Silent exception handling (`S110`, `S112`)**: Ruff flake8-bandit rules `S110` (`try`-`except`-`pass`) and `S112` (`try`-`except`-`continue`) are enforced on `plugin/`. Handlers should log at debug level, narrow the exception type, or include `# noqa: S110` / `# noqa: S112` with a reason (e.g. UNO disposal probe or logging self-failure).
 - **Explicit generics**: `list[str]`, `dict[str, Any]`, `str | None` instead of untyped collections.
 - **`ToolBase` fields:** JSON Schema is `parameters: dict[str, Any] | None` and `get_parameters(...) -> dict[str, Any] | None`; UNO service names are `uno_services: list[str] | None`. Subclass annotations must match the live base (including specialized `*SpecialBase` mixins) so Pyright does not emit `reportIncompatibleVariableOverride`.
 - **Narrowing**: `if x is not None` before use; avoid forcing the checker to assume values are defined.
