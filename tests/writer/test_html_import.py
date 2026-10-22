@@ -332,7 +332,7 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
 
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
          patch("plugin.writer.html_ruby._apply_ruby_spans"), \
-         patch("plugin.writer.html_import._restore_field_placeholders", side_effect=RuntimeError("field failed")):
+         patch("plugin.writer.field_restore._restore_field_placeholders", side_effect=RuntimeError("field failed")):
         with pytest.raises(RuntimeError, match="field failed"):
             replace_xtext_with_html(text, "<p>New</p>", model=model)
 
@@ -1187,7 +1187,7 @@ def test_collect_range_portions_magic_mock_returns_immediately():
 def test_restore_fields_by_cursor_single_walk_reverse_order():
     """Restore multiple field tokens in a single portion enumeration walk in reverse order."""
     from unittest.mock import MagicMock, patch
-    from plugin.writer.html_import import _restore_fields_by_cursor
+    from plugin.writer.field_restore import _restore_fields_by_cursor
 
     nonce = "test1234"
     tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
@@ -1240,8 +1240,8 @@ def test_restore_fields_by_cursor_single_walk_reverse_order():
         return True
 
     with (
-        patch("plugin.writer.html_import._cursor_over") as mock_cursor_over,
-        patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted),
+        patch("plugin.writer.field_restore._cursor_over") as mock_cursor_over,
+        patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted),
     ):
         mock_cursor_over.side_effect = lambda _txt, _off, tok: MagicMock()
         restored = _restore_fields_by_cursor(model, text, nonce=nonce)
@@ -1254,7 +1254,7 @@ def test_restore_fields_by_cursor_single_walk_reverse_order():
 def test_restore_field_placeholders_skips_when_prefix_absent():
     """When the field token prefix is absent from plain text, return 0 without enumeration."""
     from unittest.mock import MagicMock
-    from plugin.writer.html_import import _restore_field_placeholders
+    from plugin.writer.field_restore import _restore_field_placeholders
 
     text = MagicMock()
     text.getString.return_value = "No fields here"

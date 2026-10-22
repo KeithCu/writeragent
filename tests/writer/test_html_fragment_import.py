@@ -9,13 +9,15 @@ from plugin.writer.format import (  # noqa: E402
     _content_has_block_markup,
     insert_html_fragment_at_cursor,
 )
-from plugin.writer.html_import import (
+from plugin.writer.field_restore import (
     _EXPORTED_FIELD_TITLES,
     _FIELD_TITLE_TO_SERVICE,
     _insert_restored_field,
     _restore_field_placeholders,
-    _wrap_html_fragment,
     rewrite_exported_field_spans,
+)
+from plugin.writer.html_import import (
+    _wrap_html_fragment,
 )
 
 
@@ -262,7 +264,7 @@ def test_restore_field_placeholders_creates_mapped_services():
 
 def test_restore_field_placeholders_scopes_region_with_uno_same():
     """Header field restore must use UNO identity, not bare ``==`` on XText wrappers."""
-    from plugin.writer import html_import as hi
+    from plugin.writer import field_restore as fr
 
     header = object()
     found = MagicMock()
@@ -275,17 +277,17 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
     model.findNext.return_value = None
 
     with (
-        patch.object(hi, "uno_same", return_value=True),
-        patch.object(hi, "_insert_restored_field", return_value=True) as insert,
+        patch.object(fr, "uno_same", return_value=True),
+        patch.object(fr, "_insert_restored_field", return_value=True) as insert,
     ):
-        assert hi._restore_field_placeholders(model, header) >= 1
+        assert fr._restore_field_placeholders(model, header) >= 1
         assert insert.called
 
     with (
-        patch.object(hi, "uno_same", return_value=False),
-        patch.object(hi, "_insert_restored_field", return_value=True) as insert,
+        patch.object(fr, "uno_same", return_value=False),
+        patch.object(fr, "_insert_restored_field", return_value=True) as insert,
     ):
-        assert hi._restore_field_placeholders(model, header) == 0
+        assert fr._restore_field_placeholders(model, header) == 0
         insert.assert_not_called()
 
 
@@ -354,8 +356,8 @@ def test_restore_fields_by_cursor_single_walk_last_token_first():
         return True
 
     with (
-        patch("plugin.writer.html_import._cursor_over") as mock_cursor_over,
-        patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted),
+        patch("plugin.writer.field_restore._cursor_over") as mock_cursor_over,
+        patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted),
     ):
         mock_cursor_over.side_effect = lambda _txt, _off, tok: MagicMock()
         restored = _restore_field_placeholders(model, text, nonce=nonce)
@@ -418,7 +420,7 @@ def test_restore_fields_in_region_without_document_search():
         text.plain = "Annex 1"
         return True
 
-    with patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted):
+    with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
         restored = _restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
@@ -495,7 +497,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
         text.plain = para1_text + "\n1"
         return True
 
-    with patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted):
+    with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
         restored = _restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
@@ -522,9 +524,9 @@ def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains
         return True
 
     with (
-        patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
-        patch("plugin.writer.html_import.uno_same", return_value=True),
-        patch("plugin.writer.html_import._insert_restored_field", side_effect=_clear_token) as insert,
+        patch("plugin.writer.field_restore._restore_fields_by_cursor", return_value=1),
+        patch("plugin.writer.field_restore.uno_same", return_value=True),
+        patch("plugin.writer.field_restore._insert_restored_field", side_effect=_clear_token) as insert,
     ):
         restored = _restore_field_placeholders(model, text, nonce=nonce)
 
@@ -545,7 +547,7 @@ def test_restore_field_placeholders_raises_when_token_remains_after_find_first()
     model.findFirst.return_value = None
 
     with (
-        patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
+        patch("plugin.writer.field_restore._restore_fields_by_cursor", return_value=1),
         pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
         _restore_field_placeholders(model, text, nonce=nonce)
@@ -630,7 +632,7 @@ def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonc
     model.createSearchDescriptor.return_value = MagicMock()
     model.findFirst.return_value = None
 
-    with patch("plugin.writer.html_import._insert_restored_field") as mock_insert:
+    with patch("plugin.writer.field_restore._insert_restored_field") as mock_insert:
         restored = _restore_field_placeholders(model, text, nonce="thiscall")
 
     assert restored == 0
@@ -649,7 +651,7 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
 
     with (
         patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
-        patch("plugin.writer.html_import._restore_field_placeholders") as mock_restore,
+        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
     ):
         replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
         mock_restore.assert_called_once()
@@ -659,7 +661,7 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
 
     with (
         patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
-        patch("plugin.writer.html_import._restore_field_placeholders") as mock_restore,
+        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
     ):
         insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")
         mock_restore.assert_called_once()

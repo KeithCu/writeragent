@@ -628,6 +628,8 @@ from .html_import import (
     replace_preserving_format as replace_preserving_format,
     replace_single_range_with_content as replace_single_range_with_content,
     replace_xtext_with_html as replace_xtext_with_html,
+)
+from .field_restore import (
     rewrite_exported_field_spans as rewrite_exported_field_spans,
 )
 

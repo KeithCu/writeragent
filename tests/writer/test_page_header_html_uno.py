@@ -430,7 +430,7 @@ def test_page_set_header_undo_rollback_on_field_restore_failure(ctx, doc):
     assert scan_before["fields"] and scan_before["images"]
 
     with patch(
-        "plugin.writer.html_import._restore_field_placeholders",
+        "plugin.writer.field_restore._restore_field_placeholders",
         side_effect=RuntimeError("injected field restore failure"),
     ):
         res = _set(doc, ctx, "header", '<p>Page <span title="page-number"/></p>')
