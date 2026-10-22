@@ -1801,7 +1801,7 @@ def test_image_set_properties_compound_undo_grouping():
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
-        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeUndo),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, title="New Title")
 
@@ -1823,7 +1823,7 @@ def test_image_set_properties_shape_without_size_property_uses_setsize():
         patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=True) as safe_try,
-        patch("plugin.writer.edit_review.WriterCompoundUndo", MagicMock()),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", MagicMock()),
     ):
         res = ImageSetProperties().execute(ctx, name="DrawShape", width_mm=30)
 

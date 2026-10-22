@@ -929,7 +929,7 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.writer.edit_review.WriterCompoundUndo"),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
     ):
         manip_cls.return_value.write_formula_range.return_value = "wrote"
         matched = WriteCellRange().execute(ctx, range=["A1:A2"], values='["x", "y"]')
@@ -985,7 +985,7 @@ def test_write_formula_range_source_only_copies_block_size():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.writer.edit_review.WriterCompoundUndo"),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
     ):
         manip_cls.return_value.copy_formula_range.return_value = {
             "message": "Copied 3×3 from Sheet1.A1:C3 onto Sample.A1.",
@@ -1142,6 +1142,40 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_s
         assert calls[1].args[0] == "Other.A1:B100"
 
 
+def test_sheet_prefix_for_clip_quoting_differs_from_quote_sheet_name():
+    from plugin.calc.address_utils import quote_sheet_name
+    from plugin.calc.cells import _sheet_prefix_for_clip
+
+    # 1. 2024.A1:H500 -> '2024'. vs 2024.
+    assert _sheet_prefix_for_clip("2024.A1:H500", None) == "'2024'."
+    assert quote_sheet_name("2024") + "." == "2024."
+
+    # 2. Q1-Sales.A1:H500 -> 'Q1-Sales'. vs Q1-Sales.
+    assert _sheet_prefix_for_clip("Q1-Sales.A1:H500", None) == "'Q1-Sales'."
+    assert quote_sheet_name("Q1-Sales") + "." == "Q1-Sales."
+
+    # 3. 'Sheet1'.A1:H500 -> 'Sheet1'. vs Sheet1.
+    assert _sheet_prefix_for_clip("'Sheet1'.A1:H500", None) == "'Sheet1'."
+    assert quote_sheet_name("Sheet1") + "." == "Sheet1."
+
+    # 4. A+B.A1 -> 'A+B'. vs A+B.
+    assert _sheet_prefix_for_clip("A+B.A1", None) == "'A+B'."
+    assert quote_sheet_name("A+B") + "." == "A+B."
+
+    # 5. '$Prices'.$A$1 -> '$Prices'. vs $Prices.
+    assert _sheet_prefix_for_clip("'$Prices'.$A$1", None) == "'$Prices'."
+    assert quote_sheet_name("$Prices") + "." == "$Prices."
+
+    # 6. 'Foo!Bar'.A1:H10 -> 'Foo!Bar'! vs 'Foo!Bar'. (bang anywhere in range_name causes '!')
+    assert _sheet_prefix_for_clip("'Foo!Bar'.A1:H10", None) == "'Foo!Bar'!"
+    assert quote_sheet_name("Foo!Bar") + "." == "'Foo!Bar'."
+
+    # Unqualified case: 'Sales' resolved to sheet 2024 uses quote_sheet_name fallback -> 2024.
+    resolved = MagicMock()
+    resolved.getSpreadsheet.return_value.getName.return_value = "2024"
+    assert _sheet_prefix_for_clip("Sales", resolved) == "2024."
+
+
 def test_column_distinct_peek_counts_numeric_first_row_as_data():
     from plugin.calc.cells import _column_distinct_peek
 
@@ -1286,7 +1320,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
             pass
 
     with (
-        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1330,7 +1364,7 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
             pass
 
     with (
-        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1370,7 +1404,7 @@ def test_set_cell_style_disposal_propagates():
             pass
 
     with (
-        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1413,7 +1447,7 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
             pass
 
     with (
-        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value

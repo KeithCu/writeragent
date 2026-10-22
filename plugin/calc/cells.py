@@ -39,6 +39,8 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
 from plugin.calc.manipulator import CellManipulator
+from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.framework.deal_shim import deal
 
 # Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -61,9 +63,6 @@ _DISTINCT_PEEK_MAX_ROWS = 2000
 _DISTINCT_PEEK_LIST_CAP = 12
 _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 
-from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.deal_shim import deal
-
 log = logging.getLogger("writeragent.calc")
 
 
@@ -82,11 +81,6 @@ def _parse_color(color_str: Any) -> int | None:
     if not isinstance(color_str, str):
         return None
     return parse_color_to_uno_int(color_str)
-
-
-def _sheet_token(sheet_name: str) -> str:
-    """Bare when the name is a Python identifier; otherwise 'name' with quotes doubled."""
-    return quote_sheet_name(sheet_name)
 
 
 def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
@@ -117,7 +111,7 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
         sp = resolved.getSpreadsheet()
         name = sp.getName()
         if isinstance(name, str) and name:
-            return _sheet_token(name) + "."
+            return quote_sheet_name(name) + "."
     return ""
 
 
@@ -130,7 +124,7 @@ def _range_args(raw: Any) -> list[Any]:
 
 
 def _compound_undo(doc: Any, title: str) -> Any:
-    from plugin.writer.edit_review import WriterCompoundUndo
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     return WriterCompoundUndo(doc, title)
 

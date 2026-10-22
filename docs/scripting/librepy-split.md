@@ -360,6 +360,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py) | Document user-defined properties (session id, spill registry) |
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
+| [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager |
 | [`plugin/writer/format.py`](../../plugin/writer/format.py) | HTML insert, mixed math segments. `review_authors` / `content` are `ImportError`-guarded (LibrePy applies HTML without split-author coloring or WriterAgent style lookup) |
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
@@ -520,7 +521,7 @@ flowchart TB
 1. **Split the add-in** — [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) / [`function.py`](../../plugin/calc/python/function.py) have zero `llm_client` imports. `=PY()` uses a local error formatter.
 2. **Narrow IDL** — core RDB is [`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl) only (no Prompt).
 3. **Separate extension id** — `org.extension.librepy` in [`extension-core/`](../extension-core/). Add-in implementation name stays `org.extension.writeragent.PythonFunction` so `=PY()` formulas stay portable.
-4. **`doc_type.py` / `udprops.py` / `text_helpers.py`** — type detection, document properties, and Writer text/path helpers. `document_helpers.py` is WriterAgent-only and **must not re-export** those names.
+4. **`doc_type.py` / `udprops.py` / `text_helpers.py` / `compound_undo.py`** — type detection, document properties, Writer text/path helpers, and compound undo context manager. `document_helpers.py` is WriterAgent-only and **must not re-export** those names.
 5. **`format.py` local-imports** — `ops` / `review_authors` stay local; optional `edit_review` via `ImportError`. Do not hoist.
 6. **Sandbox slimming** — `local_python_executor.send_tools` takes a dict; LibrePy does not ship `tools.py` / `agent_types.py` / `tool_validation.py` / `_function_type_hints_utils.py`.
 7. **`pkgutil.extend_path`** in [`plugin/__init__.py`](../../plugin/__init__.py).
@@ -811,7 +812,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Scripting host:** `venv_worker.py`, `ipc.py`, `payload_codec.py`, `sandbox.py`, `config_limits.py`, `session_manager.py`, `module.yaml`, `scripting/__init__.py`
 
-**Doc (Layer 0):** `doc_type.py`, `udprops.py`, `text_helpers.py` — type guards, document properties, and Writer text/path helpers without `document_helpers`
+**Doc (Layer 0):** `doc_type.py`, `udprops.py`, `text_helpers.py`, `visual_helpers.py`, `compound_undo.py` — type guards, document properties, Writer text/path helpers, visual helpers, and compound undo without `document_helpers`
 
 **Venv child:** `venv/worker_harness.py`, `venv/venv_sandbox.py`, `venv/coerce.py`, `venv/__init__.py`
 

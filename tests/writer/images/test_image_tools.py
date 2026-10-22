@@ -646,7 +646,7 @@ class TestWriterImageCursorConversion:
             patch.object(image_tools, "get_type_doc", return_value="draw"),
             patch.object(image_tools, "_insert_image_to_drawpage", return_value=sentinel) as insert_dp,
             patch.object(image_tools, "_selection_graphic_object") as sel_obj,
-            patch("plugin.writer.edit_review.WriterCompoundUndo"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
         ):
             res = image_tools.insert_image_at_locator(ctx, model, "/tmp/img.png", width_mm=40, height_mm=30)
 
@@ -745,7 +745,7 @@ class TestImageCompoundUndo:
                 "add_image_to_gallery",
                 side_effect=lambda *a, **k: events.append("gallery"),
             ),
-            patch("plugin.writer.edit_review.WriterCompoundUndo", FakeUndo),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
         ):
             image_tools.insert_image(
                 ctx, model, "/tmp/x.png", 64, 64, add_to_gallery=True, add_frame=False,
@@ -784,7 +784,7 @@ class TestImageCompoundUndo:
             patch.object(image_tools, "get_type_doc", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools, "_safe_set_property", return_value=True),
-            patch("plugin.writer.edit_review.WriterCompoundUndo", FakeUndo),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/cache/x.png")
 
@@ -810,7 +810,7 @@ class TestDisplaySizeCap:
         with (
             patch.object(image_tools, "get_type_doc", return_value="writer"),
             patch.object(image_tools, "_insert_image_to_writer", side_effect=_capture),
-            patch("plugin.writer.edit_review.WriterCompoundUndo"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
         ):
             image_tools.insert_image(
                 ctx, model, "/tmp/x.png", 1024, 1024, add_to_gallery=False, add_frame=False,

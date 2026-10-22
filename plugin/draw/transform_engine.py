@@ -28,7 +28,7 @@ from plugin.draw.transform_schema import (
     validate_top_level_uno,
 )
 from plugin.framework.errors import is_disposed_exception, uno_probe
-from plugin.writer.edit_review import WriterCompoundUndo
+from plugin.doc.compound_undo import WriterCompoundUndo
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

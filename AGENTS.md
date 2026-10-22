@@ -35,7 +35,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw (Impress paths where registered).
 
 - **Chat:** Sidebar + menu chat (Writer/Calc deck; Draw per code paths)—multi-turn, tools, history (SQLite when available, else JSON under `writeragent_history.db.d/`).
-- **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` in `text_helpers` for prompts; undo/session details in `plugin/writer/edit_review.py`.
+- **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` in `text_helpers` for prompts; session details in `plugin/writer/edit_review.py`, compound undo in `plugin/doc/compound_undo.py`.
 - **Settings:** `writeragent.json` under the LibreOffice user profile—see `config` module doc.
 - **Memory:** `upsert_memory` writes `USER.md`; `MEMORY_GUIDANCE` injects it each turn — [docs/archive/hermes-agent-patterns.md](docs/archive/hermes-agent-patterns.md).
 - **Calc:** `=PROMPT()` and `=PYTHON()` add-ins (see [`docs/repo-map.md`](docs/repo-map.md)).

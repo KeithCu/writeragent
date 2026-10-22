@@ -33,10 +33,9 @@ import time
 import urllib.parse
 from typing import Any, Callable, Literal
 
-from plugin.framework.errors import NetworkError
+from plugin.framework.errors import NetworkError, format_error_message
 from plugin.framework.url_utils import get_url_hostname
 
-from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (

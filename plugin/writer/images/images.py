@@ -917,7 +917,7 @@ class ImageSetProperties(ToolWriterImageBase):
             new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
             new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
 
-        from plugin.writer.edit_review import WriterCompoundUndo
+        from plugin.doc.compound_undo import WriterCompoundUndo
 
         undo_title = "WriterAgent: Set image properties"
         mgr = None
@@ -1107,7 +1107,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
 
         from com.sun.star.awt import Size
         from com.sun.star.text import GraphicCrop
-        from plugin.writer.edit_review import WriterCompoundUndo
+        from plugin.doc.compound_undo import WriterCompoundUndo
 
         size = _object_size(obj)
         width_mm = kwargs.get("width_mm")

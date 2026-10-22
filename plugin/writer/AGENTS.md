@@ -8,7 +8,7 @@ document boundaries, LibrePy-safe helpers in `plugin/doc/text_helpers.py`).
 - HTML import / apply-content (callers `import format as format_support`): `format.py`
 - Charts / shapes (shared **names** with Calc/Draw): `specialized/charts.py`, `specialized/shapes.py`
 - Light reads (tracked deletions, heading tree, selection text/range, text slices): `plugin/doc/text_helpers.py`
-- Streamed Writer rewrite/append + compound undo: `plugin/writer/edit_review.py`
+- Streamed Writer rewrite/append: `plugin/writer/edit_review.py`; compound undo: `plugin/doc/compound_undo.py`
 
 Topic docs: [docs/writer/math-tex.md](../../docs/writer/math-tex.md),
 [docs/writer/grammar-checker-plan.md](../../docs/writer/grammar-checker-plan.md),

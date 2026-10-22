@@ -4,7 +4,6 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.writer.edit_review import (
     TRACKED_SELECTION_MESSAGE,
     TrackedChangesInSelection,
-    WriterCompoundUndo,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
     build_writer_rewrite_prompt,
@@ -283,35 +282,6 @@ def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
     assert session.finish() is None
     assert text_range.getString() == " "
     assert doc.getPropertyValue("RecordChanges") is True
-
-
-def test_writer_compound_undo_enter_close_and_idempotent():
-    doc = _MockDoc(recording=True)
-    cu = WriterCompoundUndo(doc, "WriterAgent: test")
-    assert doc.undo.entered is True
-    assert doc.undo.left is False
-    cu.close()
-    assert doc.undo.left is True
-    cu.close()
-    assert doc.undo.left is True
-
-
-def test_writer_compound_undo_context_manager_closes_on_success_and_error():
-    doc = _MockDoc(recording=True)
-    with WriterCompoundUndo(doc, "WriterAgent: with-ok") as cu:
-        assert cu is not None
-        assert doc.undo.entered is True
-        assert doc.undo.left is False
-    assert doc.undo.left is True
-
-    doc2 = _MockDoc(recording=True)
-    try:
-        with WriterCompoundUndo(doc2, "WriterAgent: with-err"):
-            assert doc2.undo.entered is True
-            raise RuntimeError("boom")
-    except RuntimeError:
-        pass
-    assert doc2.undo.left is True
 
 
 def test_set_document_property_updates_existing_without_readding(monkeypatch):

@@ -1488,7 +1488,7 @@ class StyleClone(ToolWriterStyleBase):
         if style_family.hasByName(new_name):
             return self._tool_error("Style '%s' already exists in %s." % (new_name, family))
 
-        from plugin.writer.edit_review import WriterCompoundUndo
+        from plugin.doc.compound_undo import WriterCompoundUndo
 
         with WriterCompoundUndo(doc, "WriterAgent: Clone style"):
             if family == "PageStyles":

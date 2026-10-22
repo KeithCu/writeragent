@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""HTTP route registry for the framework.
+"""MCP route registry.
 
 Stores route handlers keyed by (method, path). Modules register their
 handlers during initialize() and the HTTP server dispatches to them.
@@ -26,7 +26,7 @@ import logging
 import threading
 from typing import Any, Callable, NamedTuple
 
-log = logging.getLogger("writeragent.framework.http_routes")
+log = logging.getLogger("writeragent.mcp.routes")
 
 
 class Route(NamedTuple):

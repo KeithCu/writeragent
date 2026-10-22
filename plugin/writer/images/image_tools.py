@@ -33,8 +33,8 @@ from plugin.framework.errors import best_effort
 
 # WriterCompoundUndo is intentionally imported function-locally in insert_image,
 # insert_image_at_locator, insert_image_into_header_footer, and
-# replace_graphic_source because LibrePy bundles image_tools.py without edit_review.py.
-# A module-level import would break LibrePy when calc or vision only needs export helpers.
+# replace_graphic_source so importing image_tools does not immediately load the
+# undo helper, and edit_review stays out of LibrePy.
 
 log = logging.getLogger(__name__)
 
@@ -211,7 +211,7 @@ def insert_image(
     ignored on Calc; omitted x/y centers a Draw/Impress page. add_frame is
     Writer/Web only.
     """
-    from plugin.writer.edit_review import WriterCompoundUndo
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     inside = get_type_doc(model)
 
@@ -243,7 +243,7 @@ def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int |
     For Draw/Impress, optional page_index (0-based) and x_mm/y_mm; omitted x/y centers on the page.
     Returns the inserted graphic object, or None on failure.
     """
-    from plugin.writer.edit_review import WriterCompoundUndo
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     inside = get_type_doc(model)
     width_units, height_units = _mm_to_units(width_mm, height_mm)
@@ -292,7 +292,7 @@ def insert_image_into_header_footer(
     ``footer_first`` after ``FirstIsShared=False`` — those are separate
     ``XText`` objects; writing the shared ``header`` never reaches them.
     """
-    from plugin.writer.edit_review import WriterCompoundUndo
+    from plugin.doc.compound_undo import WriterCompoundUndo
     from plugin.writer.page import (
         _REGION_PROPS,
         resolve_page_style,
@@ -613,7 +613,7 @@ def replace_graphic_source(
     Passing None or "" for title leaves the current title unchanged. Same for
     description.
     """
-    from plugin.writer.edit_review import WriterCompoundUndo
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     inside = get_type_doc(model)
     if width_units is None or height_units is None:
