@@ -929,6 +929,17 @@ def _execute(
     return df, deduped
 
 
+def _handle_sql_error(exc: Exception, helper: str) -> dict[str, Any]:
+    if isinstance(exc, SqlError):
+        return _error_result(exc.code, str(exc), helper=helper)
+    # A DuckDB error is a failed query. Anything else keeps the traceback.
+    if _is_duckdb_error(exc):
+        log.warning("%s failed: %s", helper, exc)
+    else:
+        log.exception("%s failed", helper)
+    return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+
+
 def run_sql(
     sql: str,
     con: Any | None = None,
@@ -994,15 +1005,8 @@ def run_sql(
             _raise_if_write_or_escape(sql)
         df = target_con.execute(sql).df()
         return _ok_sql_result(helper, df)
-    except SqlError as exc:
-        return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:
-        # A DuckDB error is a failed query. Anything else keeps the traceback.
-        if _is_duckdb_error(exc):
-            log.warning("run_sql failed: %s", exc)
-        else:
-            log.exception("run_sql failed")
-        return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+        return _handle_sql_error(exc, helper)
     finally:
         if acquired is not None and not persist:
             _close_connection(acquired)
@@ -1044,12 +1048,5 @@ def query_folder_sql(
             helper=helper,
         )
         return _ok_sql_result(helper, df, files_used=used)
-    except SqlError as exc:
-        return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:
-        # A DuckDB error is a failed query. Anything else keeps the traceback.
-        if _is_duckdb_error(exc):
-            log.warning("query_folder_sql failed: %s", exc)
-        else:
-            log.exception("query_folder_sql failed")
-        return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+        return _handle_sql_error(exc, helper)

@@ -12,11 +12,13 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
+    _sheet_layout_flags,
+    dispatch_common_kwargs,
     error_result as _error_result,
     missing_package_error as _missing_package_error,
     parse_date_column,
     resolve_df as _resolve_df,
-    _sheet_layout_flags,
+    resolve_spec_helper,
 )
 
 from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
@@ -465,8 +467,7 @@ def time_series_plot(
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
 
     if name == "quick_plot":
         if "y_cols" in params:
@@ -502,18 +503,10 @@ def run_viz(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted viz helpers."""
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return _error_result("INVALID_SPEC", "spec must be a dict or helper name")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return _error_result("MISSING_HELPER", "helper is required")
-    if helper not in HELPER_NAMES:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES, missing_code="MISSING_HELPER")
+    if isinstance(res, dict):
+        return res
+    helper, spec_dict = res
 
     params = spec_dict.get("params")
     if params is None:

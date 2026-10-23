@@ -13,16 +13,17 @@ from plugin.scripting.calc_functions_common import (
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
 from plugin.scripting.venv.coerce import (
-    ok_result as _ok_result,
-    error_result as _error_result,
-    parse_trusted_spec as _parse_trusted_spec,
-    numeric_columns as _numeric_columns,
-    resolve_df as _resolve_df,
-    table_from_df as _table_from_df,
     _is_date_like_column_name,
-    coerce_str_list,
-    coerce_optional_float,
     coerce_bool,
+    coerce_optional_float,
+    coerce_str_list,
+    dispatch_common_kwargs,
+    error_result as _error_result,
+    numeric_columns as _numeric_columns,
+    ok_result as _ok_result,
+    resolve_df as _resolve_df,
+    run_trusted_spec,
+    table_from_df as _table_from_df,
 )
 
 log = logging.getLogger(__name__)
@@ -511,8 +512,7 @@ def solve_scheduling_problem(
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
 
     if name == "optimize_portfolio":
         return optimize_portfolio(
@@ -546,18 +546,13 @@ def run_optimize(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
-
-    try:
-        result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
-    except Exception as exc:
-        log.exception("Optimization helper %s failed", helper)
-        return _error_result("OPTIMIZATION_FAILED", str(exc), helper=helper)
-
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-
-    return result
+    return run_trusted_spec(
+        spec,
+        data,
+        context,
+        helper_names=HELPER_NAMES,
+        dispatch_fn=_dispatch_helper,
+        domain="Optimization",
+        error_code="OPTIMIZATION_FAILED",
+        logger=log,
+    )

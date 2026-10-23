@@ -18,7 +18,8 @@ from plugin.scripting.venv.coerce import (
     parse_date_column,
     ok_result as _ok_result,
     error_result as _error_result,
-    parse_trusted_spec as _parse_trusted_spec,
+    run_trusted_spec,
+    dispatch_common_kwargs,
     missing_package_error as _missing_package_error,
     numeric_columns as _numeric_columns,
     resolve_df as _resolve_df,
@@ -152,6 +153,21 @@ def _formatted_cells(formatted: Any) -> list[str]:
                 cells.append(str(item))
         return cells
     return [str(formatted)]
+
+
+def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:
+    cells = _formatted_cells(formatted)
+    return _ok_result(
+        name,
+        metrics={"count": len(cells)},
+        tables=[{
+            "name": "formatted",
+            "columns": ["value"],
+            "rows": [[c] for c in cells],
+            "truncated": False,
+            "total_rows": len(cells),
+        }],
+    )
 
 
 def _describe_columns_from_profile(
@@ -1239,8 +1255,7 @@ def monte_carlo(
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
 
     if name == "describe_data":
         return describe_data(data, include_outliers=params.get("include_outliers", True), max_cols=params.get("max_cols", MAX_COLS), **common)
@@ -1265,19 +1280,7 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
         if decimals < 0:
             return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
         values = params.get("values", data)
-        formatted = format_currency(values, symbol=symbol, decimals=decimals)
-        cells = _formatted_cells(formatted)
-        return _ok_result(
-            name,
-            metrics={"count": len(cells)},
-            tables=[{
-                "name": "formatted",
-                "columns": ["value"],
-                "rows": [[c] for c in cells],
-                "truncated": False,
-                "total_rows": len(cells),
-            }],
-        )
+        return _format_cells_result(name, format_currency(values, symbol=symbol, decimals=decimals))
     if name == "format_percent":
         try:
             decimals = coerce_int(params.get("decimals", 1), name="decimals")
@@ -1286,19 +1289,7 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
         if decimals < 0:
             return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
         values = params.get("values", data)
-        formatted = format_percent(values, decimals=decimals)
-        cells = _formatted_cells(formatted)
-        return _ok_result(
-            name,
-            metrics={"count": len(cells)},
-            tables=[{
-                "name": "formatted",
-                "columns": ["value"],
-                "rows": [[c] for c in cells],
-                "truncated": False,
-                "total_rows": len(cells),
-            }],
-        )
+        return _format_cells_result(name, format_percent(values, decimals=decimals))
     if name == "clean_and_prepare":
         return clean_and_prepare(data, drop_duplicates=params.get("drop_duplicates", False), fill_numeric=params.get("fill_numeric", "median"), fill_categorical=params.get("fill_categorical", "mode"), **common)
     if name == "pivot_aggregate":
@@ -1347,18 +1338,13 @@ def run_analysis(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and future tools."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
-
-    try:
-        result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
-    except Exception as exc:
-        log.exception("Analysis helper %s failed", helper)
-        return _error_result("ANALYSIS_FAILED", str(exc), helper=helper)
-
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-
-    return result
+    return run_trusted_spec(
+        spec,
+        data,
+        context,
+        helper_names=HELPER_NAMES,
+        dispatch_fn=_dispatch_helper,
+        domain="Analysis",
+        error_code="ANALYSIS_FAILED",
+        logger=log,
+    )

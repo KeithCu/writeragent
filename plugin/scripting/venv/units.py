@@ -15,7 +15,10 @@ from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.calc_range import ensure_rectangular_2d
-from plugin.scripting.venv.coerce import error_result as _error_result
+from plugin.scripting.venv.coerce import (
+    error_result as _error_result,
+    resolve_spec_helper,
+)
 from plugin.scripting.venv.map_range import inspect_input, map_over_range
 
 # Filled on first use. The venv worker handles one request at a time on the
@@ -608,18 +611,10 @@ def run_units(
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted units helpers."""
     del data
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return _error_result("INVALID_SPEC", "spec must be a dict or helper name")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return _error_result("MISSING_PARAM", "helper is required")
-    if helper not in HELPER_NAMES:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES, missing_code="MISSING_PARAM")
+    if isinstance(res, dict):
+        return res
+    helper, spec_dict = res
 
     params = spec_dict.get("params")
     if params is None:

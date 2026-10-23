@@ -15,17 +15,18 @@ from plugin.scripting.calc_functions_common import (
 )
 from plugin.scripting.venv.coerce import (
     CoerceResult,
-    ok_result as _ok_result,
-    error_result as _error_result,
-    parse_trusted_spec as _parse_trusted_spec,
-    missing_package_error as _missing_package_error,
-    resolve_df as _resolve_df,
-    table_from_df as _table_from_df,
-    parse_date_column,
+    coerce_bool,
+    coerce_float,
     coerce_int,
     coerce_optional_int,
-    coerce_float,
-    coerce_bool,
+    dispatch_common_kwargs,
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
+    ok_result as _ok_result,
+    parse_date_column,
+    resolve_df as _resolve_df,
+    run_trusted_spec,
+    table_from_df as _table_from_df,
 )
 
 log = logging.getLogger(__name__)
@@ -361,6 +362,37 @@ def _resolve_period(series: Any, period: Any, helper: str) -> tuple[int | None, 
             helper=helper,
         )
     return season, None
+
+
+def _prepare_time_series_with_period(
+    data: Any,
+    *,
+    date_col: str,
+    value_col: str,
+    headers: bool,
+    header_row: int,
+    sheet_hint: str | None,
+    helper: str,
+    period: Any,
+) -> tuple[CoerceResult | None, Any | None, int | None, dict[str, Any] | None]:
+    coerced, series, err = _prepare_time_series(
+        data,
+        date_col=date_col,
+        value_col=value_col,
+        headers=headers,
+        header_row=header_row,
+        sheet_hint=sheet_hint,
+        helper=helper,
+    )
+    if err is not None:
+        return None, None, None, err
+    assert coerced is not None and series is not None
+
+    season, period_err = _resolve_period(series, period, helper)
+    if period_err is not None:
+        return None, None, None, period_err
+    assert season is not None
+    return coerced, series, season, None
 
 
 def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, dict[str, Any]]:
@@ -724,7 +756,7 @@ def decompose_time_series(
     if decomp_model not in ("additive", "multiplicative"):
         return _error_result("INVALID_PARAM", f"model must be additive or multiplicative, got {decomp_model!r}", helper=helper)
 
-    coerced, series, err = _prepare_time_series(
+    coerced, series, season, err = _prepare_time_series_with_period(
         data,
         date_col=date_col,
         value_col=value_col,
@@ -732,15 +764,11 @@ def decompose_time_series(
         header_row=header_row,
         sheet_hint=sheet_hint,
         helper=helper,
+        period=period,
     )
     if err is not None:
         return err
-    assert coerced is not None and series is not None
-
-    season, period_err = _resolve_period(series, period, helper)
-    if period_err is not None:
-        return period_err
-    assert season is not None
+    assert coerced is not None and series is not None and season is not None
 
     try:
         from statsmodels.tsa.seasonal import seasonal_decompose
@@ -833,7 +861,7 @@ def anomaly_detection_time_series(
     if _require_statsmodels() is None:
         return _missing_package_error(helper, "statsmodels")
 
-    coerced, series, err = _prepare_time_series(
+    coerced, series, season, err = _prepare_time_series_with_period(
         data,
         date_col=date_col,
         value_col=value_col,
@@ -841,15 +869,11 @@ def anomaly_detection_time_series(
         header_row=header_row,
         sheet_hint=sheet_hint,
         helper=helper,
+        period=period,
     )
     if err is not None:
         return err
-    assert coerced is not None and series is not None
-
-    season, period_err = _resolve_period(series, period, helper)
-    if period_err is not None:
-        return period_err
-    assert season is not None
+    assert coerced is not None and series is not None and season is not None
 
     try:
         from statsmodels.tsa.seasonal import STL
@@ -901,8 +925,7 @@ def anomaly_detection_time_series(
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
 
     if name == "forecast_time_series":
         f_params: dict[str, Any] = {k: params[k] for k in ("periods", "model", "date_col", "value_col", "seasonal_periods") if k in params}
@@ -922,18 +945,13 @@ def run_forecast(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
-
-    try:
-        result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
-    except Exception as exc:
-        log.exception("Forecast helper %s failed", helper)
-        return _error_result("FORECAST_FAILED", str(exc), helper=helper)
-
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-
-    return result
+    return run_trusted_spec(
+        spec,
+        data,
+        context,
+        helper_names=HELPER_NAMES,
+        dispatch_fn=_dispatch_helper,
+        domain="Forecast",
+        error_code="FORECAST_FAILED",
+        logger=log,
+    )
