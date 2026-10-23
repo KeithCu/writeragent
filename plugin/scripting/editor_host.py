@@ -24,7 +24,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, cast
+from typing import IO, Any, Callable, cast
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
@@ -478,6 +478,16 @@ class PersistentEditor:
                 dropped = self._stderr_tail.popleft()
                 self._stderr_tail_chars -= len(dropped) + 1
 
+    def _read_and_append_stderr_line(self, stderr: IO[bytes], generation: int) -> bool:
+        raw = stderr.readline()
+        if not raw:
+            return False
+        line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+        if line:
+            log.debug("editor child: %s", line)
+            self._append_stderr_line(line, generation=generation)
+        return True
+
     @background
     def _stderr_drain_loop(self, proc: subprocess.Popen[bytes], generation: int) -> None:
         if proc.stderr is None:
@@ -487,25 +497,15 @@ class PersistentEditor:
             if sys.platform == "win32":
                 # Windows: blocking readline (pipe close on exit unblocks).
                 while proc.poll() is None:
-                    raw = stderr.readline()
-                    if not raw:
+                    if not self._read_and_append_stderr_line(stderr, generation):
                         break
-                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                    if line:
-                        log.debug("editor child: %s", line)
-                        self._append_stderr_line(line, generation=generation)
             else:
                 while proc.poll() is None:
                     ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.5)
                     if not ready:
                         continue
-                    raw = stderr.readline()
-                    if not raw:
+                    if not self._read_and_append_stderr_line(stderr, generation):
                         break
-                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                    if line:
-                        log.debug("editor child: %s", line)
-                        self._append_stderr_line(line, generation=generation)
         except Exception:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
@@ -830,13 +830,16 @@ class PersistentEditor:
                 if not self.sessions:
                     set_active_session(None)
 
+        self._execute_close_handler(_handle_close, "Editor close handler")
+
+    def _execute_close_handler(self, handler: Callable[[], None], error_prefix: str) -> None:
         try:
-            self.executor.execute(_handle_close, timeout=self._marshal_timeout(), bound_scope=None)
+            self.executor.execute(handler, timeout=self._marshal_timeout(), bound_scope=None)
         except Exception as exc:
             if isinstance(exc, TimeoutError):
-                log.exception("Editor close handler timed out")
+                log.exception("%s timed out", error_prefix)
             else:
-                log.exception("Editor close handler marshal failed")
+                log.exception("%s marshal failed", error_prefix)
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         try:
@@ -878,13 +881,7 @@ class PersistentEditor:
                 if not self.sessions:
                     set_active_session(None)
 
-        try:
-            self.executor.execute(_handle_close, timeout=self._marshal_timeout(), bound_scope=None)
-        except Exception as exc:
-            if isinstance(exc, TimeoutError):
-                log.exception("Editor disconnect handler timed out")
-            else:
-                log.exception("Editor disconnect handler marshal failed")
+        self._execute_close_handler(_handle_close, "Editor disconnect handler")
 
 
 _PERSISTENT_EDITOR = PersistentEditor()

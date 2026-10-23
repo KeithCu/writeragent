@@ -95,6 +95,12 @@ def claim_ipc_channel() -> BinaryIO:
     return _child_ipc_stream
 
 
+def _get_ipc_stream_or_std(claimed: BinaryIO | None, std_stream: Any) -> BinaryIO:
+    if claimed is not None:
+        return claimed
+    return cast("BinaryIO", getattr(std_stream, "buffer", std_stream))
+
+
 def get_child_ipc_stream() -> BinaryIO:
     """Return the claimed child IPC stream, or sys.stdout's buffer.
 
@@ -108,9 +114,7 @@ def get_child_ipc_stream() -> BinaryIO:
     Why this change: return the claim first. Tool writes, the audio
     recorder, and the heartbeat all go through this function.
     """
-    if _child_ipc_stream is not None:
-        return _child_ipc_stream
-    return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
+    return _get_ipc_stream_or_std(_child_ipc_stream, sys.stdout)
 
 
 _child_ipc_stdin: BinaryIO | None = None
@@ -140,9 +144,7 @@ def claim_ipc_stdin() -> BinaryIO:
 
 def get_child_ipc_stdin() -> BinaryIO:
     """Return the claimed child IPC stdin, or sys.stdin's buffer."""
-    if _child_ipc_stdin is not None:
-        return _child_ipc_stdin
-    return cast("BinaryIO", getattr(sys.stdin, "buffer", sys.stdin))
+    return _get_ipc_stream_or_std(_child_ipc_stdin, sys.stdin)
 
 
 # Host unpickle of child/editor frames: builtins, plus the NumPy reconstruct
@@ -356,6 +358,14 @@ def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
     stack[-1] = func(*args)
 
 
+def _guarded_load_newobj_common(unpickler: pickle.Unpickler, stack_depth: int, method_name: str, /) -> None:
+    stack = cast("list[Any]", getattr(unpickler, "stack"))
+    if len(stack) >= stack_depth:
+        _reject_ndarray_constructor(stack[-stack_depth])
+    target = getattr(pickle._Unpickler, method_name)
+    target(unpickler)
+
+
 def _guarded_load_newobj(unpickler: pickle.Unpickler, /) -> None:
     """NEWOBJ opcode. ``ndarray.__new__`` is the same allocation as REDUCE.
 
@@ -367,12 +377,7 @@ def _guarded_load_newobj(unpickler: pickle.Unpickler, /) -> None:
     Why this change: reject that class before ``load_newobj``. Other
     classes still use the original opcode.
     """
-    stack = cast("list[Any]", getattr(unpickler, "stack"))
-    # load_newobj pops the args tuple, then the class under it.
-    if len(stack) >= 2:
-        _reject_ndarray_constructor(stack[-2])
-    load_newobj = getattr(pickle._Unpickler, "load_newobj")
-    load_newobj(unpickler)
+    _guarded_load_newobj_common(unpickler, 2, "load_newobj")
 
 
 def _guarded_load_newobj_ex(unpickler: pickle.Unpickler, /) -> None:
@@ -385,12 +390,7 @@ def _guarded_load_newobj_ex(unpickler: pickle.Unpickler, /) -> None:
     Why this change: reject ``numpy.ndarray`` before ``load_newobj_ex``.
     The class sits under the args tuple and the kwargs dict.
     """
-    stack = cast("list[Any]", getattr(unpickler, "stack"))
-    # load_newobj_ex pops kwargs, then args, then the class.
-    if len(stack) >= 3:
-        _reject_ndarray_constructor(stack[-3])
-    load_newobj_ex = getattr(pickle._Unpickler, "load_newobj_ex")
-    load_newobj_ex(unpickler)
+    _guarded_load_newobj_common(unpickler, 3, "load_newobj_ex")
 
 
 # The opcode table is filled on pickle._Unpickler. A subclass method does

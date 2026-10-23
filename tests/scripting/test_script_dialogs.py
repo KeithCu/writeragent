@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.i18n import _
-from plugin.scripting.script_dialogs import show_new_script_dialog
+from plugin.chatbot.dialogs import show_new_script_dialog
 
 
 def _build_dialog_mock(
@@ -87,7 +87,7 @@ def test_show_new_script_dialog_ok_writable_doc():
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
-    with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+    with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
         result = show_new_script_dialog(ctx, doc=doc, default_name="NewScript")
 
     assert result == ("MyNewScript", True)
@@ -143,7 +143,7 @@ def test_show_new_script_dialog_writable_init_rejected():
         doc = MagicMock()
         doc.isReadonly.return_value = False
 
-        with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+        with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
             result = show_new_script_dialog(ctx, doc=doc)
 
         assert result is None
@@ -161,7 +161,7 @@ def test_show_new_script_dialog_writable_lowercase_init_allowed():
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
-    with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+    with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
         result = show_new_script_dialog(ctx, doc=doc)
 
     assert result == ("init", True)
@@ -177,7 +177,7 @@ def test_show_new_script_dialog_writable_init_unattached_allowed():
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
-    with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+    with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
         result = show_new_script_dialog(ctx, doc=doc)
 
     assert result == ("INIT", False)
@@ -195,7 +195,7 @@ def test_show_new_script_dialog_writable_reserved_prefix_rejected():
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
-    with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+    with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
         result = show_new_script_dialog(ctx, doc=doc)
 
     assert result is None
@@ -214,7 +214,7 @@ def test_show_new_script_dialog_empty_text_rejected():
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
-    with patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox:
+    with patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox:
         result = show_new_script_dialog(ctx, doc=doc)
 
     assert result is None
@@ -292,9 +292,9 @@ def test_show_new_script_dialog_fallback_text_kept():
     doc.isReadonly.return_value = False
 
     with (
-        patch("plugin.scripting.script_dialogs.load_writeragent_dialog", return_value=None),
-        patch("plugin.scripting.script_dialogs.show_text_input_dialog", return_value="Kept"),
-        patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox,
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None),
+        patch("plugin.chatbot.dialogs.show_text_input_dialog", return_value="Kept"),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         result = show_new_script_dialog(ctx, doc=doc, default_attach=True)
 
@@ -308,9 +308,9 @@ def test_show_new_script_dialog_fallback_reserved_prefix():
     doc.isReadonly.return_value = False
 
     with (
-        patch("plugin.scripting.script_dialogs.load_writeragent_dialog", return_value=None),
-        patch("plugin.scripting.script_dialogs.show_text_input_dialog", return_value="[Doc] Kept"),
-        patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox,
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None),
+        patch("plugin.chatbot.dialogs.show_text_input_dialog", return_value="[Doc] Kept"),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         result = show_new_script_dialog(ctx, doc=doc)
 
@@ -326,9 +326,9 @@ def test_show_new_script_dialog_fallback_init_allowed():
     doc.isReadonly.return_value = False
 
     with (
-        patch("plugin.scripting.script_dialogs.load_writeragent_dialog", return_value=None),
-        patch("plugin.scripting.script_dialogs.show_text_input_dialog", return_value="INIT"),
-        patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox,
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None),
+        patch("plugin.chatbot.dialogs.show_text_input_dialog", return_value="INIT"),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         result = show_new_script_dialog(ctx, doc=doc)
 
@@ -340,9 +340,9 @@ def test_show_new_script_dialog_fallback_empty_returns_none():
     ctx = MagicMock()
 
     with (
-        patch("plugin.scripting.script_dialogs.load_writeragent_dialog", return_value=None),
-        patch("plugin.scripting.script_dialogs.show_text_input_dialog", return_value=""),
-        patch("plugin.scripting.script_dialogs.msgbox") as mock_msgbox,
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None),
+        patch("plugin.chatbot.dialogs.show_text_input_dialog", return_value=""),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         result = show_new_script_dialog(ctx)
 
@@ -351,7 +351,7 @@ def test_show_new_script_dialog_fallback_empty_returns_none():
 
 
 def test_show_new_script_dialog_none_ctx():
-    with patch("plugin.scripting.script_dialogs.load_writeragent_dialog") as mock_load:
+    with patch("plugin.chatbot.dialogs.load_writeragent_dialog") as mock_load:
         assert show_new_script_dialog(None) is None
     mock_load.assert_not_called()
 

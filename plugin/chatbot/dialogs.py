@@ -166,6 +166,18 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         return False
 
 
+def run_dialog_with_listeners(dlg: Any, ok_listener: Any, cancel_listener: Any) -> None:
+    btn_ok = dlg.getControl("BtnOK")
+    if btn_ok is not None:
+        btn_ok.addActionListener(ok_listener)
+    btn_cancel = dlg.getControl("BtnCancel")
+    if btn_cancel is not None:
+        btn_cancel.addActionListener(cancel_listener)
+
+    dlg.execute()
+    dlg.dispose()
+
+
 def _run_text_dialog(
     ctx: Any,
     xdl_name: str,
@@ -206,15 +218,7 @@ def _run_text_dialog(
             def disposing(self, Source: EventObject) -> None:
                 pass
 
-        btn_ok = dlg.getControl("BtnOK")
-        if btn_ok is not None:
-            btn_ok.addActionListener(_OkListener())
-        btn_cancel = dlg.getControl("BtnCancel")
-        if btn_cancel is not None:
-            btn_cancel.addActionListener(_CancelListener())
-
-        dlg.execute()
-        dlg.dispose()
+        run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
         if _outcome is None:
             return None
         return _outcome[0]
@@ -278,11 +282,125 @@ def show_new_script_dialog(
 ) -> tuple[str, bool] | None:
     """Modal dialog for creating or saving a Python script with name and attach checkbox.
 
-    Delegates to plugin.scripting.script_dialogs.
+    Returns ``(script_name, attach_to_document)`` on OK, or ``None`` on Cancel.
     """
-    from plugin.scripting.script_dialogs import show_new_script_dialog as _impl
+    if not ctx:
+        log.warning("show_new_script_dialog: no ctx")
+        return None
+    try:
+        from plugin.scripting.document_scripts import (
+            is_document_readonly_for_scripts,
+            new_script_name_error,
+        )
 
-    return _impl(ctx, doc=doc, default_name=default_name, title=title, default_attach=default_attach)
+        can_attach = doc is not None and not is_document_readonly_for_scripts(doc)
+        dialog_title = title or _("New Python Script")
+
+        dlg = load_writeragent_dialog("NewScriptDialog", ctx)
+        if dlg is None:
+            name = show_text_input_dialog(ctx, _("Script name:"), dialog_title, default_name)
+            if not name:
+                return None
+            # No checkbox was shown. Do not honor default_attach: that would
+            # write a document script the user did not confirm. INIT is allowed
+            # because this path stores a My Scripts name.
+            message = new_script_name_error(name, attach=False)
+            if message is not None:
+                msgbox(ctx, _("Error"), message)
+                return None
+            return (name, False)
+
+        try:
+            dlg.getModel().Title = dialog_title
+
+            edit = dlg.getControl("NameEdit")
+            if edit is not None:
+                set_control_text(edit, default_name or "")
+
+            chk = dlg.getControl("ChkAttach")
+            if chk is not None:
+                initial_attach = can_attach if default_attach is None else (default_attach and can_attach)
+                if not can_attach:
+                    reason = (
+                        _("Attach to this document (no document is open)")
+                        if doc is None
+                        else _("Attach to this document (this document is read-only)")
+                    )
+                    set_control_text(chk, reason)
+                    chk.getModel().HelpText = reason
+                set_checkbox_state(chk, 1 if initial_attach else 0)
+                set_control_enabled(chk, bool(can_attach))
+
+            outcome: tuple[str, bool] | None = None
+
+            class _OkListener(BaseActionListener):
+                def on_action_performed(self, rEvent: Any) -> None:
+                    nonlocal outcome
+                    ec = dlg.getControl("NameEdit")
+                    t = (get_control_text(ec) or "").strip()
+                    cc = dlg.getControl("ChkAttach")
+                    # A disabled box can still report State 1. can_attach is the
+                    # same predicate that disabled it.
+                    attach = bool(can_attach and get_checkbox_state(cc) == 1)
+                    # What was wrong: OK accepted INIT/Init while Attach was checked.
+                    # How it happened: the dialog only called is_reserved_script_name.
+                    # Those spellings are not display prefixes. attach_document_script
+                    # rejects them because they are the workbook init keys.
+                    # Why this works: new_script_name_error is that same predicate,
+                    # so the dialog stays open on the storage sentence.
+                    message = new_script_name_error(t, attach=attach)
+                    if message is not None:
+                        peer = None
+                        try:
+                            get_peer = getattr(dlg, "getPeer", None)
+                            if callable(get_peer):
+                                peer = get_peer()
+                        except Exception:
+                            log.debug(
+                                "show_new_script_dialog: dialog peer unavailable",
+                                exc_info=True,
+                            )
+                        # What was wrong: this msgbox used the document frame while
+                        # execute() was still on the stack, so the box could open
+                        # under the modal dialog.
+                        # Why this works: parent_window is the dialog peer. None
+                        # keeps msgbox's frame parent.
+                        msgbox(ctx, _("Error"), message, parent_window=peer)
+                        return
+                    outcome = (t, attach)
+                    dlg.endDialog(1)
+
+            class _CancelListener(BaseActionListener):
+                def on_action_performed(self, rEvent: Any) -> None:
+                    nonlocal outcome
+                    outcome = None
+                    dlg.endDialog(0)
+
+            btn_ok = dlg.getControl("BtnOK")
+            if btn_ok is not None:
+                btn_ok.addActionListener(_OkListener())
+            btn_cancel = dlg.getControl("BtnCancel")
+            if btn_cancel is not None:
+                btn_cancel.addActionListener(_CancelListener())
+
+            if edit is not None:
+                try:
+                    edit.setFocus()
+                except Exception:
+                    # What was wrong: setFocus ran before the dispose finally.
+                    # A focus failure skipped execute() and leaked the dialog.
+                    # Why this works: focus is best-effort; dispose still runs.
+                    log.debug("show_new_script_dialog: setFocus failed", exc_info=True)
+            dlg.execute()
+            return outcome
+        finally:
+            try:
+                dlg.dispose()
+            except Exception:
+                log.debug("show_new_script_dialog: dispose failed", exc_info=True)
+    except Exception:
+        log.exception("show_new_script_dialog failed")
+        return None
 
 
 # ── Clipboard ────────────────────────────────────────────────────────
@@ -327,7 +445,7 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
         return False
 
 
-class _CopyListener(BaseActionListener):
+class CopyListener(BaseActionListener):
     """Copy button shared by msgbox_with_copy and msgbox_with_report.
 
     actionPerformed is already wrapped by BaseActionListener._catch_and_log,
@@ -386,7 +504,7 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
 
         copy_btn = dlg.getControl("CopyBtn")
         if copy_btn is not None:
-            copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_text))
+            copy_btn.addActionListener(CopyListener(dlg, ctx, copy_text))
 
         ok_btn = dlg.getControl("OKBtn")
         if ok_btn is not None:
@@ -434,7 +552,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         copy_btn = dlg.getControl("CopyBtn")
         if copy_btn is not None:
             copy_btn.getModel().Label = _("Copy URL")
-            copy_btn.addActionListener(_CopyListener(dlg, ctx, report_url))
+            copy_btn.addActionListener(CopyListener(dlg, ctx, report_url))
 
         class _ReportListener(BaseActionListener):
             _ctx: Any
@@ -856,30 +974,27 @@ def is_checkbox_control(ctrl: Any) -> bool:
     return bool(best_effort(_check, "is_checkbox_control exception", default=False))
 
 
-def set_control_enabled(ctrl: Any, enabled: bool) -> None:
-    """Safely set the enabled state of a control or its model.
-    Logs instead of crashing if the capability is missing."""
+def _set_control_prop(ctrl: Any, value: bool, method_name: str, prop_name: str, log_label: str) -> None:
     if not ctrl:
         return
     def _apply() -> None:
-        if hasattr(ctrl, "setEnable"):
-            ctrl.setEnable(enabled)
-        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Enabled"):
-            ctrl.getModel().Enabled = enabled
-    best_effort(_apply, "set_control_enabled exception")
+        if hasattr(ctrl, method_name):
+            getattr(ctrl, method_name)(value)
+        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), prop_name):
+            setattr(ctrl.getModel(), prop_name, value)
+    best_effort(_apply, f"{log_label} exception")
+
+
+def set_control_enabled(ctrl: Any, enabled: bool) -> None:
+    """Safely set the enabled state of a control or its model.
+    Logs instead of crashing if the capability is missing."""
+    _set_control_prop(ctrl, enabled, "setEnable", "Enabled", "set_control_enabled")
 
 
 def set_control_visible(ctrl: Any, visible: bool) -> None:
     """Safely set the visibility state of a control or its model.
     Logs instead of crashing if the capability is missing."""
-    if not ctrl:
-        return
-    def _apply() -> None:
-        if hasattr(ctrl, "setVisible"):
-            ctrl.setVisible(visible)
-        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Visible"):
-            ctrl.getModel().Visible = visible
-    best_effort(_apply, "set_control_visible exception")
+    _set_control_prop(ctrl, visible, "setVisible", "Visible", "set_control_visible")
 
 
 def get_control_text(ctrl: Any, default: str = "") -> str:

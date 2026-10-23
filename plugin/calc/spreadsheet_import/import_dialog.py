@@ -13,7 +13,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_desktop
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, run_dialog_with_listeners
 from plugin.calc.address_utils import parse_range_string, parse_address
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
@@ -175,15 +175,7 @@ def show_import_dialog(ctx: Any) -> None:
             def disposing(self, Source: Any) -> None:
                 pass
 
-        btn_ok = dlg.getControl("BtnOK")
-        if btn_ok is not None:
-            btn_ok.addActionListener(_OkListener())
-        btn_cancel = dlg.getControl("BtnCancel")
-        if btn_cancel is not None:
-            btn_cancel.addActionListener(_CancelListener())
-
-        dlg.execute()
-        dlg.dispose()
+        run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
 
         if _outcome:
             msgbox(ctx, "Success", f"Conversion completed successfully!\n\n{_outcome['summary']}")

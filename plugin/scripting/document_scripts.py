@@ -863,6 +863,32 @@ def _on_select_script(
     return True
 
 
+def _validate_script_target(
+    msg: dict[str, Any],
+    send_list: Callable[..., None],
+    *,
+    session_doc: Any | None = None,
+    session_doc_url: str | None = None,
+    action_label: str = "delete",
+) -> tuple[str, str, str | None] | None:
+    name = str(msg.get("name", "") or "").strip()
+    origin = str(msg.get("origin", "") or "").strip()
+    if not name:
+        send_list(status_error_text=_("Script name cannot be empty."))
+        return None
+    if not script_origin_is_writable(origin):
+        send_list(status_error_text=read_only_helper_message())
+        return None
+    storage_name: str | None = None
+    if origin == SCRIPT_ORIGIN_DOCUMENT:
+        err = _require_writable_session(session_doc, session_doc_url, action_label=action_label)
+        if err:
+            send_list(status_error_text=err)
+            return None
+        storage_name = _document_script_storage_name(name)
+    return name, origin, storage_name
+
+
 def _on_save_script(
     msg: dict[str, Any],
     *,
@@ -871,21 +897,19 @@ def _on_save_script(
     send_list: Callable[..., None],
     **_unused: Any,
 ) -> bool:
-    name = str(msg.get("name", "") or "").strip()
+    target = _validate_script_target(
+        msg,
+        send_list,
+        session_doc=session_doc,
+        session_doc_url=session_doc_url,
+        action_label="save",
+    )
+    if target is None:
+        return True
+    name, origin, storage_name = target
     script_code = _script_code_from_message(msg)
-    origin = str(msg.get("origin", "") or "").strip()
-    if not name:
-        send_list(status_error_text=_("Script name cannot be empty."))
-        return True
-    if not script_origin_is_writable(origin):
-        send_list(status_error_text=read_only_helper_message())
-        return True
     if origin == SCRIPT_ORIGIN_DOCUMENT:
-        err = _require_writable_session(session_doc, session_doc_url, action_label="save")
-        if err:
-            send_list(status_error_text=err)
-            return True
-        storage_name = _document_script_storage_name(name)
+        assert storage_name is not None
         save_err = save_document_script(session_doc, storage_name, script_code)
         if save_err:
             # Fall back to My Scripts only for READONLY (read-only document or
@@ -930,20 +954,12 @@ def _on_delete_script(
     send_list: Callable[..., None],
     **_unused: Any,
 ) -> bool:
-    name = str(msg.get("name", "") or "").strip()
-    origin = str(msg.get("origin", "") or "").strip()
-    if not name:
-        send_list(status_error_text=_("Script name cannot be empty."))
+    target = _validate_script_target(msg, send_list, session_doc=session_doc, session_doc_url=session_doc_url)
+    if target is None:
         return True
-    if not script_origin_is_writable(origin):
-        send_list(status_error_text=read_only_helper_message())
-        return True
+    name, origin, storage_name = target
     if origin == SCRIPT_ORIGIN_DOCUMENT:
-        err = _require_writable_session(session_doc, session_doc_url)
-        if err:
-            send_list(status_error_text=err)
-            return True
-        storage_name = _document_script_storage_name(name)
+        assert storage_name is not None
         del_err = delete_document_script(session_doc, storage_name)
         if del_err:
             send_list(status_error_text=str(del_err))

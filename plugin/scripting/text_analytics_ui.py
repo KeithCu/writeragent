@@ -28,9 +28,12 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
-from plugin.framework.uno_listeners import BaseTopWindowListener
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
+from plugin.scripting.python_runner_ui import (
+    ModelessWindowClosingListener,
+    close_modeless_dialog,
+)
 from plugin.scripting.text_analytics import (
     format_text_analytics_result_for_display,
     get_doc_language,
@@ -114,22 +117,7 @@ class TextAnalyticsDialog:
         self._closed = True
         dlg = self._dlg
         self._dlg = None
-        if dlg is None:
-            return
-        if toolkit_teardown:
-            try:
-                dlg.setVisible(False)
-            except Exception:
-                log.debug("text analytics: hide after windowClosing failed", exc_info=True)
-            return
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.debug("text analytics: hide before dispose failed", exc_info=True)
-        try:
-            dlg.dispose()
-        except Exception:
-            log.debug("text analytics: dispose failed", exc_info=True)
+        close_modeless_dialog(dlg, toolkit_teardown=toolkit_teardown, log_label="text analytics")
 
     def _open(self) -> None:
         ctx = self._ctx
@@ -143,13 +131,7 @@ class TextAnalyticsDialog:
 
             self._wire(dlg)
 
-            owner = self
-
-            class _TopWindowListener(BaseTopWindowListener):
-                def on_window_closing(self, rEvent: Any) -> None:
-                    owner.close(toolkit_teardown=True)
-
-            self._top_listener = _TopWindowListener()
+            self._top_listener = ModelessWindowClosingListener(self)
             dlg.addTopWindowListener(self._top_listener)
             dlg.setVisible(True)
 

@@ -49,6 +49,37 @@ class _ActionListener(unohelper.Base, XActionListener):
         pass
 
 
+class ModelessWindowClosingListener(BaseTopWindowListener):
+    _owner: Any
+
+    def __init__(self, owner: Any) -> None:
+        self._owner = owner
+
+    def on_window_closing(self, rEvent: Any) -> None:
+        self._owner.close(toolkit_teardown=True)
+
+
+def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label: str = "dialog") -> None:
+    if dlg is None:
+        return
+    if toolkit_teardown:
+        log.debug("%s: windowClosing (no dispose)", log_label)
+        try:
+            dlg.setVisible(False)
+        except Exception:
+            log.debug("%s: hide after windowClosing failed", log_label, exc_info=True)
+        return
+    log.debug("%s: close dispose", log_label)
+    try:
+        dlg.setVisible(False)
+    except Exception:
+        log.debug("%s: hide before dispose failed", log_label, exc_info=True)
+    try:
+        dlg.dispose()
+    except Exception:
+        log.debug("%s: dispose failed", log_label, exc_info=True)
+
+
 def _action(fn: Callable[[], Any], name: str = "") -> XActionListener:
     # The class name is how tests find a button listener (_RunListener, _SaveListener,
     # and the other _{Button}Listener names from btn_name[3:]).
@@ -304,25 +335,7 @@ class NativePythonScriptDialog:
         self._closed = True
         dlg = self._dlg
         self._dlg = None
-        if dlg is None:
-            return
-        if toolkit_teardown:
-            log.debug("native script dialog: windowClosing (no dispose)")
-            try:
-                dlg.setVisible(False)
-            except Exception:
-                log.debug("native script dialog: hide after windowClosing failed", exc_info=True)
-            return
-        log.debug("native script dialog: close dispose")
-        # Guard hide and dispose so a dead peer does not skip dispose and leak the click handler.
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.debug("native script dialog: hide before dispose failed", exc_info=True)
-        try:
-            dlg.dispose()
-        except Exception:
-            log.debug("native script dialog: dispose failed", exc_info=True)
+        close_modeless_dialog(dlg, toolkit_teardown=toolkit_teardown, log_label="native script dialog")
 
     def _refresh_script_dropdown(self, select_display: str | None = None) -> None:
         select_ctrl = self._select_ctrl
@@ -403,13 +416,7 @@ class NativePythonScriptDialog:
                 code_ctrl.setFocus()
 
             if self._modeless:
-                owner = self
-
-                class _TopWindowListener(BaseTopWindowListener):
-                    def on_window_closing(self, rEvent: Any) -> None:
-                        owner.close(toolkit_teardown=True)
-
-                self._top_listener = _TopWindowListener()
+                self._top_listener = ModelessWindowClosingListener(self)
                 dlg.addTopWindowListener(self._top_listener)
                 dlg.setVisible(True)
                 # What was wrong: the editor did not take focus on the floating dialog.

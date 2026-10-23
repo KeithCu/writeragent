@@ -533,10 +533,9 @@ class McpModule(ModuleBase):
     def _action_server_status(self) -> None:
         import unohelper
         from com.sun.star.awt import XActionListener
-        from plugin.chatbot.dialogs import msgbox, load_writeragent_dialog, copy_to_clipboard
+        from plugin.chatbot.dialogs import CopyListener, load_writeragent_dialog, msgbox
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
-        from plugin.framework.uno_listeners import BaseActionListener
 
         ctx = get_ctx()
         b = self._bound_http_server()
@@ -621,22 +620,7 @@ class McpModule(ModuleBase):
 
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
-
-                class _CopyListener(BaseActionListener):
-                    _dlg: Any
-                    _ctx: Any
-                    _text: str
-
-                    def __init__(self, dialog: Any, context: Any, text: str) -> None:
-                        self._dlg = dialog
-                        self._ctx = context
-                        self._text = text
-
-                    def on_action_performed(self, rEvent: Any) -> None:
-                        if copy_to_clipboard(self._ctx, self._text):
-                            self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-
-                copy_btn.addActionListener(_CopyListener(dlg, ctx, active_url))
+                copy_btn.addActionListener(CopyListener(dlg, ctx, active_url))
 
             class _OkListener(unohelper.Base, XActionListener):
                 def actionPerformed(self, rEvent: ActionEvent) -> None:
