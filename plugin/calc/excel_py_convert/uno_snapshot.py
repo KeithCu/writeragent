@@ -23,6 +23,19 @@ FORMULA_SCAN_CHUNK_ROWS = 2048
 FORMULA_SCAN_CAP = 2_000_000
 
 
+def _collect_data_array_strings(target: Any, addr: Any, cached: dict[str, str]) -> None:
+    data = target.getDataArray() if hasattr(target, "getDataArray") else None
+    if data is not None:
+        for r_offset, row_data in enumerate(data):
+            r = addr.StartRow + r_offset
+            for c_offset, val in enumerate(row_data):
+                s = str(val or "")
+                if s.strip():
+                    c = addr.StartColumn + c_offset
+                    coord = f"{index_to_column(c)}{r + 1}"
+                    cached[coord] = s
+
+
 def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     """Snapshot DAG ``=PY`` cells from an open Calc doc (UNO) → Excel conversion report.
 
@@ -55,16 +68,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             for idx in range(string_cells.getCount()):
                 rng = string_cells.getByIndex(idx)
                 addr = rng.getRangeAddress()
-                data = rng.getDataArray() if hasattr(rng, "getDataArray") else None
-                if data is not None:
-                    for r_offset, row_data in enumerate(data):
-                        r = addr.StartRow + r_offset
-                        for c_offset, val in enumerate(row_data):
-                            s = str(val or "")
-                            if s.strip():
-                                c = addr.StartColumn + c_offset
-                                coord = f"{index_to_column(c)}{r + 1}"
-                                cached[coord] = s
+                _collect_data_array_strings(rng, addr, cached)
         if not cached:
             cells_attr = getattr(bank_sheet, "_cells", None)
             if isinstance(cells_attr, dict):
@@ -77,16 +81,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 cursor.gotoStartOfUsedArea(False)
                 cursor.gotoEndOfUsedArea(True)
                 addr = cursor.getRangeAddress()
-                data = cursor.getDataArray() if hasattr(cursor, "getDataArray") else None
-                if data is not None:
-                    for r_offset, row_data in enumerate(data):
-                        r = addr.StartRow + r_offset
-                        for c_offset, val in enumerate(row_data):
-                            s = str(val or "")
-                            if s.strip():
-                                c = addr.StartColumn + c_offset
-                                coord = f"{index_to_column(c)}{r + 1}"
-                                cached[coord] = s
+                _collect_data_array_strings(cursor, addr, cached)
         bank_cache[sheet_key] = cached
         return cached
 

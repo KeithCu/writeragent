@@ -12,6 +12,10 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
@@ -142,6 +146,29 @@ def migrate_bare_data_to_index0(code: str) -> str:
     return new_code
 
 
+def iter_xl_calls(
+    tree: ast.AST,
+    src: str,
+    line_starts: list[int],
+    issues: list[str],
+) -> Iterator[tuple[ast.Call, int, int]]:
+    """Yield direct ``xl(...)`` Call nodes and their start/end offsets in *src*."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Name) or func.id != "xl":
+            continue
+        if getattr(node, "lineno", None) is None:
+            continue
+        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
+        if start < 0 or end < 0 or end <= start:
+            issues.append("xl() call without reliable source positions")
+            continue
+        yield node, start, end
+
+
 def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str], list[tuple[int, int]]]:
     """Locate direct ``xl("A1…")`` calls; report dynamic / invalid forms as issues."""
     issues: list[str] = []
@@ -165,20 +192,7 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
     bare_spans = _bare_data_load_spans(src, tree, line_starts)
 
     calls: list[_XlLiteralCall] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if not isinstance(func, ast.Name) or func.id != "xl":
-            continue
-        if getattr(node, "lineno", None) is None:
-            continue
-        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
-        if start < 0 or end < 0 or end <= start:
-            issues.append("xl() call without reliable source positions")
-            continue
-
+    for node, start, end in iter_xl_calls(tree, src, line_starts, issues):
         header_mode = _header_mode_from_call(node)
         if header_mode == "bad":
             issues.append("xl() headers= must be True or False")

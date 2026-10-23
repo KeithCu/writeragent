@@ -58,7 +58,7 @@ from plugin.calc.excel_py_convert.to_excel import (
 )
 
 if TYPE_CHECKING:
-    from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
+    from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell, SheetInfo
 
 log = logging.getLogger(__name__)
 
@@ -673,6 +673,15 @@ def _drop_py_code_sheets_from_workbook(
     return wb_bytes, rels_bytes
 
 
+def _require_workbook_sheets(zin: zipfile.ZipFile) -> list[SheetInfo]:
+    names = set(zin.namelist())
+    if "xl/workbook.xml" not in names:
+        raise ValueError("package missing required part: xl/workbook.xml")
+    if "xl/_rels/workbook.xml.rels" not in names:
+        raise ValueError("package missing required part: xl/_rels/workbook.xml.rels")
+    return workbook_sheets(zin)
+
+
 def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path) -> None:
     """Write native Excel Python-in-Excel package (stdlib ZipFile only).
 
@@ -691,13 +700,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
     errors: list[str] = []
 
     with xml_namespace_lock(), zipfile.ZipFile(source_xlsx, "r") as zin:
-        names = set(zin.namelist())
-        if "xl/workbook.xml" not in names:
-            raise ValueError("package missing required part: xl/workbook.xml")
-        if "xl/_rels/workbook.xml.rels" not in names:
-            raise ValueError("package missing required part: xl/_rels/workbook.xml.rels")
-
-        sheets = workbook_sheets(zin)
+        sheets = _require_workbook_sheets(zin)
         title_to_part = {s.title: s.part_name for s in sheets if s.part_name}
         title_to_part_l = {s.title.lower(): s.part_name for s in sheets if s.part_name}
 
@@ -879,13 +882,7 @@ def write_dag_formulas_xlsx(
     errors: list[str] = []
 
     with xml_namespace_lock(), zipfile.ZipFile(source_xlsx, "r") as zin:
-        names = set(zin.namelist())
-        if "xl/workbook.xml" not in names:
-            raise ValueError("package missing required part: xl/workbook.xml")
-        if "xl/_rels/workbook.xml.rels" not in names:
-            raise ValueError("package missing required part: xl/_rels/workbook.xml.rels")
-
-        sheets = workbook_sheets(zin)
+        sheets = _require_workbook_sheets(zin)
         title_to_info = {s.title: s for s in sheets if s.part_name}
         title_to_info_l = {s.title.lower(): s for s in sheets if s.part_name}
 

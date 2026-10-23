@@ -68,7 +68,8 @@ from plugin.calc.excel_py_convert.to_dag_contracts import (
     _deal_excel_src_ok,
     _deal_note_ok,
 )
-from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
+from plugin.calc.python.xl_static_rewrite import iter_xl_calls
+from plugin.framework.ast_stmt_edit import line_starts_exact
 from plugin.framework.deal_shim import (
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_XL_EXPR,
@@ -276,22 +277,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
 
     line_starts = line_starts_exact(src)
     calls: list[_XlCall] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        # Direct ``xl(...)`` only — ``obj.xl(...)`` is not the Excel data bridge.
-        if not isinstance(func, ast.Name) or func.id != "xl":
-            continue
-        if getattr(node, "lineno", None) is None:
-            continue
-        # Offsets are valid on *src*: placeholder rewrites keep the same length.
-        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
-        if start < 0 or end < 0 or end <= start:
-            issues.append("xl() call without reliable source positions")
-            continue
-
+    for node, start, end in iter_xl_calls(tree, src, line_starts, issues):
         header_mode, kw_err = _header_mode_from_keywords(node)
         if kw_err:
             issues.append(kw_err)

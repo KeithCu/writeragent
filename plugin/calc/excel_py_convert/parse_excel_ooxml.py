@@ -353,6 +353,32 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
     return masters
 
 
+def _make_excel_py_cell(
+    sheet_title: str,
+    a1: str,
+    script_index: int,
+    return_type: int,
+    deps: list[str],
+    formula: str,
+    f: ET.Element,
+    t_attr: str,
+    row: int,
+    col: int,
+) -> ExcelPyCell:
+    array_ref = (f.attrib.get("ref") or "").replace("$", "") if t_attr == "array" else ""
+    return ExcelPyCell(
+        sheet=sheet_title,
+        cell=a1,
+        script_index=script_index,
+        return_type=return_type,
+        deps=deps,
+        formula_raw=formula if formula.startswith("=") else f"={formula}",
+        array_ref=array_ref,
+        row=row,
+        col=col,
+    )
+
+
 def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str] | None = None) -> list[ExcelPyCell]:
     masters = _shared_formula_map(ws_root)
     cells: list[ExcelPyCell] = []
@@ -391,17 +417,17 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str] | No
                     if parsed is None:
                         continue
                     script_index, return_type, _ = parsed
-                    array_ref = (f.attrib.get("ref") or "").replace("$", "") if t_attr == "array" else ""
-                    cells.append(ExcelPyCell(
-                        sheet=sheet_title,
-                        cell=a1,
-                        script_index=script_index,
-                        return_type=return_type,
-                        deps=deps,
-                        formula_raw=formula if formula.startswith("=") else f"={formula}",
-                        array_ref=array_ref,
-                        row=c_row,
-                        col=c_col,
+                    cells.append(_make_excel_py_cell(
+                        sheet_title,
+                        a1,
+                        script_index,
+                        return_type,
+                        deps,
+                        formula,
+                        f,
+                        t_attr,
+                        c_row,
+                        c_col,
                     ))
                     continue
 
@@ -420,8 +446,7 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str] | No
         # Only ``t="array"`` gets an array_ref. A shared-formula master
         # (``<f t="shared" ref="A1:A10">``) also has ref, and treating it
         # as a spill range clears those cells on export.
-        array_ref = (f.attrib.get("ref") or "").replace("$", "") if t_attr == "array" else ""
-        cells.append(ExcelPyCell(sheet=sheet_title, cell=a1, script_index=script_index, return_type=return_type, deps=deps, formula_raw=formula if formula.startswith("=") else f"={formula}", array_ref=array_ref, row=row, col=col))
+        cells.append(_make_excel_py_cell(sheet_title, a1, script_index, return_type, deps, formula, f, t_attr, row, col))
 
     if failed_si:
         cells = [c for c in cells if cell_si.get(c.cell) not in failed_si]
