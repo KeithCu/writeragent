@@ -14,7 +14,7 @@ from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import is_disposed_exception, uno_probe
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
-from ..specialized_base import ToolWriterTableBase
+from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     _cell_hosted_table_names,
@@ -702,16 +702,8 @@ class ManageTableStructure(ToolWriterTableBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["insert", "delete"],
-                "description": "insert or delete one band member.",
-            },
-            "axis": {
-                "type": "string",
-                "enum": ["row", "column"],
-                "description": "Whether to edit rows or columns.",
-            },
+            "action": enum_param(["insert", "delete"], "insert or delete one band member."),
+            "axis": enum_param(["row", "column"], "Whether to edit rows or columns."),
             "name": {"type": "string", "description": "Table name from table_list."},
             "index": {
                 "type": "integer",

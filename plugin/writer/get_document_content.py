@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 from plugin.doc.text_helpers import collect_tracked_changes
 from plugin.framework.errors import reraise_if_disposed
+from plugin.writer.specialized_base import enum_param
 
 
 log = logging.getLogger("writeragent.writer")
@@ -65,7 +66,7 @@ class GetDocumentContent(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "scope": {"type": "string", "enum": ["full", "selection", "range"], "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end).")},
+            "scope": enum_param(["full", "selection", "range"], ("Return full document (default), current selection/cursor region, or a character range (requires start and end).")),
             "max_chars": {"type": "integer", "description": "Maximum characters to return."},
             "start": {"type": "integer", "description": "Start character offset (0-based). Required for scope 'range'."},
             "end": {"type": "integer", "description": "End character offset (exclusive). Required for scope 'range'."},

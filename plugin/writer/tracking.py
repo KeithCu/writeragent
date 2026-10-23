@@ -31,7 +31,7 @@ from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.framework.uno_context import uno_same
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import describe_match_location
-from .specialized_base import WriterAgentSpecialTracking
+from .specialized_base import WriterAgentSpecialTracking, enum_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -378,11 +378,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["accept", "reject", "accept_all", "reject_all"],
-                "description": "accept/reject one change by index, or accept_all/reject_all.",
-            },
+            "action": enum_param(["accept", "reject", "accept_all", "reject_all"], "accept/reject one change by index, or accept_all/reject_all."),
             "index": {
                 "type": "integer",
                 "description": "Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.",

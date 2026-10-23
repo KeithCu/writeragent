@@ -39,7 +39,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.queue_executor import execute_on_main_thread, _SCOPE_UNSET
 from plugin.framework.thread_guard import on_main_thread
-from ..specialized_base import ToolWriterImageBase
+from ..specialized_base import ToolWriterImageBase, enum_param
 
 def _run_on_main(
     fn: typing.Any,
@@ -1046,17 +1046,16 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                     "type": "object",
                     "properties": {
                         "box": {**_BOX_SCHEMA, "description": "Area to mark, [x, y, width, height], same frame as crop_box."},
-                        "style": {
-                            "type": "string",
-                            "enum": list(image_mark.STYLES),
-                            "description": "highlight = translucent yellow over the text (default); box = red outline around it; underline = red line under it.",
-                        },
+                        "style": enum_param(
+                            list(image_mark.STYLES),
+                            "highlight = translucent yellow over the text (default); box = red outline around it; underline = red line under it.",
+                        ),
                         "color": {"type": "string", "description": "Optional '#RRGGBB' or color name instead of the style's color."},
                     },
                     "required": ["box"],
                 },
             },
-            "units": {"type": "string", "enum": ["px", "percent"], "description": "Units of every box (default px)."},
+            "units": enum_param(["px", "percent"], "Units of every box (default px)."),
             "width_mm": {"type": "number", "description": "Display width in millimetres (default: keep the current width)."},
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
@@ -1248,15 +1247,14 @@ class ImageInsert(ToolWriterImageBase):
             "y_mm": {"type": "number", "description": "Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc."},
             "width_mm": {"type": "number", "description": "Width in millimetres (must be positive; omitted derives from aspect ratio)."},
             "height_mm": {"type": "number", "description": "Height in millimetres (must be positive; omitted derives from aspect ratio)."},
-            "target": {
-                "type": "string",
-                "enum": ["body", "header", "footer", "header_first", "footer_first"],
-                "description": (
+            "target": enum_param(
+                ["body", "header", "footer", "header_first", "footer_first"],
+                (
                     "Writer insertion target (default: body). header/footer write the shared "
                     "page-style region. header_first/footer_first write the first-page letterhead "
                     "(set first_is_shared=false first, or the first page still shares HeaderText)."
                 ),
-            },
+            ),
             "style": {
                 "type": "string",
                 "description": "Page style for header/footer target (default: Standard).",

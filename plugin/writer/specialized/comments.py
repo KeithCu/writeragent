@@ -24,7 +24,7 @@ from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 import uno
 
 from plugin.framework.tool import ToolBase
-from ..specialized_base import ToolWriterCommentBase
+from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
 
@@ -530,7 +530,7 @@ class CommentScanTasks(ToolWriterCommentBase):
         "type": "object",
         "properties": {
             "unresolved_only": {"type": "boolean", "description": "Only unresolved tasks (default true)."},
-            "prefix_filter": {"type": "string", "enum": list(WORKFLOW_TASK_PREFIXES), "description": "Filter by task prefix."},
+            "prefix_filter": enum_param(list(WORKFLOW_TASK_PREFIXES), "Filter by task prefix."),
         },
         "required": [],
     }

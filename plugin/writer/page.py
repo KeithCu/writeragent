@@ -36,7 +36,7 @@ from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
 from .search import parse_non_negative_int
-from .specialized_base import ToolWriterPageBase
+from .specialized_base import ToolWriterPageBase, enum_param
 
 log = logging.getLogger("writeragent.writer")
 
@@ -923,15 +923,15 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
                 "type": "string",
                 "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
             },
-            "region": {
-                "type": "string",
-                "enum": list(_REGIONS),
-                "description": (
+            "region": enum_param(
+                list(_REGIONS),
+                (
                     "Which region to read. 'header'/'footer' are the shared ones. Use the "
                     "'_first' variants for a 'different first page' letterhead and the '_left' "
                     "variants when left/right pages differ (see first_is_shared / header_is_shared "
-                    "in page_get_style_properties)."),
-            },
+                    "in page_get_style_properties)."
+                ),
+            ),
             "include_images": {
                 "type": "boolean",
                 "description": (
@@ -1026,13 +1026,13 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                 "type": "string",
                 "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
             },
-            "region": {
-                "type": "string",
-                "enum": list(_REGIONS),
-                "description": (
+            "region": enum_param(
+                list(_REGIONS),
+                (
                     "Which region to set. 'header'/'footer' are the shared ones; '_first' targets a "
-                    "'different first page' letterhead and '_left' the left-hand pages."),
-            },
+                    "'different first page' letterhead and '_left' the left-hand pages."
+                ),
+            ),
             "content": {
                 "type": "string",
                 "description": (
@@ -1437,14 +1437,13 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "type": "string",
                 "description": "Page style name. Defaults to 'Standard'.",
             },
-            "region": {
-                "type": "string",
-                "enum": list(_REGIONS),
-                "description": (
+            "region": enum_param(
+                list(_REGIONS),
+                (
                     "Which region to edit. 'header'/'footer' are the shared ones. "
                     "'_first' and '_left' are skipped when they only mirror the shared region."
                 ),
-            },
+            ),
             "old_content": {
                 "type": "string",
                 "description": "Exact substring to find in the region's text. Does not match inside a field.",

@@ -111,11 +111,7 @@ _PARA_PROPERTY_SCHEMA = {
     "ParaLeftMargin": {"type": "integer", "description": "Left margin in 1/100th mm."},
     "ParaRightMargin": {"type": "integer", "description": "Right margin in 1/100th mm."},
     "ParaFirstLineIndent": {"type": "integer", "description": "First line indent in 1/100th mm."},
-    "ParaAdjust": {
-        "type": "string",
-        "enum": ["left", "center", "right", "justify"],
-        "description": "Paragraph alignment: left, center, right, or justify.",
-    },
+    "ParaAdjust": enum_param(["left", "center", "right", "justify"], "Paragraph alignment: left, center, right, or justify."),
     "ParaBackColor": {"type": "string", "description": "Paragraph background color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
     "ParaKeepTogether": {"type": "boolean", "description": "Keep lines of the paragraph together."},
     "ParaSplit": {"type": "boolean", "description": "Whether the paragraph is allowed to split across pages."}
@@ -711,7 +707,7 @@ class StyleList(ToolWriterStyleBase):
 
     name: str | None = "style_list"
     description: str = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"family": {"type": "string", "enum": _STYLE_FAMILIES, "description": "Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"family": enum_param(_STYLE_FAMILIES, "Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles.")}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         family = kwargs.get("family")
@@ -893,7 +889,7 @@ class ApplyStyle(FrameworkToolBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
-            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family. Default: ParagraphStyles.")},
+            "family": enum_param(["ParagraphStyles", "CharacterStyles"], ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
@@ -1169,7 +1165,7 @@ class StyleUpdate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
-            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
+            "family": enum_param(["ParagraphStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from."},
             "property_updates": {
                 "type": "object",
@@ -1297,7 +1293,7 @@ class StyleCreate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the new style."},
-            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
+            "family": enum_param(["ParagraphStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from (e.g. 'Standard', 'Default Paragraph Style')."},
             "property_updates": {
                 "type": "object",
@@ -1310,7 +1306,7 @@ class StyleCreate(ToolWriterStyleBase):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "context": {"type": "string", "enum": _CONDITIONAL_CONTEXTS, "description": "Context where the rule applies."},
+                        "context": enum_param(_CONDITIONAL_CONTEXTS, "Context where the rule applies."),
                         "target_style": {"type": "string", "description": "Name of the style to apply in this context."},
                     },
                     "required": ["context", "target_style"],
@@ -1448,11 +1444,7 @@ class StyleClone(ToolWriterStyleBase):
         "properties": {
             "style": {"type": "string", "description": "Name of the style to copy."},
             "new_style": {"type": "string", "description": "Name of the new style. Must not already exist."},
-            "family": {
-                "type": "string",
-                "enum": list(_CLONE_FAMILIES),
-                "description": "Style family. Default: ParagraphStyles.",
-            },
+            "family": enum_param(list(_CLONE_FAMILIES), "Style family. Default: ParagraphStyles."),
         },
         "required": ["style", "new_style"],
     }

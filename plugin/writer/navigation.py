@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError
 
-from .specialized_base import ToolWriterStructuralBase
+from .specialized_base import ToolWriterStructuralBase, enum_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -37,7 +37,7 @@ class NavHeading(ToolWriterStructuralBase):
         "type": "object",
         "properties": {
             "locator": {"type": "string", "description": ("Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction')")},
-            "direction": {"type": "string", "enum": ["next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"], "description": "Navigation direction"},
+            "direction": enum_param(["next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"], "Navigation direction"),
         },
         "required": ["locator", "direction"],
     }
@@ -88,7 +88,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
             "locator": {"type": "string", "description": "Locator string (e.g. 'bookmark:_mcp_xxx', ordinal 'heading:1.2', or 'chapter_number:3.1' when Chapter Numbering is on)"},
             "para_index": {"type": "integer", "description": "Paragraph index of the heading"},
             "bookmark": {"type": "string", "description": "Bookmark name of the heading"},
-            "strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content strategy (default: first_lines)"},
+            "strategy": enum_param(["heading_only", "first_lines", "full"], "Content strategy (default: first_lines)"),
             "depth": {"type": "integer", "description": "Max sub-heading depth (default: 1)"},
         },
         "required": [],

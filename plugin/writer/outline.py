@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.tool import ToolBase
+from plugin.writer.specialized_base import enum_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -64,7 +65,7 @@ class GetDocumentTree(ToolBase):
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"}, "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
+        "properties": {"strategy": enum_param(["heading_only", "first_lines", "full"], "Content to include with headings (default: first_lines)"), "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
