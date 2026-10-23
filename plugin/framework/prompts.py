@@ -237,7 +237,6 @@ Prioritize what reduces future user steering."""
 # becomes common for generated formulas, prefer the two-cell pattern
 # (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
 # this prompt. Not scheduled.
-PYTHON_VENV_AUTO_IMPORTS_ALIASES = '`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `calc`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`. When `=PY` has data range args, a binding-only `xl("%Pn%")` helper is also injected (Excel import; not a live sheet read)'
 
 # Populated on first prompt assembly (import_policy pulls smolagents).
 # ``_venv_policy_ready`` flips only after every dependent global is assigned.

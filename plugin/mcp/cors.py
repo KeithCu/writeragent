@@ -27,8 +27,6 @@ log = logging.getLogger("writeragent.mcp.cors")
 
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure
 
-MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
-
 _PRIVATE_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".intern")
 
 _extra_allowed_origins: frozenset[str] = frozenset()

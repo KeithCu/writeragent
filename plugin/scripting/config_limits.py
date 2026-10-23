@@ -61,8 +61,6 @@ SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC = 30
 # Settings → Python Test: host subprocess import probe (Docling cold import can exceed 5s).
 VISION_PROBE_TIMEOUT_SEC = 30
 
-# Settings → Python Test: sentence-transformers cold import can exceed the sandbox budget.
-EMBEDDINGS_PROBE_TIMEOUT_SEC = 30
 VECTOR_SEARCH_PROBE_TIMEOUT_SEC = 30
 
 _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"

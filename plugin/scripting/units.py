@@ -67,7 +67,6 @@ _API = make_template_api(
 )
 
 get_units_script_templates = _API.get_templates
-parse_units_script_header = _API.parse_header
 
 
 # --- Runner ---

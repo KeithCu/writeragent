@@ -73,7 +73,6 @@ _API = make_template_api(
 )
 
 get_text_analytics_script_templates = _API.get_templates
-parse_text_analytics_script_header = _API.parse_header
 
 
 

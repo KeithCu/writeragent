@@ -16,9 +16,6 @@ from typing import Any, cast
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
-from plugin.scripting.helper_domain import (
-    header_prefix,
-)
 from plugin.scripting.payload_codec import is_image_payload, is_multi_data, find_image_payloads, write_image_payload_to_temp
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
@@ -26,8 +23,6 @@ from plugin.framework.i18n import _
 log = logging.getLogger(__name__)
 
 from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
-
-VIZ_HEADER_PREFIX = header_prefix("viz")
 
 _SHIPPED_TEMPLATES = frozenset({"quick_plot", "correlation_heatmap", "time_series_plot"})
 

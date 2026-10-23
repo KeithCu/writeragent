@@ -51,8 +51,6 @@ def get_locales_dir() -> str:
     return os.path.join(os.path.dirname(get_plugin_dir()), "locales")
 
 
-PLUGIN_DIR = get_plugin_dir()
-
 # Max characters of Writer document text embedded in chat system context (excerpt, not model window).
 CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 CHAT_DOCUMENT_TRUNCATED_MARKER = "\n\n[... document truncated ...]"
@@ -94,8 +92,6 @@ WORKER_POOL_DEFAULT = "default"
 WORKER_POOL_EMBEDDINGS = "embeddings"
 # Settings → Python probes. A timeout must not kill the formula worker.
 WORKER_POOL_DIAGNOSTICS = "diagnostics"
-# In-worker read-through corpus matrix cache TTL (seconds since last access).
-EMBEDDINGS_CORPUS_CACHE_TTL_S = 60
 
 
 # Model capabilities bitmasks (compatible with OnlyOfficeAI values)
