@@ -2421,7 +2421,7 @@ class _WriterProxy:
         return _rpc_call("get_document_tree", strategy=strategy, depth=depth)
 
     def get_page_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> dict[str, Any]:
-        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above). para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
             page (optional): 1-based page number to analyze.

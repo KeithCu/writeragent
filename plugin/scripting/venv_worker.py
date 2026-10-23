@@ -13,7 +13,9 @@ import contextlib
 import logging
 import os
 import queue
+import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -55,6 +57,7 @@ from plugin.scripting.ipc import (
 )
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.scripting.sandbox import (
+    detect_sandbox,
     resolve_libreoffice_python,
     resolve_venv_python,
     scrub_subprocess_env,
@@ -216,6 +219,62 @@ def _maybe_dispatch_intermediate_response(
 
 
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "worker_harness.py")
+
+_SCOPE_UNIT_PREFIX = "writeragent-worker-"
+# None until the first spawn probes; then the systemd-run path or "" when unavailable.
+_systemd_run_for_worker: str | None = None
+_systemd_scope_lock = threading.Lock()
+
+
+def _probe_systemd_scope(env: dict[str, str]) -> str:
+    """Return the systemd-run path when a transient user scope can be created, else ""."""
+    if not sys.platform.startswith("linux") or detect_sandbox() == "flatpak":
+        return ""
+    exe = shutil.which("systemd-run", path=env.get("PATH"))
+    runtime_dir = env.get("XDG_RUNTIME_DIR", "")
+    if not exe or not runtime_dir or not os.path.exists(os.path.join(runtime_dir, "systemd", "private")):
+        return ""
+    probe = [exe, "--user", "--scope", "--quiet", "--collect", "--unit=" + _SCOPE_UNIT_PREFIX + "probe-" + uuid.uuid4().hex[:12], "--", "true"]
+    try:
+        done = subprocess.run(probe, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.info("systemd-run scope probe failed, Python worker runs without its own scope: %s", exc)
+        return ""
+    if done.returncode != 0:
+        log.info("systemd-run scope probe exited %s, Python worker runs without its own scope: %s", done.returncode, done.stderr.decode("utf-8", "replace").strip()[:300])
+        return ""
+    log.debug("Python worker will run in its own systemd user scope via %s", exe)
+    return exe
+
+
+def _systemd_run_path(env: dict[str, str]) -> str:
+    """Probe once per process; later calls return the cached result."""
+    global _systemd_run_for_worker
+    with _systemd_scope_lock:
+        if _systemd_run_for_worker is None:
+            _systemd_run_for_worker = _probe_systemd_scope(env)
+        return _systemd_run_for_worker
+
+
+def _disable_systemd_scope() -> None:
+    global _systemd_run_for_worker
+    with _systemd_scope_lock:
+        _systemd_run_for_worker = ""
+
+
+def wrap_worker_command(cmd: list[str], *, env: dict[str, str] | None = None, cwd: str | None = None) -> list[str]:
+    """Run the venv worker in its own transient systemd user scope when available.
+
+    A memory-cgroup OOM in the worker then stops only that scope. In the shared
+    app scope systemd's default OOMPolicy=stop also tears down soffice. The scope
+    execs in place, so the Popen pid, pipes and kill() are the interpreter's own.
+    """
+    exe = _systemd_run_path(env if env is not None else dict(os.environ))
+    if not exe:
+        return wrap_command_for_sandbox(cmd, env=env, cwd=cwd)
+    unit = _SCOPE_UNIT_PREFIX + str(os.getpid()) + "-" + uuid.uuid4().hex[:12]
+    return [exe, "--user", "--scope", "--quiet", "--collect", "--unit=" + unit, "--"] + cmd
+
 _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
 
@@ -1101,27 +1160,42 @@ class PythonWorkerManager:
             # Linux native stalls use PR_SET_PDEATHSIG in the harness. Windows and
             # macOS do not; quit does not wait on this process.
             # log_start_failure=False because a missing interpreter must stay OSError.
-            managed = ManagedSubprocess(
-                [self.exe, _HARNESS_PATH],
-                base_env=self.env,
-                command_wrapper=wrap_command_for_sandbox,
-                optimize_pipes=True,
-                stderr_name="venv-stderr",
-                stderr_name_with_pid=True,
-                register=False,
-                log_start_failure=False,
-                label="Python worker",
-            )
-            # Spawn on this manager's long-lived venv-worker-spawn thread, not
-            # the caller. On Linux, PR_SET_PDEATHSIG kills the child when the
-            # creating thread exits — warm/index/chat workers return after the
-            # call, which dropped shared sessions while LibreOffice was still up.
-            self._start_child(managed)
+            managed = self._start_worker_child()
             # Publish the drain before _proc. A reader can observe _proc without
             # _proc_lock. The old order let that reader see a live proc with no drain.
             self._stderr_drain = managed.stderr_tail
             self._proc = managed.popen
             log.debug("Started Python worker pid=%s exe=%s", managed.pid, self.exe)
+
+    def _start_worker_child(self) -> ManagedSubprocess:
+        # Spawn on this manager's long-lived venv-worker-spawn thread, not
+        # the caller. On Linux, PR_SET_PDEATHSIG kills the child when the
+        # creating thread exits — warm/index/chat workers return after the
+        # call, which dropped shared sessions while LibreOffice was still up.
+        managed = self._new_managed_worker(wrap_worker_command)
+        try:
+            self._start_child(managed)
+        except OSError as exc:
+            if not _systemd_run_for_worker:
+                raise
+            log.warning("Python worker failed to start under systemd-run, retrying without a scope: %s", exc)
+            _disable_systemd_scope()
+            managed = self._new_managed_worker(wrap_command_for_sandbox)
+            self._start_child(managed)
+        return managed
+
+    def _new_managed_worker(self, command_wrapper: Callable[..., list[str]]) -> ManagedSubprocess:
+        return ManagedSubprocess(
+            [self.exe, _HARNESS_PATH],
+            base_env=self.env,
+            command_wrapper=command_wrapper,
+            optimize_pipes=True,
+            stderr_name="venv-stderr",
+            stderr_name_with_pid=True,
+            register=False,
+            log_start_failure=False,
+            label="Python worker",
+        )
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         if self._proc is None:

@@ -98,7 +98,9 @@ class GetPageObjects(ToolBase):
     intent: str | None = "read"
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
-        "page number, locator, or paragraph. " + PARAGRAPH_INDEX_DIRECTIVE
+        "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
+        "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is "
+        "the object top's offset from the text baseline (negative = above). " + PARAGRAPH_INDEX_DIRECTIVE
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -248,24 +250,21 @@ class GetPageObjects(ToolBase):
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
                 shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
-                # What was wrong: getPosition()/getSize() sat outside the per-shape
-                # try, so one shape aborted get_page_objects (#2028).
-                # How: Writer draw-page flys are SwXFrame. SwXFrame::getPosition
-                # (sw/source/core/unocore/unoframe.cxx) always throws RuntimeException
-                # "position cannot be determined with this method". Drawing shapes
-                # often have no Position/Size property and only answer the methods
-                # (same split as images._object_size).
-                # Why: properties first, methods when the property is None. Any
-                # failure keeps the shape with geometry None. Disposal still propagates.
                 shape_info["geometry"] = None
                 try:
-                    pos = safe_get_property(shape, "Position")
-                    if pos is None:
+                    size = shape.getSize()
+                    geometry: dict[str, Any] = {"width": size.Width, "height": size.Height}
+                    hori = safe_get_property(shape, "HoriOrientPosition")
+                    vert = safe_get_property(shape, "VertOrientPosition")
+                    if hori is not None and vert is not None:
+                        geometry.update({"x": hori, "y": vert, "position_relative_to": "anchor"})
+                        anchor_kind = safe_get_property(shape, "AnchorType")
+                        if anchor_kind is not None:
+                            geometry["anchor_type"] = getattr(anchor_kind, "value", str(anchor_kind))
+                    else:
                         pos = shape.getPosition()
-                    size = safe_get_property(shape, "Size")
-                    if size is None:
-                        size = shape.getSize()
-                    shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
+                        geometry.update({"x": pos.X, "y": pos.Y, "position_relative_to": "page"})
+                    shape_info["geometry"] = geometry
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.warning("Failed to read geometry for draw shape '%s': %s", shape_name, exc)

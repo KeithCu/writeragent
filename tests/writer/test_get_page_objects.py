@@ -285,7 +285,8 @@ def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
     pos = SimpleNamespace(X=10, Y=20)
     size = SimpleNamespace(Width=30, Height=40)
     good = MagicMock()
-    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"Position": pos, "Size": size})
+    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"HoriOrientPosition": pos.X, "VertOrientPosition": pos.Y})
+    good.getSize.return_value = size
     good.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     good.Name = "Box"
     good.getString.return_value = ""
@@ -304,10 +305,11 @@ def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
 
     assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
     assert result["shapes"][0]["geometry"] is None
-    assert result["shapes"][1]["geometry"] == {"x": 10, "y": 20, "width": 30, "height": 40}
+    geom = result["shapes"][1]["geometry"]
+    assert {k: geom[k] for k in ("x", "y", "width", "height", "position_relative_to")} == {"x": 10, "y": 20, "width": 30, "height": 40, "position_relative_to": "anchor"}
+    assert "anchor_type" in geom
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
-    good.getSize.assert_not_called()
     assert any("Fly" in rec.message for rec in caplog.records)
 
 
@@ -343,7 +345,8 @@ def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
     pos = SimpleNamespace(X=10, Y=20)
     size = SimpleNamespace(Width=30, Height=40)
     good = MagicMock()
-    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"Position": pos, "Size": size})
+    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"HoriOrientPosition": pos.X, "VertOrientPosition": pos.Y})
+    good.getSize.return_value = size
     good.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     good.Name = "Box"
     good.getString.return_value = ""
@@ -362,7 +365,6 @@ def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
 
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
-    good.getSize.assert_not_called()
 
 
 def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):
@@ -578,3 +580,83 @@ def test_get_page_objects_paragraph_page_resolution_failure_returns_tool_error()
     res = tool.execute(ctx, locator="paragraph:42")
     assert res.get("status") == "error"
     assert "Paragraph index 42 not found" in res.get("message", "")
+
+
+def test_scan_page_geometry_as_char_baseline_offset(monkeypatch):
+    """AS_CHARACTER objects report anchor-relative x/y; y is the negative baseline offset."""
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    as_char = SimpleNamespace(value="AS_CHARACTER")
+    monkeypatch.setattr(anchor_types, "AT_PAGE", object())
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", as_char)
+    props = {"AnchorType": as_char, "HoriOrientPosition": 0, "VertOrientPosition": -2000}
+
+    def _props(name):
+        if name in props:
+            return props[name]
+        raise RuntimeError("no %s" % name)
+
+    shape = MagicMock()
+    shape.getPropertyValue.side_effect = _props
+    shape.getShapeType.return_value = "FrameShape"
+    shape.Name = "Pic"
+    shape.getString.return_value = ""
+    shape.getSize.return_value = SimpleNamespace(Width=3000, Height=2000)
+    shape.getPosition.side_effect = RuntimeError("position cannot be determined with this method")
+    draw = MagicMock()
+    draw.getCount.return_value = 1
+    draw.getByIndex.return_value = shape
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value = _empty_named_collection()
+    doc.getTextTables.return_value = _empty_named_collection()
+    doc.getTextFrames.return_value = _empty_named_collection()
+    doc.getDrawPage.return_value = draw
+    tool = GetPageObjects()
+    monkeypatch.setattr(tool, "_page_at_range", lambda *a, **k: 1)
+
+    result = tool._scan_page(MagicMock(), doc, MagicMock(), 1)
+    assert result["shapes"][0]["geometry"] == {"x": 0, "y": -2000, "width": 3000, "height": 2000, "position_relative_to": "anchor", "anchor_type": "AS_CHARACTER"}
+    shape.getPosition.assert_not_called()
+
+
+def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
+    """Without orient properties, x/y come from getPosition()."""
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    def _props(name):
+        if name == "AnchorType":
+            return at_page
+        if name == "AnchorPageNo":
+            return 1
+        raise RuntimeError("no %s" % name)
+
+    shape = MagicMock()
+    shape.getPropertyValue.side_effect = _props
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shape.Name = "Box"
+    shape.getString.return_value = ""
+    shape.getSize.return_value = SimpleNamespace(Width=5, Height=6)
+    shape.getPosition.return_value = SimpleNamespace(X=7, Y=8)
+    draw = MagicMock()
+    draw.getCount.return_value = 1
+    draw.getByIndex.return_value = shape
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value = _empty_named_collection()
+    doc.getTextTables.return_value = _empty_named_collection()
+    doc.getTextFrames.return_value = _empty_named_collection()
+    doc.getDrawPage.return_value = draw
+
+    result = GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 1)
+    assert result["shapes"][0]["geometry"] == {"x": 7, "y": 8, "width": 5, "height": 6, "position_relative_to": "page"}
