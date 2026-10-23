@@ -109,7 +109,8 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-
+def _mono_ms(t0: float) -> int:
+    return int((time.monotonic() - t0) * 1000)
 
 
 def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
@@ -1025,6 +1026,3 @@ def install_notebook_run_button_wiring(ctx: Any) -> None:
         _install_doc_event_listener(ctx)
     except Exception:
         log.debug("notebook controls: install wiring failed", exc_info=True)
-
-
-from plugin.notebook.writer_importer import _mono_ms

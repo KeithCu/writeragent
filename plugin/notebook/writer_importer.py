@@ -45,18 +45,13 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
-
-
-def _mono_ms(t0: float) -> int:
-    return int((time.monotonic() - t0) * 1000)
-
-
 from plugin.notebook.notebook_controls import (
     _CODE_FONT_NAME,
     _cap_from_style,
     _insert_code_input_in_flow,
     _insert_run_button_in_flow,
     _log_shape_add,
+    _mono_ms,
     _page_style,
     _resolve_para_style,
     _style_control_paragraph,
