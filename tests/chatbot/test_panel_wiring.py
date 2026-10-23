@@ -84,6 +84,9 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         frame_session = None
         toolpanel = None
         m_panelRootWindow = None
+        xParentWindow = None
+        _panel_resize_listener = None
+        _rich_control_listener = None
 
         def _get_document_model(self) -> object:
             return object()
@@ -169,6 +172,9 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         frame_session = None
         toolpanel = None
         m_panelRootWindow = None
+        xParentWindow = None
+        _panel_resize_listener = None
+        _rich_control_listener = None
 
         def _get_document_model(self) -> object:
             return object()

@@ -92,6 +92,14 @@ def _thin_panel_element():
     el.toolpanel = None
     el.m_panelRootWindow = None
     el.rich_text_widget = None
+    el._released = False
+    el._in_refresh_controls = False
+    el.frame_session = None
+    el.doc_session = None
+    el.web_session = None
+    el.librarian_session = None
+    el._panel_resize_listener = None
+    el._rich_control_listener = None
     return el
 
 

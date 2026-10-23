@@ -82,6 +82,7 @@ def _make_panel(combo: FiringCombo):
     )
     panel = SimpleNamespace(
         ctx=object(),
+        _released=False,
         _in_refresh_controls=False,
         m_panelRootWindow=root,
         xFrame=None,

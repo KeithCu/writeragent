@@ -102,8 +102,15 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _do_send_chat_with_tools=MagicMock(),
     )
 
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+    from plugin.chatbot.record_gesture import RecordGesture
+
     return SimpleNamespace(
         ctx=MagicMock(),
+        frame_session=None,
+        sidebar_mode_flags=SidebarModeFlags(),
+        _record_gesture=RecordGesture(),
+        _empty_take_count=0,
         ensure_path_fn=None,
         initial_doc_type=None,
         cached_doc_type="writer",
@@ -111,6 +118,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         audio_wav_path=None,
         chat_mode_selector=MagicMock(),
         model_selector=MagicMock(),
+        status_control=None,
         query_control=query_control,
         _active_mode="librarian" if in_librarian_mode else "",
         _mode_topic="",

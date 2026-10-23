@@ -276,6 +276,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         self.parent_window = parent_window
         # Set by panel wiring after _PanelResizeListener is created.
         self.resize_listener = None
+        self._in_hfw = False
 
     def getWindow(self) -> Any:
         return self.Window
@@ -292,7 +293,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         width = nWidth
         if not self.parent_window or not self.PanelWindow or width <= 0:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
-        if getattr(self, "_in_hfw", False):
+        if self._in_hfw:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
         self._in_hfw = True
         try:
@@ -322,7 +323,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         eff_w = sidebar_column_width(deck_w, parent_w, min_w=min_w)
 
         log.debug("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
-        rl = getattr(self, "resize_listener", None)
+        rl = self.resize_listener
         if rl is not None and hasattr(rl, "note_width_negotiated"):
             with suppress_disposed("getHeightForWidth note_width_negotiated", logger=log):
                 rl.note_width_negotiated(eff_w)
@@ -432,6 +433,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     _live_panel_uid: str
     frame_session: Any
     _frame_close_hook: Callable[[], None] | None
+    _panel_resize_listener: Any
+    _rich_control_listener: Any
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
@@ -444,6 +447,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.m_panelRootWindow = None
         self._frame_close_hook = None
         self.session: Any = None  # Created in _wireControls
+        self.doc_session = None
+        self.web_session = None
+        self.librarian_session = None
+        self.send_listener = None
+        self._panel_resize_listener = None
+        self._rich_control_listener = None
         self._released = False
         self._current_mode = ""
         self._in_refresh_controls = False
@@ -462,7 +471,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         from plugin.framework.thread_guard import on_main_thread
         from plugin.framework.queue_executor import post_to_main_thread
 
-        if getattr(self, "_released", False):
+        if self._released:
             return
         if not on_main_thread():
             post_to_main_thread(self._refresh_controls_from_config)
@@ -497,8 +506,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     except Exception:
                         with suppress_disposed("frame session release on getRealInterface fail", logger=log):
                             release_live_sidebar(self)
-                            root = getattr(self, "m_panelRootWindow", None)
-                            rl = getattr(self.toolpanel, "resize_listener", None) if self.toolpanel else None
+                            root = self.m_panelRootWindow
+                            rl = self.toolpanel.resize_listener if self.toolpanel else None
                             if rl and root and hasattr(root, "removeWindowListener"):
                                 root.removeWindowListener(rl)
                         self.toolpanel = None
@@ -572,8 +581,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """
         log.info("[RICH-LIFECYCLE] ChatPanelElement.disposing called Source=%s has_send_listener=%s",
                  id(Source) if Source else None,
-                 hasattr(self, "send_listener") and bool(self.send_listener))
-        listener = getattr(self, "send_listener", None)
+                 bool(self.send_listener))
+        listener = self.send_listener
         query = getattr(listener, "query_control", None) if listener is not None else None
         release_live_sidebar(self, query)
 
@@ -585,9 +594,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # This listener is attached unconditionally in panel_wiring. Failing to
         # remove it during late VCL/sidebar teardown can contribute to crashes.
         with suppress_disposed("removeWindowListener on dispose", logger=log):
-            tp = getattr(self, "toolpanel", None)
-            rl = getattr(tp, "resize_listener", None) if tp else None
-            root = getattr(self, "m_panelRootWindow", None)
+            tp = self.toolpanel
+            rl = tp.resize_listener if tp else None
+            root = self.m_panelRootWindow
             if rl and root and hasattr(root, "removeWindowListener"):
                 root.removeWindowListener(rl)
             if tp:
@@ -636,9 +645,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """
         # No-op once released. A config refresh queued by _on_config_changed
         # can run after teardown and touch disposed controls.
-        if getattr(self, "_released", False):
+        if self._released:
             return
-        if getattr(self, "_in_refresh_controls", False):
+        if self._in_refresh_controls:
             return
         self._in_refresh_controls = True
         try:
@@ -691,7 +700,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     from plugin.chatbot.chat_sidebar_mode import populate_mode_selector_with_flags, sidebar_mode_flags_for_doc_type
 
                     model = self._get_document_model()
-                    cached = getattr(getattr(self, "send_listener", None), "cached_doc_type", None)
+                    cached = self.send_listener.cached_doc_type if self.send_listener else None
                     from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
 
                     dt = cached or doc_type_label_for_enum(get_document_type(model))
@@ -734,7 +743,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         try:
             from plugin.acp.registry import AGENT_BACKEND_REGISTRY, normalize_backend_id
 
-            root = root_window or (getattr(self, "m_panelRootWindow", None))
+            root = root_window or self.m_panelRootWindow
             if not root or not hasattr(root, "getControl"):
                 return
 
@@ -1025,7 +1034,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self.session = self.doc_session
         if mode == CHAT_MODE_CHAT:
             # Session owns the builder; factory only asks for a fresh snapshot.
-            session = getattr(self, "doc_session", None)
+            session = self.doc_session
             if session is not None and model is not None:
                 best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
         toggle_image_ui(is_image_mode(mode))
@@ -1285,7 +1294,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # The id was stored when the frame session opened. Fill it from
             # this frame's model only when construction could not read it
             # (off the main thread). Do not ask Desktop which component is current.
-            session = getattr(self, "frame_session", None)
+            session = self.frame_session
             uid = self._live_panel_uid
             if not uid and model is not None:
                 from plugin.framework.uno_context import get_runtime_uid

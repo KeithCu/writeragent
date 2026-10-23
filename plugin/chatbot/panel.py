@@ -491,13 +491,13 @@ class SendButtonListener(BaseActionListener):
         True only when that paint ran. False leaves the control as it is so a
         held stripper leftover can still be appended.
         """
-        widget = getattr(self, "rich_text_widget", None)
+        widget = self.rich_text_widget
         if widget is None:
             return False
         try:
             return bool(widget.rerender_last_assistant_if_html(
                 self.session,
-                getattr(self, "_assistant_stream_start_len", None),
+                self._assistant_stream_start_len,
             ))
         except Exception:
             log.exception("rerender_rich_text_session (rich control) failed")
@@ -507,7 +507,7 @@ class SendButtonListener(BaseActionListener):
     def stop_requested(self) -> bool:
         # Stop writes cancel on _send_cancellation and sets _stop_requested_fallback;
         # assigning stop_requested is not the cancel API.
-        scope = getattr(self, "_send_cancellation", None)
+        scope = self._send_cancellation
         if scope is not None and scope.is_cancelled():
             return True
         return self._stop_requested_fallback
@@ -527,7 +527,7 @@ class SendButtonListener(BaseActionListener):
         """
         from plugin.framework.send_cancellation import bind_send_stop_checker
 
-        return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
+        return bind_send_stop_checker(self._send_cancellation, lambda: self._stop_requested_fallback)
 
     def _kill_inflight_stt(self) -> None:
         self._voice._kill_inflight_stt()
@@ -581,11 +581,11 @@ class SendButtonListener(BaseActionListener):
 
     def _on_grammar_status(self, **data: Any) -> None:
         """Show native grammar proofreader progress in the sidebar status field."""
-        if getattr(self, "_panel_teardown", False) or self.ctx is None:
+        if self._panel_teardown or self.ctx is None:
             return
         # grammar:status is process-global. A Writer proofreader pass used to
         # paint "Grammar: …" on every open sidebar, including Calc and Draw.
-        if getattr(self, "cached_doc_type", None) != "writer":
+        if self.cached_doc_type != "writer":
             return
         if self._send_busy or self._approval_event is not None:
             return
@@ -637,11 +637,11 @@ class SendButtonListener(BaseActionListener):
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""
         def _paint() -> None:
-            widget = getattr(self, "rich_text_widget", None)
+            widget = self.rich_text_widget
             if widget is not None:
                 widget.paint_session(session)
                 return
-            control = getattr(self, "response_control", None)
+            control = self.response_control
             if control is None or not control.getModel():
                 return
             from plugin.chatbot.dialogs import set_control_text
@@ -670,7 +670,7 @@ class SendButtonListener(BaseActionListener):
         if isinstance(owner, TurnController):
             if cur is owner and owner.same_messages():
                 if owner.fold_chunk(self, text, "assistant"):
-                    if getattr(self, "session", None) is owner.session and owner.session is not None:
+                    if self.session is owner.session and owner.session is not None:
                         self.render_session_messages(owner.session)
                 return
             return
@@ -701,7 +701,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
         turn = current_turn(self)
-        session = getattr(self, "session", None)
+        session = self.session
         messages = getattr(session, "messages", None) if session is not None else None
         has_list = isinstance(messages, list)
         if has_list:
@@ -715,7 +715,7 @@ class SendButtonListener(BaseActionListener):
         elif isinstance(turn, TurnController) and not turn.alive:
             return
         with suppress_disposed("_append_response", logger=log):
-            widget = getattr(self, "rich_text_widget", None)
+            widget = self.rich_text_widget
             if widget:
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
                 from plugin.framework.logging import note_activity
@@ -744,7 +744,7 @@ class SendButtonListener(BaseActionListener):
                         return
                     if not turn.fold_chunk(self, clean_text, role):
                         return
-                    if role != "user" and getattr(self, "_record_assistant_start", False):
+                    if role != "user" and self._record_assistant_start:
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
@@ -769,7 +769,7 @@ class SendButtonListener(BaseActionListener):
                 self._run_rich_ui(_paint_from_list)
                 return
 
-            if not getattr(self, "_rich_plain_fallback_warned", False):
+            if not self._rich_plain_fallback_warned:
                 from plugin.framework.config import get_config_bool_safe
 
                 if get_config_bool_safe("rich_text_control_sidebar"):
@@ -820,7 +820,7 @@ class SendButtonListener(BaseActionListener):
         model = get_document_from_frame(self.frame)
 
         _COMPATIBLE_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
-        cached_doc_type = getattr(self, "cached_doc_type", None)
+        cached_doc_type = self.cached_doc_type
 
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
             return model
@@ -841,7 +841,7 @@ class SendButtonListener(BaseActionListener):
 
     def _mnemonic_cache(self) -> dict[str, str]:
         """Plain label -> label with the mnemonic VCL gave it (see _relabel_button)."""
-        cache = getattr(self, "_button_mnemonics", None)
+        cache = self._button_mnemonics
         if cache is None:
             cache = {}
             self._button_mnemonics = cache
@@ -969,7 +969,7 @@ class SendButtonListener(BaseActionListener):
                     if not isinstance(exc, RuntimeError):
                         log.exception("start_recording failed")
                     self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
-                    pending = getattr(self, "_dispatch_reenter", None)
+                    pending = self._dispatch_reenter
                     if pending is not None:
                         pending.append(SendEvent(SendEventKind.ERROR_OCCURRED))
                     else:
@@ -1009,7 +1009,7 @@ class SendButtonListener(BaseActionListener):
                 # A second Send replaces _send_cancellation and clears the
                 # stop fallback while the first Whisper child is still alive,
                 # so Stop for the first send does not kill it.
-                if getattr(self, "_stt_inflight", False):
+                if self._stt_inflight:
                     log.info("StartSend ignored while speech-to-text is running")
                     return
 
@@ -1033,7 +1033,7 @@ class SendButtonListener(BaseActionListener):
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
-                session = getattr(self, "frame_session", None)
+                session = self.frame_session
                 if session is not None:
                     session.note_user_wants_query()
                     if hasattr(session, "restore_focus"):
@@ -1045,7 +1045,7 @@ class SendButtonListener(BaseActionListener):
                 # send drain forgets the controller.
                 abort_turn(self)
                 _stop_tts()
-                scope = getattr(self, "_send_cancellation", None)
+                scope = self._send_cancellation
                 if scope is not None:
                     scope.cancel()
 
@@ -1069,7 +1069,7 @@ class SendButtonListener(BaseActionListener):
         if not self.send_control or not self.send_control.getModel():
             return
 
-        if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
+        if self._approval_event is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
                 self._finish_inline_web_approval(True)
                 return
@@ -1106,7 +1106,7 @@ class SendButtonListener(BaseActionListener):
         False so a missed text listener cannot leave has_text true on an
         empty box. This event corrects it from the control.
         """
-        ctrl = getattr(self, "query_control", None)
+        ctrl = self.query_control
         if ctrl is None:
             return
         from plugin.chatbot.dialogs import get_control_text
@@ -1120,7 +1120,7 @@ class SendButtonListener(BaseActionListener):
 
         # A drain posted before StartSend learned STT was in flight must not
         # clear the first send's scope or dispatch SEND_COMPLETED under it.
-        if getattr(self, "_stt_inflight", False):
+        if self._stt_inflight:
             log.info("Nested send drain ignored during speech-to-text")
             return
 
@@ -1134,7 +1134,7 @@ class SendButtonListener(BaseActionListener):
         # Another document's drain may still be open; this send must not
         # defer its completion onto it.
         clear_drain_capture()
-        cm = agent_session(getattr(self, "_send_cancellation", None))
+        cm = agent_session(self._send_cancellation)
         entered = False
         exit_error: list[BaseException | None] = [None]
         failed_turn: list[Any] = [None]
@@ -1163,7 +1163,7 @@ class SendButtonListener(BaseActionListener):
 
             exit_error[0] = e
             failed_turn[0] = current_turn(self)
-            doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+            doc_type_for_log = self.initial_doc_type or "unknown"
             log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
         finally:
             def _close_send_drain() -> None:
@@ -1261,7 +1261,7 @@ class SendButtonListener(BaseActionListener):
 
                                         def _on_speech_complete() -> None:
                                             def _disable_stop() -> None:
-                                                if not getattr(self, "_send_busy", False):
+                                                if not self._send_busy:
                                                     # A take may already be recording (barge-in or sticky
                                                     # restart); its Stop is the step-down exit.
                                                     if self.stop_control and self.stop_control.getModel() and not self.sidebar_state.send.is_recording:
@@ -1303,7 +1303,7 @@ class SendButtonListener(BaseActionListener):
             # (_close_send_drain), on success, Stop and error alike. A slice
             # returning mid-stream does not reach here, so the audio the model
             # is still answering is not stripped early.
-            sess = session_for_turn(self) or getattr(self, "session", None)
+            sess = session_for_turn(self) or self.session
             if sess and getattr(sess, "messages", None):
                 # Ensure in-memory audio is not resent on the next turn.
                 # Iterate backwards to find the last user message.
@@ -1341,7 +1341,7 @@ class SendButtonListener(BaseActionListener):
         # Missing means not transcribing, same as the mixin default.
         # Reading self._stt_inflight raises AttributeError on the smol
         # _do_send double: that SimpleNamespace never ran __init__.
-        if getattr(self, "_stt_inflight", False):
+        if self._stt_inflight:
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
 
@@ -1349,7 +1349,7 @@ class SendButtonListener(BaseActionListener):
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
         self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
+        update_activity_state("do_send", status_control=self.status_control)
         log.info("=== _do_send START ===")
 
         # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
@@ -1366,7 +1366,7 @@ class SendButtonListener(BaseActionListener):
             return
         log.debug("_do_send: got document model OK")
 
-        doc_type_label = getattr(self, "cached_doc_type", None)
+        doc_type_label = self.cached_doc_type
         log.debug("_do_send: document type (cached): %s" % doc_type_label)
 
         if not doc_type_label or doc_type_label == "unknown":
@@ -1409,7 +1409,7 @@ class SendButtonListener(BaseActionListener):
             set_control_text(self.query_control, "")
             # Send button click leaves focus on Send; keep the query field
             # ready for the next question (reveal/scroll must not win later).
-            session = getattr(self, "frame_session", None)
+            session = self.frame_session
             if session is not None:
                 session.note_user_wants_query()
             if hasattr(self.query_control, "setFocus"):
@@ -1492,9 +1492,9 @@ class SendButtonListener(BaseActionListener):
                             # Stopped, not Error, so sticky re-arms Record
                             # and noise that trips silence auto-stop loops
                             # empty takes forever.
-                            gesture = getattr(self, "_record_gesture", None)
+                            gesture = self._record_gesture
                             if gesture is not None and gesture.sticky:
-                                self._empty_take_count = getattr(self, "_empty_take_count", 0) + 1
+                                self._empty_take_count = self._empty_take_count + 1
                                 if self._empty_take_count >= EMPTY_TAKES_EXIT:
                                     log.info("Hands-free off after %d empty takes", self._empty_take_count)
                                     self.exit_hands_free_record()
@@ -1525,7 +1525,7 @@ class SendButtonListener(BaseActionListener):
                 sidebar_mode_flags_for_doc_type,
             )
 
-            flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
+            flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
             sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
@@ -1632,7 +1632,7 @@ class SendButtonListener(BaseActionListener):
         try:
             self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
         except Exception:
-            if self.sidebar_state.send.is_busy and getattr(self, "_send_cancellation", None) is None:
+            if self.sidebar_state.send.is_busy and self._send_cancellation is None:
                 try:
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 except Exception:
@@ -1656,8 +1656,8 @@ class SendButtonListener(BaseActionListener):
 
         clear_drain_capture()
 
-        query_text = getattr(self, "_extracted_peer_query", "") or ""
-        already_appended = bool(getattr(self, "_extracted_peer_already_appended", True))
+        query_text = self._extracted_peer_query or ""
+        already_appended = bool(self._extracted_peer_already_appended)
         self._stop_requested_fallback = False
         self._terminal_status = "Ready"
         scope = SendCancellation()
@@ -1678,14 +1678,14 @@ class SendButtonListener(BaseActionListener):
 
             exit_error[0] = e
             failed_turn[0] = current_turn(self)
-            doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+            doc_type_for_log = self.initial_doc_type or "unknown"
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
         finally:
             def _close_peer_drain() -> None:
                 # Clear the scope only once the drain has finished. Doing it
                 # when the event-driven call returns would drop Stop for the
                 # rest of the turn.
-                if entered and not getattr(self, "_panel_teardown", False):
+                if entered and not self._panel_teardown:
                     self._send_cancellation = None
                 err = exit_error[0]
                 if entered:
@@ -1745,7 +1745,7 @@ class SendButtonListener(BaseActionListener):
 
         begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
+        update_activity_state("do_send", status_control=self.status_control)
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
         model = self._get_document_model(log_failure=True)
@@ -1753,12 +1753,12 @@ class SendButtonListener(BaseActionListener):
             self._append_response("\n" + _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]") + "\n")
             self._terminal_status = "Error"
             return
-        doc_type_label = getattr(self, "cached_doc_type", None)
+        doc_type_label = self.cached_doc_type
         if not doc_type_label or doc_type_label == "unknown":
             self._append_response("\n[Internal Error: Could not identify document type.]\n")
             self._terminal_status = "Error"
             return
-        flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
+        flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
         if sidebar_mode != CHAT_MODE_CHAT:
             self._append_response(
@@ -1785,8 +1785,8 @@ class SendButtonListener(BaseActionListener):
         # Detach both mouse listeners on dispose. attach_stop_mouse_listener
         # and attach_record_mouse_listener add listeners that strongly hold
         # send_listener; leaving them attached leaks the listener.
-        stop_mouse = getattr(self, "_stop_mouse_listener", None)
-        stop_ctrl = getattr(self, "_stop_mouse_control", None) or self.stop_control
+        stop_mouse = self._stop_mouse_listener
+        stop_ctrl = self._stop_mouse_control or self.stop_control
         if stop_mouse is not None and stop_ctrl is not None:
             self._stop_mouse_listener = None
             self._stop_mouse_control = None
@@ -1794,8 +1794,8 @@ class SendButtonListener(BaseActionListener):
                 with suppress_disposed("remove stop mouse listener on dispose", logger=log):
                     stop_ctrl.removeMouseListener(stop_mouse)
 
-        rec_mouse = getattr(self, "_record_mouse_listener", None)
-        rec_ctrl = getattr(self, "_record_mouse_control", None) or self.send_control
+        rec_mouse = self._record_mouse_listener
+        rec_ctrl = self._record_mouse_control or self.send_control
         if rec_mouse is not None and rec_ctrl is not None:
             self._record_mouse_listener = None
             self._record_mouse_control = None
@@ -1815,7 +1815,7 @@ class SendButtonListener(BaseActionListener):
         # Drop silence auto-stop lambdas before cleanup. They stay on the
         # recorder and post UI work after this listener is gone, and stop
         # then re-enters the panel.
-        recorder = getattr(self, "audio_recorder", None)
+        recorder = self.audio_recorder
         if recorder is not None:
             try:
                 recorder.set_auto_stop_callbacks(
@@ -1828,12 +1828,12 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.tool_loop_actions import abort_turn
 
         abort_turn(self)
-        scope = getattr(self, "_send_cancellation", None)
+        scope = self._send_cancellation
         if scope is not None:
             scope.cancel()
         # Stop above cancels an in-flight prompt. Dispose also drops the CLI
         # this sidebar was keeping. A missing slot is the normal chat path.
-        acp_backend = getattr(self, "_acp_backend", None)
+        acp_backend = self._acp_backend
         self._acp_backend = None
         self._acp_backend_id = None
         if acp_backend is not None:
@@ -1860,7 +1860,7 @@ class SendButtonListener(BaseActionListener):
             # global_event_bus stay subscribed when those are different
             # objects. grammar:status was subscribed on global_event_bus
             # and stays on that bus.
-            mcp_bus = getattr(self, "_mcp_event_bus", None)
+            mcp_bus = self._mcp_event_bus
             if mcp_bus is not None:
                 mcp_bus.unsubscribe("mcp:request", self._on_mcp_request)
                 mcp_bus.unsubscribe("mcp:result", self._on_mcp_result)

@@ -216,7 +216,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             # Pass the send_listener stored on self from _wire_buttons instead of the send control.
             # _wire_buttons runs before this in _wireControls, so self.send_listener is available.
-            if hasattr(self, "send_listener") and self.send_listener:
+            if self.send_listener:
                 query_ctrl = controls["query"]
                 if query_ctrl is None:
                     log.warning("Query control missing; cannot attach text/key listeners")
@@ -274,11 +274,11 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     r = c.getPosSize()
                     c.setPosSize(r.X, r.Y, aw, r.Height, 15)
 
-    _frame_session = getattr(self, "frame_session", None)
+    _frame_session = self.frame_session
     _restore_focus = _frame_session.restore_focus if _frame_session is not None else None
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
-        _tp = getattr(self, "toolpanel", None)
+        _tp = self.toolpanel
 
         def _release_sidebar_on_window_dispose() -> None:
             # Same send-cancel and live-panel drop as ChatPanelElement.disposing.
@@ -291,7 +291,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
         _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize._root_window = root_window
-        _resize._parent_window = getattr(_tp, "parent_window", None) or getattr(self, "xParentWindow", None)
+        _resize._parent_window = (_tp.parent_window if _tp else None) or self.xParentWindow
         root_window.addWindowListener(_resize)
         self._panel_resize_listener = _resize
         if _tp is not None:
@@ -350,7 +350,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             def on_rich_control_ready(rich_control: Any) -> None:
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
-                session = getattr(self, "frame_session", None)
+                session = self.frame_session
                 restore_focus = session.restore_focus if session is not None else None
                 widget = RichTextChatWidget(
                     self.ctx,
@@ -379,15 +379,15 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                         ),
                     )
                 controls["response_rich"] = rich_control
-                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                if self._panel_resize_listener:
                     self._panel_resize_listener._c["response_rich"] = rich_control
-                if hasattr(self, "send_listener") and self.send_listener:
+                if self.send_listener:
                     self.send_listener.set_rich_text_widget(widget)
                 try:
                     from plugin.calc.navigation import attach_calc_cell_link_listener
 
                     def _calc_doc_from_panel() -> Any | None:
-                        sl = getattr(self, "send_listener", None)
+                        sl = self.send_listener
                         if sl is None or not hasattr(sl, "_get_document_model"):
                             return None
                         model = sl._get_document_model()
@@ -408,7 +408,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     ok=1,
                     response=int(hide_response),
                 )
-                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                if self._panel_resize_listener:
                     log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
                     self._panel_resize_listener.relayout_now(root_window)
                 try:
@@ -417,7 +417,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     self._render_session_history(self.session, controls["response"], model, rich_greeting)
                 except Exception:
                     log.exception("Initial RichTextControl render failed")
-                if hasattr(self, "_rich_control_listener") and self._rich_control_listener:
+                if self._rich_control_listener:
                     log_rich_scroll("on_ready_step", control=rich_control, step="sync_bounds")
                     best_effort(self._rich_control_listener._sync_bounds, "on_rich_control_ready sync bounds")
                 log_rich_scroll("on_ready_step", control=rich_control, step="reveal_caret")
@@ -431,7 +431,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                 restore_focus=_restore_focus,
                 placeholder_rect_fn=lambda: (
                     self._panel_resize_listener.last_response_rect
-                    if getattr(self, "_panel_resize_listener", None)
+                    if self._panel_resize_listener
                     else None
                 ),
             )
