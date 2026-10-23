@@ -1678,7 +1678,7 @@ def run_sandboxed_code(
 
     policy_dict = sandbox_policy or {}
     try:
-        raw_extra = policy_dict.get("extra_modules") or policy_dict.get("extra") or ""
+        raw_extra = policy_dict.get("extra_modules") or ""
         if isinstance(raw_extra, str):
             extra = parse_extra_modules(raw_extra)
         else:
