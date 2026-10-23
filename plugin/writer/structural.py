@@ -99,8 +99,8 @@ class GetPageObjects(ToolBase):
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
-        "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, y is the offset from "
-        "the text baseline (negative = above). " + PARAGRAPH_INDEX_DIRECTIVE
+        "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is "
+        "the object top's offset from the text baseline (negative = above). " + PARAGRAPH_INDEX_DIRECTIVE
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
