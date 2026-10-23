@@ -306,6 +306,7 @@ class DuplicateSlide(_SlideMutationTool):
     intent: str | None = "edit"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -332,6 +333,7 @@ class MoveSlide(_SlideMutationTool):
     intent: str | None = "edit"
     description: str = "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"from_page": {"type": "integer", "description": "0-based source slide index"}, "to_page": {"type": "integer", "description": "0-based destination slide index"}}, "required": ["from_page", "to_page"]}
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
@@ -357,6 +359,7 @@ class RenameSlide(_SlideMutationTool):
     intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
