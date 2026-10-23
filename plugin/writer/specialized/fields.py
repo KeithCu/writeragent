@@ -14,7 +14,7 @@ from typing import Any
 
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
-from ..specialized_base import ToolWriterFieldBase, target_params
+from ..specialized_base import ToolWriterFieldBase, commit_or_rollback_mutation, target_params
 from ..target_resolver import resolve_target_cursor
 
 
@@ -236,7 +236,6 @@ class FieldsDelete(ToolWriterFieldBase):
             targets.append((anchor, what, where))
 
         from ..edit_review import next_agent_edit_undo_title
-        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
         undo_title = next_agent_edit_undo_title()
         deleted: list[dict[str, Any]] = []
@@ -248,22 +247,17 @@ class FieldsDelete(ToolWriterFieldBase):
                 deleted.append({"content": what, "location": where})
             return None
 
-        try:
-            error = commit_or_rollback(doc, undo_title, mutate)
-            if error is not None:
-                return error
-        except UndoUnavailable:
-            return self._tool_error(
-                "Cannot delete fields atomically (no usable undo context).",
-                code="UNDO_UNAVAILABLE",
-            )
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            return self._tool_error(
-                f"Failed to delete fields; the change was rolled back ({e}).",
-                deleted_count=0,
-            )
+        err = commit_or_rollback_mutation(
+            self,
+            doc,
+            undo_title,
+            mutate,
+            undo_unavailable_msg="Cannot delete fields atomically (no usable undo context).",
+            rollback_msg="Failed to delete fields; the change was rolled back",
+            deleted_count=0,
+        )
+        if err is not None:
+            return err
 
         deleted_count = len(deleted)
         return {
@@ -342,7 +336,6 @@ class FieldsInsert(ToolWriterFieldBase):
         # Insert at resolved cursor
         if target == "search" and old_content:
             from ..edit_review import next_agent_edit_undo_title
-            from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
             undo_title = next_agent_edit_undo_title()
 
@@ -352,19 +345,16 @@ class FieldsInsert(ToolWriterFieldBase):
                 text.insertTextContent(cursor, field, False)
                 return None
 
-            try:
-                error = commit_or_rollback(doc, undo_title, mutate)
-                if error is not None:
-                    return error
-            except UndoUnavailable:
-                return self._tool_error(
-                    "Cannot replace the matched text atomically (no usable undo context).",
-                    code="UNDO_UNAVAILABLE",
-                )
-            except Exception as e:
-                if is_real_disposal(e):
-                    raise
-                return self._tool_error(f"Failed to insert field; the change was rolled back ({e}).")
+            err = commit_or_rollback_mutation(
+                self,
+                doc,
+                undo_title,
+                mutate,
+                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
+                rollback_msg="Failed to insert field; the change was rolled back",
+            )
+            if err is not None:
+                return err
         else:
             try:
                 text = cursor.getText()

@@ -72,6 +72,18 @@ def _note_at_index(tool: Any, doc: Any, note_type: str, index: int) -> tuple[Any
     return notes.getByIndex(index), index
 
 
+def _delete_note(tool: Any, doc: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    note_type = kwargs["note"]
+    index = kwargs["index"]
+    res = _note_at_index(tool, doc, note_type, index)
+    if isinstance(res, dict):
+        return res
+    note, idx = res
+    anchor = note.getAnchor()
+    anchor.setString("")
+    return {"status": "ok", "message": f"Successfully deleted {note_type} at index {idx}."}
+
+
 class FootnotesInsert(ToolWriterFootnoteBase):
     name: str | None = "footnotes_insert"
     description: str = (
@@ -233,20 +245,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        note_type = kwargs["note"]
-        index = kwargs["index"]
-        res = _note_at_index(self, ctx.doc, note_type, index)
-        if isinstance(res, dict):
-            return res
-        note, index = res
-
-        # The note object itself is anchored somewhere.
-        # We delete it by removing it from its anchor's text content.
-        anchor = note.getAnchor()
-        # Deleting the anchor text removes the footnote
-        anchor.setString("")
-
-        return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
+        return _delete_note(self, ctx.doc, kwargs)
 
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):

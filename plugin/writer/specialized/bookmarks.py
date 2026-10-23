@@ -572,6 +572,29 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
             return self._tool_error(str(exc))
 
 
+def _resolve_bookmark_target(
+    tool: Any, ctx: Any, kwargs: dict[str, Any], *, must_exist: bool
+) -> tuple[Any, str, dict[str, Any] | None]:
+    name = kwargs.get("name", "")
+    if not name:
+        return None, "", tool._tool_error("Bookmark name is required.")
+    if name.startswith("_mcp_"):
+        return (
+            None,
+            "",
+            tool._tool_error(
+                "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
+            ),
+        )
+    bookmarks = ctx.doc.getBookmarks()
+    has_bm = bookmarks.hasByName(name)
+    if must_exist and not has_bm:
+        return None, "", tool._tool_error(f"Bookmark '{name}' not found.")
+    if not must_exist and has_bm:
+        return None, "", tool._tool_error(f"A bookmark named '{name}' already exists.")
+    return bookmarks, name, None
+
+
 class BookmarkCreate(ToolWriterBookmarkBase):
     name: str | None = "bookmark_create"
     description: str = "Create a new bookmark at the current cursor or selection in Writer. If text is selected, the bookmark will span the selection."
@@ -579,17 +602,11 @@ class BookmarkCreate(ToolWriterBookmarkBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        _unused_bm, name, err = _resolve_bookmark_target(self, ctx, kwargs, must_exist=False)
+        if err is not None:
+            return err
+
         doc = ctx.doc
-        name = kwargs["name"]
-        if not name:
-            return self._tool_error("Bookmark name is required.")
-        if name.startswith("_mcp_"):
-            return self._tool_error("Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them.")
-
-        bookmarks = doc.getBookmarks()
-        if bookmarks.hasByName(name):
-            return self._tool_error(f"A bookmark named '{name}' already exists.")
-
         ctrl = doc.getCurrentController()
         if not ctrl:
             return self._tool_error("No current controller found.")
@@ -620,18 +637,11 @@ class BookmarkDelete(ToolWriterBookmarkBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        name = kwargs["name"]
-        if not name:
-            return self._tool_error("Bookmark name is required.")
-        if name.startswith("_mcp_"):
-            return self._tool_error(
-                "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
-            )
+        bookmarks, name, err = _resolve_bookmark_target(self, ctx, kwargs, must_exist=True)
+        if err is not None:
+            return err
 
-        bookmarks = doc.getBookmarks()
-        if not bookmarks.hasByName(name):
-            return self._tool_error(f"Bookmark '{name}' not found.")
+        doc = ctx.doc
 
         # doc.getText() removes bookmarks anchored in the body, headers, tables and frames
         # alike, and needs no working anchor (checked live on LO 25.2).

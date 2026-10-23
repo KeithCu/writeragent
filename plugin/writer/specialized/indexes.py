@@ -64,6 +64,7 @@ _INDEX_IMPL_TO_KIND = {
 # Live LO (sw/source/core/fields/authfld.cxx aFieldNames). PropertyValue.Name is
 # the pretty string, not IDENTIFIER. Type is BibiliographicType (IDL typo
 # BIBILIOGRAPHIC_TYPE — one L missing, "Bibi…" not "Biblio…").
+_EMPTY_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
 _BIB_FIELD_NAMES = (
     "Identifier",
     "BibiliographicType",
@@ -328,7 +329,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         "indexes_insert_toc_entry, or indexes_delete_toc_entry. "
         "Those tools do not call update() and do not recalculate page numbers."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -433,6 +434,20 @@ def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:
     if index_kind_from_uno(idx) != "toc":
         return None, "index is not a table of contents."
     return idx, None
+
+
+def _resolve_toc_target(tool: Any, doc: Any, index: Any) -> tuple[Any, Any, dict[str, Any] | None]:
+    idx, err = resolve_toc(doc, index)
+    if err or idx is None:
+        return (
+            None,
+            None,
+            tool._tool_error(
+                err or "Could not find the table of contents.",
+                code="INVALID_PARAM",
+            ),
+        )
+    return idx, idx.getAnchor(), None
 
 
 def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
@@ -914,13 +929,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         occurrence = kwargs.get("occurrence")
         if occurrence is not None and occurrence < 0:
             return self._tool_error("occurrence must be a non-negative integer.", code="INVALID_PARAM")
-        index = kwargs.get("index")
-        idx, err = resolve_toc(doc, index)
-        if err or idx is None:
-            return self._tool_error(
-                err or "Could not find the table of contents.", code="INVALID_PARAM")
-        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
-        anchor = idx.getAnchor()
+        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        if err is not None:
+            return err
         found, find_error = self._toc_match(doc, anchor, str(old_content).strip(), occurrence)
         if find_error:
             return self._tool_error(find_error, code="NOT_FOUND")
@@ -1041,13 +1052,9 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         occurrence_error = _invalid_occurrence(kwargs.get("occurrence"))
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
-        index = kwargs.get("index")
-        idx, err = resolve_toc(doc, index)
-        if err or idx is None:
-            return self._tool_error(
-                err or "Could not find the table of contents.", code="INVALID_PARAM")
-        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
-        anchor = idx.getAnchor()
+        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        if err is not None:
+            return err
         found, find_error = toc_match(doc, anchor, str(old_content).strip(), kwargs.get("occurrence"))
         if find_error or found is None:
             return self._tool_error(find_error or "No table-of-contents entry contains that text.", code="NOT_FOUND")
@@ -1172,13 +1179,9 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         level, level_error = self._level(kwargs.get("level"))
         if level_error:
             return self._tool_error(level_error, code="INVALID_PARAM")
-        index = kwargs.get("index")
-        idx, err = resolve_toc(doc, index)
-        if err or idx is None:
-            return self._tool_error(
-                err or "Could not find the table of contents.", code="INVALID_PARAM")
-        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
-        anchor = idx.getAnchor()
+        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        if err is not None:
+            return err
         paragraphs = _paragraphs_in_anchor(anchor)
         if position == "end":
             ref = self._end_anchor(paragraphs)
@@ -1308,7 +1311,7 @@ class IndexesList(ToolWriterIndexBase):
         "For in-flow cites use indexes_list_cites, not this tool. "
         "For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1364,13 +1367,9 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
-        idx, err = resolve_toc(doc, index)
-        if err or idx is None:
-            return self._tool_error(
-                err or "Could not find the table of contents.",
-                code="INVALID_PARAM")
-        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
-        anchor = idx.getAnchor()
+        _unused_idx, anchor, err = _resolve_toc_target(self, doc, index)
+        if err is not None:
+            return err
         entries = toc_entry_rows(anchor)
         if isinstance(index, int) and not isinstance(index, bool):
             position: int | None = index
@@ -1392,7 +1391,7 @@ class IndexesListCites(ToolWriterIndexBase):
         "Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. "
         "Does not list the bibliography table — use indexes_list for that."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:

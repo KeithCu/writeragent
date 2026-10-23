@@ -143,6 +143,27 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
     return None, None, format_error_payload(ToolExecutionError(f"Several form controls match '{wanted}': {', '.join(hit_details)}; pass index as well."))
 
 
+def _resolve_form_page_and_control(
+    doc: Any, kwargs: dict[str, Any]
+) -> tuple[Any, Any, Any, dict[str, Any] | None]:
+    dp = _resolve_form_page(doc, kwargs.get("page"))
+    if dp is None:
+        return None, None, None, _no_form_draw_page_payload()
+    lookup_name = None if "index" in kwargs else kwargs.get("name")
+    idx, shape, err = _find_control_shape(dp, index=kwargs.get("index"), name=lookup_name)
+    if err or shape is None:
+        return dp, None, None, err or format_error_payload(ToolExecutionError("Form control not found."))
+    return dp, idx, shape, None
+
+
+def _delete_form_control(doc: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs)
+    if err or dp is None or shape is None:
+        return err or format_error_payload(ToolExecutionError("Form control not found."))
+    dp.remove(shape)
+    return {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
+
+
 def _coerce_items(raw: Any) -> list[str] | None:
     if isinstance(raw, (list, tuple)):
         return [str(x) for x in raw]
@@ -358,6 +379,7 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
 
 
 _PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."}
+_PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
 
 
 class FormCreateControl(ToolWriterFormBase):
@@ -741,13 +763,7 @@ class FormListControls(ToolWriterFormBase):
         "Draw/Impress: active page, or page= for a specific slide. Index is the draw-page shape index — "
         "it shifts when non-controls sit between widgets; prefer name."
     )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "page": _PAGE_PROPERTY,
-        },
-        "required": [],
-    }
+    parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return run_on_main(self._execute_main, ctx, **kwargs)
@@ -827,13 +843,7 @@ class FormEditControl(ToolWriterFormBase):
         return run_on_main(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        dp = _resolve_form_page(doc, kwargs.get("page"))
-        if dp is None:
-            return _no_form_draw_page_payload()
-
-        lookup_name = None if "index" in kwargs else kwargs.get("name")
-        idx, shape, err = _find_control_shape(dp, index=kwargs.get("index"), name=lookup_name)
+        _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
         if err or shape is None:
             return err or format_error_payload(ToolExecutionError("Form control not found."))
 
@@ -902,17 +912,4 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        dp = _resolve_form_page(doc, kwargs.get("page"))
-        if dp is None:
-            return _no_form_draw_page_payload()
-        idx, shape, err = _find_control_shape(dp, index=kwargs.get("index"), name=kwargs.get("name"))
-        if err or shape is None:
-            return err or format_error_payload(ToolExecutionError("Form control not found."))
-
-        dp.remove(shape)
-
-        return {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
+        return run_on_main(_delete_form_control, ctx.doc, kwargs)

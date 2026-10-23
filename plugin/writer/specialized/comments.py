@@ -20,11 +20,11 @@ import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 import uno
 
 from plugin.framework.tool import ToolBase
-from ..specialized_base import ToolWriterCommentBase, enum_param
+from ..specialized_base import ToolWriterCommentBase, commit_or_rollback_mutation, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
 
@@ -283,7 +283,6 @@ class CommentDelete(ToolWriterCommentBase):
                     "deleted": 0}
 
         from ..edit_review import next_agent_edit_undo_title
-        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
         undo_title = next_agent_edit_undo_title()
         deleted_count = 0
@@ -296,23 +295,16 @@ class CommentDelete(ToolWriterCommentBase):
                 deleted_count += 1
             return None
 
-        try:
-            error = commit_or_rollback(doc, undo_title, mutate)
-            if error is not None:
-                return error
-        except UndoUnavailable:
-            return self._tool_error(
-                "Cannot delete comments atomically (no usable undo context).",
-                code="UNDO_UNAVAILABLE",
-            )
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            err = self._tool_error(
-                f"Failed to delete comments; the change was rolled back ({e}).",
-                deleted=0,
-            )
-            err["deleted"] = 0
+        err = commit_or_rollback_mutation(
+            self,
+            doc,
+            undo_title,
+            mutate,
+            undo_unavailable_msg="Cannot delete comments atomically (no usable undo context).",
+            rollback_msg="Failed to delete comments; the change was rolled back",
+            deleted=0,
+        )
+        if err is not None:
             return err
 
         return {"status": "ok", "deleted": deleted_count}
@@ -357,8 +349,6 @@ class CommentResolve(ToolWriterCommentBase):
             }
 
         from ..edit_review import next_agent_edit_undo_title
-        from plugin.doc.undo import UndoUnavailable, commit_or_rollback
-
         undo_title = next_agent_edit_undo_title()
         reply_name = None
 
@@ -377,21 +367,16 @@ class CommentResolve(ToolWriterCommentBase):
             target.setPropertyValue("Resolved", True)
             return None
 
-        try:
-            error = commit_or_rollback(doc, undo_title, mutate)
-            if error is not None:
-                return error
-        except UndoUnavailable:
-            return self._tool_error(
-                "Cannot resolve comment atomically (no usable undo context).",
-                code="UNDO_UNAVAILABLE",
-            )
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            return self._tool_error(
-                f"Failed to resolve comment; the change was rolled back ({e}).",
-            )
+        err = commit_or_rollback_mutation(
+            self,
+            doc,
+            undo_title,
+            mutate,
+            undo_unavailable_msg="Cannot resolve comment atomically (no usable undo context).",
+            rollback_msg="Failed to resolve comment; the change was rolled back",
+        )
+        if err is not None:
+            return err
 
         result: dict[str, Any] = {"status": "ok", "comment_name": comment_name, "resolved": True}
         if reply_name:
