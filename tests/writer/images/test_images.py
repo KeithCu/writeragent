@@ -674,9 +674,8 @@ def test_image_get_info_hyperlink_url_empty_when_absent():
 
 def test_object_size_reads_writer_property_and_draw_getsize():
     writer = MagicMock()
-    writer.getPropertyValue.return_value = "writer-size"
+    writer.getSize.return_value = "writer-size"
     assert _object_size(writer) == "writer-size"
-    # Draw/Impress shapes have no Size property; image_list used to skip them silently.
     draw = MagicMock()
     draw.getPropertyValue.side_effect = Exception("UnknownPropertyException: Size")
     draw.getSize.return_value = "draw-size"

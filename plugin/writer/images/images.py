@@ -641,11 +641,8 @@ def _validate_dimensions(tool: Any, kwargs: dict[str, Any]) -> dict[str, Any] | 
 
 
 def _object_size(obj: typing.Any) -> Any:
-    """Frame size in 1/100 mm. Writer graphics have a ``Size`` property; Draw/Impress shapes
-    do not (UnknownPropertyException) and only answer ``getSize()``. Reading the property alone
-    made image_list skip every Draw picture and image_get_info fail on them."""
-    size = visual_helpers.safe_get_property(obj, "Size")
-    return size if size is not None else obj.getSize()
+    """Frame size in 1/100 mm via getSize(), which matches the Size property wherever it exists."""
+    return obj.getSize()
 
 
 class ImageGetInfo(ToolWriterImageBase):
