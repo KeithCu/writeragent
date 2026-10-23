@@ -815,4 +815,100 @@ def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPa
     assert err_frame["status"] == "error"
 
 
+def test_sandbox_policy_socket_default_errors():
+    res = run_sandboxed_code("import socket", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "Import of socket is not allowed" in res["message"]
+
+
+def test_sandbox_policy_network_binds_socket():
+    res = run_sandboxed_code(
+        "import socket\nresult = bool(hasattr(socket, 'socket'))",
+        sandbox_policy={"network": True},
+    )
+    assert res["status"] == "ok"
+    assert res["result"] is True
+
+
+def test_sandbox_policy_files_rw_and_remove(tmp_path):
+    target = str(tmp_path / "sandbox_test_file.txt")
+    code = f"""
+import os
+with open({target!r}, "w") as f:
+    f.write("sandboxed-hello")
+with open({target!r}, "r") as f:
+    content = f.read()
+os.remove({target!r})
+result = content
+"""
+    res = run_sandboxed_code(code, sandbox_policy={"files": True})
+    assert res["status"] == "ok"
+    assert res["result"] == "sandboxed-hello"
+    import os
+    assert not os.path.exists(target)
+
+    res_sub = run_sandboxed_code("import subprocess\nsubprocess.run(['echo'])", sandbox_policy={"files": True})
+    assert res_sub["status"] == "error"
+
+
+def test_sandbox_policy_os_subprocess():
+    import sys
+    code = f"""
+import subprocess
+res = subprocess.run([{sys.executable!r}, "-c", "print(1)"], capture_output=True, text=True)
+result = res.stdout.strip()
+"""
+    res = run_sandboxed_code(code, sandbox_policy={"os": True})
+    assert res["status"] == "ok"
+    assert res["result"] == "1"
+
+
+def test_sandbox_policy_shared_session_rebuild():
+    sid = "calc:test_policy_rebuild"
+    try:
+        r1 = run_sandboxed_code(
+            "import socket\nx = 1\nresult = x",
+            session_id=sid,
+            sandbox_policy={"network": True},
+        )
+        assert r1["status"] == "ok"
+        assert r1["result"] == 1
+
+        r2 = run_sandboxed_code(
+            "result = x",
+            session_id=sid,
+            sandbox_policy=None,
+        )
+        assert r2["status"] == "error"
+        assert "not defined" in r2["message"] or "NameError" in r2["message"] or "InterpreterError" in r2["message"]
+
+        r3 = run_sandboxed_code("import socket", session_id=sid, sandbox_policy=None)
+        assert r3["status"] == "error"
+        assert "Import of socket is not allowed" in r3["message"]
+    finally:
+        from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+        reset_sandbox_session(sid)
+
+
+def test_sandbox_policy_timeout_wins_over_socket_and_subprocess():
+    import sys
+    code_socket = """
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(10)
+s.connect(('192.0.2.1', 80))
+"""
+    r_sock = run_sandboxed_code(code_socket, timeout_sec=1, sandbox_policy={"network": True})
+    assert r_sock["status"] == "error"
+    assert any(term in r_sock["message"].lower() for term in ("timeout", "timed out", "exceeded", "maximum execution time")) or r_sock.get("code") == "TIMEOUT"
+
+    code_sub = f"""
+import subprocess
+subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
+"""
+    r_sub = run_sandboxed_code(code_sub, timeout_sec=1, sandbox_policy={"os": True})
+    assert r_sub["status"] == "error"
+    assert any(term in r_sub["message"].lower() for term in ("timeout", "timed out", "exceeded", "maximum execution time")) or r_sub.get("code") == "TIMEOUT"
+
+
 

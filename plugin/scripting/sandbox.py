@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
+import hashlib
 import os
 import sys
 from typing import TYPE_CHECKING, Any
@@ -269,6 +271,184 @@ def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
         return True
     real = _alias_real_module(name)
     return real is not None and _matches_allowlist(real, exact, wildcards)
+
+
+# --- Python sandbox policy flags and os proxy allowlist ---
+
+FILE_OS_NAMES: tuple[str, ...] = (
+    # Module
+    "path",
+    # Directories
+    "listdir",
+    "scandir",
+    "walk",
+    "fwalk",
+    "mkdir",
+    "makedirs",
+    "rmdir",
+    "removedirs",
+    "getcwd",
+    "getcwdb",
+    # Files
+    "remove",
+    "unlink",
+    "rename",
+    "renames",
+    "replace",
+    "truncate",
+    # Metadata
+    "stat",
+    "lstat",
+    "access",
+    "chmod",
+    "lchmod",
+    "chown",
+    "lchown",
+    "utime",
+    # Links
+    "symlink",
+    "link",
+    "readlink",
+    # Path helpers and types
+    "fspath",
+    "fsencode",
+    "fsdecode",
+    "PathLike",
+    "DirEntry",
+    "stat_result",
+    # Constants
+    "sep",
+    "altsep",
+    "extsep",
+    "pathsep",
+    "curdir",
+    "pardir",
+    "linesep",
+    "devnull",
+    "F_OK",
+    "R_OK",
+    "W_OK",
+    "X_OK",
+    "SEEK_SET",
+    "SEEK_CUR",
+    "SEEK_END",
+)
+
+_DANGEROUS_EXTRA_ROOTS: frozenset[str] = frozenset({
+    "os",
+    "socket",
+    "subprocess",
+    "io",
+    "pathlib",
+    "shutil",
+    "sys",
+    "builtins",
+    "multiprocessing",
+    "pty",
+    "posix",
+    "nt",
+})
+
+_NETWORK_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
+    "socket",
+    "http",
+    "http.*",
+    "urllib",
+    "urllib.*",
+    "ssl",
+    "ssl.*",
+)
+
+_FILES_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
+    "os",
+    "posixpath",
+    "ntpath",
+    "genericpath",
+    "pathlib",
+    "pathlib.*",
+    "shutil",
+    "io",
+    "tempfile",
+    "glob",
+)
+
+_OS_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
+    "os.*",
+    "subprocess",
+    "subprocess.*",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class SandboxPolicy:
+    network: bool = False
+    files: bool = False
+    os: bool = False
+    extra: tuple[str, ...] = ()
+
+
+def parse_extra_modules(text: str) -> tuple[str, ...]:
+    if not text or not text.strip():
+        return ()
+    raw_items = [part.strip() for part in text.split(",") if part.strip()]
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if len(item) > 62:
+            raise ValueError(f"Module name too long (max 62 characters): {item!r}")
+        parts = item.split(".")
+        if not all(p.isidentifier() for p in parts):
+            raise ValueError(f"Invalid module identifier: {item!r}")
+        root = parts[0]
+        if root in _DANGEROUS_EXTRA_ROOTS:
+            raise ValueError(f"Module or package root {root!r} cannot be authorized via extra modules")
+        if item not in seen:
+            seen.add(item)
+            cleaned.append(item)
+    return tuple(cleaned)
+
+
+def build_sandbox_policy(
+    network: bool = False,
+    files: bool = False,
+    os_: bool = False,
+    extra: Sequence[str] = (),
+) -> SandboxPolicy:
+    return SandboxPolicy(
+        network=bool(network),
+        files=bool(files or os_),
+        os=bool(os_),
+        extra=tuple(extra),
+    )
+
+
+def policy_allowlist(policy: SandboxPolicy) -> list[str]:
+    result = list(VENV_AUTHORIZED_IMPORTS)
+    if policy.network:
+        result.extend(_NETWORK_ALLOWLIST_ADDITIONS)
+    if policy.files or policy.os:
+        result.extend(_FILES_ALLOWLIST_ADDITIONS)
+    if policy.os:
+        result.extend(_OS_ALLOWLIST_ADDITIONS)
+    for name in policy.extra:
+        result.extend([name, f"{name}.*"])
+    return result
+
+
+def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
+    roots: set[str] = set()
+    if policy.network:
+        roots.add("socket")
+    if policy.files or policy.os:
+        roots.update({"shutil", "pathlib", "io"})
+    if policy.os:
+        roots.update({"os", "posix", "nt", "subprocess"})
+    return frozenset(roots)
+
+
+def policy_digest(policy: SandboxPolicy) -> str:
+    payload = f"{int(policy.network)}:{int(policy.files)}:{int(policy.os)}:{','.join(policy.extra)}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # --- Subprocess environment ---

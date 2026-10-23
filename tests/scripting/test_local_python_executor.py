@@ -2316,6 +2316,192 @@ def test_stable_tool_wrappers_and_safety_checks():
     assert executor.state["res_comp"] == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 
 
+def test_local_python_executor_empty_context():
+    import socket as _real_socket
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["socket"])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc:
+        executor("import socket\nsocket.create_connection(('127.0.0.1', 9), timeout=1)")
+    assert "has no attribute create_connection" in str(exc.value)
+
+    executor.send_tools({"connect": _real_socket.create_connection})
+    with pytest.raises(InterpreterError) as exc_fn:
+        executor("connect(('127.0.0.1', 9), timeout=1)")
+    assert "Forbidden access to function" in str(exc_fn.value)
+
+    executor_default = LocalPythonExecutor(additional_authorized_imports=[])
+    executor_default.send_tools({})
+    with pytest.raises(InterpreterError) as exc2:
+        executor_default("import os")
+    assert "Import of os is not allowed" in str(exc2.value)
+
+
+def test_local_python_executor_network_relax():
+    from plugin.contrib.smolagents.local_python_executor import SANDBOX_POLICY_CONTEXT
+
+    token = SANDBOX_POLICY_CONTEXT.set((frozenset({"socket"}), frozenset()))
+    try:
+        executor = LocalPythonExecutor(additional_authorized_imports=["socket"])
+        executor.send_tools({})
+        with pytest.raises(InterpreterError) as exc:
+            executor("import socket\nsocket.create_connection(('127.0.0.1', 65530), timeout=0.5)")
+        # The call was reached and failed at the OS socket level
+        assert any(err in str(exc.value) for err in ("ConnectionRefusedError", "Connection refused", "TimeoutError"))
+    finally:
+        SANDBOX_POLICY_CONTEXT.reset(token)
+
+
+def test_local_python_executor_files_relax(tmp_path):
+    import sys
+    from plugin.contrib.smolagents.local_python_executor import (
+        SANDBOX_POLICY_CONTEXT,
+        get_file_os_proxy,
+    )
+
+    proxy, file_os_ids = get_file_os_proxy()
+    token = SANDBOX_POLICY_CONTEXT.set((frozenset({"shutil", "pathlib", "io"}), file_os_ids))
+    try:
+        executor = LocalPythonExecutor(
+            additional_authorized_imports=[
+                "os",
+                "posixpath",
+                "ntpath",
+                "genericpath",
+                "pathlib",
+                "pathlib.*",
+                "shutil",
+                "io",
+                "tempfile",
+                "glob",
+            ],
+            additional_functions={"open": open},
+        )
+        executor.send_tools({})
+
+        executor("import os\nresult = '_FileOsProxy' in str(type(os))")
+        assert executor.state["result"] is True
+        assert isinstance(executor.state["os"], type(proxy))
+
+        test_dir = str(tmp_path / "subdir")
+        target_file = str(tmp_path / "target.txt")
+        link_file = str(tmp_path / "link.txt")
+        with open(target_file, "w") as f:
+            f.write("target")
+        import os as _real_os
+        _real_os.symlink(target_file, link_file)
+
+        executor.state["test_dir"] = test_dir
+        executor.state["target_file"] = target_file
+        executor.state["link_file"] = link_file
+
+        code_allowed = """
+import os
+from os import scandir
+os.makedirs(test_dir, exist_ok=True)
+items = os.listdir(test_dir)
+st = os.stat(target_file)
+os.chmod(target_file, 0o644)
+link_dest = os.readlink(link_file)
+p = os.path.join("a", "b")
+scandir_type = type(scandir)
+"""
+        executor(code_allowed)
+        assert executor.state["link_dest"] == target_file
+        assert executor.state["p"] in ("a/b", "a\\b")
+
+        for op in (
+            "os.system('echo hi')",
+            "os.environ",
+            "os.getpid()",
+            "os.chdir('.')",
+            "os.open('x', 0)",
+            "os.fork()",
+        ):
+            with pytest.raises((InterpreterError, AttributeError)):
+                executor(f"import os\n{op}")
+
+        raw_mod = sys.modules.get("posix") or sys.modules.get("nt")
+        raw_system = getattr(raw_mod, "system", None)
+        if raw_system is not None:
+            executor.send_tools({"get_posix_func": lambda: raw_system})
+            with pytest.raises(InterpreterError) as exc:
+                executor("fn = get_posix_func()\nfn('echo hi')")
+            assert "Forbidden access to function" in str(exc.value)
+
+        dest_copy = str(tmp_path / "copy.txt")
+        executor.state["dest_copy"] = dest_copy
+        executor("import shutil\nshutil.copy(target_file, dest_copy)")
+        assert _real_os.path.exists(dest_copy)
+
+        path_file = str(tmp_path / "path.txt")
+        executor.state["path_file"] = path_file
+        executor("from pathlib import Path\nPath(path_file).write_text('path-ok')")
+        assert _real_os.path.exists(path_file)
+
+        # If subprocess is allowlisted, it is still empty under files relax
+        exec_sub = LocalPythonExecutor(additional_authorized_imports=["subprocess"])
+        exec_sub.send_tools({})
+        exec_sub("import subprocess")
+        assert not hasattr(exec_sub.state["subprocess"], "run")
+        assert not [x for x in dir(exec_sub.state["subprocess"]) if not x.startswith("_")]
+    finally:
+        SANDBOX_POLICY_CONTEXT.reset(token)
+
+
+def test_local_python_executor_os_relax():
+    from plugin.contrib.smolagents.local_python_executor import (
+        SANDBOX_POLICY_CONTEXT,
+        get_file_os_proxy,
+    )
+
+    _, file_os_ids = get_file_os_proxy()
+    token = SANDBOX_POLICY_CONTEXT.set((
+        frozenset({"shutil", "pathlib", "io", "os", "posix", "nt", "subprocess"}),
+        file_os_ids,
+    ))
+    try:
+        executor = LocalPythonExecutor(
+            additional_authorized_imports=[
+                "os",
+                "os.*",
+                "posixpath",
+                "ntpath",
+                "genericpath",
+                "pathlib",
+                "pathlib.*",
+                "shutil",
+                "io",
+                "tempfile",
+                "glob",
+                "subprocess",
+                "subprocess.*",
+            ],
+            additional_functions={"open": open},
+        )
+        executor.send_tools({})
+
+        code = """
+import os
+import subprocess
+env = os.environ
+pid = os.getpid()
+sys_res = os.system("echo ok > /dev/null")
+"""
+        executor(code)
+        assert isinstance(executor.state["pid"], int)
+
+        with pytest.raises(InterpreterError) as exc_mp:
+            executor("import multiprocessing")
+        assert "Import of multiprocessing is not allowed" in str(exc_mp.value)
+
+        with pytest.raises(InterpreterError) as exc_pty:
+            executor("import pty")
+        assert "Import of pty is not allowed" in str(exc_pty.value)
+    finally:
+        SANDBOX_POLICY_CONTEXT.reset(token)
+
+
 
 
 
