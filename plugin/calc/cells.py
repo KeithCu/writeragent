@@ -123,6 +123,10 @@ def _range_args(raw: Any) -> list[Any]:
     return list(raw)
 
 
+def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
+    return CellManipulator(CalcBridge(ctx.doc)), _range_args(range_arg)
+
+
 def _compound_undo(doc: Any, title: str) -> Any:
     from plugin.doc.compound_undo import WriterCompoundUndo
 
@@ -553,9 +557,7 @@ class WriteCellRange(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs["range"])
+        manipulator, rn = _manipulator_context(ctx, kwargs["range"])
         source, source_err = _normalize_source_arg(kwargs.get("source"))
         if source_err:
             return self._tool_error(source_err)
@@ -742,9 +744,7 @@ class SetCellStyle(ToolBase):
     scripting_only_parameters: frozenset[str] = frozenset({"number_format"})
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs["range"])
+        manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         # Strict color validation: callers/tests expect invalid color strings
         # to produce a consistent `{status:"error"}` payload rather than
@@ -878,9 +878,7 @@ class MergeCells(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs["range"])
+        manipulator, rn = _manipulator_context(ctx, kwargs["range"])
         raw_center = kwargs.get("center")
         if raw_center is None:
             center = True
@@ -936,9 +934,7 @@ class SortRange(ToolCalcRangeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        rn = _range_args(kwargs["range"])
+        manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         raw_sc = kwargs.get("sort_column")
         if raw_sc is None:

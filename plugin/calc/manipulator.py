@@ -370,29 +370,18 @@ class CellManipulator:
             number_format: Number format string (e.g. "#,##0.00").
         """
         try:
-            if ":" in address_or_range:
-                self._set_range_style(address_or_range, bold=bold, italic=italic, bg_color=bg_color, font_color=font_color, font_size=font_size, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color)
-                if number_format:
-                    self._set_range_number_format(address_or_range, number_format)
-                log.info("Range %s style updated.", address_or_range.upper())
-            else:
-                cell = self.bridge.get_cell_by_address(address_or_range)
-                self._apply_style_properties(cell, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
-                if number_format:
-                    self._set_number_format(address_or_range, number_format)
-                log.info("Cell %s style updated.", address_or_range.upper())
+            is_range = ":" in address_or_range
+            target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
+            self._apply_style_properties(target, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
+            if number_format:
+                self._set_number_format(target, number_format)
+            log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
         except Exception as e:
             if is_disposed_exception(e):
                 raise
             log.exception("Style application failed for %s", address_or_range)
             # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
             raise
-
-    def _set_range_style(
-        self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None
-    ) -> None:
-        cell_range = self.bridge.resolve_range_or_address(range_str)
-        self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
     @staticmethod
     def _resolve_document_locale(doc: Any) -> Any:
@@ -415,25 +404,18 @@ class CellManipulator:
         """Set NumberFormat from an integer registry key (detected keys, not format strings)."""
         target.setPropertyValue("NumberFormat", int(format_key))
 
-    def _set_range_number_format(self, range_str: str, format_str: str) -> None:
-        cell_range = self.bridge.resolve_range_or_address(range_str)
+    def _set_number_format(self, address_or_target: Any, format_str: str) -> None:
+        if isinstance(address_or_target, str):
+            target = self.bridge.resolve_range_or_address(address_or_target) if ":" in address_or_target else self.bridge.get_cell_by_address(address_or_target)
+        else:
+            target = address_or_target
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = self._resolve_document_locale(doc)
         format_id = formats.queryKey(format_str, locale, False)
         if format_id == -1:
             format_id = formats.addNew(format_str, locale)
-        cell_range.setPropertyValue("NumberFormat", format_id)
-
-    def _set_number_format(self, address: str, format_str: str) -> None:
-        cell = self.bridge.get_cell_by_address(address)
-        doc = self.bridge.doc
-        formats = doc.getNumberFormats()
-        locale = self._resolve_document_locale(doc)
-        format_id = formats.queryKey(format_str, locale, False)
-        if format_id == -1:
-            format_id = formats.addNew(format_str, locale)
-        cell.setPropertyValue("NumberFormat", format_id)
+        target.setPropertyValue("NumberFormat", format_id)
 
     # ── Range operations ───────────────────────────────────────────────
 

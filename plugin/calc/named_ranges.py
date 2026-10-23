@@ -234,6 +234,26 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
     return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
 
 
+def _resolve_base_cell_pos(
+    tool: Any,
+    doc: Any,
+    sheet_obj: Any,
+    base_cell: str | None,
+) -> Any | dict[str, Any]:
+    sheet_idx = 0
+    if sheet_obj is not None and hasattr(doc, "getSheets"):
+        sheets = doc.getSheets()
+        for idx in range(sheets.getCount()):
+            if sheets.getByIndex(idx).getName() == sheet_obj.getName():
+                sheet_idx = idx
+                break
+
+    try:
+        return _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+    except ValueError as ve:
+        return tool._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+
+
 def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
     """Extract structured metadata dictionary from an XNamedRange object."""
     name = nr.getName() if hasattr(nr, "getName") else str(nr)
@@ -380,18 +400,9 @@ class NamedRangeAdd(ToolCalcRangeBase):
             if container.hasByName(name):
                 return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
 
-            sheet_idx = 0
-            if sheet_obj is not None and hasattr(doc, "getSheets"):
-                sheets = doc.getSheets()
-                for idx in range(sheets.getCount()):
-                    if sheets.getByIndex(idx).getName() == sheet_obj.getName():
-                        sheet_idx = idx
-                        break
-
-            try:
-                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
-            except ValueError as ve:
-                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+            pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
+            if isinstance(pos, dict):
+                return pos
 
             type_mask = _parse_flags(flags_arg)
 
@@ -457,17 +468,9 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             pos = None
             if base_cell is not None:
-                sheet_idx = 0
-                if sheet_obj is not None and hasattr(doc, "getSheets"):
-                    sheets = doc.getSheets()
-                    for idx in range(sheets.getCount()):
-                        if sheets.getByIndex(idx).getName() == sheet_obj.getName():
-                            sheet_idx = idx
-                            break
-                try:
-                    pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
-                except ValueError as ve:
-                    return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+                pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
+                if isinstance(pos, dict):
+                    return pos
 
             if new_clean:
                 nr.setName(new_clean)

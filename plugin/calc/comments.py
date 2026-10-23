@@ -59,6 +59,27 @@ def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
     return cell_ann, text
 
 
+def _resolve_comment_cell(
+    tool: Any,
+    doc: Any,
+    cell_ref: str,
+    sheet_name_arg: str | None = None,
+) -> tuple[Any, int, int, str] | dict[str, Any]:
+    try:
+        cell_ref, sheet_name = split_sheet_and_name(cell_ref, sheet_name_arg)
+    except ValueError as e:
+        return tool._tool_error(str(e))
+
+    sheet = resolve_sheet(doc, sheet_name)
+
+    try:
+        col, row = parse_address(cell_ref)
+    except ValueError as e:
+        return tool._tool_error(str(e))
+
+    return sheet, col, row, cell_ref
+
+
 class ListCellComments(ToolCalcCommentBase):
     """List all cell comments/annotations in a sheet."""
 
@@ -114,18 +135,10 @@ class AddCellComment(ToolCalcCommentBase):
         if not cell_ref or not text:
             return self._tool_error("cell and text are required.")
 
-        try:
-            cell_ref, sheet_name = split_sheet_and_name(cell_ref, kwargs.get("sheet"))
-        except ValueError as e:
-            return self._tool_error(str(e))
-
-        doc = ctx.doc
-        sheet = resolve_sheet(doc, sheet_name)
-
-        try:
-            col, row = parse_address(cell_ref)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        target = _resolve_comment_cell(self, ctx.doc, cell_ref, kwargs.get("sheet"))
+        if isinstance(target, dict):
+            return target
+        sheet, col, row, cell_ref = target
 
         cell = sheet.getCellByPosition(col, row)
 
@@ -162,18 +175,10 @@ class DeleteCellComment(ToolCalcCommentBase):
         if not cell_ref:
             return self._tool_error("cell is required.")
 
-        try:
-            cell_ref, sheet_name = split_sheet_and_name(cell_ref, kwargs.get("sheet"))
-        except ValueError as e:
-            return self._tool_error(str(e))
-
-        doc = ctx.doc
-        sheet = resolve_sheet(doc, sheet_name)
-
-        try:
-            col, row = parse_address(cell_ref)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        target = _resolve_comment_cell(self, ctx.doc, cell_ref, kwargs.get("sheet"))
+        if isinstance(target, dict):
+            return target
+        sheet, col, row, cell_ref = target
 
         annotations = sheet.getAnnotations()
         # Find and remove the annotation at this position

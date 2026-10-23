@@ -48,10 +48,10 @@ from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from plugin.framework.tool import ToolContext
 
 from plugin.calc.base import ToolCalcErrorBase
+from plugin.calc.manipulator import _quiet_probe_cleanup
 
 log = logging.getLogger("writeragent.calc")
 
@@ -68,16 +68,6 @@ def _context_position(cell_address: str) -> tuple[int, int]:
     """
     _prefix, local = split_sheet_prefix((cell_address or "").strip())
     return parse_address(local.replace("$", ""))
-
-
-def _quiet_cleanup(action: Callable[[], None], what: str) -> None:
-    """Best-effort cleanup that still surfaces a disposed document."""
-    try:
-        action()
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        log.debug("%s failed during evaluation cleanup", what, exc_info=True)
 
 
 class _EvaluationUndoGuard:
@@ -120,12 +110,12 @@ class _EvaluationUndoGuard:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self.hidden_context_entered and self.undo_mgr:
-            _quiet_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
+            _quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
         elif self.undo_mgr and not self.was_possible and self.sheet_removed:
-            _quiet_cleanup(self.undo_mgr.clear, "clear")
+            _quiet_probe_cleanup(self.undo_mgr.clear, "clear")
 
         if self.sheet_removed and not self.was_modified:
-            _quiet_cleanup(lambda: self.doc.setModified(False), "setModified")
+            _quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
 
 
 class ListCalcFunctions(ToolBase):

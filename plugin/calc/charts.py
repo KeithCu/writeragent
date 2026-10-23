@@ -169,6 +169,12 @@ def _writer_embed_is_chart(host: Any) -> bool:
     return _is_chart_host(host, is_embed=True)
 
 
+def _is_chart_shape(shape: Any, shape_type: str | None | Exception) -> bool:
+    if isinstance(shape_type, Exception):
+        raise shape_type
+    return shape_type == _OLE2_SHAPE and _is_chart_host(shape, is_embed=False)
+
+
 def _chart_document_from_host(host: Any) -> Any | None:
     """Chart model from a sheet chart, Writer embed, or Draw/Impress OLE2 shape.
     Handles the extra layer of com.sun.star.embed.XEmbeddedObject for Writer.
@@ -560,21 +566,20 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
             warnings.append("Diagram does not support Vertical")
 
     # 3. Titles
+    def _apply_chart_title(prop: str, getter: str, text: str, label: str) -> None:
+        def _set() -> None:
+            setattr(chart_doc, prop, True)
+            getattr(chart_doc, getter)().String = text
+            log.debug("Set chart %s: '%s'", label, text)
+        _chart_step(warnings, label, _set)
+
     title = kwargs.get("title")
     if title is not None:
-        def _set_title() -> None:
-            chart_doc.HasMainTitle = True
-            chart_doc.getTitle().String = title
-            log.debug("Set chart main title: '%s'", title)
-        _chart_step(warnings, "main title", _set_title)
+        _apply_chart_title("HasMainTitle", "getTitle", title, "main title")
 
     subtitle = kwargs.get("subtitle")
     if subtitle is not None:
-        def _set_subtitle() -> None:
-            chart_doc.HasSubTitle = True
-            chart_doc.getSubTitle().String = subtitle
-            log.debug("Set chart subtitle: '%s'", subtitle)
-        _chart_step(warnings, "subtitle", _set_subtitle)
+        _apply_chart_title("HasSubTitle", "getSubTitle", subtitle, "subtitle")
 
     _set_axis_title(diagram, "X", kwargs.get("x_axis_title"), warnings)
     _set_axis_title(diagram, "Y", kwargs.get("y_axis_title"), warnings)
@@ -930,6 +935,20 @@ def _lookup_chart(
     return ChartLookup()
 
 
+def _require_chart(
+    tool: Any,
+    doc: Any,
+    kwargs: dict[str, Any],
+) -> tuple[str, ChartRef] | dict[str, Any]:
+    chart_name = kwargs["name"]
+    lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+    if lookup.error:
+        return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
+    if not lookup.ref:
+        return tool._tool_error(f"Chart '{chart_name}' not found.")
+    return chart_name, lookup.ref
+
+
 class ListCharts(ToolBaseDummy):
     """List charts; Dummy backend for ``ManageCharts`` action=list."""
 
@@ -996,17 +1015,14 @@ class ListCharts(ToolBaseDummy):
                 page = doc.getDrawPage()
                 for j, (shape, _parent, shape_type) in enumerate(_iter_page_shapes(page, doc)):
                     try:
-                        if isinstance(shape_type, Exception):
-                            raise shape_type
-                        if shape_type != _OLE2_SHAPE:
+                        if not _is_chart_shape(shape, shape_type):
                             continue
-                        if _is_chart_host(shape, is_embed=False):
-                            nm = _listed_chart_name(shape)
-                            if nm and nm in seen_names:
-                                continue
-                            if nm:
-                                seen_names.add(nm)
-                            result.append(self._get_summary(shape, nm))
+                        nm = _listed_chart_name(shape)
+                        if nm and nm in seen_names:
+                            continue
+                        if nm:
+                            seen_names.add(nm)
+                        result.append(self._get_summary(shape, nm))
                     except Exception as exc:
                         _chart_list_failure(doc, exc, errors, source="draw_page", index=j)
             except Exception as exc:
@@ -1030,14 +1046,11 @@ class ListCharts(ToolBaseDummy):
                 try:
                     for j, (shape, _parent, shape_type) in enumerate(_iter_page_shapes(page, doc)):
                         try:
-                            if isinstance(shape_type, Exception):
-                                raise shape_type
-                            if shape_type != _OLE2_SHAPE:
+                            if not _is_chart_shape(shape, shape_type):
                                 continue
-                            if _is_chart_host(shape, is_embed=False):
-                                summary = self._get_summary(shape, _listed_chart_name(shape))
-                                summary["page"] = i
-                                result.append(summary)
+                            summary = self._get_summary(shape, _listed_chart_name(shape))
+                            summary["page"] = i
+                            result.append(summary)
                         except Exception as exc:
                             _chart_list_failure(doc, exc, errors, page=i, index=j)
                 except Exception as exc:
@@ -1086,17 +1099,14 @@ class GetChartInfo(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        chart_name = kwargs["name"]
-        lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+        target = _require_chart(self, doc, kwargs)
+        if isinstance(target, dict):
+            return target
+        chart_name, ref = target
 
-        if lookup.error:
-            return self._tool_error(lookup.error, code="CHART_AMBIGUOUS")
-        if not lookup.ref:
-            return self._tool_error(f"Chart '{chart_name}' not found.")
+        chart_obj = ref.host
 
-        chart_obj = lookup.ref.host
-
-        info = {"name": chart_name, "status": "ok"}
+        info: dict[str, Any] = {"name": chart_name, "status": "ok"}
 
         # Data ranges (Calc only)
         if hasattr(chart_obj, "getRanges"):
@@ -1221,14 +1231,11 @@ class UpsertChart(ToolBaseDummy):
                 return self._tool_error(f"Failed to create chart: {msg}", code="CHART_CREATE_ERROR")
 
         elif action == "edit":
-            chart_name = kwargs["name"]
-            lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
-            if lookup.error:
-                return self._tool_error(lookup.error, code="CHART_AMBIGUOUS")
-            if not lookup.ref:
-                return self._tool_error(f"Chart '{chart_name}' not found.")
+            target = _require_chart(self, doc, kwargs)
+            if isinstance(target, dict):
+                return target
+            chart_name, ref = target
 
-            ref = lookup.ref
             chart_obj = ref.host
 
             chart_doc = _chart_document_from_host(chart_obj)
@@ -1676,14 +1683,10 @@ class DeleteChart(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        chart_name = kwargs["name"]
-
-        lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
-        if lookup.error:
-            return self._tool_error(lookup.error, code="CHART_AMBIGUOUS")
-        if not lookup.ref:
-            return self._tool_error(f"Chart '{chart_name}' not found.")
-        ref = lookup.ref
+        target = _require_chart(self, doc, kwargs)
+        if isinstance(target, dict):
+            return target
+        chart_name, ref = target
 
         try:
             if ref.kind == "calc_sheet":

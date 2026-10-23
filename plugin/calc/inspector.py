@@ -222,6 +222,19 @@ class CellInspector:
 
     # ── Public API ─────────────────────────────────────────────────────
 
+    def _resolve_single_cell(self, address: str) -> tuple[Any, str, Any, str]:
+        _unused, bare_address = split_sheet_prefix(address)
+        cell = self.bridge.resolve_range_or_address(address)
+        if hasattr(cell, "getRangeAddress"):
+            addr = cell.getRangeAddress()
+            if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
+                raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
+            if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
+                cell = cell.getCellByPosition(0, 0)
+
+        value, type_name = cell_value_and_type(cell)
+        return cell, bare_address, value, type_name
+
     def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
         """Read basic cell information.
 
@@ -232,16 +245,7 @@ class CellInspector:
             dict with keys: address, value, formula, type.
         """
         try:
-            _unused, bare_address = split_sheet_prefix(address)
-            cell = self.bridge.resolve_range_or_address(address)
-            if hasattr(cell, "getRangeAddress"):
-                addr = cell.getRangeAddress()
-                if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
-                    raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
-                if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
-                    cell = cell.getCellByPosition(0, 0)
-
-            value, type_name = cell_value_and_type(cell)
+            cell, bare_address, value, type_name = self._resolve_single_cell(address)
             formula = cell.getFormula() if type_name == "formula" else None
 
             info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": type_name}
@@ -273,16 +277,7 @@ class CellInspector:
             italic, h_align, v_align, wrap_text.
         """
         try:
-            _unused, bare_address = split_sheet_prefix(address)
-            cell = self.bridge.resolve_range_or_address(address)
-            if hasattr(cell, "getRangeAddress"):
-                addr = cell.getRangeAddress()
-                if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
-                    raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
-                if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
-                    cell = cell.getCellByPosition(0, 0)
-
-            value, type_name = cell_value_and_type(cell)
+            cell, bare_address, value, type_name = self._resolve_single_cell(address)
 
             return {
                 "address": bare_address.upper(),
