@@ -345,6 +345,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     # ClassVar matches StreamRequestHandler.timeout so this stays a class
     # attribute (a bare annotation is treated as an instance variable).
     timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
+    _response_started: bool = False
 
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
@@ -416,7 +417,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(status, data)
         except Exception as e:
             log.exception("%s %s failed", method, path)
-            if not getattr(self, "_response_started", False):
+            if not self._response_started:
                 try:
                     from plugin.framework.errors import format_error_payload
                     self._send_json(500, format_error_payload(e))

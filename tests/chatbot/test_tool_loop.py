@@ -36,6 +36,7 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
 class MockSession:
     def __init__(self):
         self.messages = []
+        self.db = None
 
     def set_system_context(self, base_prompt, doc_text=""):
         content = f"{base_prompt}\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
@@ -83,6 +84,7 @@ class FakePanel(ToolCallingMixin):
         self._set_status = Mock()
         self._spawn_llm_worker = Mock()
         self._spawn_final_stream = Mock()
+        self._get_document_model = Mock(return_value=None)
         self._terminal_status = "Ready"
 
     def resolve_stop_checker(self):

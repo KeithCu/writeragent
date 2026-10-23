@@ -113,7 +113,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         log.debug("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s parent=%sx%s eff_w=%s", width, parent_w, parent_h, eff_w)
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):
             self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
-        rl = getattr(self, "resize_listener", None)
+        rl = self.resize_listener
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 rl.relayout_now(self.PanelWindow)

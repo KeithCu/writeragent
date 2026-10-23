@@ -616,7 +616,7 @@ class NotebookRunButtonListener(BaseActionListener):
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import get_active_document, resolve_document_by_url
 
-        weak = getattr(self, "_doc_weak", None)
+        weak = self._doc_weak
         if callable(weak):
             ref_doc: Any = weak()
             if ref_doc is not None:

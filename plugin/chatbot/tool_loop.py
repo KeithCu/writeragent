@@ -262,8 +262,6 @@ class ToolCallingMixin:
 
     @property
     def _sm_state(self: ToolLoopHost) -> ToolLoopState:
-        if not hasattr(self._panel, "sidebar_state"):
-            raise AttributeError("ToolCallingMixin requires sidebar_state (SendButtonListener provides it)")
         tl = self._panel.sidebar_state.tool_loop
         if tl is None:
             raise RuntimeError("Tool loop state used without active session")
@@ -460,7 +458,7 @@ class ToolCallingMixin:
             text_model_id = str(api_config.get("model") or "")
             typed_key = str(api_config.get("api_key") or "").strip()
             if has_native_vision(text_model_id, client._endpoint(), allow_fetch=False, api_key_override=typed_key if typed_key else None):
-                doc = self._panel._get_document_model() if hasattr(self._panel, "_get_document_model") else None
+                doc = self._panel._get_document_model()
                 if doc:
                     try:
                         from plugin.writer.images.image_tools import get_selected_image_base64
@@ -555,7 +553,7 @@ class ToolCallingMixin:
             turn_session = session_for_turn(self._panel)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
             refresh_doc = turn.model if turn.model is not None else None
-            if refresh_doc is None and hasattr(self._panel, "_get_document_model"):
+            if refresh_doc is None:
                 refresh_doc = self._panel._get_document_model()
             turn.active_tools = get_tools().get_schemas(
                 "openai",
@@ -926,7 +924,7 @@ class ToolCallingMixin:
                                 turn = current_turn(self._panel)
                                 clean_text = (turn.active_query_text if turn else "") or ""
                             msg["content"] = clean_text
-                            if getattr(self._panel.session, "db", None) and hasattr(self._panel.session.db, "update_last_user_content"):
+                            if self._panel.session.db is not None:
                                 self._panel.session.db.update_last_user_content(clean_text)
                         break
 

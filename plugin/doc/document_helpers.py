@@ -458,14 +458,16 @@ class _CacheListenerPair:
     key: str
     modify: Any
     unload: Any
+    _model_ref: Any
     _model: Any
 
     def __init__(self, key: str, modify: Any, unload: Any, model: Any) -> None:
         self.key = key
         self.modify = modify
         self.unload = unload
+        self._model = None
         try:
-            self._model_ref: Any = weakref.ref(model)
+            self._model_ref = weakref.ref(model)
         except TypeError:
             self._model_ref = None
             self._model = model
@@ -473,7 +475,7 @@ class _CacheListenerPair:
     def model(self) -> Any:
         if self._model_ref is not None:
             return self._model_ref()
-        return getattr(self, "_model", None)
+        return self._model
 
 
 class _CacheModifyListener:

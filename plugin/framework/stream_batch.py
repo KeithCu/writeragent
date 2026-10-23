@@ -192,6 +192,7 @@ class BatchingStreamQueue:
     _raw: queue.Queue[Any]
     _interval: float
     _lock: threading.Lock
+    _timer: _ReusableBurstTimer | None = None
     _dropped: bool
 
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
@@ -201,14 +202,14 @@ class BatchingStreamQueue:
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
-        self._timer: _ReusableBurstTimer | None = None
+        self._timer = None
         self._dropped = False
 
     def __del__(self) -> None:
         # The timer thread holds only a weakref, and only while flushing.
         # Stop it when this batcher is released so a chat send does not leave
         # a waiting thread behind.
-        timer = getattr(self, "_timer", None)
+        timer = self._timer
         if timer is None:
             return
         try:

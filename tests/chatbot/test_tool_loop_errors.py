@@ -47,6 +47,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.client = MagicMock()
         self.audio_wav_path = None
         self.stop_requested = False
+        self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
         self._terminal_status = None

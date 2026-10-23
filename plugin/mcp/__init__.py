@@ -120,7 +120,7 @@ class McpModule(ModuleBase):
     # (prim._tunnel / prim._mcp_protocol) after initialize() gained annotations.
     _registry: Any
     _server: Any
-    _tunnel: TunnelManager | None
+    _tunnel: TunnelManager | None = None
     _services: Any
     _mcp_protocol: Any
     _mcp_routes_registered: bool
@@ -364,7 +364,7 @@ class McpModule(ModuleBase):
         global _shared_tunnel
         if _shared_tunnel is not None:
             return _shared_tunnel
-        return getattr(self, "_tunnel", None)
+        return self._tunnel
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
