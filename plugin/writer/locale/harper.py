@@ -31,7 +31,7 @@ from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
-from plugin.writer.locale.harper_binary import _get_harper_binary
+from plugin.writer.locale.harper_binary import _emit_progress, _get_harper_binary
 from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_rule_identifier
 
 log = logging.getLogger("writeragent.grammar")
@@ -116,11 +116,6 @@ class HarperRuntimeState(enum.Enum):
 
 _HARPER_STATE = HarperRuntimeState.IDLE
 _HARPER_FAILED_AT = 0.0
-
-
-def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
-    if heartbeat_fn is not None:
-        heartbeat_fn({"message": message})
 
 
 class HarperLSClient:

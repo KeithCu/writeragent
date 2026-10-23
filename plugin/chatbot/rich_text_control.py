@@ -24,8 +24,8 @@ from typing import Any, cast
 
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
+from plugin.doc.text_helpers import go_right
 from plugin.chatbot.rich_text import (
-    _go_right,
     CHAT_FONT_HEIGHT,
     CHAT_FONT_NAME,
     CHAT_FONT_WEIGHT,
@@ -1436,7 +1436,7 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
         if not hasattr(cursor, "goRight"):
             log.warning("truncate_control_from: cursor.goRight unavailable; skip truncate")
             return
-        _go_right(cursor, int(start_len), False)
+        go_right(cursor, int(start_len), False)
         cursor.gotoEnd(True)
         if hasattr(cursor, "setString"):
             cursor.setString("")

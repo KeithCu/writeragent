@@ -143,10 +143,10 @@ class TestAppendRichText:
 
 
     def test_go_right_chunks_large_moves(self):
-        from plugin.chatbot.rich_text import _go_right
+        from plugin.doc.text_helpers import go_right
 
         cursor = MockTextCursor()
-        assert _go_right(cursor, 40000, False) is True
+        assert go_right(cursor, 40000, False) is True
         assert hasattr(cursor, "go_right_calls")
 
         calls = cursor.go_right_calls

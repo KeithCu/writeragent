@@ -45,6 +45,12 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
+
+
+def _mono_ms(t0: float) -> int:
+    return int((time.monotonic() - t0) * 1000)
+
+
 from plugin.notebook.notebook_controls import (
     _CODE_FONT_NAME,
     _cap_from_style,
@@ -118,10 +124,6 @@ _HTML_A_OR_IMG_TAG_RE = re.compile(r"(?is)</?(?:img|a)\b[^>]*?/?>")
 _HTML_ATTR_RE = re.compile(r"""(?is)([a-z_:][-a-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
 # One-item resumed list: ``<ol start="3"><li>Ask for help…</li></ol>``.
 _OL_START_RE = re.compile(r"""(?is)<ol\b[^>]*\bstart\s*=\s*["']?(\d+)""")
-
-
-def _mono_ms(t0: float) -> int:
-    return int((time.monotonic() - t0) * 1000)
 
 
 # ---------------------------------------------------------------------------

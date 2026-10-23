@@ -13,6 +13,7 @@ import logging
 import re
 from typing import Any, ClassVar, Iterator, NamedTuple
 
+from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.writer.html_export import _iter_xtext_paragraphs
 
@@ -26,7 +27,6 @@ _RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.D
 _RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
 _RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
-_GO_RIGHT_CHUNK = 8192
 
 
 class _RubySpan:
@@ -318,17 +318,6 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
 
 
 
-def _go_right(cursor: Any, n: int, expand: bool) -> bool:
-    """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
-    while n > 0:
-        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
-        if not cursor.goRight(step, expand):
-            return False
-        n -= step
-    return True
-
-
-
 def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None:
     """Create live ruby on the selected base run (same as the UNO seed probe)."""
     cursor.setPropertyValue("RubyText", reading)
@@ -426,23 +415,23 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
                 cur_pos = 0
                 delta = idx
 
-            if delta > 0 and not _go_right(cur, delta, False):
+            if delta > 0 and not go_right(cur, delta, False):
                 cur = None
                 continue
             cur_pos = idx
 
             sel = text_obj.createTextCursorByRange(cur)
-            if not _go_right(sel, len(base), True):
+            if not go_right(sel, len(base), True):
                 cur = None
                 continue
 
             if sel.getString() != base:
                 resync = 0
-                while sel.getString() != base and resync < 50 and _go_right(cur, 1, False):
+                while sel.getString() != base and resync < 50 and go_right(cur, 1, False):
                     cur_pos += 1
                     resync += 1
                     sel = text_obj.createTextCursorByRange(cur)
-                    if not _go_right(sel, len(base), True):
+                    if not go_right(sel, len(base), True):
                         break
 
             if sel.getString() != base:
@@ -450,13 +439,13 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
                     "_apply_ruby_spans: offset mismatch want %r got %r",
                     base, sel.getString(),
                 )
-                _go_right(cur, len(base), False)
+                go_right(cur, len(base), False)
                 cur_pos = idx + len(base)
                 pos = cur_pos
                 continue
 
             _set_ruby_on_range(sel, reading, is_above)
-            _go_right(cur, len(base), False)
+            go_right(cur, len(base), False)
             cur_pos = cur_pos + len(base)
             pos = idx + len(base)
         except Exception as exc:

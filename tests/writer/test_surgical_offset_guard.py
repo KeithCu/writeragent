@@ -21,11 +21,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.doc.text_helpers import _GO_RIGHT_CHUNK, go_right
 from plugin.writer.edit_review import (
     _AGENT_EDIT_UNDO_TITLE,
-    _GO_RIGHT_CHUNK,
     _SURGICAL_UNDO_TITLE,
-    _go_right,
     record_html_atomically,
     record_preserve_replace,
 )
@@ -204,25 +203,25 @@ def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, repla
     return session, mock_replace
 
 
-# --------------------------------------------------------------------------- _go_right
+# --------------------------------------------------------------------------- go_right
 
 def test_go_right_full_move_returns_true():
     c = FakeCursor("x" * 100, max_reach=100)
-    assert _go_right(c, 50, False) is True
+    assert go_right(c, 50, False) is True
     assert c.start == 50
 
 
 def test_go_right_partial_move_returns_false():
     # goRight can only reach 30 of the requested 50 -> must report failure, not silently stop.
     c = FakeCursor("x" * 100, max_reach=30)
-    assert _go_right(c, 50, False) is False
+    assert go_right(c, 50, False) is False
 
 
 def test_go_right_consumes_full_count_past_short_cap():
     # A count larger than the C++ short chunk must still fully consume when reachable.
     big = _GO_RIGHT_CHUNK * 3 + 7
     c = FakeCursor("x" * (big + 10), max_reach=big + 10)
-    assert _go_right(c, big, False) is True
+    assert go_right(c, big, False) is True
     assert c.start == big
 
 

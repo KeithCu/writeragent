@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterator
 if TYPE_CHECKING:
     from plugin.doc.compound_undo import WriterCompoundUndo
 
+from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_scan as _review_scan
@@ -784,21 +785,6 @@ _MAX_SURGICAL_RUNS = _env_num(
 _SPLIT_AUTHOR_COLORS = os.environ.get(
     "WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
-_GO_RIGHT_CHUNK = 8192
-
-
-def _go_right(cursor: Any, n: int, expand: bool) -> bool:
-    """Move (expand=False) or extend (expand=True) the cursor right by *n* chars, in chunks of
-    _GO_RIGHT_CHUNK (UNO caps the count at a C++ short). Returns True only if the FULL *n* was
-    consumed; False if goRight stopped early (end of text / an unexpected stop), so the caller can
-    refuse to edit at a wrong offset instead of silently landing short."""
-    while n > 0:
-        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
-        if not cursor.goRight(step, expand):
-            return False
-        n -= step
-    return True
-
 
 _OFFSET_SAFE_PORTION_TYPES = frozenset({"Text", "SoftPageBreak"})
 
@@ -1055,9 +1041,9 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     def _select(se: Any) -> Any | None:
         sub = text.createTextCursorByRange(anchor)
-        if se.old_start and not _go_right(sub, se.old_start, False):
+        if se.old_start and not go_right(sub, se.old_start, False):
             return None
-        if se.old_end > se.old_start and not _go_right(sub, se.old_end - se.old_start, True):
+        if se.old_end > se.old_start and not go_right(sub, se.old_end - se.old_start, True):
             return None
         return sub
 

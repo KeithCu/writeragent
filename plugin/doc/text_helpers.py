@@ -62,6 +62,19 @@ def normalize_linebreaks(text: str | None) -> str:
 _GO_RIGHT_CHUNK = 8192
 
 
+def go_right(cursor: Any, n: int, expand: bool) -> bool:
+    """Move (expand=False) or extend (expand=True) the cursor right by *n* chars, in chunks of
+    _GO_RIGHT_CHUNK (UNO caps the count at a C++ short). Returns True only if the FULL *n* was
+    consumed; False if goRight stopped early (end of text / an unexpected stop), so the caller can
+    refuse to edit at a wrong offset instead of silently landing short."""
+    while n > 0:
+        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
+        if not cursor.goRight(step, expand):
+            return False
+        n -= step
+    return True
+
+
 def _writer_char_count(model: Any) -> int:
     """Length of the Writer body in cursor steps: the space every offset here uses
     (``get_text_cursor_at_range``, ``get_selection_range``, the chat excerpt reads).

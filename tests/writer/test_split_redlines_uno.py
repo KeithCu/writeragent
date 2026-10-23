@@ -327,12 +327,12 @@ def test_go_right_chunks_past_short_cap_uno(ctx, doc):
     the offset helper the surgical path uses; before the fix a raw goRight(>32767) overflowed.
     Tested directly because the surgical path needs a search range (which we can't build for a
     35000-char block via findFirst)."""
-    from plugin.writer.edit_review import _go_right
+    from plugin.doc.text_helpers import go_right
     _body(doc, ctx, ("word " * 7000) + "TARGET tail.")    # ~35000 chars, one paragraph, past the short cap
     cur = doc.getText().createTextCursor()
     cur.gotoStart(False)
-    _go_right(cur, len("word " * 7000), False)   # move to offset 35000 (> 32767)
-    _go_right(cur, len("TARGET"), True)          # select the next word
+    go_right(cur, len("word " * 7000), False)   # move to offset 35000 (> 32767)
+    go_right(cur, len("TARGET"), True)          # select the next word
     assert cur.getString() == "TARGET", "chunked goRight landed at the wrong offset: %r" % cur.getString()
 
 

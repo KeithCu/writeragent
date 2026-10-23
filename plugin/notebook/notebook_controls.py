@@ -109,8 +109,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def _mono_ms(t0: float) -> int:
-    return int((time.monotonic() - t0) * 1000)
+
 
 
 def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
@@ -953,7 +952,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
         _detach_wiring(container, listener, container_lis)
         log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", doc_key)
         return 1
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    elapsed_ms = _mono_ms(t0)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1
 
@@ -1026,3 +1025,6 @@ def install_notebook_run_button_wiring(ctx: Any) -> None:
         _install_doc_event_listener(ctx)
     except Exception:
         log.debug("notebook controls: install wiring failed", exc_info=True)
+
+
+from plugin.notebook.writer_importer import _mono_ms

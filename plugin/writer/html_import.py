@@ -24,7 +24,7 @@ from typing import Any
 
 
 from plugin.framework.errors import best_effort
-from plugin.doc.text_helpers import normalize_linebreaks as _normalize
+from plugin.doc.text_helpers import go_right, normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
@@ -1058,7 +1058,7 @@ def replace_preserving_format(
             slice_len = len(old_slice)
 
             if old_slice == new_slice:
-                if not html_ruby._go_right(main_cursor, slice_len, False):
+                if not go_right(main_cursor, slice_len, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -1068,7 +1068,7 @@ def replace_preserving_format(
             while p < slice_len and old_slice[p] == new_slice[p]:
                 p += 1
             if p > 0:
-                if not html_ruby._go_right(main_cursor, p, False):
+                if not go_right(main_cursor, p, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -1081,7 +1081,7 @@ def replace_preserving_format(
             diff_len = slice_len - p - s
             if diff_len > 0:
                 sel = text.createTextCursorByRange(main_cursor)
-                if not html_ruby._go_right(sel, diff_len, True):
+                if not go_right(sel, diff_len, True):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -1089,7 +1089,7 @@ def replace_preserving_format(
                 main_cursor.gotoRange(sel.getEnd(), False)
 
             if s > 0:
-                if not html_ruby._go_right(main_cursor, s, False):
+                if not go_right(main_cursor, s, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
@@ -1112,7 +1112,7 @@ def replace_preserving_format(
                 while i < overlap and new_text[i] == old_text[i]:
                     i += 1
                 k = i - run_start
-                if not html_ruby._go_right(main_cursor, k, False):
+                if not go_right(main_cursor, k, False):
                     raise ToolExecutionError(
                         "Could not replace that text in place (the selection did not advance)."
                     )
