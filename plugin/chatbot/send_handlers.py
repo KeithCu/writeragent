@@ -230,15 +230,6 @@ class SendHandlerHost(Protocol):
     def _run_web_research(self, query_text: str, model: Any, is_deep_research: bool = False) -> None: ...
 
 
-class TypedEvent(Protocol):
-    approved: bool
-    query_override: str | None
-
-    def wait(self, timeout: float | None = None) -> bool: ...
-    def set(self) -> None: ...
-    def is_set(self) -> bool: ...
-
-
 T = TypeVar("T", bound="SendHandlersMixin")
 
 

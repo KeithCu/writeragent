@@ -894,14 +894,6 @@ class SlashPopupController:
                 above_y = 16
             ctrl.setPosSize(int(qr.X), above_y, w, h, _POS_SIZE_FLAGS)
 
-    def _selected_name_from_control(self) -> str | None:
-        ctrl = self.control
-        if ctrl is not None and hasattr(ctrl, "getSelectedItemPos"):
-            pos = int(ctrl.getSelectedItemPos())
-            if 0 <= pos < len(self._matches):
-                self._selected = pos
-        return self.selected_name
-
     def _fill_visible_list(self) -> None:
         """Fill the toolkit list before show.
 

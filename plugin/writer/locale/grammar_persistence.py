@@ -162,10 +162,6 @@ class GrammarRegistry:
             existing._bind_model(model)
         return existing
 
-    def remove_persistence(self, doc_id: str) -> None:
-        with self.lock:
-            self.doc_persistence_instances.pop(doc_id, None)
-
     def remove_persistence_if(self, doc_id: str, instance: "DocumentPersistence") -> bool:
         with self.lock:
             if self.doc_persistence_instances.get(doc_id) is instance:

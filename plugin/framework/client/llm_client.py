@@ -555,13 +555,6 @@ class LlmClient:
         """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
         return self.config.get("request_timeout", 120)
 
-    def _current_host(self) -> str:
-        return self._transport.current_host()
-
-    def _enable_local_ssl_fallback(self, err: Exception) -> bool:
-        """Compatibility wrapper for the transport-owned certificate fallback."""
-        return self._transport.enable_local_ssl_fallback(err)
-
     def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
         if self._stopped:

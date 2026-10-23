@@ -28,10 +28,6 @@ class UndoUnavailable(RuntimeError):
     """Raised when an undo manager cannot be entered or is locked."""
 
 
-class RollbackFailed(RuntimeError):
-    """Raised when rollback undo() itself fails."""
-
-
 def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
     """Run mutate inside an undo context with title.
 

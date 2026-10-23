@@ -204,9 +204,6 @@ log = logging.getLogger("plugin.chatbot.panel_factory")
 XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
 _PRE_NEGOTIATION_PANEL_WIDTH = 320
 
-# Default system prompt for the chat sidebar (imported from main inside methods to avoid unopkg errors)
-DEFAULT_SYSTEM_PROMPT_FALLBACK = "You are a helpful assistant."
-
 
 _paths_initialized = False
 

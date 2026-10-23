@@ -1032,14 +1032,6 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     return out
 
 
-# --- Provider and Endpoint resolution ---
-
-
-def get_endpoint_presets() -> list[tuple[str, str]]:
-    """Return list of (label, url) for endpoint selector, in display order."""
-    return list(ENDPOINT_PRESETS)
-
-
 # --- Model capability and audio support ---
 
 
@@ -1190,11 +1182,6 @@ def _set_stored_model(config_key: str, lru_key: str, val: Any, update_lru: bool,
         from plugin.framework.model_lru import update_lru_history
 
         update_lru_history(val_str, lru_key, get_current_endpoint())
-
-
-def set_tts_model(val: Any, update_lru: bool = True) -> None:
-    """Set TTS model and optionally update tts_model_lru for the current endpoint."""
-    _set_stored_model("audio.tts_model", "tts_model_lru", val, update_lru, event_key=None)
 
 
 def get_grammar_model() -> str:

@@ -456,16 +456,6 @@ def endpoint_from_selector_text(text: Any) -> str:
             return normalize_endpoint_url(url)
     return normalize_endpoint_url(t)
 
-def endpoint_to_selector_display(current_url: Any) -> str:
-    """Return string to show in endpoint combobox: preset label if URL matches a preset, else the URL."""
-    url = normalize_endpoint_url(current_url or "")
-    if not url:
-        return ""
-    for label, preset_url in ENDPOINT_PRESETS:
-        if normalize_endpoint_url(preset_url) == url:
-            return label
-    return url
-
 def populate_endpoint_selector(ctx: Any, ctrl: Any, current_endpoint: Any) -> None:
     """Populate endpoint combobox: preset labels first, then endpoint_lru URLs. Combobox text = URL (visible and editable)."""
     if not ctrl:
