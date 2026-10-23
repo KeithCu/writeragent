@@ -146,6 +146,6 @@ def ods_cache_enabled() -> bool:
     """
     # Bugfix: except Exception returned True, so a bug in config I/O enabled
     # the cache. The schema default is already what get_config_bool_safe uses.
-    from plugin.calc.python.geometric_recalc import _flag_enabled
+    from plugin.framework.config import get_config_bool_safe
 
-    return _flag_enabled(ODS_CACHE_ENABLED_KEY)
+    return get_config_bool_safe(ODS_CACHE_ENABLED_KEY)
