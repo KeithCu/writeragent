@@ -912,3 +912,17 @@ subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
 
 
 
+
+
+def test_extra_modules_override_blocklist() -> None:
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+    res = run_sandboxed_code(
+        "import socket\nresult = callable(socket.socket)",
+        sandbox_policy={"extra_modules": "socket"},
+    )
+    assert res.get("status") == "ok", res
+    code = "import subprocess, sys\nresult = subprocess.run([sys.executable, '-c', 'print(1)'], capture_output=True).returncode"
+    res = run_sandboxed_code(code, sandbox_policy={"extra_modules": "subprocess, sys"})
+    assert res.get("status") == "ok", res
+    assert res.get("result") == 0

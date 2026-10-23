@@ -949,22 +949,18 @@ def test_sandbox_policy_extra_modules() -> None:
     allowed = policy_allowlist(p)
     assert import_authorized("requests", allowed) is True
     assert import_authorized("requests.adapters", allowed) is True
-    assert policy_relaxed_roots(p) == frozenset()
+    assert policy_relaxed_roots(p) == frozenset({"requests"})
 
 
 def test_parse_extra_modules_validation() -> None:
     from plugin.scripting.sandbox import parse_extra_modules
 
+    for listed in ("os", "os.path", "posix", "nt", "socket", "subprocess.run", "multiprocessing"):
+        assert parse_extra_modules(listed) == (listed,)
+
     bad_names = [
         "*",
         "writeragent.*",
-        "os",
-        "os.path",
-        "posix",
-        "nt",
-        "socket",
-        "subprocess.run",
-        "multiprocessing",
         "bad-token",
         "foo..bar",
         "123bad",

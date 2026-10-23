@@ -334,21 +334,6 @@ FILE_OS_NAMES: tuple[str, ...] = (
     "SEEK_END",
 )
 
-_DANGEROUS_EXTRA_ROOTS: frozenset[str] = frozenset({
-    "os",
-    "socket",
-    "subprocess",
-    "io",
-    "pathlib",
-    "shutil",
-    "sys",
-    "builtins",
-    "multiprocessing",
-    "pty",
-    "posix",
-    "nt",
-})
-
 _NETWORK_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
     "socket",
     "http",
@@ -399,9 +384,6 @@ def parse_extra_modules(text: str) -> tuple[str, ...]:
         parts = item.split(".")
         if not all(p.isidentifier() for p in parts):
             raise ValueError(f"Invalid module identifier: {item!r}")
-        root = parts[0]
-        if root in _DANGEROUS_EXTRA_ROOTS:
-            raise ValueError(f"Module or package root {root!r} cannot be authorized via extra modules")
         if item not in seen:
             seen.add(item)
             cleaned.append(item)
@@ -443,6 +425,12 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
         roots.update({"shutil", "pathlib", "io"})
     if policy.os:
         roots.update({"os", "posix", "nt", "subprocess"})
+    for name in policy.extra:
+        root = name.split(".", 1)[0]
+        roots.add(root)
+        # os functions are posix/nt callables.
+        if root == "os":
+            roots.update({"posix", "nt"})
     return frozenset(roots)
 
 

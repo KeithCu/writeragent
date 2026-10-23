@@ -145,7 +145,7 @@ config:
     default: ""
     widget: text
     label: Extra allowed modules
-    helper: Comma-separated extra modules Python may import (each name also allows name.*). Cannot unlock os, socket or subprocess.
+    helper: Comma-separated extra modules Python may import (each name also allows name.*). Overrides the built-in blocklist, including os, socket and subprocess.
     public: true
     label_width: 120
     x: 132

@@ -108,7 +108,7 @@ No terminal is required after the venv is set up. An optional [chat assistant](#
 | `scripting.python_allow_network` | Allow network access (`socket`, `http`, `urllib`, `ssl` and their submodules). Default `false`. | `false` |
 | `scripting.python_allow_files`   | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, and filtered `os` file proxy). Reads/writes anywhere. Default `false`. | `false` |
 | `scripting.python_allow_os`      | Allow OS access (real `os` and `subprocess`, e.g. `os.system`, `subprocess.run`). Implies file access. Default `false`. | `false` |
-| `scripting.python_extra_modules` | Comma-separated extra allowed modules (each name also grants `name.*`). Rejects dangerous roots (`os`, `socket`, `subprocess`, etc.). | `""` |
+| `scripting.python_extra_modules` | Comma-separated extra allowed modules (each name also grants `name.*`). Overrides every built-in blocklist, including `os`, `socket` and `subprocess`. | `""` |
 
 
 
@@ -312,7 +312,7 @@ By default, every flag is off. Users can selectively enable capabilities under *
     - **Constants:** `sep`, `altsep`, `extsep`, `pathsep`, `curdir`, `pardir`, `linesep`, `devnull`, `F_OK`, `R_OK`, `W_OK`, `X_OK`, `SEEK_SET`, `SEEK_CUR`, `SEEK_END`.
     - Accessing any other `os` attribute on the proxy raises `AttributeError`.
 - **Allow OS access (`scripting.python_allow_os`)**: Unlocks the real `os` module (environment variables, process management, system info) and `subprocess` (`os.system`, `subprocess.run`, `os.popen`, etc.). **OS access implies file access** (`files = allow_files or allow_os`).
-- **Extra allowed modules (`scripting.python_extra_modules`)**: Comma-separated names (each also grants `name.*`). Rejects dangerous roots (`os`, `socket`, `subprocess`, `io`, `pathlib`, `shutil`, `sys`, `builtins`, `multiprocessing`, `pty`, `posix`, `nt`), invalid identifiers, bare `*`, and names over 62 characters.
+- **Extra allowed modules (`scripting.python_extra_modules`)**: Comma-separated names (each also grants `name.*`). A listed name overrides every built-in blocklist (including `os`, `socket`, `subprocess`, `multiprocessing`, `pty`, `sys`); listing `os` also allows its `posix`/`nt` functions. Rejects invalid identifiers, bare `*`, and names over 62 characters.
 - `multiprocessing`, `pty`, `sys`, and `builtins` stay blocked under all flags.
 
 
