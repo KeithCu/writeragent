@@ -108,6 +108,49 @@ config:
     x: 220
     width: 200
 
+  python_allow_network:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Allow network access
+    helper: Lets Python open network connections with socket, http, urllib and ssl.
+    public: true
+    inline: true
+    x: 8
+    width: 130
+
+  python_allow_files:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Allow file access
+    helper: Lets Python read, write, rename and delete files anywhere on this computer with open, pathlib, shutil, io, tempfile, glob and the file functions of os.
+    public: true
+    inline: true
+    x: 142
+    width: 110
+
+  python_allow_os:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Allow OS access
+    helper: Gives Python the full os module (environment, processes, system info) and lets Python run other programs with subprocess and os.system. Includes file access.
+    public: true
+    x: 256
+    width: 120
+
+  python_extra_modules:
+    type: string
+    default: ""
+    widget: text
+    label: Extra allowed modules
+    helper: Comma-separated extra modules Python may import (each name also allows name.*). Cannot unlock os, socket or subprocess.
+    public: true
+    label_width: 120
+    x: 132
+    width: 280
+
   # ppt_master_data_path:
   #   type: string
   #   default: ""

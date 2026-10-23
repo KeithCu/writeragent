@@ -818,3 +818,178 @@ def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None
     assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
 
 
+def test_sandbox_policy_module_yaml_keys() -> None:
+    from pathlib import Path
+    import yaml
+
+    yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "module.yaml"
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    cfg = data.get("config", {})
+
+    for old_key in (
+        "python_allow_file_writes",
+        "python_allow_subprocess",
+        "python_allow_run_programs",
+        "python_allow_file_os",
+    ):
+        assert old_key not in cfg
+
+    net = cfg.get("python_allow_network")
+    assert net is not None
+    assert net.get("default") is False
+    assert net.get("label") == "Allow network access"
+    assert net.get("public") is True
+
+    files = cfg.get("python_allow_files")
+    assert files is not None
+    assert files.get("default") is False
+    assert files.get("label") == "Allow file access"
+    assert files.get("public") is True
+
+    os_key = cfg.get("python_allow_os")
+    assert os_key is not None
+    assert os_key.get("default") is False
+    assert os_key.get("label") == "Allow OS access"
+    assert os_key.get("public") is True
+
+    extra = cfg.get("python_extra_modules")
+    assert extra is not None
+    assert extra.get("default") == ""
+    assert extra.get("label") == "Extra allowed modules"
+    assert extra.get("public") is True
+
+
+def test_sandbox_policy_defaults() -> None:
+    from plugin.scripting.sandbox import (
+        VENV_AUTHORIZED_IMPORTS,
+        build_sandbox_policy,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
+
+    p = build_sandbox_policy()
+    assert policy_allowlist(p) == list(VENV_AUTHORIZED_IMPORTS)
+    assert policy_relaxed_roots(p) == frozenset()
+
+
+def test_sandbox_policy_network() -> None:
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        import_authorized,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
+
+    p = build_sandbox_policy(network=True)
+    allowed = policy_allowlist(p)
+    assert import_authorized("socket", allowed) is True
+    assert import_authorized("http.client", allowed) is True
+    assert import_authorized("urllib.request", allowed) is True
+    assert import_authorized("ssl", allowed) is True
+    assert import_authorized("requests", allowed) is False
+    assert policy_relaxed_roots(p) == frozenset({"socket"})
+
+
+def test_sandbox_policy_files() -> None:
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        import_authorized,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
+
+    p = build_sandbox_policy(files=True)
+    allowed = policy_allowlist(p)
+    assert import_authorized("os", allowed) is True
+    assert import_authorized("os.path", allowed) is False
+    assert import_authorized("posixpath", allowed) is True
+    assert import_authorized("pathlib", allowed) is True
+    assert import_authorized("pathlib.Path", allowed) is True
+    assert import_authorized("shutil", allowed) is True
+    assert import_authorized("io", allowed) is True
+    assert import_authorized("tempfile", allowed) is True
+    assert import_authorized("glob", allowed) is True
+    assert import_authorized("subprocess", allowed) is False
+    assert policy_relaxed_roots(p) == frozenset({"shutil", "pathlib", "io"})
+
+
+def test_sandbox_policy_os() -> None:
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        import_authorized,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
+
+    p = build_sandbox_policy(os_=True)
+    assert p.files is True
+    allowed = policy_allowlist(p)
+    assert import_authorized("os", allowed) is True
+    assert import_authorized("os.path", allowed) is True
+    assert import_authorized("subprocess", allowed) is True
+    assert import_authorized("subprocess.run", allowed) is True
+    assert import_authorized("multiprocessing", allowed) is False
+    assert import_authorized("pty", allowed) is False
+    assert policy_relaxed_roots(p) == frozenset({"shutil", "pathlib", "io", "os", "posix", "nt", "subprocess"})
+
+
+def test_sandbox_policy_extra_modules() -> None:
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        import_authorized,
+        parse_extra_modules,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
+
+    extra = parse_extra_modules("requests")
+    assert extra == ("requests",)
+    p = build_sandbox_policy(extra=extra)
+    allowed = policy_allowlist(p)
+    assert import_authorized("requests", allowed) is True
+    assert import_authorized("requests.adapters", allowed) is True
+    assert policy_relaxed_roots(p) == frozenset()
+
+
+def test_parse_extra_modules_validation() -> None:
+    from plugin.scripting.sandbox import parse_extra_modules
+
+    bad_names = [
+        "*",
+        "writeragent.*",
+        "os",
+        "os.path",
+        "posix",
+        "nt",
+        "socket",
+        "subprocess.run",
+        "multiprocessing",
+        "bad-token",
+        "foo..bar",
+        "123bad",
+        "a" * 63,
+    ]
+    for bad in bad_names:
+        with pytest.raises(ValueError):
+            parse_extra_modules(bad)
+
+    valid_62 = "a" * 62
+    assert parse_extra_modules(valid_62) == (valid_62,)
+
+
+def test_sandbox_policy_digest() -> None:
+    from plugin.scripting.sandbox import build_sandbox_policy, policy_digest
+
+    p1 = build_sandbox_policy(network=True, files=True, extra=("requests",))
+    p2 = build_sandbox_policy(network=True, files=True, extra=("requests",))
+    assert policy_digest(p1) == policy_digest(p2)
+
+    d0 = policy_digest(build_sandbox_policy())
+    d_net = policy_digest(build_sandbox_policy(network=True))
+    d_files = policy_digest(build_sandbox_policy(files=True))
+    d_os = policy_digest(build_sandbox_policy(os_=True))
+    d_extra = policy_digest(build_sandbox_policy(extra=("foo",)))
+    assert len({d0, d_net, d_files, d_os, d_extra}) == 5
+
+

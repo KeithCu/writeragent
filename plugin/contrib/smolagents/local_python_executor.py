@@ -37,6 +37,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
@@ -487,6 +488,10 @@ DANGEROUS_MODULES = [
 _DANGEROUS_CALLABLE_MODULES = frozenset(m for m in DANGEROUS_MODULES if m != "builtins") | {"posix", "nt"}
 _DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
 
+SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = ContextVar(
+    "sandbox_policy_context", default=(frozenset(), frozenset())
+)
+
 
 def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None) -> None:
     if isinstance(val, ModuleType):
@@ -496,8 +501,11 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
         mod = getattr(val, "__module__", None)
         if mod:
             root = mod.split(".")[0]
+            relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
             if root in _DANGEROUS_CALLABLE_MODULES:
-                raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
+                # os file functions are posix callables, hence the id set.
+                if root not in relaxed_roots and id(val) not in file_os_ids:
+                    raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
             if root == "builtins" and getattr(val, "__name__", "") in _DANGEROUS_BUILTIN_FUNCTIONS:
                 raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
 
@@ -1802,6 +1810,55 @@ class _DelegatingSafeModule(ModuleType):
         return getattr(real, name)
 
 
+_FILE_OS_NAMES_SET: set[str] = set()
+
+
+class _FileOsProxy(ModuleType):
+    """Proxy os module exposing only allowlisted file operations."""
+
+    def __init__(self, real_os_module: ModuleType) -> None:
+        super().__init__("os", getattr(real_os_module, "__doc__", None))
+        from plugin.scripting.sandbox import FILE_OS_NAMES
+
+        for name in FILE_OS_NAMES:
+            if hasattr(real_os_module, name):
+                val = getattr(real_os_module, name)
+                _FILE_OS_NAMES_SET.add(name)
+                setattr(self, name, val)
+
+    def __dir__(self) -> list[str]:
+        return sorted(_FILE_OS_NAMES_SET)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(f"module 'os' has no attribute {name!r}")
+        return super().__getattribute__(name)
+
+    def __getattr__(self, name: str) -> Any:
+        raise AttributeError(f"module 'os' has no attribute {name!r}")
+
+
+_FILE_OS_PROXY: _FileOsProxy | None = None
+_FILE_OS_IDS: frozenset[int] | None = None
+
+
+def get_file_os_proxy() -> tuple[_FileOsProxy, frozenset[int]]:
+    global _FILE_OS_PROXY, _FILE_OS_IDS
+    if _FILE_OS_PROXY is None:
+        import os as _real_os
+
+        proxy = _FileOsProxy(_real_os)
+        func_ids: set[int] = set()
+        for name in _FILE_OS_NAMES_SET:
+            val = getattr(proxy, name)
+            if callable(val):
+                func_ids.add(id(val))
+        _FILE_OS_PROXY = proxy
+        _FILE_OS_IDS = frozenset(func_ids)
+    assert _FILE_OS_IDS is not None
+    return _FILE_OS_PROXY, _FILE_OS_IDS
+
+
 _SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
 
 
@@ -1812,6 +1869,13 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
 
     name = getattr(raw_module, "__name__", "") or ""
     if _dangerous_module_name(name):
+        root = name.split(".", 1)[0]
+        relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
+        if root in relaxed_roots:
+            return raw_module
+        if name == "os" and file_os_ids:
+            proxy, _ = get_file_os_proxy()
+            return proxy
         return ModuleType(name)
 
     if name in ("operator", "string"):
@@ -2385,6 +2449,7 @@ class LocalPythonExecutor(PythonExecutor):
         self.additional_functions = additional_functions or {}
         self.static_tools = {**BASE_PYTHON_TOOLS.copy(), **self.additional_functions}
         self.timeout_seconds = timeout_seconds
+        self._sandbox_policy_digest: str = ""
 
     def __call__(self, code_action: str) -> CodeOutput:
         output, is_final_answer = evaluate_python_code(

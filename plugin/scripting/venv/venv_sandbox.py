@@ -39,6 +39,8 @@ from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
     InterpreterError,
     LocalPythonExecutor,
+    SANDBOX_POLICY_CONTEXT,
+    get_file_os_proxy,
     print_outputs_from_state,
 )
 from plugin.scripting.payload_codec import (
@@ -53,7 +55,14 @@ from plugin.scripting.payload_codec import (
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
-from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+from plugin.scripting.sandbox import (
+    SandboxPolicy,
+    build_sandbox_policy,
+    parse_extra_modules,
+    policy_allowlist,
+    policy_digest,
+    policy_relaxed_roots,
+)
 
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.
@@ -999,9 +1008,17 @@ def _serialize_result_impl(obj: Any) -> Any:
 
 
 
-def _new_executor(timeout_sec: int) -> LocalPythonExecutor:
+def _new_executor(
+    timeout_sec: int,
+    policy: SandboxPolicy | None = None,
+) -> LocalPythonExecutor:
+    if policy is None:
+        policy = build_sandbox_policy()
+    # open must be in static_tools; pass in additional_functions so send_tools keeps it.
+    additional_functions = {"open": open} if policy.files else None
     executor = LocalPythonExecutor(
-        additional_authorized_imports=list(VENV_AUTHORIZED_IMPORTS),
+        additional_authorized_imports=policy_allowlist(policy),
+        additional_functions=additional_functions,
         timeout_seconds=timeout_sec,
     )
     # Upstream only merges BASE_PYTHON_TOOLS (sum, len, …) after send_tools(); without this,
@@ -1010,11 +1027,31 @@ def _new_executor(timeout_sec: int) -> LocalPythonExecutor:
     return executor
 
 
-def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalPythonExecutor:
+def _get_or_create_session_executor(
+    session_id: str,
+    timeout_sec: int,
+    *,
+    policy: SandboxPolicy | None = None,
+    digest: str | None = None,
+) -> LocalPythonExecutor:
     with _SESSION_LOCK:
         executor = _SESSION_EXECUTORS.get(session_id)
+        if executor is not None and digest is not None:
+            if getattr(executor, "_sandbox_policy_digest", None) != digest:
+                if session_id.endswith(":init"):
+                    _clear_init_session_unlocked(session_id)
+                else:
+                    _SESSION_EXECUTORS.pop(session_id, None)
+                    _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+                    init_sid = _related_init_session_id(session_id)
+                    if init_sid:
+                        _clear_init_session_unlocked(init_sid)
+                executor = None
+
         if executor is None:
-            executor = _new_executor(timeout_sec)
+            executor = _new_executor(timeout_sec, policy=policy)
+            if digest is not None:
+                executor._sandbox_policy_digest = digest
             _SESSION_EXECUTORS[session_id] = executor
         else:
             executor.timeout_seconds = timeout_sec
@@ -1227,23 +1264,35 @@ def _ensure_init_executed(
     timeout_sec: int,
     deadline: float,
     init_script_hash: str | None = None,
+    policy: SandboxPolicy | None = None,
+    digest: str | None = None,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
     script = (init_script or "").strip()
     if not script:
         return None
 
-    digest = init_script_hash or ""
+    script_digest = init_script_hash or ""
     with _SESSION_LOCK:
         prior = _INIT_SCRIPT_HASH.get(init_session_id)
-        if prior is not None and prior != digest:
+        cached_exec = _SESSION_EXECUTORS.get(init_session_id)
+        if (
+            (prior is not None and prior != script_digest)
+            or (
+                cached_exec is not None
+                and digest is not None
+                and getattr(cached_exec, "_sandbox_policy_digest", None) != digest
+            )
+        ):
             _clear_init_session_unlocked(init_session_id)
-        elif prior == digest and init_session_id in _SESSION_EXECUTORS:
+        elif prior == script_digest and init_session_id in _SESSION_EXECUTORS:
             if init_session_id.startswith("isolated:"):
                 _record_isolated_init_access_unlocked(init_session_id)
             return None
 
-    init_executor = _get_or_create_session_executor(init_session_id, timeout_sec)
+    init_executor = _get_or_create_session_executor(
+        init_session_id, timeout_sec, policy=policy, digest=digest
+    )
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
     # the worker (every other workbook on that process).
@@ -1259,7 +1308,7 @@ def _ensure_init_executed(
         return result
 
     with _SESSION_LOCK:
-        _INIT_SCRIPT_HASH[init_session_id] = digest
+        _INIT_SCRIPT_HASH[init_session_id] = script_digest
         if init_session_id.startswith("isolated:"):
             _record_isolated_init_access_unlocked(init_session_id)
     return None
@@ -1611,6 +1660,7 @@ def run_sandboxed_code(
     init_script: str | None = None,
     init_session_id: str | None = None,
     init_script_hash: str | None = None,
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run *code* in LocalPythonExecutor.
 
@@ -1625,6 +1675,24 @@ def run_sandboxed_code(
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
     deadline = time.monotonic() + float(timeout_sec)
+
+    policy_dict = sandbox_policy or {}
+    try:
+        raw_extra = policy_dict.get("extra_modules") or ""
+        if isinstance(raw_extra, str):
+            extra = parse_extra_modules(raw_extra)
+        else:
+            extra = tuple(raw_extra)
+        policy = build_sandbox_policy(
+            network=bool(policy_dict.get("network", False)),
+            files=bool(policy_dict.get("files", False)),
+            os_=bool(policy_dict.get("os", False)),
+            extra=extra,
+        )
+    except ValueError as e:
+        return _error_result(str(e))
+
+    policy_digest_val = policy_digest(policy)
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     _ensure_mpl_agg()
@@ -1642,9 +1710,28 @@ def run_sandboxed_code(
         if isinstance(raw_folder, str) and raw_folder.strip():
             host_folder = raw_folder
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
+
+    relaxed_roots = policy_relaxed_roots(policy)
+    if policy.files:
+        _, file_os_ids = get_file_os_proxy()
+    else:
+        file_os_ids = frozenset()
+    policy_token = SANDBOX_POLICY_CONTEXT.set((relaxed_roots, file_os_ids))
+
     try:
         init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
         init_digest = _resolve_init_digest(init_script, init_script_hash)
+
+        if session_id:
+            with _SESSION_LOCK:
+                cached = _SESSION_EXECUTORS.get(session_id)
+                if cached is not None and getattr(cached, "_sandbox_policy_digest", None) != policy_digest_val:
+                    _SESSION_EXECUTORS.pop(session_id, None)
+                    _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+                    init_sid_comp = _related_init_session_id(session_id)
+                    if init_sid_comp:
+                        _clear_init_session_unlocked(init_sid_comp)
+
         if init_sid and (init_script or "").strip():
             init_err = _ensure_init_executed(
                 init_sid,
@@ -1652,16 +1739,20 @@ def run_sandboxed_code(
                 timeout_sec=timeout_sec,
                 deadline=deadline,
                 init_script_hash=init_digest,
+                policy=policy,
+                digest=policy_digest_val,
             )
             if init_err is not None:
                 return init_err
 
         if session_id:
-            executor = _get_or_create_session_executor(session_id, timeout_sec)
+            executor = _get_or_create_session_executor(
+                session_id, timeout_sec, policy=policy, digest=policy_digest_val
+            )
             if init_sid:
                 _seed_shared_executor_once(executor, session_id, init_sid, init_digest)
         else:
-            executor = _new_executor(timeout_sec)
+            executor = _new_executor(timeout_sec, policy=policy)
             if init_sid:
                 _seed_executor_from_init(executor, init_sid, copy_values=True)
 
@@ -1683,6 +1774,7 @@ def run_sandboxed_code(
         _inject_session_duckdb(executor)
         return _run_on_executor(executor, code)
     finally:
+        SANDBOX_POLICY_CONTEXT.reset(policy_token)
         _CURRENT_SANDBOX_SCOPED_DIR.reset(dir_token)
         _CURRENT_SANDBOX_SESSION.reset(token)
         _SANDBOX_EXECUTE.reset(active_token)
