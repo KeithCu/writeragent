@@ -253,12 +253,12 @@ def test_new_doc_listener_on_document_event():
     ctx.getServiceManager.return_value = smgr
     smgr.createInstanceWithContext.return_value = broadcaster
     mod._doc_listener = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
-        mod.install_calc_cell_context_menu(ctx)
-    listener = mod._doc_listener
-    assert listener is not None
-
     with patch.object(mod, "_register_controller") as mock_reg:
+        with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+            mod.install_calc_cell_context_menu(ctx)
+        listener = mod._doc_listener
+        assert listener is not None
+
         # Irrelevant event is ignored
         evt = MagicMock()
         evt.EventName = "OnSave"

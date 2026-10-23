@@ -2,6 +2,7 @@
 # Tests for unified UNO event listeners and stubs.
 
 import logging
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 
@@ -16,6 +17,7 @@ from plugin.framework.uno_listeners import (
     BaseTopWindowListener,
     BaseDocumentEventListener,
     ListenerBoundary,
+    install_view_doc_listener,
 )
 
 def test_catch_and_log_decorator(caplog):
@@ -551,5 +553,55 @@ def test_new_wrapped_callback_is_applied_to_overrides():
 
     # Child().extraPing(None) must not raise because __init_subclass__ wrapped extraPing dynamically from MRO
     Child().extraPing(None)
+
+
+def test_install_view_doc_listener() -> None:
+    """Verify install_view_doc_listener attaches to GlobalEventBroadcaster and handles events."""
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+
+    registered: list[Any] = []
+    listener = install_view_doc_listener(ctx, registered.append, "test_listener")
+    assert listener is not None
+    smgr.createInstanceWithContext.assert_called_once_with(
+        "com.sun.star.frame.GlobalEventBroadcaster", ctx
+    )
+    broadcaster.addDocumentEventListener.assert_called_once_with(listener)
+
+    # Irrelevant event is ignored
+    evt = MagicMock()
+    evt.EventName = "OnSave"
+    listener.on_document_event(evt)
+    assert registered == []
+
+    # OnViewCreated with ViewController invokes register callback
+    ctrl = MagicMock()
+    evt_view = MagicMock()
+    evt_view.EventName = "OnViewCreated"
+    evt_view.ViewController = ctrl
+    listener.on_document_event(evt_view)
+    assert registered == [ctrl]
+
+    # OnLoadFinished without ViewController falls back to Source.getCurrentController
+    ctrl2 = MagicMock()
+    source = MagicMock()
+    source.getCurrentController.return_value = ctrl2
+    evt_load = MagicMock(spec=["EventName", "Source"])
+    evt_load.EventName = "OnLoadFinished"
+    evt_load.Source = source
+    listener.on_document_event(evt_load)
+    assert registered == [ctrl, ctrl2]
+
+
+def test_install_view_doc_listener_handles_broadcaster_failure() -> None:
+    """Verify install_view_doc_listener returns None when broadcaster creation fails."""
+    ctx = MagicMock()
+    ctx.getServiceManager.side_effect = RuntimeError("Service manager unavailable")
+    result = install_view_doc_listener(ctx, lambda c: None, "test_failure")
+    assert result is None
+
 
 

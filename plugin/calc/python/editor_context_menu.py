@@ -14,6 +14,7 @@ import unohelper
 
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_listeners import install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -151,34 +152,10 @@ def _install_doc_event_listener(ctx: Any) -> None:
     with _lock:
         if _doc_listener is not None:
             return
-    try:
-        from plugin.framework.uno_listeners import BaseDocumentEventListener
-
-        class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
-            def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                name = getattr(Event, "EventName", "") or ""
-                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
-                    return
-                # Prefer the event's own controller: it is guaranteed attached to the view
-                # shell (OnViewCreated is broadcast after attach), while getCurrentController
-                # can race and yield a controller whose registration is a silent no-op.
-                controller = getattr(Event, "ViewController", None)
-                if controller is not None:
-                    _register_controller(controller)
-                    return
-                source = getattr(Event, "Source", None)
-                if source is not None and hasattr(source, "getCurrentController"):
-                    _register_controller(source.getCurrentController())
-
-        smgr = ctx.getServiceManager()
-        broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
-        listener = _NewDocListener()
-        broadcaster.addDocumentEventListener(listener)
+    listener = install_view_doc_listener(ctx, _register_controller, "python_editor_context_menu")
+    if listener is not None:
         with _lock:
             _doc_listener = listener
-        log.debug("python_editor_context_menu: global doc-event listener attached")
-    except Exception:
-        log.warning("python_editor_context_menu: doc-event listener install failed", exc_info=True)
 
 
 @main_thread_only

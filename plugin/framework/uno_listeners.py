@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, NoReturn, TYPE_CHECKING
+from typing import Any, Callable, NoReturn, TYPE_CHECKING
 
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
@@ -618,3 +618,38 @@ class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
 
     def on_mouse_released(self, e: Any) -> bool:
         return False
+
+
+def install_view_doc_listener(
+    ctx: Any,
+    register_controller: Callable[[Any], None],
+    log_label: str,
+) -> Any:
+    """Attach a global listener that invokes register_controller on view/load events."""
+    try:
+        class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
+            def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
+                name = getattr(Event, "EventName", "") or ""
+                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
+                    return
+                # Prefer the event's own controller: it is guaranteed attached to the view
+                # shell (OnViewCreated is broadcast after attach), while getCurrentController
+                # can race and yield a controller whose registration is a silent no-op.
+                controller = getattr(Event, "ViewController", None)
+                if controller is not None:
+                    register_controller(controller)
+                    return
+                source = getattr(Event, "Source", None)
+                if source is not None and hasattr(source, "getCurrentController"):
+                    register_controller(source.getCurrentController())
+
+        smgr = ctx.getServiceManager()
+        broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
+        listener = _NewDocListener()
+        broadcaster.addDocumentEventListener(listener)
+        log.debug("%s: global doc-event listener attached", log_label)
+        return listener
+    except Exception:
+        log.warning("%s: doc-event listener install failed", log_label, exc_info=True)
+        return None
+
