@@ -39,7 +39,7 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 log = logging.getLogger(__name__)
 
 
-def _debug_paint_counters_on() -> bool:
+def _debug_env_active(env_name: str = "WRITERAGENT_TESTING") -> bool:
     """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``).
 
     Release OXTs stub ``thread_guard`` (no ``_designated_main_thread``), so the
@@ -49,7 +49,7 @@ def _debug_paint_counters_on() -> bool:
 
     if hasattr(tg, "_designated_main_thread"):
         return True
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
+    return os.environ.get(env_name) == "1"
 
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL = False
@@ -162,7 +162,7 @@ class RichTextChatWidget:
         self.model = control.getModel() if control else None
         # Debug-only: Packet M (mock sidebar) reads these through the SNAPSHOT
         # hook to prove streaming appends instead of repainting.
-        self._debug_counts: bool = _debug_paint_counters_on()
+        self._debug_counts: bool = _debug_env_active()
         self._debug_paint_session_count: int = 0
         self._debug_stream_session_count: int = 0
         # What the control shows, so a stream update can append only the new

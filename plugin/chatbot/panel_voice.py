@@ -128,26 +128,37 @@ class PanelVoiceController:
         self._panel._record_hold_gen += 1
         self._panel._spawn_record_hold_wait(self._panel._record_hold_gen)
 
+    def _spawn_timer_wait(
+        self,
+        delay_ms: int,
+        target_fn: Any,
+        gen: int,
+        name: str,
+        error_msg: str,
+    ) -> None:
+        import time
+
+        from plugin.framework.worker_pool import run_in_background
+
+        delay_s = delay_ms / 1000.0
+
+        def _wait() -> None:
+            time.sleep(delay_s)
+            try:
+                self._panel.queue_executor.post(target_fn, gen)
+            except Exception:
+                log.debug(error_msg, exc_info=True)
+
+        run_in_background(_wait, name=name, dedicated=True)
+
     def _spawn_record_hold_wait(self, gen: int) -> None:
         """Sleep off the UI thread, then hop back through QueueExecutor.
 
         ``dedicated`` so a 2s hold does not pin a shared pool worker. The
         generation is checked on the UI thread; releasing early just bumps it.
         """
-        import time
-
-        from plugin.framework.worker_pool import run_in_background
-
-        delay_s = RECORD_HOLD_MS / 1000.0
-
-        def _wait() -> None:
-            time.sleep(delay_s)
-            try:
-                self._panel.queue_executor.post(self._panel._on_record_hold_elapsed, gen)
-            except Exception:
-                log.debug("record hold timer post failed", exc_info=True)
-
-        run_in_background(_wait, name="record-hold", dedicated=True)
+        p = self._panel
+        self._spawn_timer_wait(RECORD_HOLD_MS, p._on_record_hold_elapsed, gen, "record-hold", "record hold timer post failed")
 
     def _on_record_hold_elapsed(self, gen: int) -> None:
         if gen != self._panel._record_hold_gen:
@@ -205,20 +216,13 @@ class PanelVoiceController:
 
     def _spawn_sticky_tts_wait(self, gen: int) -> None:
         """Poll ``is_speaking`` later. Do not sleep on the UNO thread."""
-        import time
-
-        from plugin.framework.worker_pool import run_in_background
-
-        delay_s = STICKY_TTS_POLL_MS / 1000.0
-
-        def _wait() -> None:
-            time.sleep(delay_s)
-            try:
-                self._panel.queue_executor.post(self._panel._poll_sticky_rerecord, gen)
-            except Exception:
-                log.debug("hands-free TTS wait post failed", exc_info=True)
-
-        run_in_background(_wait, name="sticky-rerecord", dedicated=True)
+        self._spawn_timer_wait(
+            STICKY_TTS_POLL_MS,
+            self._panel._poll_sticky_rerecord,
+            gen,
+            "sticky-rerecord",
+            "hands-free TTS wait post failed",
+        )
 
     def _poll_sticky_rerecord(self, gen: int) -> None:
         if gen != self._panel._sticky_restart_gen or not self._panel._record_gesture.sticky:

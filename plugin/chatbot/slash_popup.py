@@ -490,6 +490,39 @@ def _create_ask_peer_listbox(
     return win, host, None
 
 
+def _make_slash_key_handler(host: Any, label: str) -> Any:
+    try:
+        import unohelper
+        from com.sun.star.awt import XKeyHandler
+    except ImportError:
+        return None
+
+    class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
+        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
+            return
+
+        def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
+            code = int(getattr(aEvent, "KeyCode", 0) or 0)
+            mods = int(getattr(aEvent, "Modifiers", 0) or 0)
+            ch = getattr(aEvent, "KeyChar", None)
+            _ovlog("%s keyPressed code=%s mods=%s char=%r", label, code, mods, ch)
+            return host._on_document_key(code, mods, ch)
+
+        def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
+            return False
+
+    return _Handler()
+
+
+def _detach_key_handler(target: Any, handler: Any, label: str) -> None:
+    if target is None or handler is None:
+        return
+    rem = getattr(target, "removeKeyHandler", None)
+    if callable(rem):
+        best_effort(lambda: rem(handler), f"{label} key handler remove failed")
+        _ovlog(f"{label} key handler removed")
+
+
 class SlashPopupController:
     """Show, filter, and accept slash commands on the Ask-field overlay list."""
 
@@ -971,11 +1004,6 @@ class SlashPopupController:
         if not callable(get_controller):
             _ovlog("frame key handler: no controller")
             return
-        try:
-            import unohelper
-            from com.sun.star.awt import XKeyHandler
-        except ImportError:
-            return
         controller = uno_probe(get_controller, None)
         if controller is None:
             return
@@ -983,25 +1011,9 @@ class SlashPopupController:
         if not callable(add):
             _ovlog("frame key handler: no addKeyHandler")
             return
-        host = self
-
-        class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
-            def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-                code = int(getattr(aEvent, "KeyCode", 0) or 0)
-                mods = int(getattr(aEvent, "Modifiers", 0) or 0)
-                ch = getattr(aEvent, "KeyChar", None)
-                _ovlog("frame keyPressed code=%s mods=%s char=%r", code, mods, ch)
-                # Nav only. Overlay insert mode would append every printable
-                # document key into Ask and consume it.
-                return host._on_document_key(code, mods, ch)
-
-            def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-                return False
-
-        handler = _Handler()
+        handler = _make_slash_key_handler(self, "frame")
+        if handler is None:
+            return
         try:
             add(handler)
             self._frame_handler = handler
@@ -1010,17 +1022,15 @@ class SlashPopupController:
         except Exception:
             log.warning("slash popup: frame key handler attach failed", exc_info=True)
 
+    def _detach_key_target(self, handler_name: str, target_name: str, label: str) -> None:
+        handler = getattr(self, handler_name)
+        target = getattr(self, target_name)
+        setattr(self, handler_name, None)
+        setattr(self, target_name, None)
+        _detach_key_handler(target, handler, label)
+
     def _detach_frame_keys(self) -> None:
-        handler = self._frame_handler
-        controller = self._frame_controller
-        self._frame_handler = None
-        self._frame_controller = None
-        if controller is None or handler is None:
-            return
-        rem = getattr(controller, "removeKeyHandler", None)
-        if callable(rem):
-            best_effort(lambda: rem(handler), "frame key handler remove failed")
-            _ovlog("frame key handler removed")
+        self._detach_key_target("_frame_handler", "_frame_controller", "frame")
 
     def _attach_toolkit_keys(self) -> None:
         """Catch Esc/Enter on the TOP floater, which does not route through Ask or the doc frame."""
@@ -1042,28 +1052,9 @@ class SlashPopupController:
         _ovlog("toolkit key handler methods=%s addKeyHandler=%s", names[:20], callable(add))
         if not callable(add):
             return
-        try:
-            import unohelper
-            from com.sun.star.awt import XKeyHandler
-        except ImportError:
+        handler = _make_slash_key_handler(self, "toolkit")
+        if handler is None:
             return
-        host = self
-
-        class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
-            def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-                code = int(getattr(aEvent, "KeyCode", 0) or 0)
-                mods = int(getattr(aEvent, "Modifiers", 0) or 0)
-                ch = getattr(aEvent, "KeyChar", None)
-                _ovlog("toolkit keyPressed code=%s mods=%s char=%r", code, mods, ch)
-                return host._on_document_key(code, mods, ch)
-
-            def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-                return False
-
-        handler = _Handler()
         try:
             add(handler)
             self._toolkit_handler = handler
@@ -1073,16 +1064,7 @@ class SlashPopupController:
             log.warning("slash popup: toolkit key handler attach failed", exc_info=True)
 
     def _detach_toolkit_keys(self) -> None:
-        handler = self._toolkit_handler
-        tk = self._toolkit
-        self._toolkit_handler = None
-        self._toolkit = None
-        if tk is None or handler is None:
-            return
-        rem = getattr(tk, "removeKeyHandler", None)
-        if callable(rem):
-            best_effort(lambda: rem(handler), "toolkit key handler remove failed")
-            _ovlog("toolkit key handler removed")
+        self._detach_key_target("_toolkit_handler", "_toolkit", "toolkit")
 
     def _attach_click(self) -> None:
         ctrl = self.control

@@ -71,23 +71,11 @@ from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 _LIVE_CHAT_PANELS: WeakSet[Any] | None = None
 
 
-def _debug_live_panels_on() -> bool:
-    """True in dev thread-guard builds and mock-sidebar (``WRITERAGENT_TESTING=1``).
-
-    ``make test-mock-sidebar`` sets ``WRITERAGENT_UNO_THREAD_GUARD=0``, so the
-    thread_guard stub has no ``_designated_main_thread``. Still track the live
-    panel so URP slash/Packet G hooks can find ``SendButtonListener``.
-    """
-    from plugin.framework import thread_guard as tg
-
-    if hasattr(tg, "_designated_main_thread"):
-        return True
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
-
-
 def _live_chat_panels() -> WeakSet[Any] | None:
     global _LIVE_CHAT_PANELS
-    if not _debug_live_panels_on():
+    from plugin.chatbot.rich_text_control import _debug_env_active
+
+    if not _debug_env_active("WRITERAGENT_TESTING"):
         return None
     if _LIVE_CHAT_PANELS is None:
         _LIVE_CHAT_PANELS = WeakSet()
@@ -406,6 +394,44 @@ def header_third_button_kind(model: Any) -> str:
     if is_writer(model):
         return "latex"
     return ""
+
+
+class _SelectorItemSyncListener(BaseItemListener):
+    panel: Any
+    _sync_fn: Any
+
+    def __init__(self, panel: Any, sync_fn: Any) -> None:
+        self.panel = panel
+        self._sync_fn = sync_fn
+
+    def on_item_state_changed(self, rEvent: Any) -> None:
+        if not getattr(self.panel, "_in_refresh_controls", False):
+            self._sync_fn()
+
+
+class _SelectorTextSyncListener(BaseTextListener):
+    panel: Any
+    _sync_fn: Any
+
+    def __init__(self, panel: Any, sync_fn: Any) -> None:
+        self.panel = panel
+        self._sync_fn = sync_fn
+
+    def on_text_changed(self, rEvent: Any) -> None:
+        if not getattr(self.panel, "_in_refresh_controls", False):
+            self._sync_fn()
+
+
+def _wire_selector_sync_listeners(
+    panel: Any,
+    selector: Any,
+    on_item_sync: Any,
+    on_text_sync: Any,
+) -> None:
+    if hasattr(selector, "addItemListener"):
+        selector.addItemListener(_SelectorItemSyncListener(panel, on_item_sync))
+    if hasattr(selector, "addTextListener"):
+        selector.addTextListener(_SelectorTextSyncListener(panel, on_text_sync))
 
 
 class ChatPanelElement(unohelper.Base, XUIElement):
@@ -806,78 +832,24 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_image_model(set_image_val, update_lru=False)
 
         if model_selector:
+            from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 
-            class ModelSyncListener(BaseItemListener):
-                panel: Any
-                ctx: Any
-
-                def __init__(self, panel: Any, ctx: Any) -> None:
-                    self.panel = panel
-                    self.ctx = ctx
-
-                def on_item_state_changed(self, rEvent: Any) -> None:
-                    if getattr(self.panel, "_in_refresh_controls", False):
-                        return
-                    from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
-
-                    sync_sidebar_text_model(self.ctx, model_selector)
-
-            class ModelTextSyncListener(BaseTextListener):
-                panel: Any
-                ctx: Any
-
-                def __init__(self, panel: Any, ctx: Any) -> None:
-                    self.panel = panel
-                    self.ctx = ctx
-
-                def on_text_changed(self, rEvent: Any) -> None:
-                    if getattr(self.panel, "_in_refresh_controls", False):
-                        return
-                    from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
-
-                    sync_sidebar_text_model(self.ctx, model_selector)
-
-            if hasattr(model_selector, "addItemListener"):
-                model_selector.addItemListener(ModelSyncListener(self, self.ctx))
-            if hasattr(model_selector, "addTextListener"):
-                model_selector.addTextListener(ModelTextSyncListener(self, self.ctx))
+            _wire_selector_sync_listeners(
+                self,
+                model_selector,
+                lambda: sync_sidebar_text_model(self.ctx, model_selector),
+                lambda: sync_sidebar_text_model(self.ctx, model_selector),
+            )
 
         if image_model_selector:
+            from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
 
-            class ImageModelSyncListener(BaseItemListener):
-                panel: Any
-                ctx: Any
-
-                def __init__(self, panel: Any, ctx: Any) -> None:
-                    self.panel = panel
-                    self.ctx = ctx
-
-                def on_item_state_changed(self, rEvent: Any) -> None:
-                    if getattr(self.panel, "_in_refresh_controls", False):
-                        return
-                    from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
-
-                    sync_sidebar_image_model(image_model_selector, update_lru=True)
-
-            class ImageModelTextSyncListener(BaseTextListener):
-                panel: Any
-                ctx: Any
-
-                def __init__(self, panel: Any, ctx: Any) -> None:
-                    self.panel = panel
-                    self.ctx = ctx
-
-                def on_text_changed(self, rEvent: Any) -> None:
-                    if getattr(self.panel, "_in_refresh_controls", False):
-                        return
-                    from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
-
-                    sync_sidebar_image_model(image_model_selector, update_lru=False)
-
-            if hasattr(image_model_selector, "addItemListener"):
-                image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
-            if hasattr(image_model_selector, "addTextListener"):
-                image_model_selector.addTextListener(ImageModelTextSyncListener(self, self.ctx))
+            _wire_selector_sync_listeners(
+                self,
+                image_model_selector,
+                lambda: sync_sidebar_image_model(image_model_selector, update_lru=True),
+                lambda: sync_sidebar_image_model(image_model_selector, update_lru=False),
+            )
 
     def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type

@@ -387,6 +387,15 @@ def store_research_cache_embeddings(
     _web_cache_with_connection(cache_path, do_store)
 
 
+def _query_web_cache_rows(cache_path: str, sql: str, params: tuple[Any, ...]) -> list[Any]:
+    from plugin.contrib.smolagents.default_tools import HAS_SQLITE, _web_cache_with_connection
+
+    if not HAS_SQLITE:
+        return []
+    raw = _web_cache_with_connection(cache_path, lambda conn: conn.execute(sql, params).fetchall())
+    return raw if isinstance(raw, list) else []
+
+
 def _research_cache_embedding_rows(
     cache_path: str,
     *,
@@ -397,25 +406,16 @@ def _research_cache_embedding_rows(
 ) -> list[tuple[str, list[float]]]:
     if not cache_path or not embedding_model:
         return []
-    from plugin.contrib.smolagents.default_tools import HAS_SQLITE, _web_cache_with_connection
-
-    if not HAS_SQLITE:
-        return []
     cutoff = time.time() - (max_age_days * 86400)
-
-    def do_list(conn: Any) -> Any:
-        return conn.execute(
-            "SELECT e.key, e.embedding_text, e.text_hash, e.dim, e.vector_json "
-            "FROM web_cache_embeddings e "
-            "JOIN web_cache w ON w.kind = e.kind AND w.key = e.key "
-            "WHERE e.kind = ? AND e.embedding_model = ? AND w.created_at >= ?",
-            (_RESEARCH_CACHE_KIND, embedding_model, cutoff),
-        ).fetchall()
-
-    raw_rows = _web_cache_with_connection(cache_path, do_list)
+    raw_rows = _query_web_cache_rows(
+        cache_path,
+        "SELECT e.key, e.embedding_text, e.text_hash, e.dim, e.vector_json "
+        "FROM web_cache_embeddings e "
+        "JOIN web_cache w ON w.kind = e.kind AND w.key = e.key "
+        "WHERE e.kind = ? AND e.embedding_model = ? AND w.created_at >= ?",
+        (_RESEARCH_CACHE_KIND, embedding_model, cutoff),
+    )
     out: list[tuple[str, list[float]]] = []
-    if not isinstance(raw_rows, list):
-        return out
     for raw_key, embedding_text, text_hash, dim, vector_json in raw_rows:
         word_key = _same_mode_and_lang(str(raw_key), mode=mode, snowball_lang=snowball_lang)
         if word_key is None:
@@ -438,26 +438,17 @@ def _research_cache_missing_embedding_rows(
 ) -> list[tuple[str, str]]:
     if not cache_path or not embedding_model:
         return []
-    from plugin.contrib.smolagents.default_tools import HAS_SQLITE, _web_cache_with_connection
-
-    if not HAS_SQLITE:
-        return []
     cutoff = time.time() - (max_age_days * 86400)
-
-    def do_list(conn: Any) -> Any:
-        return conn.execute(
-            "SELECT w.key, e.embedding_text, e.text_hash "
-            "FROM web_cache w "
-            "LEFT JOIN web_cache_embeddings e ON e.kind = w.kind AND e.key = w.key AND e.embedding_model = ? "
-            "WHERE w.kind = ? AND w.created_at >= ? "
-            "ORDER BY w.created_at DESC",
-            (embedding_model, _RESEARCH_CACHE_KIND, cutoff),
-        ).fetchall()
-
-    raw_rows = _web_cache_with_connection(cache_path, do_list)
+    raw_rows = _query_web_cache_rows(
+        cache_path,
+        "SELECT w.key, e.embedding_text, e.text_hash "
+        "FROM web_cache w "
+        "LEFT JOIN web_cache_embeddings e ON e.kind = w.kind AND e.key = w.key AND e.embedding_model = ? "
+        "WHERE w.kind = ? AND w.created_at >= ? "
+        "ORDER BY w.created_at DESC",
+        (embedding_model, _RESEARCH_CACHE_KIND, cutoff),
+    )
     missing: list[tuple[str, str]] = []
-    if not isinstance(raw_rows, list):
-        return missing
     for raw_key, embedding_text, stored_hash in raw_rows:
         stored_text = str(embedding_text or "").strip()
         text = stored_text or _embedding_text_from_raw_key(str(raw_key))

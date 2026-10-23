@@ -328,12 +328,16 @@ def test_document_key_handler_does_not_steal_printable():
 
 def test_frame_and_toolkit_sources_are_nav_only():
     import inspect
+    from plugin.chatbot.slash_popup import _make_slash_key_handler
 
+    handler_src = inspect.getsource(_make_slash_key_handler)
     frame = inspect.getsource(SlashPopupController._attach_frame_keys)
     toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
     listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "_on_document_key(" in frame
-    assert "_on_document_key(" in toolkit
+    assert "_on_document_key(" in handler_src
+    assert "_make_slash_key_handler" in frame
+    assert "_make_slash_key_handler" in toolkit
+    assert "from_overlay=True" not in handler_src
     assert "from_overlay=True" not in frame
     assert "from_overlay=True" not in toolkit
     assert "_on_list_key(" in listed

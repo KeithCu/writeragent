@@ -1055,9 +1055,14 @@ def append_formatted_rows(
         _close_hidden_doc(doc, "append_formatted_rows")
 
 
-def _ensure_message_separator(control: Any) -> None:
-    """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
-    def _do_separate() -> None:
+def _append_row_separator(
+    control: Any,
+    phase: str,
+    caller_name: str,
+    *,
+    log_suffix_len: bool = False,
+) -> None:
+    def _do_append() -> None:
         model = control.getModel() if control else None
         if model is None or not hasattr(model, "createTextCursor"):
             return
@@ -1068,9 +1073,17 @@ def _ensure_message_separator(control: Any) -> None:
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)
-        log_rich_scroll("separator", control=control)
+        if log_suffix_len:
+            log_rich_scroll(phase, control=control, suffix_len=len(suffix))
+        else:
+            log_rich_scroll(phase, control=control)
 
-    best_effort(_do_separate, "_ensure_message_separator")
+    best_effort(_do_append, caller_name)
+
+
+def _ensure_message_separator(control: Any) -> None:
+    """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
+    _append_row_separator(control, "separator", "_ensure_message_separator")
 
 
 def _ensure_trailing_line_break(control: Any) -> None:
@@ -1079,20 +1092,7 @@ def _ensure_trailing_line_break(control: Any) -> None:
     Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only moves to
     the next line. We want ``\\n\\n`` (same gap as ``_ensure_message_separator``).
     """
-    def _do_break() -> None:
-        model = control.getModel() if control else None
-        if model is None or not hasattr(model, "createTextCursor"):
-            return
-        text = model.Text or ""
-        suffix = _row_separator_suffix(text)
-        if not suffix:
-            return
-        cursor = model.createTextCursor()
-        cursor.gotoEnd(False)
-        _insert_string_at_rich_cursor(model, cursor, suffix)
-        log_rich_scroll("trailing_break", control=control, suffix_len=len(suffix))
-
-    best_effort(_do_break, "_ensure_trailing_line_break")
+    _append_row_separator(control, "trailing_break", "_ensure_trailing_line_break", log_suffix_len=True)
 
 
 def append_formatted_row(

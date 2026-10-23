@@ -754,15 +754,17 @@ class TestConnectionListener(BaseActionListener):
         run_in_background(_worker, name="settings-test-conn")
 
 
-class PptMasterDataTestListener(BaseActionListener):
-    """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
-
+class _CtxDlgActionListener(BaseActionListener):
     _ctx: Any
     _dlg: Any
 
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
+
+
+class PptMasterDataTestListener(_CtxDlgActionListener):
+    """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.ppt_master.paths import probe_data_path_with_progress
@@ -1724,15 +1726,8 @@ def setup_module_tabs(dlg: Any) -> None:
         pass
 
 
-class DownloadAudioListener(BaseActionListener):
+class DownloadAudioListener(_CtxDlgActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
-
-    _ctx: Any
-    _dlg: Any
-
-    def __init__(self, ctx: Any, dlg: Any) -> None:
-        self._ctx = ctx
-        self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread

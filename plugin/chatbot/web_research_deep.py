@@ -884,22 +884,94 @@ def run_deep_research(
         return stopped
 
     try:
-        return _run_deep_research_body(
+        if status_callback:
+            status_callback("Deep research: planning strategy...")
+
+        search_snippet = initial_search_snippet
+        if not search_snippet.strip():
+            search_snippet = "(No preview search results; proceed from the query alone.)"
+
+        follow_up_questions = generate_research_plan(llm_chat, query, search_snippet, num_questions=3)
+        if not follow_up_questions:
+            follow_up_questions = [query]
+
+        qa_pairs = [f"Q: {q}\nA: Automatically proceeding with research" for q in follow_up_questions]
+        combined_query = f"Initial Query: {query}\n"
+        if history_text:
+            combined_query += f"Conversation history:\n{history_text}\n"
+        combined_query += "Follow-up Questions and Answers:\n" + "\n".join(qa_pairs)
+
+        loop_result = _run_adaptive_research_loop(
+            combined_query,
             query,
-            history_text,
             llm_chat=llm_chat,
             run_web_agent=run_web_agent,
             stop_checker=stop_checker,
             status_callback=status_callback,
             breadth=breadth,
-            plain_text_format=plain_text_format,
-            initial_search_snippet=initial_search_snippet,
             max_rounds=max_rounds,
             concurrency=concurrency,
             max_sub_queries=max_sub_queries,
             quality_threshold=quality_threshold,
             worker_factory=worker_factory,
         )
+        if loop_result.get("error"):
+            return loop_result["error"]
+
+        learnings = loop_result.get("learnings") or []
+        context_chunks = loop_result.get("context") or []
+        citations = loop_result.get("citations") or {}
+        sources = loop_result.get("sources") or []
+
+        if not learnings:
+            # Sub-agent / extract failures are swallowed per-branch; without this
+            # guard the orchestrator synthesizes a report from empty evidence and
+            # execute() labels it "Web research completed."
+            err = loop_result.get("branch_error")
+            if isinstance(err, dict) and err.get("status") == "error":
+                return err
+            return format_error_payload(
+                ToolExecutionError(_("Web research collected no usable evidence."))
+            )
+
+        cited_learnings: list[str] = []
+        for learning in learnings:
+            urls = citations.get(learning, [])
+            if urls:
+                cited_learnings.append(f"{learning} [Sources: {', '.join(urls)}]")
+            else:
+                cited_learnings.append(learning)
+
+        if status_callback:
+            status_callback("Deep research: synthesizing report...")
+
+        stopped = _check_stopped(stop_checker)
+        if stopped is not None:
+            return stopped
+
+        try:
+            return synthesize_deep_report(
+                llm_chat,
+                query,
+                cited_learnings,
+                context_chunks,
+                plain_text_format,
+                sources=sources,
+            )
+        except Exception as exc:
+            # A timeout here used to discard the whole run; return the raw notes.
+            # USER_STOPPED must not take that path. The notes are a plain string,
+            # and execute() cached every non-error string as a finished deep
+            # report, so the next identical query never retried synthesis.
+            if getattr(exc, "code", None) == "USER_STOPPED":
+                raise
+            log.exception("deep_research: synthesis failed; returning collected evidence")
+            return {
+                "status": "ok",
+                "message": _("Web research completed."),
+                "result": _partial_report_from_evidence(query, cited_learnings, sources),
+                "cacheable": False,
+            }
     except ToolExecutionError as exc:
         # Planning, a sub-query, or synthesis can raise USER_STOPPED.
         # execute() only caches status "ok", so the stopped payload must be
@@ -907,110 +979,3 @@ def run_deep_research(
         if getattr(exc, "code", None) == "USER_STOPPED":
             return _user_stopped_payload()
         raise
-
-
-def _run_deep_research_body(
-    query: str,
-    history_text: str | None,
-    *,
-    llm_chat: LlmChatFn,
-    run_web_agent: WebAgentRunner,
-    stop_checker: StopChecker,
-    status_callback: StatusCallback,
-    breadth: int,
-    plain_text_format: str,
-    initial_search_snippet: str = "",
-    max_rounds: int = 3,
-    concurrency: int = 2,
-    max_sub_queries: int = 14,
-    quality_threshold: int = 7,
-    worker_factory: WorkerFactory | None = None,
-) -> str | dict[str, Any]:
-    if status_callback:
-        status_callback("Deep research: planning strategy...")
-
-    search_snippet = initial_search_snippet
-    if not search_snippet.strip():
-        search_snippet = "(No preview search results; proceed from the query alone.)"
-
-    follow_up_questions = generate_research_plan(llm_chat, query, search_snippet, num_questions=3)
-    if not follow_up_questions:
-        follow_up_questions = [query]
-
-    qa_pairs = [f"Q: {q}\nA: Automatically proceeding with research" for q in follow_up_questions]
-    combined_query = f"Initial Query: {query}\n"
-    if history_text:
-        combined_query += f"Conversation history:\n{history_text}\n"
-    combined_query += "Follow-up Questions and Answers:\n" + "\n".join(qa_pairs)
-
-    loop_result = _run_adaptive_research_loop(
-        combined_query,
-        query,
-        llm_chat=llm_chat,
-        run_web_agent=run_web_agent,
-        stop_checker=stop_checker,
-        status_callback=status_callback,
-        breadth=breadth,
-        max_rounds=max_rounds,
-        concurrency=concurrency,
-        max_sub_queries=max_sub_queries,
-        quality_threshold=quality_threshold,
-        worker_factory=worker_factory,
-    )
-    if loop_result.get("error"):
-        return loop_result["error"]
-
-    learnings = loop_result.get("learnings") or []
-    context_chunks = loop_result.get("context") or []
-    citations = loop_result.get("citations") or {}
-    sources = loop_result.get("sources") or []
-
-    if not learnings:
-        # Sub-agent / extract failures are swallowed per-branch; without this
-        # guard the orchestrator synthesizes a report from empty evidence and
-        # execute() labels it "Web research completed."
-        err = loop_result.get("branch_error")
-        if isinstance(err, dict) and err.get("status") == "error":
-            return err
-        return format_error_payload(
-            ToolExecutionError(_("Web research collected no usable evidence."))
-        )
-
-    cited_learnings: list[str] = []
-    for learning in learnings:
-        urls = citations.get(learning, [])
-        if urls:
-            cited_learnings.append(f"{learning} [Sources: {', '.join(urls)}]")
-        else:
-            cited_learnings.append(learning)
-
-    if status_callback:
-        status_callback("Deep research: synthesizing report...")
-
-    stopped = _check_stopped(stop_checker)
-    if stopped is not None:
-        return stopped
-
-    try:
-        return synthesize_deep_report(
-            llm_chat,
-            query,
-            cited_learnings,
-            context_chunks,
-            plain_text_format,
-            sources=sources,
-        )
-    except Exception as exc:
-        # A timeout here used to discard the whole run; return the raw notes.
-        # USER_STOPPED must not take that path. The notes are a plain string,
-        # and execute() cached every non-error string as a finished deep
-        # report, so the next identical query never retried synthesis.
-        if getattr(exc, "code", None) == "USER_STOPPED":
-            raise
-        log.exception("deep_research: synthesis failed; returning collected evidence")
-        return {
-            "status": "ok",
-            "message": _("Web research completed."),
-            "result": _partial_report_from_evidence(query, cited_learnings, sources),
-            "cacheable": False,
-        }

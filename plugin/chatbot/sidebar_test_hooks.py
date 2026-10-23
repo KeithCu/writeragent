@@ -34,6 +34,7 @@ from plugin.chatbot.panel import (
     notify_record_mouse_released,
     notify_stop_mouse_pressed,
 )
+from plugin.chatbot.rich_text_control import _debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_probe
@@ -89,22 +90,8 @@ def iter_live_chat_panels() -> list[Any]:
     return merged
 
 
-def debug_hooks_available() -> bool:
-    """False in release OXTs (this file is omitted). True in dev trees.
-
-    ``make test-mock-sidebar`` sets ``WRITERAGENT_UNO_THREAD_GUARD=0`` on soffice,
-    so the thread_guard stub has no ``_designated_main_thread``. Still allow
-    Packet G protocol dispatch in that process (``WRITERAGENT_TESTING=1``).
-    """
-    from plugin.framework import thread_guard as tg
-
-    if hasattr(tg, "_designated_main_thread"):
-        return True
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
-
-
 def _require_debug() -> None:
-    if not debug_hooks_available():
+    if not _debug_env_active("WRITERAGENT_TESTING"):
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 

@@ -32,12 +32,12 @@ pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.chatbot.send_state import SendButtonState, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
+from plugin.chatbot.rich_text_control import _debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     audio_status,
     chat_dialog_controls,
     control_enabled,
-    debug_hooks_available,
     ensure_slash_popup,
     fire_audio_auto_stop,
     inject_wav,
@@ -173,7 +173,7 @@ def fake_listener() -> _FakeListener:
 
 
 def test_debug_hooks_available_in_dev_tree() -> None:
-    assert debug_hooks_available() is True
+    assert _debug_env_active("WRITERAGENT_TESTING") is True
 
 
 class _Panel:
