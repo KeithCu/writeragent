@@ -1202,6 +1202,83 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert "bindings" not in empty
 
 
+def test_exec_request_wire_sandbox_policy():
+    policy = {"network": True, "files": True, "os": False, "extra_modules": "requests"}
+
+    # Code execute includes sandbox_policy
+    code_req = _ExecRequest(code="x = 1", sandbox_policy=policy)
+    code_wire = code_req.wire()
+    assert code_wire["sandbox_policy"] == policy
+    assert code_wire["code"] == "x = 1"
+
+    # reset_session omits sandbox_policy
+    reset_req = _ExecRequest(action="reset_session", sandbox_policy=policy)
+    reset_wire = reset_req.wire()
+    assert "sandbox_policy" not in reset_wire
+    assert reset_wire["action"] == "reset_session"
+
+    # trusted actions omit sandbox_policy
+    trusted_req = _ExecRequest(action="run_trusted_action", data={"domain": "analysis"}, sandbox_policy=policy)
+    trusted_wire = trusted_req.wire()
+    assert "sandbox_policy" not in trusted_wire
+    assert trusted_wire["action"] == "run_trusted_action"
+
+
+def test_run_code_in_user_venv_reads_sandbox_policy_flags():
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
+        patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
+    ):
+        mock_execute.return_value = {"status": "ok", "result": 1}
+
+        # Case 1: only OS is on -> files must be True as well (files = allow_files or allow_os)
+        def fake_get_bool_os(key: str) -> bool:
+            if key == "scripting.python_allow_os":
+                return True
+            if key in ("scripting.python_allow_network", "scripting.python_allow_files"):
+                return False
+            return False
+
+        def fake_get_str(key: str) -> str:
+            if key == "scripting.python_extra_modules":
+                return "custom_mod"
+            return ""
+
+        with (
+            patch("plugin.scripting.venv_worker.get_config_bool", side_effect=fake_get_bool_os),
+            patch("plugin.scripting.venv_worker.get_config_str", side_effect=fake_get_str),
+        ):
+            run_code_in_user_venv(ctx, "result = 1")
+            assert mock_execute.call_args.kwargs["sandbox_policy"] == {
+                "network": False,
+                "files": True,
+                "os": True,
+                "extra_modules": "custom_mod",
+            }
+
+        mock_execute.reset_mock()
+
+        # Case 2: network and files on, os off
+        def fake_get_bool_net_files(key: str) -> bool:
+            if key in ("scripting.python_allow_network", "scripting.python_allow_files"):
+                return True
+            return False
+
+        with (
+            patch("plugin.scripting.venv_worker.get_config_bool", side_effect=fake_get_bool_net_files),
+            patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
+        ):
+            run_code_in_user_venv(ctx, "result = 1")
+            assert mock_execute.call_args.kwargs["sandbox_policy"] == {
+                "network": True,
+                "files": True,
+                "os": False,
+                "extra_modules": "",
+            }
+
+
 @pytest.mark.parametrize("exc_type", [ValueError, OverflowError, TypeError])
 def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     """Unpack failures after a finished tool call must not resend the script.
@@ -1390,6 +1467,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     ctx = MagicMock()
 
     # Call with no timeout and verify it gets default timeout of 10s
+    default_policy = {"network": False, "files": False, "os": False, "extra_modules": ""}
     run_code_in_user_venv(ctx, "result = 1")
     mock_execute.assert_called_once_with(
         "result = 1",
@@ -1408,6 +1486,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         script_session_id=None,
         stop_checker=None,
         cancellation_scope=None,
+        sandbox_policy=default_policy,
     )
 
     mock_execute.reset_mock()
@@ -1431,6 +1510,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         script_session_id=None,
         stop_checker=None,
         cancellation_scope=None,
+        sandbox_policy=default_policy,
     )
 
     mock_execute.reset_mock()
@@ -1454,6 +1534,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         script_session_id=None,
         stop_checker=None,
         cancellation_scope=None,
+        sandbox_policy=default_policy,
     )
 
     mock_execute.reset_mock()
@@ -1477,6 +1558,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         script_session_id=None,
         stop_checker=None,
         cancellation_scope=None,
+        sandbox_policy=default_policy,
     )
 
 

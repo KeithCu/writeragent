@@ -48,6 +48,7 @@ The project is distributed as three standalone extension packages (*install only
 - **Spreadsheet → Python Converter *(WriterAgent)*** — Translate 235+ classic Calc/Excel formulas into clean Python expressions using the built-in `calc.*` parity library while preserving constants, dates, and cell formats. [Details](docs/calc/spreadsheet-to-python-import.md)
 - **Local Vision & OCR** — Extract text from embedded images or scanned documents directly into Writer and Calc via offline Docling OCR. [Vision Guide](docs/images/recognition.md)
 - <img src="Showcase/jupyter_logo.png" alt="Jupyter logo" height="22" align="absmiddle"> **Jupyter Notebook Support** — **File → Open…** a `.ipynb` (or double-click / `soffice notebook.ipynb`) creates a Writer document with markdown, editable code fields, and ▶ run buttons against a shared Python kernel. [Jupyter in Writer](docs/writer/jupyter-notebook-import.md)
+- **Configurable Sandbox Permissions** — Network access, filesystem access, OS commands/subprocess, and extra modules can be selectively enabled in **Settings → Python** (all off by default). The external compute service ignores these flags for now and may get them later (focus is LibrePy / WriterAgent).
 - **Crash-safe by design** — NumPy runs out-of-process in your own venv, so a scripting bug can't crash LibreOffice.
 
 ### 📊 Diagrams, Slides & Multi-Modal (Draw & Impress)

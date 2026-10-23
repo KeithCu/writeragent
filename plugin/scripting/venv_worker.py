@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Iterator, NoReturn
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config_bool, get_config_str
 from plugin.framework.thread_guard import background, on_main_thread
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
@@ -299,6 +299,7 @@ class _ExecRequest:
     python_tool_domain: str | None = None
     caller: str = "script"
     script_session_id: str | None = None
+    sandbox_policy: dict[str, Any] | None = None
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def wire(self) -> dict[str, Any]:
@@ -328,6 +329,8 @@ class _ExecRequest:
                 request["init_session_id"] = self.init_session_id
             if self.init_script_hash:
                 request["init_script_hash"] = self.init_script_hash
+            if self.sandbox_policy is not None:
+                request["sandbox_policy"] = self.sandbox_policy
         return request
 
 
@@ -850,6 +853,7 @@ class PythonWorkerManager:
         script_session_id: str | None = None,
         stop_checker: Callable[[], bool] | None = None,
         cancellation_scope: Any | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
@@ -884,6 +888,7 @@ class PythonWorkerManager:
                     script_session_id=script_session_id,
                     stop_checker=stop_checker,
                     cancellation_scope=cancellation_scope,
+                    sandbox_policy=sandbox_policy,
                 )
             )
         )
@@ -1390,6 +1395,7 @@ def run_code_in_user_venv(
     action: str | None = None,
     stop_checker: Callable[[], bool] | None = None,
     cancellation_scope: Any | None = None,
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
@@ -1419,6 +1425,26 @@ def run_code_in_user_venv(
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
+    if sandbox_policy is None and not action:
+        try:
+            allow_network = get_config_bool("scripting.python_allow_network")
+            allow_files = get_config_bool("scripting.python_allow_files")
+            allow_os = get_config_bool("scripting.python_allow_os")
+        except Exception:
+            allow_network = False
+            allow_files = False
+            allow_os = False
+        try:
+            extra_modules = get_config_str("scripting.python_extra_modules")
+        except Exception:
+            extra_modules = ""
+        sandbox_policy = {
+            "network": allow_network,
+            "files": allow_files or allow_os,
+            "os": allow_os,
+            "extra_modules": extra_modules,
+        }
+
     return manager.execute(
         code,
         data=data,
@@ -1436,6 +1462,7 @@ def run_code_in_user_venv(
         script_session_id=script_session_id,
         stop_checker=stop_checker,
         cancellation_scope=cancellation_scope,
+        sandbox_policy=sandbox_policy,
     )
 
 

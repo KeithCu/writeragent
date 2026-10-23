@@ -2963,4 +2963,28 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
             _forget_doc_lifecycle_key(key1)
 
 
+def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """=PY() with a flag patched on passes through run_code_in_user_venv unchanged (no gate, no prompt)."""
+    doc = CalcDocStub(url="file:///fake.ods", selection="A1")
+    ctx = _ctx_with_doc(doc)
+    captured_calls: list[tuple[Any, ...]] = []
+
+    def fake_run(ctx, code, **kwargs):
+        captured_calls.append((code, kwargs))
+        return {"status": "ok", "result": 123}
+
+    monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(
+        "plugin.framework.config.get_config_bool",
+        lambda key, default=False: True if key == "scripting.python_allow_network" else default,
+    )
+
+    out = python_function.execute_python_addin(ctx, "import socket; result = 123", doc=doc)
+    assert out == 123
+    assert len(captured_calls) == 1
+    code, kwargs = captured_calls[0]
+    assert code == "import socket; result = 123"
+
+
+
 

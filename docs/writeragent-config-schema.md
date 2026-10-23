@@ -90,20 +90,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `max_rows_display` | `int` | `1000` | `100`–`100000` | Max Rows Display |
 | `ods_cache_enabled` | `boolean` | `true` |  | Convert sibling .xlsx/.xls to writeragent_ods_cache/ beside the folder so repeated DuckDB SQL reuses the ODS. Native .ods and the live workbook are never cached. Set calc.ods_cache_enabled false in writeragent.json to disable. |
 
-## MCP (`mcp`)
-
-| Key | Type | Default | Range | Description |
-| --- | --- | --- | --- | --- |
-| `mcp_enabled` | `boolean` | `false` |  | Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable HTTP). |
-| `mcp_port` | `int` | `18765` | `1024`–`65535` | MCP Port |
-| `tool_exposure_mode` | `string` | `"delegate"` |  | How specialized tools are surfaced to MCP clients. delegate=reached via the delegate gateway (today's behavior); direct_flat=all MCP-reachable specialized tools listed directly, excluding sidebar-only flows (best for clients with their own tool-search); direct_discovery=small core list plus find_tools (domain catalog, then per-domain tool schemas; best for any client). Options: delegate (Delegate (default)), direct_flat (Direct — list all tools), direct_discovery (Direct — discovery (find_tools)) |
-| `tunnel_enabled` | `boolean` | `false` |  | Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or tailscale). MCP has no auth — anyone with the public URL can call tools. See MCP Server Status for the public /mcp URL when ready. |
-| `tunnel_provider` | `string` | `"cloudflare"` |  | Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must already be logged in). Options: cloudflare (Cloudflare), bore (Bore), ngrok (Ngrok), tailscale (Tailscale) |
-| `tunnel_provider_token` | `string` | `""` |  | Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. Empty = provider default / CLI config. Unused for Tailscale. |
-| `client_config_snippet` | `string` | `""` |  | Client config (copy into Claude / Hermes-Agent): |
-| `cors_allow_private_origins` | `boolean` | `true` |  | Internal |
-| `cors_allowed_origins` | `list` | `[]` |  | Internal |
-
 ## Sidebar (`chatbot`)
 
 | Key | Type | Default | Range | Description |
@@ -156,6 +142,20 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `embedding_model` | `string` | `"paraphrase-multilingual-MiniLM-L12-v2"` |  | HuggingFace model ID for local provider, or endpoint-specific model ID |
 | `folder_rerank_enabled` | `boolean` | `false` |  | Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and LlamaIndex). Off by default. |
 | `folder_rerank_model` | `string` | `"cross-encoder/ms-marco-MiniLM-L-6-v2"` |  | Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 is multilingual and downloads ~2.3 GB. Options: cross-encoder/ms-marco-MiniLM-L-6-v2, BAAI/bge-reranker-v2-m3 |
+
+## MCP (`mcp`)
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `mcp_enabled` | `boolean` | `false` |  | Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable HTTP). |
+| `mcp_port` | `int` | `18765` | `1024`–`65535` | MCP Port |
+| `tool_exposure_mode` | `string` | `"delegate"` |  | How specialized tools are surfaced to MCP clients. delegate=reached via the delegate gateway (today's behavior); direct_flat=all MCP-reachable specialized tools listed directly, excluding sidebar-only flows (best for clients with their own tool-search); direct_discovery=small core list plus find_tools (domain catalog, then per-domain tool schemas; best for any client). Options: delegate (Delegate (default)), direct_flat (Direct — list all tools), direct_discovery (Direct — discovery (find_tools)) |
+| `tunnel_enabled` | `boolean` | `false` |  | Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or tailscale). MCP has no auth — anyone with the public URL can call tools. See MCP Server Status for the public /mcp URL when ready. |
+| `tunnel_provider` | `string` | `"cloudflare"` |  | Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must already be logged in). Options: cloudflare (Cloudflare), bore (Bore), ngrok (Ngrok), tailscale (Tailscale) |
+| `tunnel_provider_token` | `string` | `""` |  | Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. Empty = provider default / CLI config. Unused for Tailscale. |
+| `client_config_snippet` | `string` | `""` |  | Client config (copy into Claude / Hermes-Agent): |
+| `cors_allow_private_origins` | `boolean` | `true` |  | Internal |
+| `cors_allowed_origins` | `list` | `[]` |  | Internal |
 
 ## Python (`scripting`)
 

@@ -162,16 +162,31 @@ def _action_execute(request: dict[str, Any], *, stdout: Any | None = None) -> di
     bindings = request.get("bindings")
     bindings_dict = bindings if isinstance(bindings, dict) else None
     init_script = request.get("init_script")
-    return run_sandboxed_code(
-        code,
-        request.get("data"),
-        bindings=bindings_dict,
-        session_id=_clean_str(request.get("session_id")),
-        init_script=init_script if isinstance(init_script, str) else None,
-        init_session_id=_clean_str(request.get("init_session_id")),
-        init_script_hash=_clean_str(request.get("init_script_hash")),
-        timeout_sec=request.get("timeout_sec"),
-    )
+    try:
+        return run_sandboxed_code(
+            code,
+            request.get("data"),
+            bindings=bindings_dict,
+            session_id=_clean_str(request.get("session_id")),
+            init_script=init_script if isinstance(init_script, str) else None,
+            init_session_id=_clean_str(request.get("init_session_id")),
+            init_script_hash=_clean_str(request.get("init_script_hash")),
+            timeout_sec=request.get("timeout_sec"),
+            sandbox_policy=request.get("sandbox_policy"),  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+        )
+    except TypeError as _err:
+        if "sandbox_policy" in str(_err):
+            return run_sandboxed_code(
+                code,
+                request.get("data"),
+                bindings=bindings_dict,
+                session_id=_clean_str(request.get("session_id")),
+                init_script=init_script if isinstance(init_script, str) else None,
+                init_session_id=_clean_str(request.get("init_session_id")),
+                init_script_hash=_clean_str(request.get("init_script_hash")),
+                timeout_sec=request.get("timeout_sec"),
+            )
+        raise
 
 
 _ACTION_HANDLERS = {

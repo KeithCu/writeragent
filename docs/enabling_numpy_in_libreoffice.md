@@ -105,6 +105,11 @@ No terminal is required after the venv is set up. An optional [chat assistant](#
 | `scripting.python_session_mode` | `isolated` (default) or `shared` (Shared kernel for `=PY()` cells)                                                                                                                        | `isolated`            |
 | `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script and `=PY()` (default **10**, max **600**). Trusted long-running helpers (OCR, spaCy, SymPy, embeddings, …) use a longer internal budget. | `10`                  |
 | `scripting.python_auto_spill`   | **On by default.** Single-cell `=PY()` returning a list, 2D array, or DataFrame **auto-spills** into adjacent cells. Blocked cells → `#SPILL!`. Disable for matrix-only workflows.        | `true`                |
+| `scripting.python_allow_network` | Allow network access (`socket`, `http`, `urllib`, `ssl` and their submodules). Default `false`. | `false` |
+| `scripting.python_allow_files`   | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, and filtered `os` file proxy). Reads/writes anywhere. Default `false`. | `false` |
+| `scripting.python_allow_os`      | Allow OS access (real `os` and `subprocess`, e.g. `os.system`, `subprocess.run`). Implies file access. Default `false`. | `false` |
+| `scripting.python_extra_modules` | Comma-separated extra allowed modules (each name also grants `name.*`). Rejects dangerous roots (`os`, `socket`, `subprocess`, etc.). | `""` |
+
 
 
 - **Empty path:** Run Python Script and `=PY()` fall back to LibreOffice’s embedded Python — usually **stdlib-only**. **Use a dedicated venv for NumPy.**
@@ -287,8 +292,29 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 | **Pre-imported** (do not `import` in script)          | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl`                                                                                             |
 | **Allowed stdlib**                                    | `__future__`, `collections`, `collections.abc`, `copy`, `csv`, `dataclasses`, `datetime`, `decimal`, `enum`, `fractions`, `functools`, `itertools`, `json`, `math`, `operator`, `platform`, `pprint`, `queue`, `random`, `re`, `stat`, `statistics`, `string`, `textwrap`, `time`, `typing`, `unicodedata` |
 | **Allowed packages** (+ submodules where whitelisted) | See authoritative list in `[sandbox.py](../plugin/scripting/sandbox.py)` `VENV_AUTHORIZED_IMPORTS` (categories include numpy/pandas/scipy stack, domain helpers, embeddings, vision, …)                                                                                   |
-| **Always blocked**                                    | `os`, `sys`, `subprocess`, `socket`, `pathlib`, `shutil`, `io`, `multiprocessing`, `pty`, `builtins`                                                                                                                                                                      |
-| **Common not-whitelisted**                            | `requests`, `urllib`, `http`, `httpx`, `ssl`, `pickle`, `sqlite3`, `logging`, `importlib`, `ctypes`, `threading`, …                                                                                                                                                       |
+| **Blocked by default** (relaxable via Settings)       | `os`, `subprocess`, `socket`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, `http`, `urllib`, `ssl`                                                                                                                                                                      |
+| **Always blocked**                                    | `sys`, `multiprocessing`, `pty`, `builtins`                                                                                                                                                                                                                              |
+| **Common not-whitelisted**                            | `requests`, `httpx`, `pickle`, `sqlite3`, `logging`, `importlib`, `ctypes`, `threading`, … (can be added via `scripting.python_extra_modules`)                                                                                                                            |
+
+##### Sandbox settings & permissions {#sandbox-settings-permissions}
+
+By default, every flag is off. Users can selectively enable capabilities under **Settings → Python**:
+
+- **Allow network access (`scripting.python_allow_network`)**: Unlocks `socket`, `http`, `urllib`, `ssl`, and their submodules.
+- **Allow file access (`scripting.python_allow_files`)**: Unlocks `open()`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, and a filtered `os` proxy. Reads and writes anywhere on the machine.
+  - The `os` file proxy exposes only path and filesystem operations:
+    - **Module:** `path` (`posixpath`/`ntpath`).
+    - **Directories:** `listdir`, `scandir`, `walk`, `fwalk` (POSIX only), `mkdir`, `makedirs`, `rmdir`, `removedirs`, `getcwd`, `getcwdb`.
+    - **Files:** `remove`, `unlink`, `rename`, `renames`, `replace`, `truncate`.
+    - **Metadata:** `stat`, `lstat`, `access`, `chmod`, `lchmod`, `chown`, `lchown`, `utime`.
+    - **Links:** `symlink`, `link`, `readlink`.
+    - **Path helpers and types:** `fspath`, `fsencode`, `fsdecode`, `PathLike`, `DirEntry`, `stat_result`.
+    - **Constants:** `sep`, `altsep`, `extsep`, `pathsep`, `curdir`, `pardir`, `linesep`, `devnull`, `F_OK`, `R_OK`, `W_OK`, `X_OK`, `SEEK_SET`, `SEEK_CUR`, `SEEK_END`.
+    - Accessing any other `os` attribute on the proxy raises `AttributeError`.
+- **Allow OS access (`scripting.python_allow_os`)**: Unlocks the real `os` module (environment variables, process management, system info) and `subprocess` (`os.system`, `subprocess.run`, `os.popen`, etc.). **OS access implies file access** (`files = allow_files or allow_os`).
+- **Extra allowed modules (`scripting.python_extra_modules`)**: Comma-separated names (each also grants `name.*`). Rejects dangerous roots (`os`, `socket`, `subprocess`, `io`, `pathlib`, `shutil`, `sys`, `builtins`, `multiprocessing`, `pty`, `posix`, `nt`), invalid identifiers, bare `*`, and names over 62 characters.
+- `multiprocessing`, `pty`, `sys`, and `builtins` stay blocked under all flags.
+
 
 
 

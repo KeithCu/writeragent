@@ -395,3 +395,43 @@ def test_heartbeat_result_id_beats_resp_id() -> None:
         assert frame["status"] == "error"
 
 
+def test_action_execute_forwards_sandbox_policy() -> None:
+    from plugin.scripting.venv.worker_harness import _action_execute
+
+    policy = {"network": True, "files": True, "os": False, "extra_modules": "requests"}
+    req = {
+        "code": "result = 42",
+        "sandbox_policy": policy,
+        "timeout_sec": 15,
+    }
+    with patch("plugin.scripting.venv.venv_sandbox.run_sandboxed_code", return_value={"status": "ok", "result": 42}) as mock_run:
+        res = _action_execute(req)
+        assert res == {"status": "ok", "result": 42}
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs.get("sandbox_policy") == policy
+
+
+def test_trusted_action_ignores_sandbox_policy() -> None:
+    policy = {"network": True, "files": True, "os": True, "extra_modules": "all"}
+    req = {
+        "action": "run_trusted_action",
+        "sandbox_policy": policy,
+        "data": {
+            "domain": "analysis",
+            "helper": "describe_data",
+            "params": {},
+            "data_range": "A1:B2",
+            "context": {},
+        },
+    }
+    with (
+        patch("plugin.scripting.venv.trusted_dispatch.dispatch_analysis", return_value={"status": "ok"}) as mock_dispatch,
+        patch("plugin.scripting.venv.venv_sandbox.run_sandboxed_code") as mock_run_code,
+    ):
+        res = _handle_request(req)
+        assert res == {"status": "ok", "result": {"status": "ok"}}
+        mock_dispatch.assert_called_once()
+        mock_run_code.assert_not_called()
+
+
+
