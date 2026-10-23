@@ -1005,7 +1005,7 @@ class DeleteStructure(ToolBase):
         if type(count) is not int or count < 1:
             return self._tool_error("count must be an integer >= 1")
 
-        start_raw = kwargs.get("start")
+        start_raw = kwargs["start"]
         if structure_type == "rows":
             if type(start_raw) is int:
                 row_val = start_raw

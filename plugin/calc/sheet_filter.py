@@ -185,8 +185,9 @@ class ApplySheetFilter(ToolCalcSheetBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = _first_range_name(kwargs)
-        criteria = kwargs.get("criteria")
-        if not isinstance(criteria, list) or not criteria:
+        criteria = kwargs["criteria"]
+        assert isinstance(criteria, list)
+        if not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
         has_header = bool(kwargs.get("has_header", True))

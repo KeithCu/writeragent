@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import (
     best_effort,
@@ -947,7 +947,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         from .html_export import xtext_to_content
 
         style_name = kwargs.get("style", "Standard")
-        region = cast("str", kwargs.get("region"))
+        region = kwargs["region"]
+        assert isinstance(region, str)
         include_images = bool(kwargs.get("include_images", True))
         # type/enum checks are done by the tool schema in ToolRegistry
 
@@ -1055,8 +1056,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         from .html_import import replace_xtext_with_html
 
         style_name = kwargs.get("style", "Standard")
-        region = cast("str", kwargs.get("region"))
-        content = kwargs.get("content", "")
+        region = kwargs["region"]
+        assert isinstance(region, str)
+        content = kwargs["content"]
+        assert isinstance(content, str)
 
         # type/enum checks are done by the tool schema in ToolRegistry
 
@@ -1470,9 +1473,12 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
-        region = cast("str", kwargs.get("region"))
-        old_content = cast("str", kwargs.get("old_content"))
-        new_text = cast("str", kwargs.get("content"))
+        region = kwargs["region"]
+        assert isinstance(region, str)
+        old_content = kwargs["old_content"]
+        assert isinstance(old_content, str)
+        new_text = kwargs["content"]
+        assert isinstance(new_text, str)
         # type/enum checks are done by the tool schema in ToolRegistry
         if old_content == "":
             return self._tool_error("old_content must be a non-empty string.")

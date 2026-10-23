@@ -529,7 +529,8 @@ class FormCreate(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        fields = kwargs.get("fields", [])
+        fields = kwargs["fields"]
+        assert isinstance(fields, list)
         doc = ctx.doc
         results: list[Any] = []
         creator = FormCreateControl()

@@ -96,7 +96,9 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        sql = str(kwargs.get("sql") or "").strip()
+        sql = kwargs["sql"]
+        assert isinstance(sql, str)
+        sql = sql.strip()
         if not sql:
             return self._tool_error("sql is required")
 

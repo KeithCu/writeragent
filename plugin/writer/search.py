@@ -994,7 +994,8 @@ class SearchInDocument(ToolBase):
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
         max_results = raw_max
 
-        pattern = kwargs.get("pattern", "")
+        pattern = kwargs["pattern"]
+        assert isinstance(pattern, str)
         if not pattern:
             return self._tool_error("pattern is required.")
 

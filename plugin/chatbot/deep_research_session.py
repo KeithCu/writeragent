@@ -89,7 +89,8 @@ class DeepResearchWebTool(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.chatbot.web_research import WebResearchTool
 
-        query = kwargs.get("query")
+        query = kwargs["query"]
+        assert isinstance(query, str)
         return WebResearchTool().execute(ctx, query=query, deep=True)
 
 

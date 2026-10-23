@@ -807,7 +807,8 @@ class GroupShapes(_AnyDocumentShapeTool):
         except ToolExecutionError as exc:
             return self._tool_error(str(exc))
 
-        indices = kwargs.get("indices")
+        indices = kwargs["indices"]
+        assert isinstance(indices, list)
         if not indices or len(indices) < 2:
             return self._tool_error("At least two shape indices are required to group.")
 
@@ -884,7 +885,8 @@ class AlignShapes(ToolDrawShapeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import align_boxes
 
-        indices = kwargs.get("indices") or []
+        indices = kwargs["indices"]
+        assert isinstance(indices, list)
         # Schema requires alignment and rejects values outside the enum, including "".
         alignment = kwargs["alignment"]
         if len(indices) < 2:
@@ -923,7 +925,8 @@ class DistributeShapes(ToolDrawShapeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import distribute_boxes
 
-        indices = kwargs.get("indices") or []
+        indices = kwargs["indices"]
+        assert isinstance(indices, list)
         # Schema requires axis and rejects values outside the enum, including "".
         axis = kwargs["axis"]
         if len(indices) < 3:
@@ -978,7 +981,8 @@ class CreateDiagram(ToolDrawShapeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import diagram_node_boxes
 
-        nodes = kwargs.get("nodes") or []
+        nodes = kwargs["nodes"]
+        assert isinstance(nodes, list)
         if not nodes:
             return self._tool_error("nodes is required and must be non-empty.")
         ids = [n.get("id") for n in nodes]

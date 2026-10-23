@@ -1066,7 +1066,8 @@ class ImageCropAndHighlight(ToolWriterImageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
-        image_name = kwargs.get("name", "")
+        image_name = kwargs["name"]
+        assert isinstance(image_name, str)
         sheet_index = kwargs.get("sheet_index")
         try:
             obj = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
