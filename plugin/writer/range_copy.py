@@ -8,7 +8,7 @@ without clipboard transferables or XHTML filter roundtrips.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
@@ -31,6 +31,69 @@ def _record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, 
     ph = chr(0xE000 + len(records))
     records.append((ph, read_starmath(emb), display_block))
     return ph
+
+
+def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any, caller: str) -> None:
+    try:
+        dest_text.insertString(cursor, el.getString() if el else "", False)
+    except Exception as exc:
+        log.debug("%s: paragraph text fallback failed: %s", caller, exc)
+
+
+def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
+    while portions.hasMoreElements() is True:
+        try:
+            portion = portions.nextElement()
+            kind = portion.getPropertyValue("TextPortionType")
+        except Exception:
+            break
+        yield portion, kind
+
+
+def _portion_field(portion: Any, caller: str) -> Any:
+    try:
+        return portion.getPropertyValue("TextField")
+    except Exception as exc:
+        log.debug("%s: TextField unreadable: %s", caller, exc)
+        return None
+
+
+def _copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str) -> None:
+    start = cursor.getStart()
+    dest_text.insertString(cursor, chunk, False)
+    run = dest_text.createTextCursorByRange(start)
+    run.gotoRange(cursor.getEnd(), True)
+    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+    cursor.gotoRange(run.getEnd(), False)
+
+
+def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any) -> None:
+    para_cursor = dest_text.createTextCursor()
+    para_cursor.gotoEnd(False)
+    para_cursor.gotoStartOfParagraph(False)
+    para_cursor.gotoEndOfParagraph(True)
+    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+    cursor.gotoRange(para_cursor.getEnd(), False)
+
+
+def _copy_math_or_text(
+    portion: Any,
+    parent_el: Any,
+    dest_text: Any,
+    dest_cursor: Any,
+    math_records: list[Any] | None,
+) -> None:
+    if math_records is not None:
+        emb = portion_math_embed(portion)
+        if emb is not None:
+            raw = parent_el.getString() if hasattr(parent_el, "getString") else ""
+            stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
+            ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
+            dest_text.insertString(dest_cursor, ph, False)
+            return
+    chunk = uno_read(lambda: portion.getString(), "")
+    if chunk:
+        dest_text.insertString(dest_cursor, chunk, False)
 
 
 
@@ -220,36 +283,16 @@ def _copy_cell_xtext(
         try:
             portions = para.createEnumeration()
         except Exception:
-            try:
-                dest_text.insertString(dest_cursor, para.getString(), False)
-            except Exception as exc:
-                log.debug("_copy_cell_xtext: paragraph text fallback failed: %s", exc)
+            _fallback_insert_para_text(dest_text, dest_cursor, para, "_copy_cell_xtext")
             continue
-        while portions.hasMoreElements() is True:
-            try:
-                portion = portions.nextElement()
-                kind = portion.getPropertyValue("TextPortionType")
-            except Exception:
-                break
+        for portion, kind in _iter_portions(portions):
             if kind == "TextField":
-                try:
-                    field = portion.getPropertyValue("TextField")
-                except Exception as exc:
-                    log.debug("_copy_cell_xtext: TextField unreadable: %s", exc)
+                field = _portion_field(portion, "_copy_cell_xtext")
+                if field is None:
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             else:
-                if math_records is not None:
-                    emb = portion_math_embed(portion)
-                    if emb is not None:
-                        raw = para.getString() if hasattr(para, "getString") else ""
-                        stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-                        ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
-                        dest_text.insertString(dest_cursor, ph, False)
-                        continue
-                chunk = uno_read(lambda: portion.getString(), "")
-                if chunk:
-                    dest_text.insertString(dest_cursor, chunk, False)
+                _copy_math_or_text(portion, para, dest_text, dest_cursor, math_records)
 
 
 def _writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -415,52 +458,22 @@ def _copy_xtext_by_portions(
         try:
             portions = el.createEnumeration()
         except Exception:
-            try:
-                dest_text.insertString(dest_cursor, el.getString(), False)
-            except Exception as exc:
-                log.debug("_copy_xtext_by_portions: paragraph text fallback failed: %s", exc)
+            _fallback_insert_para_text(dest_text, dest_cursor, el, "_copy_xtext_by_portions")
             continue
-        while portions.hasMoreElements() is True:
-            try:
-                portion = portions.nextElement()
-                kind = portion.getPropertyValue("TextPortionType")
-            except Exception:
-                break
+        for portion, kind in _iter_portions(portions):
             if kind == "TextField":
-                try:
-                    field = portion.getPropertyValue("TextField")
-                except Exception as exc:
-                    log.debug("_copy_xtext_by_portions: TextField unreadable: %s", exc)
+                field = _portion_field(portion, "_copy_xtext_by_portions")
+                if field is None:
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             elif kind == "Text":
                 chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
-                start = dest_cursor.getStart()
-                dest_text.insertString(dest_cursor, chunk, False)
-                run = dest_text.createTextCursorByRange(start)
-                run.gotoRange(dest_cursor.getEnd(), True)
-                _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
-                dest_cursor.gotoRange(run.getEnd(), False)
+                _copy_text_run(portion, dest_text, dest_cursor, chunk)
             else:
-                if math_records is not None:
-                    emb = portion_math_embed(portion)
-                    if emb is not None:
-                        raw = el.getString() if hasattr(el, "getString") else ""
-                        stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-                        ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
-                        dest_text.insertString(dest_cursor, ph, False)
-                        continue
-                chunk = uno_read(lambda: portion.getString(), "")
-                if chunk:
-                    dest_text.insertString(dest_cursor, chunk, False)
-        para_cursor = dest_text.createTextCursor()
-        para_cursor.gotoEnd(False)
-        para_cursor.gotoStartOfParagraph(False)
-        para_cursor.gotoEndOfParagraph(True)
-        _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
-        dest_cursor.gotoRange(para_cursor.getEnd(), False)
+                _copy_math_or_text(portion, el, dest_text, dest_cursor, math_records)
+        _copy_para_properties_to_end(dest_text, dest_cursor, el)
 
 
 def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
@@ -526,28 +539,13 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         try:
             portions = el.createEnumeration()
         except Exception:
-            try:
-                dest_text.insertString(cursor, el.getString() if el else "", False)
-            except Exception as exc:
-                log.debug("_copy_flow_into_xtext: paragraph text fallback failed: %s", exc)
-            para_cursor = dest_text.createTextCursor()
-            para_cursor.gotoEnd(False)
-            para_cursor.gotoStartOfParagraph(False)
-            para_cursor.gotoEndOfParagraph(True)
-            _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
-            cursor.gotoRange(para_cursor.getEnd(), False)
+            _fallback_insert_para_text(dest_text, cursor, el, "_copy_flow_into_xtext")
+            _copy_para_properties_to_end(dest_text, cursor, el)
             continue
-        while portions.hasMoreElements() is True:
-            try:
-                portion = portions.nextElement()
-                kind = portion.getPropertyValue("TextPortionType")
-            except Exception:
-                break
+        for portion, kind in _iter_portions(portions):
             if kind == "TextField":
-                try:
-                    field = portion.getPropertyValue("TextField")
-                except Exception as exc:
-                    log.debug("_copy_flow_into_xtext: TextField unreadable: %s", exc)
+                field = _portion_field(portion, "_copy_flow_into_xtext")
+                if field is None:
                     continue
                 if _copy_field_into(doc, dest_text, cursor, field):
                     fields_copied += 1
@@ -556,20 +554,10 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
                 chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
-                start = cursor.getStart()
-                dest_text.insertString(cursor, chunk, False)
-                run = dest_text.createTextCursorByRange(start)
-                run.gotoRange(cursor.getEnd(), True)
-                _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
-                cursor.gotoRange(run.getEnd(), False)
+                _copy_text_run(portion, dest_text, cursor, chunk)
             else:
                 continue
-        para_cursor = dest_text.createTextCursor()
-        para_cursor.gotoEnd(False)
-        para_cursor.gotoStartOfParagraph(False)
-        para_cursor.gotoEndOfParagraph(True)
-        _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
-        cursor.gotoRange(para_cursor.getEnd(), False)
+        _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied
 
@@ -584,11 +572,15 @@ _ANCHORED_GRAPHIC_PROPS = (
 )
 
 
-def _anchor_offset(src_text: Any, anchor: Any) -> int:
-    """Visible-text offset of *anchor* in *src_text*."""
-    measure = src_text.createTextCursor()
+def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
+    """``getString()`` length from the start of *text_obj* to *cursor*.
+
+    Captured before import so we can apply ruby only to the inserted suffix.
+    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
+    """
+    measure = text_obj.createTextCursor()
     measure.gotoStart(False)
-    measure.gotoRange(anchor.getStart(), True)
+    measure.gotoRange(cursor.getStart(), True)
     return len(measure.getString() or "")
 
 
@@ -640,7 +632,7 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             cursor.gotoStart(False)
             # A bad anchor still inserts the logo at the start. Dropping
             # it here would hide the letterhead.
-            offset = uno_read(lambda: _anchor_offset(src_text, anchor), 0)
+            offset = uno_read(lambda: _prefix_char_count(src_text, anchor), 0)
             if offset:
                 cursor.goRight(offset, False)
             dest_text.insertTextContent(cursor, clone, False)

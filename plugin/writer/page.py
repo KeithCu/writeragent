@@ -731,6 +731,30 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
     return {"status": "ok", "properties": props}
 
 
+_STYLE_PROPERTY = {
+    "type": "string",
+    "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
+}
+
+
+def _resolve_page_style_target(tool: ToolWriterPageBase, doc: Any, style_name: str) -> tuple[Any, str] | dict[str, Any]:
+    try:
+        return resolve_page_style(doc, style_name)
+    except ValueError as e:
+        return tool._tool_error(str(e))
+
+
+def _resolve_text_columns(tool: ToolWriterPageBase, doc: Any, style_name: str) -> tuple[Any, str, Any] | dict[str, Any]:
+    resolved = _resolve_page_style_target(tool, doc, style_name)
+    if isinstance(resolved, dict):
+        return resolved
+    style, style_name = resolved
+    text_columns = style.getPropertyValue("TextColumns")
+    if not text_columns:
+        return tool._tool_error(f"TextColumns property not found on style '{style_name}'.")
+    return style, style_name, text_columns
+
+
 # ------------------------------------------------------------------
 # PageGetStyleProperties
 # ------------------------------------------------------------------
@@ -741,7 +765,7 @@ class PageGetStyleProperties(ToolWriterPageBase):
 
     name: str | None = "page_get_style_properties"
     description: str = "Get dimensions, margins, and header/footer states of a page style."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": _STYLE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
@@ -765,7 +789,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
+            "style": _STYLE_PROPERTY,
             "width_mm": {"type": "number", "description": "New width in mm."},
             "height_mm": {"type": "number", "description": "New height in mm."},
             "is_landscape": {"type": "boolean", "description": "Sets the IsLandscape flag only. Does not change Width or Height unless width_mm and height_mm are also passed. Landscape A4 is width_mm 297 and height_mm 210."},
@@ -815,13 +839,11 @@ class PageSetStyleProperties(ToolWriterPageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
         doc = ctx.doc
-
-        try:
-            style, style_name = resolve_page_style(doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        resolved = _resolve_page_style_target(self, doc, kwargs.get("style", "Standard"))
+        if isinstance(resolved, dict):
+            return resolved
+        style, style_name = resolved
 
         # F5: HeaderIsOn/FooterIsOn=false *clears* content. Refuse while
         # content remains so we don't silently wipe (same idea as LO's
@@ -919,10 +941,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "style": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
+            "style": _STYLE_PROPERTY,
             "region": enum_param(
                 list(_REGIONS),
                 (
@@ -952,10 +971,10 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         include_images = bool(kwargs.get("include_images", True))
         # type/enum checks are done by the tool schema in ToolRegistry
 
-        try:
-            style, style_name = resolve_page_style(ctx.doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        if isinstance(resolved, dict):
+            return resolved
+        style, style_name = resolved
 
         is_on_prop, text_prop = _REGION_PROPS[region]
         is_on = bool(style.getPropertyValue(is_on_prop))
@@ -1022,10 +1041,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "style": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
+            "style": _STYLE_PROPERTY,
             "region": enum_param(
                 list(_REGIONS),
                 (
@@ -1063,10 +1079,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 
         # type/enum checks are done by the tool schema in ToolRegistry
 
-        try:
-            style, style_name = resolve_page_style(ctx.doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        if isinstance(resolved, dict):
+            return resolved
+        style, style_name = resolved
 
         # Mirrors cannot be set independently without turning sharing off first.
         if _region_mirrors_shared(style, region):
@@ -1494,10 +1510,10 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 return self._tool_error("occurrence must be a non-negative integer.")
             occurrence = raw_occurrence
 
-        try:
-            style, style_name = resolve_page_style(ctx.doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
+        resolved = _resolve_page_style_target(self, ctx.doc, style_name)
+        if isinstance(resolved, dict):
+            return resolved
+        style, style_name = resolved
 
         # A shared mirror is the same text as header/footer. Editing it would
         # surprise the caller who asked for the first or left page only.
@@ -1600,17 +1616,10 @@ class PageGetColumns(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
-        doc = ctx.doc
-
-        try:
-            style, style_name = resolve_page_style(doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
-
-        text_columns = style.getPropertyValue("TextColumns")
-        if not text_columns:
-            return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
+        target = _resolve_text_columns(self, ctx.doc, kwargs.get("style", "Standard"))
+        if isinstance(target, dict):
+            return target
+        _style, style_name, text_columns = target
 
         column_count = text_columns.getColumnCount()
         cols = text_columns.getColumns()
@@ -1659,16 +1668,10 @@ class PageSetColumns(ToolWriterPageBase):
 
         spacing_hmm = _mm_to_hmm(spacing_raw)
 
-        doc = ctx.doc
-
-        try:
-            style, style_name = resolve_page_style(doc, style_name)
-        except ValueError as e:
-            return self._tool_error(str(e))
-
-        text_columns = style.getPropertyValue("TextColumns")
-        if not text_columns:
-            return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
+        target = _resolve_text_columns(self, ctx.doc, style_name)
+        if isinstance(target, dict):
+            return target
+        style, style_name, text_columns = target
 
         text_columns.setColumnCount(column_count)
         cols = list(text_columns.getColumns())

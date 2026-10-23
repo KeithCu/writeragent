@@ -728,6 +728,17 @@ def _restore_xtext_string(text_obj: Any, original: str) -> None:
         log.exception("replace_xtext_with_html: could not restore text after a failed import")
 
 
+def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool:
+    try:
+        titles = mgr.getAllUndoActionTitles()
+        if titles and titles[0] == title:
+            mgr.undo()
+            return True
+    except Exception:
+        log.exception(log_message)
+    return False
+
+
 def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
@@ -845,13 +856,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
             except Exception:
                 log.exception("replace_xtext_with_html: leaveUndoContext failed")
             if left:
-                try:
-                    titles = mgr.getAllUndoActionTitles()
-                    if titles and titles[0] == title:
-                        mgr.undo()
-                        undone = True
-                except Exception:
-                    log.exception("replace_xtext_with_html: undo failed")
+                undone = _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed")
             if not undone:
                 raise ToolExecutionError(
                     f"the header/footer was written and could not be rolled back: {exc}"
@@ -929,6 +934,20 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
     except Exception as exc:
         reraise_if_disposed(exc)
         return False, None
+
+
+def _step_replace_characters(
+    text: Any, main_cursor: Any, old_text: str, new_text: str, start: int, stop: int
+) -> None:
+    for i in range(start, stop):
+        sel = text.createTextCursorByRange(main_cursor)
+        if not sel.goRight(1, True):
+            raise ToolExecutionError(
+                "Could not replace that text in place (the selection did not advance)."
+            )
+        if new_text[i] != old_text[i]:
+            sel.setString(new_text[i])
+        main_cursor.gotoRange(sel.getEnd(), False)
 
 
 def replace_preserving_format(
@@ -1030,15 +1049,7 @@ def replace_preserving_format(
 
     if has_special:
         # Non-text portions (fields, ruby) advance by portion instead of char, so step 1-by-1.
-        for i in range(overlap):
-            sel = text.createTextCursorByRange(main_cursor)
-            if not sel.goRight(1, True):
-                raise ToolExecutionError(
-                    "Could not replace that text in place (the selection did not advance)."
-                )
-            if new_text[i] != old_text[i]:
-                sel.setString(new_text[i])
-            main_cursor.gotoRange(sel.getEnd(), False)
+        _step_replace_characters(text, main_cursor, old_text, new_text, 0, overlap)
     elif portions is not None and sum(plen for _, plen in portions) == old_len:
         # Coalesce changes inside each Text portion to avoid per-character setString calls.
         offset = 0
@@ -1095,15 +1106,7 @@ def replace_preserving_format(
                     )
 
         if offset < overlap:
-            for i in range(offset, overlap):
-                sel = text.createTextCursorByRange(main_cursor)
-                if not sel.goRight(1, True):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
-                if new_text[i] != old_text[i]:
-                    sel.setString(new_text[i])
-                main_cursor.gotoRange(sel.getEnd(), False)
+            _step_replace_characters(text, main_cursor, old_text, new_text, offset, overlap)
     else:
         i = 0
         while i < overlap:

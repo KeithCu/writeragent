@@ -48,6 +48,7 @@ from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
+from plugin.writer.html_import import _rollback_undo_action
 from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
@@ -658,6 +659,31 @@ def _normalize_property_updates(property_updates: Any) -> tuple[dict[str, Any], 
     return updates, None
 
 
+def _validate_style_updates(
+    tool: Any, kwargs: dict[str, Any]
+) -> tuple[str, Any, Any, dict[str, Any]] | dict[str, Any]:
+    style_name = kwargs["style"].strip()
+    if not style_name:
+        return tool._tool_error("style is required.")
+
+    family = kwargs.get("family", "ParagraphStyles")
+    parent_style = kwargs.get("parent_style")
+
+    token_err = _no_character_style_token_error(tool, family, style_name)
+    if token_err:
+        return token_err
+
+    property_updates = kwargs.get("property_updates", {})
+    if not isinstance(property_updates, dict):
+        return tool._tool_error("property_updates must be an object.")
+
+    updates, adj_err = _normalize_property_updates(property_updates)
+    if adj_err:
+        return tool._tool_error(adj_err)
+
+    return style_name, family, parent_style, updates
+
+
 _installed_font_names_cache: set[str] | None = None
 
 
@@ -1086,13 +1112,7 @@ class ApplyStyle(FrameworkToolBase):
                     reraise_if_disposed(leave_error)
                 if error is not None:
                     if left:
-                        try:
-                            titles = mgr.getAllUndoActionTitles()
-                            if titles and titles[0] == title:
-                                mgr.undo()
-                                undone = True
-                        except Exception:
-                            log.exception("apply_style rollback failed")
+                        undone = _rollback_undo_action(mgr, title, "apply_style rollback failed")
                     if exc_to_reraise is not None:
                         raise exc_to_reraise
                     if undone:
@@ -1179,25 +1199,10 @@ class StyleUpdate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs["style"].strip()
-        if not style_name:
-            return self._tool_error("style is required.")
-
-        family = kwargs.get("family", "ParagraphStyles")
-        parent_style = kwargs.get("parent_style")
-
-        token_err = _no_character_style_token_error(self, family, style_name)
-        if token_err:
-            return token_err
-
-        # One object check. The copy above this line was the same test.
-        property_updates = kwargs.get("property_updates", {})
-        if not isinstance(property_updates, dict):
-            return self._tool_error("property_updates must be an object.")
-
-        updates, adj_err = _normalize_property_updates(property_updates)
-        if adj_err:
-            return self._tool_error(adj_err)
+        validated = _validate_style_updates(self, kwargs)
+        if isinstance(validated, dict):
+            return validated
+        style_name, family, parent_style, updates = validated
 
         if not updates and parent_style is None:
             return self._tool_error("Nothing to update. Pass property_updates and/or parent_style.")
@@ -1319,22 +1324,11 @@ class StyleCreate(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs["style"].strip()
-        if not style_name:
-            return self._tool_error("style is required.")
-
-        family = kwargs.get("family", "ParagraphStyles")
-        parent_style = kwargs.get("parent_style")
-        property_updates = kwargs.get("property_updates", {})
+        validated = _validate_style_updates(self, kwargs)
+        if isinstance(validated, dict):
+            return validated
+        style_name, family, parent_style, updates = validated
         conditional_rules = kwargs.get("conditional_rules")
-
-        token_err = _no_character_style_token_error(self, family, style_name)
-        if token_err:
-            return token_err
-
-        updates, adj_err = _normalize_property_updates(property_updates)
-        if adj_err:
-            return self._tool_error(adj_err)
 
         doc = ctx.doc
         style_families = doc.getStyleFamilies()

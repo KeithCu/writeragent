@@ -16,6 +16,7 @@ from typing import Any, ClassVar, Iterator, NamedTuple
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.writer.html_export import _iter_xtext_paragraphs
+import plugin.writer.range_copy as range_copy
 
 log = logging.getLogger("writeragent.writer")
 # uno_read default where None is a real UNO result.
@@ -327,21 +328,6 @@ def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None
 
 
 
-def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
-    """``getString()`` length from the start of *text_obj* to *cursor*.
-
-    Captured before import so we can apply ruby only to the inserted suffix.
-    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
-    """
-    # Returning 0 painted ruby at the start of the text and bound the reading
-    # to an earlier copy of the same base. A closed document must raise.
-    prefix = text_obj.createTextCursor()
-    prefix.gotoStart(False)
-    prefix.gotoRange(cursor.getStart(), True)
-    return len(prefix.getString() or "")
-
-
-
 def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
     """Character count before *cursor* when *spans* is non-empty, else 0.
 
@@ -350,7 +336,7 @@ def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
     """
     if not spans or text_obj is None or cursor is None:
         return 0
-    return _prefix_char_count(text_obj, cursor)
+    return range_copy._prefix_char_count(text_obj, cursor)
 
 
 

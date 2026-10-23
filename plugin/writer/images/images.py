@@ -619,6 +619,27 @@ def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str, sheet
     return visual_helpers.get_graphic_object_by_name(doc, image_name, sheet_index=sheet_index)
 
 
+def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
+    try:
+        graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+    except ValueError as exc:
+        sheets = getattr(exc, "sheet_indices", None)
+        return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
+    if not graphic:
+        return None, tool._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+    return graphic, None
+
+
+def _validate_dimensions(tool: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+    width_mm_val = kwargs.get("width_mm")
+    if width_mm_val is not None and width_mm_val <= 0:
+        return tool._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+    height_mm_val = kwargs.get("height_mm")
+    if height_mm_val is not None and height_mm_val <= 0:
+        return tool._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+    return None
+
+
 def _object_size(obj: typing.Any) -> Any:
     """Frame size in 1/100 mm. Writer graphics have a ``Size`` property; Draw/Impress shapes
     do not (UnknownPropertyException) and only answer ``getSize()``. Reading the property alone
@@ -647,13 +668,9 @@ class ImageGetInfo(ToolWriterImageBase):
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
-        try:
-            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
-        except ValueError as exc:
-            sheets = getattr(exc, "sheet_indices", None)
-            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-        if not graphic:
-            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        if err is not None:
+            return err
 
         size = _object_size(graphic)
 
@@ -839,12 +856,9 @@ class ImageSetProperties(ToolWriterImageBase):
         if not image_name:
             return self._tool_error("name is required.", code="MISSING_PARAMETER", parameter="name")
 
-        width_mm_val = kwargs.get("width_mm")
-        if width_mm_val is not None and width_mm_val <= 0:
-            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
-        height_mm_val = kwargs.get("height_mm")
-        if height_mm_val is not None and height_mm_val <= 0:
-            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+        dim_err = _validate_dimensions(self, kwargs)
+        if dim_err is not None:
+            return dim_err
 
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None and (type(anchor_type) is not int or anchor_type not in (0, 1, 2, 3, 4)):
@@ -855,13 +869,9 @@ class ImageSetProperties(ToolWriterImageBase):
             )
 
         sheet_index = kwargs.get("sheet_index")
-        try:
-            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
-        except ValueError as exc:
-            sheets = getattr(exc, "sheet_indices", None)
-            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-        if not graphic:
-            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        graphic, resolve_err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        if resolve_err is not None:
+            return resolve_err
 
         # Orientation accepts friendly names ('left'/'center'/'right', 'top'/'center'/'bottom') or
         # raw UNO ints (back-compat), resolved via the build's own constants. Resolve before any write.
@@ -1068,13 +1078,9 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         image_name = kwargs["name"]
         assert isinstance(image_name, str)
         sheet_index = kwargs.get("sheet_index")
-        try:
-            obj = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
-        except ValueError as exc:
-            sheets = getattr(exc, "sheet_indices", None)
-            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-        if not obj:
-            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        obj, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        if err is not None:
+            return err
         crop_box = kwargs.get("crop_box")
         highlights = kwargs.get("highlights") or []
         if crop_box is None and not highlights:
@@ -1281,11 +1287,10 @@ class ImageInsert(ToolWriterImageBase):
         image_path = kwargs["path"]
 
         width_mm_val = kwargs.get("width_mm")
-        if width_mm_val is not None and width_mm_val <= 0:
-            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
         height_mm_val = kwargs.get("height_mm")
-        if height_mm_val is not None and height_mm_val <= 0:
-            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+        dim_err = _validate_dimensions(self, kwargs)
+        if dim_err is not None:
+            return dim_err
 
         locator = kwargs.get("locator")
         paragraph_index = kwargs.get("paragraph")
@@ -1441,13 +1446,9 @@ class ImageDelete(ToolWriterImageBase):
         image_name = kwargs["name"]
         sheet_index = kwargs.get("sheet_index")
 
-        try:
-            graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
-        except ValueError as exc:
-            sheets = getattr(exc, "sheet_indices", None)
-            return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-        if not graphic:
-            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+        if err is not None:
+            return err
 
         doc_type = visual_helpers.get_visual_doc_type(ctx.doc)
         if doc_type in ("calc", "draw", "impress"):
@@ -1498,12 +1499,9 @@ class ImageReplace(ToolWriterImageBase):
         new_image_path = kwargs["path"]
         sheet_index = kwargs.get("sheet_index")
 
-        width_mm_val = kwargs.get("width_mm")
-        if width_mm_val is not None and width_mm_val <= 0:
-            return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
-        height_mm_val = kwargs.get("height_mm")
-        if height_mm_val is not None and height_mm_val <= 0:
-            return self._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
+        dim_err = _validate_dimensions(self, kwargs)
+        if dim_err is not None:
+            return dim_err
 
         is_url = new_image_path.startswith("http://") or new_image_path.startswith("https://")
 
@@ -1529,17 +1527,9 @@ class ImageReplace(ToolWriterImageBase):
                 return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
 
         def _apply() -> dict[str, Any]:
-            try:
-                graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
-            except ValueError as exc:
-                sheets = getattr(exc, "sheet_indices", None)
-                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-            if not graphic:
-                return self._tool_error(
-                    "Image '%s' not found or document does not support graphic objects." % image_name,
-                    code="IMAGE_NOT_FOUND",
-                    image_name=image_name,
-                )
+            graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
+            if err is not None:
+                return err
             if not os.path.isfile(new_image_path):
                 return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
 
