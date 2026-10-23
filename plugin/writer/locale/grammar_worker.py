@@ -906,6 +906,34 @@ def _detect_lang_instruction(detect_items: list[tuple[GrammarWorkItem, str]]) ->
     return f" Choose from the following locales currently used in the document, or provide a new one if none match: {', '.join(locales_in_use)}."
 
 
+def _retarget_item_locale(
+    item: GrammarWorkItem,
+    text: str,
+    target_bcp47: str,
+    grammar_bcp47: str,
+    ec: GrammarWorkerContext,
+) -> GrammarWorkItem | None:
+    new_key = grammar_proofread_locale.grammar_inflight_key(
+        item.doc_id, target_bcp47, text, not item.partial_sentence
+    )
+    new_seq = next_enqueue_seq()
+    if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
+        grammar_obs(
+            "worker_skip",
+            reason="superseded_before_process",
+            enqueue_seq=new_seq,
+            inflight_key=new_key,
+        )
+        return None
+    return replace(
+        item,
+        grammar_bcp47=target_bcp47,
+        enqueue_seq=new_seq,
+        inflight_key=new_key,
+        original_bcp47=item.original_bcp47 or grammar_bcp47,
+    )
+
+
 def _worker_process_chunk(
     chunk: list[tuple[GrammarWorkItem, str]],
     ec: GrammarWorkerContext,
@@ -940,30 +968,9 @@ def _worker_process_chunk(
         if current_bcp47 != grammar_bcp47:
             updated_chunk = []
             for item, text in current_chunk:
-                new_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, current_bcp47, text, not item.partial_sentence)
-                # The in-place locale change mints a new enqueue_seq and publishes
-                # the new inflight key. Keeping the old seq lets a newer enqueue
-                # of that sentence under the detected locale fail to supersede
-                # this item. Mint a seq the way requeue_individual_item does, and
-                # record the new key. An older generation is dropped; a newer one
-                # still wins via inflight_superseded. Do not clobber a newer seq.
-                new_seq = next_enqueue_seq()
-                if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
-                    grammar_obs(
-                        "worker_skip",
-                        reason="superseded_before_process",
-                        enqueue_seq=new_seq,
-                        inflight_key=new_key,
-                    )
-                    continue
-                new_item = replace(
-                    item,
-                    grammar_bcp47=current_bcp47,
-                    enqueue_seq=new_seq,
-                    inflight_key=new_key,
-                    original_bcp47=item.original_bcp47 or grammar_bcp47,
-                )
-                updated_chunk.append((new_item, text))
+                new_item = _retarget_item_locale(item, text, current_bcp47, grammar_bcp47, ec)
+                if new_item is not None:
+                    updated_chunk.append((new_item, text))
             current_chunk = updated_chunk
             if not current_chunk:
                 return
@@ -1074,26 +1081,9 @@ def run_llm_and_cache_batch(
                     _obs_language_validation_decision([(item, text)], grammar_bcp47, [raw_lang], decision)
                     target_bcp47 = decision.target_bcp47
                     if target_bcp47 != grammar_bcp47:
-                        new_key = grammar_proofread_locale.grammar_inflight_key(
-                            item.doc_id, target_bcp47, text, not item.partial_sentence
-                        )
-                        new_seq = next_enqueue_seq()
-                        if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
-                            grammar_obs(
-                                "worker_skip",
-                                reason="superseded_before_process",
-                                enqueue_seq=new_seq,
-                                inflight_key=new_key,
-                            )
-                            continue
-                        new_item = replace(
-                            item,
-                            grammar_bcp47=target_bcp47,
-                            enqueue_seq=new_seq,
-                            inflight_key=new_key,
-                            original_bcp47=item.original_bcp47 or grammar_bcp47,
-                        )
-                        items_by_target_locale[target_bcp47].append((new_item, text))
+                        new_item = _retarget_item_locale(item, text, target_bcp47, grammar_bcp47, ec)
+                        if new_item is not None:
+                            items_by_target_locale[target_bcp47].append((new_item, text))
                     else:
                         items_by_target_locale[target_bcp47].append((item, text))
 

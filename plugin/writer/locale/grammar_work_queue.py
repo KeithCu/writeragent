@@ -378,6 +378,32 @@ class GrammarWorkQueue:
 
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
 
+        def _flush_and_stop() -> None:
+            remaining = list(completes.values()) + list(partials.values())
+            completes.clear()
+            partials.clear()
+            partial_deadlines.clear()
+            _dispatch(remaining)
+
+        def _slurp(deadline: float | None = None) -> bool:
+            while True:
+                if deadline is not None:
+                    remaining_wait = deadline - time.monotonic()
+                    if remaining_wait <= 0:
+                        return False
+                    try:
+                        nxt = self._q.get(timeout=remaining_wait)
+                    except queue.Empty:
+                        return False
+                else:
+                    try:
+                        nxt = self._q.get_nowait()
+                    except queue.Empty:
+                        return False
+                if nxt is None:
+                    return True
+                _absorb(nxt)
+
         while True:
             try:
                 # 1. Dispatch partial sentences whose quiet period has expired.
@@ -404,57 +430,21 @@ class GrammarWorkQueue:
 
                     if first is None:
                         # Poison-pill: dispatch anything already absorbed, then stop.
-                        remaining = list(completes.values()) + list(partials.values())
-                        completes.clear()
-                        partials.clear()
-                        partial_deadlines.clear()
-                        _dispatch(remaining)
+                        _flush_and_stop()
                         return
 
                     _absorb(first)
 
                 # 3. If completes has items, slurp non-blocking and coalesce for fixed window.
                 if completes:
-                    poison = False
-                    while True:
-                        try:
-                            nxt = self._q.get_nowait()
-                        except queue.Empty:
-                            break
-                        if nxt is None:
-                            poison = True
-                            break
-                        _absorb(nxt)
-
-                    if poison:
-                        remaining = list(completes.values()) + list(partials.values())
-                        completes.clear()
-                        partials.clear()
-                        partial_deadlines.clear()
-                        _dispatch(remaining)
+                    if _slurp():
+                        _flush_and_stop()
                         return
 
                     # Fixed coalesce window (deadline does not move when more items arrive)
                     coalesce_deadline = time.monotonic() + grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S
-                    while True:
-                        remaining_wait = coalesce_deadline - time.monotonic()
-                        if remaining_wait <= 0:
-                            break
-                        try:
-                            nxt = self._q.get(timeout=remaining_wait)
-                        except queue.Empty:
-                            break
-                        if nxt is None:
-                            poison = True
-                            break
-                        _absorb(nxt)
-
-                    if poison:
-                        remaining = list(completes.values()) + list(partials.values())
-                        completes.clear()
-                        partials.clear()
-                        partial_deadlines.clear()
-                        _dispatch(remaining)
+                    if _slurp(coalesce_deadline):
+                        _flush_and_stop()
                         return
 
                     batch = list(completes.values())

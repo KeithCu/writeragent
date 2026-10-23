@@ -99,6 +99,28 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
     return None
 
 
+def _step_undo_manager(
+    tool: ToolBase,
+    ctx: ToolContext,
+    action_key: str,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    steps = max(1, min(int(kwargs.get("steps", 1)), 10))
+    try:
+        um = _get_undo_manager(ctx.doc)
+        count = 0
+        possible_fn = um.isRedoPossible if action_key == "redone" else um.isUndoPossible
+        step_fn = um.redo if action_key == "redone" else um.undo
+        for _unused in range(steps):
+            if not possible_fn():
+                break
+            step_fn()
+            count += 1
+        return {"status": "ok", action_key: count, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
+    except Exception as e:
+        return tool._tool_error(str(e))
+
+
 class Undo(ToolBase):
     """Undo the last action."""
 
@@ -114,18 +136,7 @@ class Undo(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        steps = max(1, min(int(kwargs.get("steps", 1)), 10))
-        try:
-            um = _get_undo_manager(ctx.doc)
-            undone = 0
-            for _unused in range(steps):
-                if not um.isUndoPossible():
-                    break
-                um.undo()
-                undone += 1
-            return {"status": "ok", "undone": undone, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
-        except Exception as e:
-            return self._tool_error(str(e))
+        return _step_undo_manager(self, ctx, "undone", kwargs)
 
 
 class Redo(ToolBase):
@@ -142,15 +153,4 @@ class Redo(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        steps = max(1, min(int(kwargs.get("steps", 1)), 10))
-        try:
-            um = _get_undo_manager(ctx.doc)
-            redone = 0
-            for _unused in range(steps):
-                if not um.isRedoPossible():
-                    break
-                um.redo()
-                redone += 1
-            return {"status": "ok", "redone": redone, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
-        except Exception as e:
-            return self._tool_error(str(e))
+        return _step_undo_manager(self, ctx, "redone", kwargs)

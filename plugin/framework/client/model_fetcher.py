@@ -465,6 +465,33 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     return None
 
 
+def _fetch_openrouter_entries(
+    endpoint: str,
+    key_slot: str,
+    api_key_override: str | None,
+    url: str,
+    log_label: str,
+) -> list[Any] | None:
+    req_headers = _model_fetch_auth_headers(
+        key_slot,
+        api_key_override,
+        url,
+        is_openwebui=_resolved_openwebui(endpoint),
+        is_openrouter=True,
+        log_label=log_label,
+    )
+    if req_headers is None:
+        return None
+    try:
+        from plugin.framework.client.requests import sync_request
+
+        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
+        return _v1_models_entries_from_body(data)
+    except Exception as e:
+        log.warning("%s failed for %s: %s", log_label, url, e)
+    return None
+
+
 def fetch_available_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Image-output model IDs. Same list ``cached_image_models`` returns. No extra GET.
 
@@ -487,24 +514,16 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
             found = _model_fetch_image_cache[or_cache_key]
             return list(found) if isinstance(found, list) else None
 
-        req_headers = _model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=_resolved_openwebui(endpoint), is_openrouter=True, log_label="fetch_available_image_models openrouter")
-        if req_headers is None:
-            return None
-
-        try:
-            from plugin.framework.client.requests import sync_request
-
-            data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
-            entries = _v1_models_entries_from_body(data)
-            if entries is not None:
-                image_models = []
-                for m in entries:
-                    if isinstance(m, dict) and m.get("id"):
-                        image_models.append(str(m["id"]))
-                _model_fetch_image_cache[or_cache_key] = image_models
-                return list(image_models)
-        except Exception as e:
-            log.warning("fetch_available_image_models openrouter failed for %s: %s", url, e)
+        entries = _fetch_openrouter_entries(
+            endpoint, key_slot, api_key_override, url, "fetch_available_image_models openrouter"
+        )
+        if entries is not None:
+            image_models = []
+            for m in entries:
+                if isinstance(m, dict) and m.get("id"):
+                    image_models.append(str(m["id"]))
+            _model_fetch_image_cache[or_cache_key] = image_models
+            return list(image_models)
         return None
 
     all_models = fetch_available_models(endpoint, api_key_override=api_key_override)
@@ -594,24 +613,16 @@ def _fetch_openrouter_modality_models(endpoint: str, modality: str, cache: dict[
         found = cache[cache_key]
         return list(found) if isinstance(found, list) else found
 
-    req_headers = _model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=_resolved_openwebui(endpoint), is_openrouter=True, log_label=f"fetch openrouter {modality} models")
-    if req_headers is None:
-        return None
-
-    try:
-        from plugin.framework.client.requests import sync_request
-
-        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
-        entries = _v1_models_entries_from_body(data)
-        if entries is not None:
-            model_ids, voices = _modality_ids_from_entries(entries, modality)
-            if modality == "speech" and voices:
-                for speech_id, speech_voices in voices.items():
-                    remember_tts_supported_voices(speech_id, speech_voices)
-            cache[cache_key] = model_ids
-            return list(model_ids)
-    except Exception as e:
-        log.warning("fetch openrouter %s models failed for %s: %s", modality, url, e)
+    entries = _fetch_openrouter_entries(
+        endpoint, key_slot, api_key_override, url, f"fetch openrouter {modality} models"
+    )
+    if entries is not None:
+        model_ids, voices = _modality_ids_from_entries(entries, modality)
+        if modality == "speech" and voices:
+            for speech_id, speech_voices in voices.items():
+                remember_tts_supported_voices(speech_id, speech_voices)
+        cache[cache_key] = model_ids
+        return list(model_ids)
     return None
 
 
@@ -656,28 +667,30 @@ def cached_image_models(endpoint: str, api_key_override: str | None = None) -> l
     return _cached_id_list(_model_fetch_image_cache, cache_key)
 
 
-def cached_tts_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
-    """Memoized OpenRouter speech ids, or None. Does not HTTP."""
+def _cached_modality_models(
+    endpoint: str,
+    api_key_override: str | None,
+    modality: str,
+    cache: dict[str, Any],
+) -> list[str] | None:
     base = _catalog_base(endpoint)
     if not base or get_provider_from_endpoint(base) != "openrouter":
         return None
-    url = _openrouter_modality_models_url(endpoint, "speech")
+    url = _openrouter_modality_models_url(endpoint, modality)
     if not url:
         return None
     key = _model_fetch_cache_key(url, base, api_key_override)
-    return _cached_id_list(_model_fetch_tts_cache, key)
+    return _cached_id_list(cache, key)
+
+
+def cached_tts_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
+    """Memoized OpenRouter speech ids, or None. Does not HTTP."""
+    return _cached_modality_models(endpoint, api_key_override, "speech", _model_fetch_tts_cache)
 
 
 def cached_stt_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Memoized OpenRouter transcription ids, or None. Does not HTTP."""
-    base = _catalog_base(endpoint)
-    if not base or get_provider_from_endpoint(base) != "openrouter":
-        return None
-    url = _openrouter_modality_models_url(endpoint, "transcription")
-    if not url:
-        return None
-    key = _model_fetch_cache_key(url, base, api_key_override)
-    return _cached_id_list(_model_fetch_stt_cache, key)
+    return _cached_modality_models(endpoint, api_key_override, "transcription", _model_fetch_stt_cache)
 
 
 def _together_voices_cache_keys(base: str, api_key_override: str | None) -> list[str]:

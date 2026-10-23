@@ -1247,7 +1247,7 @@ def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
         return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
 
 
-def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
+def _doc_from_frame(ctx: Any | None = None, frame: Any | None = None) -> tuple[Any, Any]:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
@@ -1258,32 +1258,19 @@ def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
             doc = ctrl.getModel()
     if doc is None:
         doc = get_active_document(resolved)
+    return resolved, doc
+
+
+def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
+    resolved, doc = _doc_from_frame(ctx, frame)
     run_all_for_doc(resolved, doc)
 
 
 def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
-    from plugin.framework.uno_context import get_ctx
-
-    resolved = ctx if ctx is not None else get_ctx()
-    doc = None
-    if frame is not None and hasattr(frame, "getController"):
-        ctrl = frame.getController()
-        if ctrl is not None and hasattr(ctrl, "getModel"):
-            doc = ctrl.getModel()
-    if doc is None:
-        doc = get_active_document(resolved)
+    resolved, doc = _doc_from_frame(ctx, frame)
     run_from_here_for_doc(resolved, doc)
 
 
 def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
-    from plugin.framework.uno_context import get_ctx
-
-    resolved = ctx if ctx is not None else get_ctx()
-    doc = None
-    if frame is not None and hasattr(frame, "getController"):
-        ctrl = frame.getController()
-        if ctrl is not None and hasattr(ctrl, "getModel"):
-            doc = ctrl.getModel()
-    if doc is None:
-        doc = get_active_document(resolved)
+    doc = _doc_from_frame(ctx, frame)[1]
     stop_for_doc(doc)

@@ -50,7 +50,12 @@ from typing import Any, Callable, cast
 
 from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind, split_stream_item
+from plugin.framework.stream_batch import (
+    BatchingStreamQueue,
+    StreamQueueKind,
+    split_stream_item,
+    wait_for_timer_deadline,
+)
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
@@ -623,14 +628,12 @@ class _IdleRearmThread:
         # crosshair: off
         while True:
             with self._cv:
-                while self._deadline is None and not self._stopped:
-                    self._cv.wait()
-                if self._stopped:
+                deadline = wait_for_timer_deadline(self._cv, self)
+                if deadline is None:
                     return
-                deadline = self._deadline
                 generation = self._generation
                 fire = self._fire
-                if deadline is None or fire is None:
+                if fire is None:
                     continue
                 remaining = deadline - time.monotonic()
                 if remaining > 0:

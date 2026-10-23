@@ -66,6 +66,15 @@ def split_stream_item(item: Any) -> tuple[Any, Any]:
     return (item, None)
 
 
+def wait_for_timer_deadline(cv: threading.Condition, target: Any) -> float | None:
+    """Wait on condition until target has a deadline or target is stopped."""
+    while target._deadline is None and not target._stopped:
+        cv.wait()
+    if target._stopped:
+        return None
+    return target._deadline
+
+
 class _ReusableBurstTimer:
     """One daemon thread for a batcher. ``arm`` sets the deadline; it does not start a new thread.
 
@@ -122,12 +131,9 @@ class _ReusableBurstTimer:
         # later burst would then have no timer.
         while True:
             with self._cv:
-                while self._deadline is None and not self._stopped:
-                    self._cv.wait()
-                if self._stopped:
+                deadline = wait_for_timer_deadline(self._cv, self)
+                if deadline is None:
                     return
-                deadline = self._deadline
-                assert deadline is not None
                 remaining = deadline - time.monotonic()
                 if remaining > 0:
                     self._cv.wait(timeout=remaining)
