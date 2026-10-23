@@ -467,13 +467,14 @@ def _close_hidden_doc(model: Any) -> None:
         log.exception("Failed to dispose hidden design source")
 
 
-def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_template: bool = True) -> Any:
-    """Hidden-open a listed ``.otp`` as the master-clone source.
-
-    AsTemplate=True matches the known-good new-doc control (full Metropolis
-    master + SVG chrome). Distinct target from ``create_presentation_from_design``.
-    """
-    from plugin.framework.thread_guard import guard_uno
+def _load_design_model(
+    uno_ctx: Any,
+    design: dict[str, str],
+    target: str,
+    *,
+    hidden: bool,
+    as_template: bool,
+) -> Any:
     from plugin.framework.uno_context import get_desktop
     from plugin.writer.format import create_property_value
 
@@ -481,12 +482,26 @@ def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_templa
     if desktop is None:
         raise RuntimeError("LibreOffice desktop is not available.")
     url = design.get("url") or path_to_file_url(design["path"])
-    props = [create_property_value("Hidden", True)]
+    props = []
+    if hidden:
+        props.append(create_property_value("Hidden", True))
     if as_template:
         props.append(create_property_value("AsTemplate", True))
-    model = desktop.loadComponentFromURL(url, _IMPORT_SOURCE_TARGET, 0, tuple(props))
+    model = desktop.loadComponentFromURL(url, target, 0, tuple(props))
     if model is None:
         raise RuntimeError("loadComponentFromURL returned no document for %s" % url)
+    return model
+
+
+def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_template: bool = True) -> Any:
+    """Hidden-open a listed ``.otp`` as the master-clone source.
+
+    AsTemplate=True matches the known-good new-doc control (full Metropolis
+    master + SVG chrome). Distinct target from ``create_presentation_from_design``.
+    """
+    from plugin.framework.thread_guard import guard_uno
+
+    model = _load_design_model(uno_ctx, design, _IMPORT_SOURCE_TARGET, hidden=True, as_template=as_template)
     try:
         return guard_uno(model)
     except Exception:
@@ -1299,22 +1314,11 @@ def create_presentation_from_design(uno_ctx: Any, design: dict[str, str], *, hid
     gets a fresh sidebar agent and drops mid-chat context.
     """
     from plugin.framework.thread_guard import guard_uno
-    from plugin.framework.uno_context import get_desktop
-    from plugin.writer.format import create_property_value
 
-    desktop = get_desktop(uno_ctx)
-    if desktop is None:
-        raise RuntimeError("LibreOffice desktop is not available.")
-    url = design.get("url") or path_to_file_url(design["path"])
-    props = [create_property_value("AsTemplate", True)]
-    if hidden:
-        props.append(create_property_value("Hidden", True))
     # Unique CREATE|GLOBAL target for Hidden loads (leftover ``_blank`` hangs on
     # some Windows GHA runs). Visible product opens stay ``_blank``.
     target = "_wa_impress_otp" if hidden else "_blank"
-    model = desktop.loadComponentFromURL(url, target, 0, tuple(props))
-    if model is None:
-        raise RuntimeError("loadComponentFromURL returned no document for %s" % url)
+    model = _load_design_model(uno_ctx, design, target, hidden=hidden, as_template=True)
     return guard_uno(model)
 
 

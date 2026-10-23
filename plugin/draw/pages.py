@@ -120,13 +120,22 @@ class AddSlide(ToolBase):
         return result
 
 
-class DeleteSlide(ToolBase):
+class _SlideMutationTool(ToolBase):
+    uno_services: list[str] | None = _DRAW_UNO
+    is_mutation: bool | None = True
+
+
+def _check_page_range(tool: ToolBase, pages: Any, page_idx: int) -> dict[str, Any] | None:
+    if page_idx < 0 or page_idx >= pages.getCount():
+        return tool._tool_error("Page index %s out of range." % page_idx)
+    return None
+
+
+class DeleteSlide(_SlideMutationTool):
     name: str | None = "delete_slide"
     intent: str | None = "edit"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
-    uno_services: list[str] | None = _DRAW_UNO
-    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -135,8 +144,9 @@ class DeleteSlide(ToolBase):
         page_idx = kwargs["page"]
         assert page_idx is not None
         pages = bridge.get_pages()
-        if page_idx < 0 or page_idx >= pages.getCount():
-            return self._tool_error("Page index %s out of range." % page_idx)
+        err = _check_page_range(self, pages, page_idx)
+        if err is not None:
+            return err
         # A one-page Draw or Impress document keeps its only slide. An
         # in-range index is not enough to call bridge.delete_slide.
         # SlideCommandEngine._delete_slide already refuses that case
@@ -291,14 +301,11 @@ class SetActivePage(ToolBase):
         return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
 
 
-class DuplicateSlide(ToolBase):
+class DuplicateSlide(_SlideMutationTool):
     name: str | None = "duplicate_slide"
     intent: str | None = "edit"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
-    uno_services: list[str] | None = _DRAW_UNO
-    is_mutation: bool | None = True
-    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -307,8 +314,9 @@ class DuplicateSlide(ToolBase):
         assert page_idx is not None
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
-        if page_idx < 0 or page_idx >= pages.getCount():
-            return self._tool_error("Page index %s out of range." % page_idx)
+        err = _check_page_range(self, pages, page_idx)
+        if err is not None:
+            return err
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
@@ -319,14 +327,11 @@ class DuplicateSlide(ToolBase):
         return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 
 
-class MoveSlide(ToolBase):
+class MoveSlide(_SlideMutationTool):
     name: str | None = "move_slide"
     intent: str | None = "edit"
     description: str = "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"from_page": {"type": "integer", "description": "0-based source slide index"}, "to_page": {"type": "integer", "description": "0-based destination slide index"}}, "required": ["from_page", "to_page"]}
-    uno_services: list[str] | None = _DRAW_UNO
-    is_mutation: bool | None = True
-    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
@@ -347,14 +352,11 @@ class MoveSlide(ToolBase):
         return {"status": "ok", "message": "Slide moved", "from_page": from_page, "to_page": to_page, "active_page_index": bridge.get_active_page_index()}
 
 
-class RenameSlide(ToolBase):
+class RenameSlide(_SlideMutationTool):
     name: str | None = "rename_slide"
     intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
-    uno_services: list[str] | None = _DRAW_UNO
-    is_mutation: bool | None = True
-    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -366,8 +368,9 @@ class RenameSlide(ToolBase):
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
-        if page_idx < 0 or page_idx >= pages.getCount():
-            return self._tool_error("Page index %s out of range." % page_idx)
+        err = _check_page_range(self, pages, page_idx)
+        if err is not None:
+            return err
         ok = bridge.rename_slide(page_idx, str(name))
         if not ok:
             return self._tool_error("Slide does not support renaming.")

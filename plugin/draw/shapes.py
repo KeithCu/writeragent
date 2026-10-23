@@ -27,7 +27,7 @@ from . import layout
 from .base import ToolDrawShapeBase
 
 if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
+    from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -170,6 +170,37 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         return False, f"{type(ex).__name__}: {ex}"
 
 
+def _resolve_page_and_bridge(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, Any]:
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(ctx.doc)
+    idx = kwargs.get("page")
+    actual_idx = idx if idx is not None else ctx.active_page_index
+    if actual_idx is None:
+        actual_idx = bridge.get_active_page_index()
+    return bridge, actual_idx
+
+
+def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | None = None) -> tuple[Any | None, Any, str | None]:
+    if bridge is None:
+        target_bridge, actual_idx = _resolve_page_and_bridge(ctx, kwargs)
+    else:
+        target_bridge = bridge
+        idx = kwargs.get("page")
+        actual_idx = idx if idx is not None else ctx.active_page_index
+        if actual_idx is None:
+            actual_idx = target_bridge.get_active_page_index()
+    try:
+        page = target_bridge.get_pages().getByIndex(actual_idx)
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return None, actual_idx, "Invalid page index: %s" % actual_idx
+    if page is None:
+        return None, actual_idx, "No draw page available."
+    return page, actual_idx, None
+
+
 class GetDrawSummary(_AnyDocumentShapeTool):
     name: str | None = "shape_summary"
     intent: str | None = "edit"
@@ -179,14 +210,7 @@ class GetDrawSummary(_AnyDocumentShapeTool):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-
-        # Use provided index or resolved active index from context
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = bridge.get_active_page_index()
-
+        _bridge, actual_idx = _resolve_page_and_bridge(ctx, kwargs)
         try:
             page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
         except IndexError:
@@ -532,27 +556,9 @@ class UpsertShape(_AnyDocumentShapeTool):
 
         action = kwargs["action"]
         bridge = DrawBridge(ctx.doc)
-
-        # Resolve page
-        idx = kwargs.get("page")
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = bridge.get_active_page_index()
-
-        try:
-            page = bridge.get_pages().getByIndex(actual_idx)
-        except Exception as exc:
-            # DisposedException is not "Invalid page index".
-            # get_pages/getByIndex raise when the document is gone, and
-            # mapping every Exception to a bad index hides disposal.
-            # Re-raise disposal; a real bad index still returns the
-            # page-index error.
-            if is_disposed_exception(exc):
-                raise
-            return self._tool_error("Invalid page index: %s" % actual_idx)
-
-        if page is None:
-            return self._tool_error("No draw page available.")
+        page, actual_idx, err = _resolve_shape_page(ctx, kwargs, bridge=bridge)
+        if err or page is None:
+            return self._tool_error(err or "No draw page available.")
 
         if action == "create":
             type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
@@ -684,6 +690,15 @@ def _mutation_page(ctx: ToolContext, page_index: Any) -> Any:
     return DrawBridge.get_slide_for_tool(ctx.doc, actual)
 
 
+def _resolve_mutation_page(tool: ToolBase, ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
+    from plugin.framework.errors import ToolExecutionError
+
+    try:
+        return _mutation_page(ctx, kwargs.get("page")), None
+    except ToolExecutionError as exc:
+        return None, tool._tool_error(str(exc))
+
+
 class ConnectShapes(_AnyDocumentShapeTool):
     """Connect two shapes with a connector."""
 
@@ -704,13 +719,11 @@ class ConnectShapes(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.errors import ToolExecutionError
         from com.sun.star.awt import Point, Size
 
-        try:
-            page = _mutation_page(ctx, kwargs.get("page"))
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc))
+        page, err = _resolve_mutation_page(self, ctx, kwargs)
+        if err is not None:
+            return err
 
         # Schema requires start and end as integers. validate() rejects a
         # missing or non-integer value before execute.
@@ -800,12 +813,9 @@ class GroupShapes(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.errors import ToolExecutionError
-
-        try:
-            page = _mutation_page(ctx, kwargs.get("page"))
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc))
+        page, err = _resolve_mutation_page(self, ctx, kwargs)
+        if err is not None:
+            return err
 
         indices = kwargs["indices"]
         assert isinstance(indices, list)
@@ -841,30 +851,6 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
     pos = shape.getPosition()
     if pos.X != x or pos.Y != y:
         shape.setPosition(Point(x, y))
-
-
-def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any | None, Any, str | None]:
-    from plugin.draw.bridge import DrawBridge
-
-    bridge = DrawBridge(ctx.doc)
-    idx = kwargs.get("page")
-    actual_idx = idx if idx is not None else ctx.active_page_index
-    if actual_idx is None:
-        actual_idx = bridge.get_active_page_index()
-    try:
-        page = bridge.get_pages().getByIndex(actual_idx)
-    except Exception as exc:
-        # align/distribute/diagram must not report a disposed page as
-        # "Invalid page index". getByIndex raises DisposedException, and
-        # treating every Exception as a bad index hides disposal.
-        # Re-raise disposal; a real bad index still returns the
-        # page-index error to the caller.
-        if is_disposed_exception(exc):
-            raise
-        return None, actual_idx, "Invalid page index: %s" % actual_idx
-    if page is None:
-        return None, actual_idx, "No draw page available."
-    return page, actual_idx, None
 
 
 class AlignShapes(ToolDrawShapeBase):
@@ -1085,12 +1071,9 @@ class DeleteShape(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.errors import ToolExecutionError
-
-        try:
-            page = _mutation_page(ctx, kwargs.get("page"))
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc))
+        page, err = _resolve_mutation_page(self, ctx, kwargs)
+        if err is not None:
+            return err
         # Schema requires index. validate() rejects a missing or non-integer value.
         shape_idx = kwargs["index"]
         try:

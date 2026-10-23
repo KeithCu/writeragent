@@ -237,8 +237,8 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
-    from plugin.draw.bridge import DrawBridge
     from plugin.draw.layout import coerce_int
+    from plugin.draw.shapes import _resolve_shape_page
 
     rows = cast("int", kwargs.get("rows"))
     columns = cast("int", kwargs.get("columns"))
@@ -246,24 +246,9 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     if rows < 1 or columns < 1:
         return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
 
-    bridge = DrawBridge(ctx.doc)
-    idx = kwargs.get("page")
-    actual_idx = idx if idx is not None else ctx.active_page_index
-    if actual_idx is None:
-        actual_idx = bridge.get_active_page_index()
-    try:
-        page = bridge.get_pages().getByIndex(actual_idx)
-    except Exception as exc:
-        # DisposedException is not "Invalid page index".
-        # get_pages/getByIndex raise when the document is gone, and
-        # mapping every Exception to a bad index hides disposal.
-        # Re-raise disposal; a real bad index still returns the
-        # page-index error.
-        if is_real_disposal(exc):
-            raise
-        return {"status": "error", "message": "Invalid page index: %s" % actual_idx, "code": "TOOL_EXECUTION_ERROR"}
-    if page is None:
-        return {"status": "error", "message": "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
+    page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+    if err or page is None:
+        return {"status": "error", "message": err or "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
 
     x = coerce_int(kwargs.get("x"), 3000)
     y = coerce_int(kwargs.get("y"), 4000)

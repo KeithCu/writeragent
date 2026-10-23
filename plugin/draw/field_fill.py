@@ -176,24 +176,15 @@ class FillDrawFields(ToolDrawShapeBase):
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_draw_tree"])
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.shapes import _resolve_shape_page
 
         fields = kwargs["fields"]
         if not fields:
             return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = bridge.get_active_page_index()
-
-        try:
-            page = bridge.get_pages().getByIndex(actual_idx)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error("Invalid page index: %s" % actual_idx)
+        page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+        if err or page is None:
+            return self._tool_error(err or "No draw page available.")
 
         # getByIndex raises on a bad index; it does not return None.
         tree = build_shape_tree(page)

@@ -293,6 +293,12 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> int:
     return updated
 
 
+def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, bool, Any]:
+    page_index = int(kwargs["page"])
+    is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False)
+    return page_index, is_master_page, _get_page(ctx, page_index, is_master_page)
+
+
 class GetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for reading header and footer properties of a presentation slide or master page."""
 
@@ -308,11 +314,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
-        # type/required checks are done by the tool schema in ToolRegistry
-        page_index = int(kwargs["page"])
-        is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False)
-
-        page = _get_page(ctx, page_index, is_master_page)
+        page_index, is_master_page, page = _resolve_hf_page(ctx, kwargs)
 
         result: Dict[str, Any] = {"status": "ok", "page": page_index, "is_master_page": is_master_page, "properties": {}}
 
@@ -355,11 +357,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
-        # type/required checks are done by the tool schema in ToolRegistry
-        page_index = int(kwargs["page"])
-        is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False)
-
-        page = _get_page(ctx, page_index, is_master_page)
+        page_index, is_master_page, page = _resolve_hf_page(ctx, kwargs)
 
         if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
             if "date_time_fixed" in kwargs:
