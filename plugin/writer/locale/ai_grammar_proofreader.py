@@ -739,7 +739,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Check cache for spans; return (combined_errors, uncached_spans)."""
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
-        checker_ident = checker_identity or getattr(self, "_checker_identity", None)
+        checker_ident = checker_identity or self._checker_identity
         for sent_start, _sent_end, sent_text in work_spans:
             get_kwargs: dict[str, Any] = {"ctx": self.ctx, "doc_id": a_doc_id}
             if checker_ident:
@@ -766,7 +766,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Pinned instance provider (LibreHarper) or current config (WriterAgent)."""
         from plugin.framework.config import get_grammar_provider
 
-        return getattr(self, "_provider", "") or get_grammar_provider()
+        return self._provider or get_grammar_provider()
 
     def _try_harper_fast_path(
         self,
@@ -792,7 +792,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
-        ident = checker_identity or getattr(self, "_checker_identity", "harper")
+        ident = checker_identity or self._checker_identity or "harper"
         first_text = uncached_spans[0][2] if uncached_spans else ""
         if first_text:
             emit_grammar_status("start", first_text, result="Harper")
@@ -886,7 +886,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     return a_res
 
                 provider = self._active_grammar_provider()
-                pinned_ident = getattr(self, "_checker_identity", None)
+                pinned_ident = self._checker_identity
                 if isinstance(pinned_ident, str) and pinned_ident:
                     checker_identity = pinned_ident
                 elif provider in ("harper", "languagetool", "vale"):

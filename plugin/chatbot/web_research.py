@@ -97,8 +97,8 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 
         # Re-calculate remaining steps
-        current_step = getattr(self, "step_number", 1)
-        max_steps = getattr(self, "max_steps", 20)
+        current_step = self.step_number
+        max_steps = self.max_steps
         remaining = max_steps - current_step + 1
         used = current_step - 1
 

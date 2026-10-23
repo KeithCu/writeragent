@@ -373,7 +373,7 @@ class PythonSidebarController:
         # the root is still held, then the diagnostics and Calc activation
         # listeners; otherwise they run against a dead frame. Clear on_dispose
         # first so the window hook cannot re-enter.
-        rl = getattr(self, "resize_listener", None)
+        rl = self.resize_listener
         if rl is not None:
             self.resize_listener = None
             rl._on_dispose = None
@@ -382,7 +382,7 @@ class PythonSidebarController:
             if root is not None and hasattr(root, "removeWindowListener"):
                 root.removeWindowListener(rl)
         self._store.remove_listener(self._on_diag)
-        activation = getattr(self, "_activation_listener", None)
+        activation = self._activation_listener
         self._activation_listener = None
         if activation is not None and self.frame is not None:
             try:

@@ -1324,6 +1324,9 @@ def test_shutdown_all_sets_retired_before_terminate():
     mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
     mgr._retired = False
     mgr._proc = None
+    mgr._spawn_handle = None
+    mgr._spawn_queue = None
+    mgr._spawn_ident = None
     calls = []
     mgr._terminate_worker = lambda: calls.append("term")
     key = "test-pool:shutdown-retire"

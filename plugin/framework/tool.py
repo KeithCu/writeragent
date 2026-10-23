@@ -302,6 +302,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
+    scripting_only_parameters: frozenset[str] = frozenset()
 
     def detects_mutation(self) -> bool:
         """Return True if the tool mutates the document."""
@@ -343,7 +344,7 @@ class ToolBase(_ToolErrorMixin, ABC):
         for key in required:
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
-        extra_ok = getattr(self, "scripting_only_parameters", None) or frozenset()
+        extra_ok = self.scripting_only_parameters or frozenset()
         # scripting_only_parameters stay allowed here because validate has no caller;
         # _execute_impl drops them unless caller == "script" before this method runs;
         # empty properties {} is a closed schema, not "accept any kwargs".
@@ -480,9 +481,10 @@ class ToolBaseDummy(_ToolErrorMixin):
 
     name: str | None = None
     is_final_answer_tool: bool = False
+    parameters: dict[str, Any] | None = None
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return getattr(self, "parameters", None)
+        return self.parameters
 
 
 def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:

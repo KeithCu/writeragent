@@ -334,7 +334,7 @@ class NativePythonScriptDialog:
         select_ctrl.removeItems(0, select_ctrl.getItemCount())
         select_ctrl.addItems(tuple(names), 0)
 
-        config_key = getattr(self, "_name_config_key", None)
+        config_key = self._name_config_key
         if not config_key:
             # Local import: python_runner imports this module at module level.
             from plugin.scripting.python_runner import resolve_run_script_name_config_key
@@ -352,7 +352,7 @@ class NativePythonScriptDialog:
         if not selected_name and names:
             selected_name = names[0]
 
-        dlg = getattr(self, "_dlg", None)
+        dlg = self._dlg
         if selected_name:
             _picker_select_name(select_ctrl, selected_name, names)
             set_config(config_key, selected_name)

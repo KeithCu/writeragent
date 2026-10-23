@@ -1289,9 +1289,9 @@ class PythonWorkerManager:
             self._reap_handles.extend(handles)
 
     def _stop_spawn_thread(self, *, wait: bool) -> None:
-        handle: BackgroundHandle | None = getattr(self, "_spawn_handle", None)
-        queue_: queue.Queue[_SpawnJob | None] | None = getattr(self, "_spawn_queue", None)
-        spawn_ident: int | None = getattr(self, "_spawn_ident", None)
+        handle: BackgroundHandle | None = self._spawn_handle
+        queue_: queue.Queue[_SpawnJob | None] | None = self._spawn_queue
+        spawn_ident: int | None = self._spawn_ident
         if handle is None or not handle.is_alive():
             return
         if queue_ is not None:

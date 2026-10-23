@@ -874,8 +874,8 @@ class MCPProtocolHandler:
         is_async_attr = getattr(tool, "is_async", None) if tool is not None else None
         is_long_running = is_async_attr() is True if callable(is_async_attr) else False
 
-        log.debug("*** tools/call: %s, event_bus=%s ***", tool_name, getattr(self, "event_bus", None))
-        event_bus = getattr(self, "event_bus", None)
+        log.debug("*** tools/call: %s, event_bus=%s ***", tool_name, self.event_bus)
+        event_bus = self.event_bus
         if event_bus is not None:
             event_bus.emit("mcp:request", tool=tool_name, args=arguments, method="tools/call", req_id=req_id)
 

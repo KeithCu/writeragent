@@ -584,7 +584,7 @@ class SlashPopupController:
         set_control_visible(self._placeholder, False)
         if self._popup_window is not None:
             win = self._popup_window
-            floater = getattr(self, "_popup_floater", None)
+            floater = self._popup_floater
             set_control_visible(win, False)
             if floater is not None and floater is not win:
                 set_control_visible(floater, False)
@@ -693,7 +693,7 @@ class SlashPopupController:
         set_control_visible(self._placeholder, False)
         self._fill_visible_list()
         _ovlog("filled before show")
-        host = getattr(self, "_popup_floater", None)
+        host = self._popup_floater
         if host is not None and host is not self.control:
             set_control_visible(host, True)
         set_control_visible(self.control, True)
@@ -832,7 +832,7 @@ class SlashPopupController:
         """Raise the toolkit listbox above Ready/transcript siblings (clip probe)."""
         for label, obj in (
             ("popup_window", self._popup_window),
-            ("popup_floater", getattr(self, "_popup_floater", None)),
+            ("popup_floater", self._popup_floater),
             ("control", self.control),
         ):
             if obj is None:
@@ -872,7 +872,7 @@ class SlashPopupController:
                 rows,
                 self._popup_window is not None,
                 relative_to_ask,
-                getattr(self, "_ask_origin", None),
+                self._ask_origin,
             )
             _log_slash_clip_neighbors(
                 self.send_listener,
@@ -880,7 +880,7 @@ class SlashPopupController:
                 overlay_parent=self._overlay_parent,
             )
             if self._popup_window is not None:
-                floater = getattr(self, "_popup_floater", None)
+                floater = self._popup_floater
                 if floater is not None and floater is not ctrl:
                     floater.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
                     ctrl.setPosSize(0, 0, w, h, _POS_SIZE_FLAGS)
