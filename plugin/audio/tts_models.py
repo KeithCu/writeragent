@@ -332,8 +332,3 @@ def _resolve_piper_model_file(
     _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
     _clear_tts_status(on_status)
     return None
-
-    failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
-    _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
-    _clear_tts_status(on_status)
-    return None

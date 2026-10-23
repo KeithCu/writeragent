@@ -162,7 +162,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 
 | Capability | Module |
 |------------|--------|
-| Bulk read values + formulas | [`CellInspector.read_range`](../../plugin/calc/inspector.py), [`get_all_formulas`](../../plugin/calc/inspector.py) |
+| Bulk read values + formulas | [`CellInspector.read_range`](../../plugin/calc/inspector.py) |
 | Bulk write | [`CellManipulator.write_formula_range`](../../plugin/calc/manipulator.py) |
 | `=PY()` parse/rebuild | [`python_formula_edit.py`](../../plugin/calc/python/formula_edit.py) |
 | `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py) |
@@ -388,7 +388,6 @@ flowchart TB
 | `FormulaOpCodeMapper` | Localized names | English opcode | 3 Translate |
 | `read_cell_range` (tool) | Chat read path | JSON grid | 5 Chat |
 | `get_sheet_summary` | Bounds + headers hint | Dict | 1 |
-| `get_all_formulas` (inspector) | Formula list + regex precedents | List[dict] | 1 |
 | `list_calc_functions` | Filterable catalog | List[dict] | 3 / docs |
 | `evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
 | `detect_and_explain_errors` | Pre-flight errors | Error report | 1 optional |

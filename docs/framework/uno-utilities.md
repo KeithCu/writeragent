@@ -114,7 +114,6 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | `resolve_document_by_url` | `uno_context.resolve_document_by_url(get_ctx(), url)` |
 | `is_writer` / `is_calc` / `is_draw` | `doc_type` |
 | `detect_doc_type` | local map (Impress → `"draw"`, unknown → `"writer"`) |
-| `get_full_text` | `get_full_document_text` |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_document_context_for_chat` | module function + `get_ctx()` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
@@ -204,7 +203,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `safe_try_method` | Call a method if present; log and continue. |
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
 | `apply_character_properties` | Batch Char* on a shape/cell/style. Italic sets `CharPosture` to `FontSlant.ITALIC` (IDL value 2). Integer 1 is `OBLIQUE`. |
-| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` / `mm_to_px` | 1/100 mm ↔ 96-DPI px. |
+| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` | 1/100 mm ↔ 96-DPI px. |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
 | `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |

@@ -657,9 +657,6 @@ class DocumentService(ServiceBase):
     def is_draw(self, doc: Any) -> bool:
         return _doc_type.is_draw(doc)
 
-    def get_full_text(self, doc: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
-        return get_full_document_text(doc, max_chars)
-
     def get_document_length(self, doc: Any) -> int:
         return _text_helpers.get_document_length(doc)
 

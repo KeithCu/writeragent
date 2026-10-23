@@ -146,9 +146,6 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
     found.sort(key=lambda c: (c.row, c.column))
     return PythonSheetDiscovery(found, truncated)
 
-    found.sort(key=lambda c: (c.row, c.column))
-    return PythonSheetDiscovery(found, truncated)
-
 
 def list_python_cells_in_doc(doc: Any, *, active_sheet_only: bool = True) -> list[PythonCellInfo]:
     """Enumerate Python cells in *doc* (active sheet by default)."""

@@ -28,9 +28,6 @@ from typing import Any
 from plugin.calc.address_utils import A1_CELL_RE, index_to_column, parse_address, parse_range_string
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
-# Alias for backwards compatibility with tests importing it
-CELL_REF_PATTERN = A1_CELL_RE
-
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
 except ImportError:

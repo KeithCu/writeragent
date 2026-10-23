@@ -139,11 +139,6 @@ def units_to_px(width_units: int | float, height_units: int | float, *, minimum:
     return max(minimum, width_px), max(minimum, height_px)
 
 
-def mm_to_px(width_mm: int | float, height_mm: int | float, *, minimum: int = 1) -> tuple[int, int]:
-    width_units, height_units = mm_to_units(width_mm, height_mm)
-    return units_to_px(width_units, height_units, minimum=minimum)
-
-
 def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
     """Read pixel dimensions from an XGraphic, falling back to a 96-DPI frame from Size100thMM."""
     if graphic is None:

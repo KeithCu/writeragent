@@ -24,7 +24,7 @@ import datetime
 import logging
 from typing import Any
 
-from plugin.calc.address_utils import A1_CELL_RE, index_to_column, split_sheet_prefix
+from plugin.calc.address_utils import index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
@@ -403,61 +403,5 @@ class CellInspector:
             if is_disposed_exception(e):
                 raise
             log.exception("Range reading failed for %s", range_name)
-            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
-            raise
-
-    def get_all_formulas(self, sheet_name: str | None = None) -> list[dict[str, Any]]:
-        """List all formulas in a sheet.
-
-        Args:
-            sheet_name: Sheet name (active sheet if None).
-
-        Returns:
-            List of dicts with keys: address, formula, value, precedents.
-        """
-        try:
-            if sheet_name:
-                doc = self.bridge.doc
-                sheets = doc.getSheets()
-                sheet = sheets.getByName(sheet_name)
-            else:
-                sheet = self.bridge.get_active_sheet()
-
-            cursor = sheet.createCursor()
-            cursor.gotoStartOfUsedArea(False)
-            cursor.gotoEndOfUsedArea(True)
-
-            addr = cursor.getRangeAddress()
-            formulas = []
-
-            cell_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
-            # Result 7 means value, datetime, string. Here we query cells with formulas.
-            # Using queryFormulaCells with 23 (1|2|4|16) to get all formula cells, or actually just 23 for all formula results
-            formula_cells = cell_range.queryFormulaCells(23)
-
-            if formula_cells:
-                cells_collection = formula_cells.getCells()
-                if cells_collection:
-                    enum = cells_collection.createEnumeration()
-                    while enum.hasMoreElements():
-                        cell = enum.nextElement()
-                        cell_addr = cell.getCellAddress()
-
-                        col_letter = index_to_column(cell_addr.Column)
-                        cell_address = f"{col_letter}{cell_addr.Row + 1}"
-
-                        formula = cell.getFormula()
-                        value, _type = cell_value_and_type(cell)
-
-                        refs = A1_CELL_RE.findall(formula.upper())
-                        precedents = list({f"{c}{r}" for c, r in refs})
-
-                        formulas.append({"address": cell_address, "formula": formula, "value": value, "precedents": precedents})
-
-            return formulas
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Formula listing failed")
             # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
             raise

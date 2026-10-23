@@ -577,7 +577,6 @@ class SlideCommandEngine:
                     continue
                 return self._fail("Unknown or unsupported command key: %s" % key)
         return None
-        return None
 
     def _jump_to_name(self, name: str) -> int | None:
         for i in range(self._page_count()):

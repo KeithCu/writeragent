@@ -19,7 +19,6 @@ CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types
 PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_DOC_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
-PY_SCRIPT_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 PYTHON_SCRIPT_REL_TYPE = "http://schemas.microsoft.com/office/2022/relationships/pythonScript"
 CALC_CHAIN_REL_TYPE_SUFFIX = "/calcChain"
 
