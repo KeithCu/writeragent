@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import parse_output_anchor
 from plugin.framework.tool import ToolBaseDummy
 from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP
 
@@ -49,21 +48,14 @@ class OptimizeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        helper = str(kwargs.get("helper") or "").strip()
-        data_range = kwargs.get("data_range")
-        data = kwargs.get("data")
+        from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
+        from plugin.scripting.optimize import run_trusted_optimize
+        from plugin.scripting.helper_domain import insert_helper_result_into_calc
+
+        helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
         if getattr(ctx, "active_domain", None) in ("analysis", "optimize") and data is not None:
             return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
-
-        from plugin.scripting.optimize import run_trusted_optimize, insert_optimize_result_into_calc
-        from plugin.framework.queue_executor import execute_on_main_thread
-
-        dr = str(data_range).strip() if data_range else None
-        params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-        headers = bool(kwargs.get("headers", True))
-        task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
-        output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
         # Call run_trusted_optimize on this worker. It both reads the sheet
         # and blocks in the optimize client, so execute_on_main_thread would
@@ -72,18 +64,6 @@ class OptimizeDataTool(ToolBaseDummy):
         result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         if output_range and result.get("status") == "ok":
-
-            def _write() -> None:
-                # Forward the sheet from parse_output_anchor, the same way
-                # analyze_data does. Passing only the column and row writes
-                # Sheet1.F1 or 'Q1.Sales'!B2 onto the active sheet.
-                sheet, col, row = parse_output_anchor(output_range)
-                insert_optimize_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
-
-            try:
-                execute_on_main_thread(_write)
-            except Exception as exc:
-                result = dict(result)
-                result["sheet_write_error"] = str(exc)
+            result = write_anchor_result(ctx, result, output_range, insert_helper_result_into_calc)
 
         return result

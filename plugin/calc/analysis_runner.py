@@ -43,11 +43,7 @@ def run_trusted_analysis(
     doc: Any,
     *,
     helper: str,
-    params: dict[str, Any] | None = None,
-    data_range: str | None = None,
-    data: Any = None,
-    headers: bool = True,
-    task_hint: str | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Fetch Calc data and run a trusted helper in the user venv."""
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
@@ -61,14 +57,10 @@ def run_trusted_analysis(
         uno_ctx,
         doc,
         helper=helper,
-        params=params,
-        data_range=data_range,
-        data=data,
-        headers=headers,
-        task_hint=task_hint,
         helper_names=HELPER_NAMES,
         error_code="ANALYSIS_ERROR",
         empty_data_message="No data to analyze",
         client_run=run_analysis,
         force_queue=True,
+        **kwargs,
     )

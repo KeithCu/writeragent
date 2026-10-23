@@ -75,11 +75,7 @@ def run_trusted_viz(
     doc: Any,
     *,
     helper: str,
-    params: dict[str, Any] | None = None,
-    data_range: str | None = None,
-    data: Any = None,
-    headers: bool = True,
-    task_hint: str | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Fetch Calc data and run a trusted viz helper in the user venv."""
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
@@ -88,16 +84,12 @@ def run_trusted_viz(
         uno_ctx,
         doc,
         helper=helper,
-        params=params,
-        data_range=data_range,
-        data=data,
-        headers=headers,
-        task_hint=task_hint,
         helper_names=HELPER_NAMES,
         error_code="VIZ_ERROR",
         empty_data_message="No data to plot",
         client_run=client_run_viz,
         require_calc_or_writer=True,
+        **kwargs,
     )
 
 

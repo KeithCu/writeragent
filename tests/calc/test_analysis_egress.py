@@ -25,9 +25,14 @@ def test_format_error_result():
 
 
 def test_tabular_egress_shared_forecast_label():
-    from plugin.scripting.forecast import format_forecast_for_calc
+    from plugin.scripting.helper_domain import format_helper_result_for_calc
 
-    grid = format_forecast_for_calc({"status": "error", "code": "X", "message": "bad"})
+    grid = format_helper_result_for_calc(
+        {"status": "error", "code": "X", "message": "bad"},
+        domain_label="Forecast",
+        default_helper="forecast",
+        failed_message="Forecast failed.",
+    )
     assert grid[0][0].startswith("Forecast error")
 
 

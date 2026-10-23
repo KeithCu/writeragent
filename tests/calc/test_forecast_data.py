@@ -69,7 +69,7 @@ def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     assert kwargs["data_range"] == "Sheet1.A1:B37"
 
 
-@patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
+@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.forecast.run_trusted_forecast")
 def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
@@ -110,7 +110,7 @@ def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
     mock_main_thread.assert_called_once()
 
 
-@patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
+@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.forecast.run_trusted_forecast")
 def test_forecast_data_output_range_keeps_sheet_prefix(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
@@ -157,7 +157,7 @@ def test_forecast_data_output_range_keeps_sheet_prefix(mock_run_trusted, mock_ma
 def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_manip_cls):
     """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
     del mock_bridge
-    from plugin.scripting.forecast import insert_forecast_result_into_calc
+    from plugin.scripting.helper_domain import insert_helper_result_into_calc
 
     manipulator = MagicMock()
     mock_manip_cls.return_value = manipulator
@@ -172,7 +172,7 @@ def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
     )
     for sheet_name, col, row, expected in cases:
         manipulator.reset_mock()
-        insert_forecast_result_into_calc(
+        insert_helper_result_into_calc(
             MagicMock(),
             MagicMock(),
             result,
@@ -229,7 +229,7 @@ def test_forecast_data_rejects_raw_data_in_analysis_domain(calc_ctx):
 
 
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast", return_value=None)
-@patch("plugin.scripting.forecast.insert_forecast_result_into_calc", side_effect=RuntimeError("disk full"))
+@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.forecast.run_trusted_forecast")
 def test_forecast_sheet_write_failure_keeps_the_result(

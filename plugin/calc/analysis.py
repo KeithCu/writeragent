@@ -289,6 +289,44 @@ class SolverTool(ToolBaseDummy):
 _ANALYZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 
 
+def extract_calc_data_tool_args(
+    kwargs: dict[str, Any],
+) -> tuple[str, str | None, Any, dict[str, Any] | None, bool, str | None, str | None]:
+    """Extract and normalize common calc analysis tool arguments."""
+    helper = str(kwargs.get("helper") or "").strip()
+    data_range = kwargs.get("data_range")
+    data = kwargs.get("data")
+    dr = str(data_range).strip() if data_range else None
+    params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
+    headers = bool(kwargs.get("headers", True))
+    task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
+    output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
+    return helper, dr, data, params, headers, task_hint, output_range
+
+
+def write_anchor_result(
+    ctx: ToolContext,
+    result: dict[str, Any],
+    output_range: str,
+    insert_fn: Any,
+) -> dict[str, Any]:
+    """Write result to output anchor and record write errors without raising."""
+    from plugin.calc.address_utils import parse_output_anchor
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    def _write() -> None:
+        sheet, col, row = parse_output_anchor(output_range)
+        insert_fn(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
+
+    try:
+        execute_on_main_thread(_write)
+        return result
+    except Exception as exc:
+        res = dict(result)
+        res["sheet_write_error"] = str(exc)
+        return res
+
+
 class AnalyzeDataTool(ToolBaseDummy):
     """Run trusted numpy/pandas analysis helpers on sheet data via the venv worker."""
 
@@ -319,9 +357,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        helper = str(kwargs.get("helper") or "").strip()
-        data_range = kwargs.get("data_range")
-        data = kwargs.get("data")
+        helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
         # Strict enforcement for the analysis domain (see docs/calc/analysis-sub-agent.md "Data Handoff").
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
@@ -330,12 +366,6 @@ class AnalyzeDataTool(ToolBaseDummy):
         from plugin.calc.analysis_runner import run_trusted_analysis
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
         from plugin.framework.queue_executor import execute_on_main_thread
-
-        dr = str(data_range).strip() if data_range else None
-        params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-        headers = bool(kwargs.get("headers", True))
-        task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
-        output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
         try:
             result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)

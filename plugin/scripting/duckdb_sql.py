@@ -179,18 +179,6 @@ def is_sql_result(value: Any) -> bool:
     return False
 
 
-def format_sql_for_calc(result: dict[str, Any]) -> list[list[Any]]:
-    """Turn a SQL helper result into a row-major grid (truncation note via tabular egress)."""
-    from plugin.calc.tabular_egress import format_tabular_helper_for_calc
-
-    return format_tabular_helper_for_calc(
-        result,
-        domain_label="SQL",
-        default_helper="query_folder_sql",
-        failed_message="SQL query failed.",
-    )
-
-
 def insert_sql_result_into_calc(
     doc: Any,
     uno_ctx: Any,
@@ -200,13 +188,15 @@ def insert_sql_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted SQL output starting at the selection (or given anchor)."""
-    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+    from plugin.scripting.helper_domain import insert_helper_result_into_calc
 
-    grid = format_sql_for_calc(result)
-    return insert_tabular_result_into_calc(
+    return insert_helper_result_into_calc(
         doc,
         uno_ctx,
-        grid,
+        result,
         start_col=start_col,
         start_row=start_row,
+        domain_label="SQL",
+        default_helper="query_folder_sql",
+        failed_message="SQL query failed.",
     )

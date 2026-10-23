@@ -256,14 +256,14 @@ def test_duplicate_dates_are_aggregated():
 
 def test_insert_forecast_result_into_calc() -> None:
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.forecast import insert_forecast_result_into_calc
+    from plugin.scripting.helper_domain import insert_helper_result_into_calc
 
     doc = MagicMock()
     ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["Date", "Forecast"], "rows": [["2024-01-01", 10.0]]}]}
 
     with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
-        res = insert_forecast_result_into_calc(doc, ctx, result)
+        res = insert_helper_result_into_calc(doc, ctx, result)
         assert res == 1
         mock_insert.assert_called_once()
 

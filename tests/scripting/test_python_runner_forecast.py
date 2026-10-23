@@ -12,7 +12,7 @@ from plugin.scripting.forecast import get_forecast_template
 from plugin.scripting.python_runner import execute_and_insert_result
 
 
-@patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
+@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
     ctx = MagicMock()
@@ -44,7 +44,7 @@ def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
     assert mock_insert.call_args.args[:2] == (doc, ctx)
 
 
-@patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
+@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_detects_forecast_result_from_venv(mock_venv, mock_insert):
     ctx = MagicMock()
