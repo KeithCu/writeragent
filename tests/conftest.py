@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.harness.strip_bundle import asserts_stripped, requires_asserts
 
 
 
