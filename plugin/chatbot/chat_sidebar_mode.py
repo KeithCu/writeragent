@@ -218,19 +218,21 @@ def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) 
         ctrl.setText(label)
 
 
+def _clear_mode_topic_session(send_listener: Any, mode: str) -> None:
+    if getattr(send_listener, "_active_mode", "") == mode:
+        send_listener._active_mode = ""
+        send_listener._mode_topic = ""
+
+
 def clear_brainstorming_session(send_listener: Any) -> None:
     """Drop in-progress brainstorming state (dropdown change or normal exit)."""
     # Writing Plan is left set across dropdown applies, so a clear for another mode must not blank this slot.
-    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_BRAINSTORMING:
-        send_listener._active_mode = ""
-        send_listener._mode_topic = ""
+    _clear_mode_topic_session(send_listener, CHAT_MODE_BRAINSTORMING)
 
 
 def clear_ppt_master_session(send_listener: Any) -> None:
     """Drop in-progress PPT-Master state."""
-    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_PPT_MASTER:
-        send_listener._active_mode = ""
-        send_listener._mode_topic = ""
+    _clear_mode_topic_session(send_listener, CHAT_MODE_PPT_MASTER)
 
 
 def is_image_mode(mode: str) -> bool:
@@ -272,9 +274,7 @@ def clear_librarian_session(send_listener: Any) -> None:
 
 def clear_writing_plan_session(send_listener: Any) -> None:
     """Drop in-progress writing plan state."""
-    if getattr(send_listener, "_active_mode", "") == CHAT_MODE_WRITING_PLAN:
-        send_listener._active_mode = ""
-        send_listener._mode_topic = ""
+    _clear_mode_topic_session(send_listener, CHAT_MODE_WRITING_PLAN)
 
 
 class SidebarModeController:

@@ -5,12 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.deep_research_session import (
+    DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
     DeepResearchSessionTool,
     DeepResearchWebTool,
     collect_deep_research_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.chatbot.deep_research_session import get_deep_research_sub_agent_instructions
+from plugin.chatbot.sub_agent_tools import get_sub_agent_instructions
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -22,7 +23,7 @@ def test_deep_research_not_in_writer_delegate_enum():
 
 
 def test_deep_research_instructions_include_apply_document_content():
-    text = get_deep_research_sub_agent_instructions()
+    text = get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS)
     assert "apply_document_content" in text
     assert "deep_research_web" in text
 
@@ -85,7 +86,7 @@ def test_collect_deep_research_tools_includes_apply_on_writer():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.chatbot.deep_research_session.get_deep_research_sub_agent_instructions", return_value="instr")
+@patch("plugin.chatbot.deep_research_session.get_sub_agent_instructions", return_value="instr")
 def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 

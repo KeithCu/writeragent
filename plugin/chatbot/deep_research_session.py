@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES, get_chat_response_format_instructions
+from plugin.chatbot.sub_agent_tools import (
+    SubAgentResearchWebBase,
+    execute_subagent_tool,
+    get_sub_agent_instructions,
+)
 from plugin.framework.tool import ToolBase, ToolContext
 
 DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
@@ -35,16 +39,6 @@ TOOLS:
 - apply_document_content: the ONLY way to write research into the document.
 - reply_to_user: short chat confirmation when the turn is complete."""
 
-def get_deep_research_sub_agent_instructions(ctx: Any | None = None) -> str:
-    """Full system instructions for the Deep Research smol sub-agent (sidebar)."""
-    parts = [
-        DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-        get_chat_response_format_instructions(ctx),
-    ]
-    return "\n\n".join(parts)
-
-
 _DEEP_RESEARCH_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document", "apply_document_content"])
 
 
@@ -59,10 +53,9 @@ def collect_deep_research_tools(ctx: ToolContext) -> list[ToolBase]:
     )
 
 
-class DeepResearchWebTool(ToolBase):
+class DeepResearchWebTool(SubAgentResearchWebBase):
     """Multi-step public web research (sidebar Deep Research only; not shallow web_research)."""
 
-    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "deep_research"
     specialized_cross_cutting: ClassVar[bool] = True
     required_core_tools: ClassVar[frozenset[str] | None] = _DEEP_RESEARCH_CORE_TOOLS
@@ -73,25 +66,7 @@ class DeepResearchWebTool(ToolBase):
         "Run breadth/depth public web research on a topic. Returns plain text; "
         "format as HTML and insert with apply_document_content."
     )
-    is_mutation: bool | None = False
-    long_running: bool = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Research question or topic."},
-        },
-        "required": ["query"],
-    }
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.web_research import WebResearchTool
-
-        query = kwargs["query"]
-        assert isinstance(query, str)
-        return WebResearchTool().execute(ctx, query=query, deep=True)
+    deep_research: ClassVar[bool] = True
 
 
 def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, **kwargs: Any) -> dict[str, Any]:
@@ -103,7 +78,7 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
         query=query,
         history_text=history_text,
         collector=collect_deep_research_tools,
-        instructions=get_deep_research_sub_agent_instructions(ctx.ctx),
+        instructions=get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS, ctx.ctx),
         examples_key="deep_research",
         status_message="Deep research...",
         stop_message="Deep research stopped by user.",
@@ -132,7 +107,5 @@ class DeepResearchSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.smol_agent import run_subagent_tool
-
-        return run_subagent_tool("Deep research", _run_deep_research_agent, ctx, **kwargs)
+        return execute_subagent_tool("Deep research", _run_deep_research_agent, ctx, kwargs)
 

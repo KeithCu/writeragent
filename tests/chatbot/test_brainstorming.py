@@ -7,13 +7,16 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.brainstorming import (
+    BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
     BrainstormResearchWeb,
     BrainstormingSessionTool,
     SaveDesignSpec,
-    collect_brainstorming_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block, normalize_html_content_array
-from plugin.chatbot.brainstorming import get_brainstorming_sub_agent_instructions
+from plugin.chatbot.sub_agent_tools import (
+    collect_sub_agent_tools,
+    get_sub_agent_instructions,
+)
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 import pytest
@@ -51,7 +54,7 @@ def test_brainstorming_examples_show_approaches_and_self_review():
 
 
 def test_brainstorming_instructions_include_superpowers_self_review():
-    text = get_brainstorming_sub_agent_instructions()
+    text = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)
     assert "Placeholder scan" in text
     assert "Spec self-review" in text
     assert "YAGNI" in text
@@ -126,7 +129,7 @@ def test_collect_brainstorming_tools_merges_doc_research_reads():
         doc_type="writer",
         services={"tools": registry},
     )
-    names = {t.name for t in collect_brainstorming_tools(ctx)}
+    names = {t.name for t in collect_sub_agent_tools(ctx, "brainstorming")}
     assert "brainstorm_research_web" in names
     assert "save_design_spec" in names
     assert "list_nearby_files" in names
@@ -146,7 +149,7 @@ def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
         doc_type="writer",
         services={"tools": registry},
     )
-    names = {t.name for t in collect_brainstorming_tools(ctx)}
+    names = {t.name for t in collect_sub_agent_tools(ctx, "brainstorming")}
     assert "brainstorm_research_web" in names
     assert "save_design_spec" in names
     assert "specialized_workflow_finished" not in names
@@ -154,7 +157,7 @@ def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.chatbot.brainstorming.get_brainstorming_sub_agent_instructions", return_value="instr")
+@patch("plugin.chatbot.brainstorming.get_sub_agent_instructions", return_value="instr")
 def test_brainstorming_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 

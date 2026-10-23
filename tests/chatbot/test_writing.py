@@ -7,13 +7,16 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.writing import (
+    WRITING_SUB_AGENT_INSTRUCTIONS,
     WritingResearchWeb,
     WritingPlanSessionTool,
     WriteDocumentSection,
-    collect_writing_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.chatbot.writing import get_writing_sub_agent_instructions
+from plugin.chatbot.sub_agent_tools import (
+    collect_sub_agent_tools,
+    get_sub_agent_instructions,
+)
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 
 
@@ -26,7 +29,7 @@ def test_writing_plan_examples_use_html_only():
 
 
 def test_writing_instructions_content():
-    text = get_writing_sub_agent_instructions()
+    text = get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS)
     assert "WRITING PLAN MODE" in text
     assert "write_document_section" in text
     assert "writing_research_web" in text
@@ -84,7 +87,7 @@ def test_collect_writing_tools_merges_doc_research_reads():
         doc_type="writer",
         services={"tools": registry},
     )
-    names = {t.name for t in collect_writing_tools(ctx)}
+    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
     assert "writing_research_web" in names
     assert "write_document_section" in names
     assert "list_nearby_files" in names
@@ -104,7 +107,7 @@ def test_collect_writing_tools_excludes_specialized_workflow_finished():
         doc_type="writer",
         services={"tools": registry},
     )
-    names = {t.name for t in collect_writing_tools(ctx)}
+    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
     assert "writing_research_web" in names
     assert "write_document_section" in names
     assert "specialized_workflow_finished" not in names
@@ -112,7 +115,7 @@ def test_collect_writing_tools_excludes_specialized_workflow_finished():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.chatbot.writing.get_writing_sub_agent_instructions", return_value="instr")
+@patch("plugin.chatbot.writing.get_sub_agent_instructions", return_value="instr")
 def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 

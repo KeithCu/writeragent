@@ -225,6 +225,14 @@ def _compact_bound_session(
     return True
 
 
+def _send_stopped(bound_scope: Any, stop_checker: Callable[[], bool], client: Any) -> bool:
+    if bound_scope is not None and bound_scope.is_cancelled():
+        return True
+    if stop_checker():
+        return True
+    return bool(getattr(client, "_stopped", False))
+
+
 class _PanelDescriptor:
     """Descriptor that returns the parent panel host, or the instance itself when unset (e.g. in test subclasses)."""
 
@@ -594,11 +602,7 @@ class ToolCallingMixin:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            if bound_scope is not None and bound_scope.is_cancelled():
-                return True
-            if stop_checker():
-                return True
-            return bool(getattr(client, "_stopped", False))
+            return _send_stopped(bound_scope, stop_checker, client)
 
         def run() -> None:
             session = bound_session
@@ -690,11 +694,7 @@ class ToolCallingMixin:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            if bound_scope is not None and bound_scope.is_cancelled():
-                return True
-            if stop_checker():
-                return True
-            return bool(getattr(client, "_stopped", False))
+            return _send_stopped(bound_scope, stop_checker, client)
 
         def run_final() -> None:
             session = bound_session

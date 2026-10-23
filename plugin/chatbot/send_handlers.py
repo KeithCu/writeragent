@@ -41,6 +41,7 @@ from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
+from plugin.chatbot.tool_loop import _PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
     abort_turn,
@@ -224,6 +225,7 @@ class SendHandlerHost(Protocol):
     def on_writing_plan_session_finished(self) -> None: ...
     def on_ppt_master_session_finished(self, exported: bool = False) -> None: ...
     def _run_librarian(self, query_text: str, model: Any) -> None: ...
+    def _run_sub_agent_mode(self, query_text: str, model: Any, mode: str, flag_attr: str) -> None: ...
     def _run_brainstorming(self, query_text: str, model: Any) -> None: ...
     def _run_writing_plan(self, query_text: str, model: Any) -> None: ...
     def _run_ppt_master(self, query_text: str, model: Any) -> None: ...
@@ -231,18 +233,6 @@ class SendHandlerHost(Protocol):
 
 
 T = TypeVar("T", bound="SendHandlersMixin")
-
-
-class _PanelDescriptor:
-    """Descriptor that returns the parent panel host, or the instance itself when unset (e.g. in test subclasses)."""
-
-    def __get__(self, instance: Any, owner: Any = None) -> Any:
-        if instance is None:
-            return self
-        return instance.__dict__.get("_panel_obj", instance)
-
-    def __set__(self, instance: Any, value: Any) -> None:
-        instance.__dict__["_panel_obj"] = value
 
 
 class SendHandlersMixin:
@@ -863,8 +853,14 @@ class SendHandlersMixin:
         finally:
             _reset_active_run_flags(self._panel)
 
-    def _run_brainstorming(self: SendHandlerHost, query_text: str, model: Any) -> None:
-        """Run the brainstorming sub-agent and stream its result into the response area."""
+    def _run_sub_agent_mode(
+        self: SendHandlerHost,
+        query_text: str,
+        model: Any,
+        mode: str,
+        flag_attr: str,
+    ) -> None:
+        """Run a sub-agent mode and stream its result into the response area."""
         _reset_active_run_flags(self._panel)
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
@@ -872,68 +868,32 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        self._panel._active_mode = CHAT_MODE_BRAINSTORMING
+        self._panel._active_mode = mode
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
         interpreter.current_state = current_state
 
-        setattr(self._panel, "_active_run_brainstorming", True)
+        setattr(self._panel, flag_attr, True)
 
         try:
             for effect in step.effects:
                 interpreter.interpret(effect)
         finally:
             _reset_active_run_flags(self._panel)
+
+    def _run_brainstorming(self: SendHandlerHost, query_text: str, model: Any) -> None:
+        """Run the brainstorming sub-agent and stream its result into the response area."""
+        self._run_sub_agent_mode(query_text, model, CHAT_MODE_BRAINSTORMING, "_active_run_brainstorming")
 
     def _run_writing_plan(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the writing plan sub-agent and stream its result into the response area."""
-        _reset_active_run_flags(self._panel)
-        interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type="web", status="ready")
-
-        turn_session = _turn_session_or_stop(self._panel)
-        if turn_session is None:
-            return
-        self._panel._active_mode = CHAT_MODE_WRITING_PLAN
-        turn_session.add_user_message(query_text)
-
-        step = next_state(current_state, StartEvent(query_text, model, "web"))
-        current_state = step.state
-        interpreter.current_state = current_state
-
-        setattr(self._panel, "_active_run_writing_plan", True)
-
-        try:
-            for effect in step.effects:
-                interpreter.interpret(effect)
-        finally:
-            _reset_active_run_flags(self._panel)
+        self._run_sub_agent_mode(query_text, model, CHAT_MODE_WRITING_PLAN, "_active_run_writing_plan")
 
     def _run_ppt_master(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the PPT-Master sub-agent (Impress/Draw sidebar mode)."""
-        _reset_active_run_flags(self._panel)
-        interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type="web", status="ready")
-
-        turn_session = _turn_session_or_stop(self._panel)
-        if turn_session is None:
-            return
-        self._panel._active_mode = CHAT_MODE_PPT_MASTER
-        turn_session.add_user_message(query_text)
-
-        step = next_state(current_state, StartEvent(query_text, model, "web"))
-        current_state = step.state
-        interpreter.current_state = current_state
-
-        setattr(self._panel, "_active_run_ppt_master", True)
-
-        try:
-            for effect in step.effects:
-                interpreter.interpret(effect)
-        finally:
-            _reset_active_run_flags(self._panel)
+        self._run_sub_agent_mode(query_text, model, CHAT_MODE_PPT_MASTER, "_active_run_ppt_master")
 
     def _run_web_research(self: SendHandlerHost, query_text: str, model: Any, is_deep_research: bool = False) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""

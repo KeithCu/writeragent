@@ -12,9 +12,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from plugin.doc.document_research import DOC_RESEARCH_DISCOVERY_TOOL_NAMES, filter_document_research_discovery_tools
 from plugin.chatbot.smol_examples import normalize_html_content_array
-from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES, get_chat_response_format_instructions
+from plugin.chatbot.sub_agent_tools import (
+    SubAgentResearchWebBase,
+    collect_sub_agent_tools,
+    execute_subagent_tool,
+    get_sub_agent_instructions,
+)
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -65,34 +69,10 @@ COMPLETION TOOLS:
 - reply_to_user with brainstorming_finished=true: END the session after the spec is saved and the user has reviewed it in the document.
 - save_design_spec: the ONLY way to write to the document (never call apply_document_content)."""
 
-def get_brainstorming_sub_agent_instructions(ctx: Any | None = None) -> str:
-    """Full system instructions for the brainstorming smol sub-agent."""
-    parts = [
-        BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-        get_chat_response_format_instructions(ctx),
-    ]
-    return "\n\n".join(parts)
-
-
-def collect_brainstorming_tools(ctx: ToolContext) -> list[ToolBase]:
-    """Tools for the brainstorming smol sub-agent (brainstorming domain + doc research reads)."""
-    registry = ctx.services.get("tools")
-    primary = registry.get_tools(doc_type=ctx.doc_type, uno_services_supported=ctx.uno_services_supported, active_domain="brainstorming", exclude_tiers=())
-    doc_res = registry.get_tools(doc_type=ctx.doc_type, uno_services_supported=ctx.uno_services_supported, active_domain="document_research", exclude_tiers=())
-    doc_res = filter_document_research_discovery_tools(doc_res, ctx.ctx)
-    allow = set(DOC_RESEARCH_DISCOVERY_TOOL_NAMES)
-    by_name = {t.name: t for t in primary if t.name}
-    for t in doc_res:
-        if t.name in allow and t.name not in by_name:
-            by_name[t.name] = t
-    return list(by_name.values())
-
-
 _BRAINSTORMING_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
 
 
-class BrainstormResearchWeb(ToolWriterSpecialBase):
+class BrainstormResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
     """Web research for brainstorming (public topics); returns plain text for the sub-agent to format as HTML."""
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
@@ -100,24 +80,6 @@ class BrainstormResearchWeb(ToolWriterSpecialBase):
     intent: str | None = "review"
     name: str | None = "brainstorm_research_web"
     description: str = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
-    is_mutation: bool | None = False
-    long_running: bool = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Research question or topic."},
-        },
-        "required": ["query"],
-    }
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.web_research import WebResearchTool
-
-        query = kwargs["query"]
-        return WebResearchTool().execute(ctx, query=query)
 
 
 class SaveDesignSpec(ToolWriterSpecialBase):
@@ -171,14 +133,14 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
     from plugin.chatbot.smol_agent import run_smol_side_turn
     from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
-    instructions = get_brainstorming_sub_agent_instructions(ctx.ctx)
+    instructions = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS, ctx.ctx)
     if topic and topic.strip():
         instructions += f"\n\n[BRAINSTORMING TOPIC]\n{topic.strip()}\n"
     return run_smol_side_turn(
         ctx,
         query=query,
         history_text=history_text,
-        collector=collect_brainstorming_tools,
+        collector=lambda c: collect_sub_agent_tools(c, "brainstorming"),
         instructions=instructions,
         examples_key="brainstorming",
         reply_spec=BRAINSTORMING_REPLY_SPEC,
@@ -211,7 +173,5 @@ class BrainstormingSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.smol_agent import run_subagent_tool
-
-        return run_subagent_tool("Brainstorming", _run_brainstorming_agent, ctx, **kwargs)
+        return execute_subagent_tool("Brainstorming", _run_brainstorming_agent, ctx, kwargs)
 
