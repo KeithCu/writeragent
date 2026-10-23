@@ -14,7 +14,6 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.chatbot.memory import format_upsert_memory_chat_line
-from plugin.chatbot.sub_agent_tools import execute_subagent_tool
 
 _USER_PROFILE_NODE = "/org.openoffice.UserProfile/Data"
 
@@ -246,5 +245,7 @@ class LibrarianOnboardingTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return execute_subagent_tool("Librarian", _run_librarian_agent, ctx, kwargs)
+        from plugin.chatbot.smol_agent import run_subagent_tool
+
+        return run_subagent_tool("Librarian", _run_librarian_agent, ctx, **kwargs)
 

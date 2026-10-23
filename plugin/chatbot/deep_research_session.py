@@ -14,7 +14,6 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.sub_agent_tools import (
     SubAgentResearchWebBase,
-    execute_subagent_tool,
     get_sub_agent_instructions,
 )
 from plugin.framework.tool import ToolBase, ToolContext
@@ -107,5 +106,7 @@ class DeepResearchSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return execute_subagent_tool("Deep research", _run_deep_research_agent, ctx, kwargs)
+        from plugin.chatbot.smol_agent import run_subagent_tool
+
+        return run_subagent_tool("Deep research", _run_deep_research_agent, ctx, **kwargs)
 

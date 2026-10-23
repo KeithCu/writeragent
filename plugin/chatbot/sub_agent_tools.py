@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar
+from typing import Any, ClassVar
 
 from plugin.doc.document_research import (
     DOC_RESEARCH_DISCOVERY_TOOL_NAMES,
@@ -75,12 +75,3 @@ def collect_sub_agent_tools(ctx: ToolContext, active_domain: str) -> list[ToolBa
     return list(by_name.values())
 
 
-def execute_subagent_tool(
-    agent_label: str,
-    runner: Callable[..., dict[str, Any]],
-    ctx: ToolContext,
-    kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    from plugin.chatbot.smol_agent import run_subagent_tool
-
-    return run_subagent_tool(agent_label, runner, ctx, **kwargs)

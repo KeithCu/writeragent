@@ -16,7 +16,6 @@ from plugin.chatbot.smol_examples import normalize_html_content_array
 from plugin.chatbot.sub_agent_tools import (
     SubAgentResearchWebBase,
     collect_sub_agent_tools,
-    execute_subagent_tool,
     get_sub_agent_instructions,
 )
 from plugin.framework.tool import ToolBase, ToolContext
@@ -173,5 +172,7 @@ class BrainstormingSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return execute_subagent_tool("Brainstorming", _run_brainstorming_agent, ctx, kwargs)
+        from plugin.chatbot.smol_agent import run_subagent_tool
+
+        return run_subagent_tool("Brainstorming", _run_brainstorming_agent, ctx, **kwargs)
 
