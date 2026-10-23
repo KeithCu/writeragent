@@ -132,14 +132,14 @@ def test_run_optimize_dispatcher():
 
 def test_insert_optimize_result_into_calc() -> None:
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.helper_domain import insert_helper_result_into_calc
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
 
     doc = MagicMock()
     ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["Var", "Value"], "rows": [["x", 1.0]]}]}
 
     with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
-        res = insert_helper_result_into_calc(doc, ctx, result)
+        res = insert_optimize_result_into_calc(doc, ctx, result)
         assert res == 1
         mock_insert.assert_called_once()
 

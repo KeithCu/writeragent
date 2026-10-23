@@ -315,7 +315,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
     ),
     DomainWiring(
         id="optimize",
-        insert="plugin.scripting.helper_domain:insert_helper_result_into_calc",
+        insert="plugin.scripting.optimize:insert_optimize_result_into_calc",
         is_result="plugin.scripting.optimize:is_optimize_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
@@ -323,7 +323,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
     ),
     DomainWiring(
         id="forecast",
-        insert="plugin.scripting.helper_domain:insert_helper_result_into_calc",
+        insert="plugin.scripting.forecast:insert_forecast_result_into_calc",
         is_result="plugin.scripting.forecast:is_forecast_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,

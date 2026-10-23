@@ -9,11 +9,13 @@ Compute is lazy-loaded from ``plugin.scripting.venv.optimize`` via ``__getattr__
 
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
+    insert_helper_result_into_calc,
     is_status_helper_result,
     make_template_api,
     run_trusted_calc_data_helper,
@@ -100,3 +102,11 @@ def run_trusted_optimize(
 def is_optimize_result(value: Any) -> bool:
     """True when *value* matches the compact optimize helper result contract."""
     return is_status_helper_result(value, HELPER_NAMES, frozenset({"OPTIMIZE_ERROR"}))
+
+
+insert_optimize_result_into_calc = functools.partial(
+    insert_helper_result_into_calc,
+    domain_label="Optimization",
+    default_helper="optimization",
+    failed_message="Optimization failed.",
+)

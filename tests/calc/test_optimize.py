@@ -22,7 +22,7 @@ def calc_ctx():
     return ctx
 
 
-@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
+@patch("plugin.scripting.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.optimize.run_trusted_optimize")
 def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
@@ -62,7 +62,7 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
     assert mock_insert.call_args.kwargs["start_row"] == 0
     mock_main_thread.assert_called_once()
 
-@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc")
+@patch("plugin.scripting.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.optimize.run_trusted_optimize")
 def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
@@ -113,7 +113,7 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
 def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_manip_cls):
     """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
     del mock_bridge
-    from plugin.scripting.helper_domain import insert_helper_result_into_calc
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
 
     manipulator = MagicMock()
     mock_manip_cls.return_value = manipulator
@@ -128,7 +128,7 @@ def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
     )
     for sheet_name, col, row, expected in cases:
         manipulator.reset_mock()
-        insert_helper_result_into_calc(
+        insert_optimize_result_into_calc(
             MagicMock(),
             MagicMock(),
             result,
@@ -148,7 +148,7 @@ def test_optimize_data_describes_parameters():
     assert "minimum-variance" in tool.description.lower()
 
 
-@patch("plugin.scripting.helper_domain.insert_helper_result_into_calc", side_effect=RuntimeError("disk full"))
+@patch("plugin.scripting.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.scripting.optimize.run_trusted_optimize")
 def test_optimize_sheet_write_failure_keeps_the_result(

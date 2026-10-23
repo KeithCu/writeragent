@@ -919,35 +919,17 @@ def supports_calc_or_writer_manual(doc: Any) -> bool:
     return is_writer(doc) or is_calc(doc)
 
 
-def format_helper_result_for_calc(
-    result: dict[str, Any],
-    *,
-    domain_label: str = "Helper",
-    default_helper: str = "helper",
-    failed_message: str = "Helper failed.",
-) -> list[list[Any]]:
-    """Turn a helper result dict into a row-major grid for ``write_formula_range``."""
-    from plugin.calc.tabular_egress import format_tabular_helper_for_calc
-
-    return format_tabular_helper_for_calc(
-        result,
-        domain_label=domain_label,
-        default_helper=default_helper,
-        failed_message=failed_message,
-    )
-
-
 def insert_helper_result_into_calc(
     doc: Any,
     uno_ctx: Any,
     result: dict[str, Any],
     *,
+    domain_label: str,
+    default_helper: str,
+    failed_message: str,
     sheet_name: str | None = None,
     start_col: int | None = None,
     start_row: int | None = None,
-    domain_label: str | None = None,
-    default_helper: str | None = None,
-    failed_message: str | None = None,
 ) -> int:
     """Write formatted helper output at *sheet_name*/*start_col*/*start_row* (or the selection).
 
@@ -956,32 +938,12 @@ def insert_helper_result_into_calc(
     that sheet. A missing name stays on the active sheet (Run Python Script
     selection, or an unqualified ``output_range``).
     """
-    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+    from plugin.calc.tabular_egress import (
+        format_tabular_helper_for_calc,
+        insert_tabular_result_into_calc,
+    )
 
-    if domain_label is None:
-        helper = result.get("helper")
-        code = str(result.get("code") or "")
-        if helper in ("forecast_time_series", "decompose_time_series") or code == "FORECAST_ERROR":
-            domain_label = "Forecast"
-            default_helper = default_helper or "forecast"
-            failed_message = failed_message or "Forecast failed."
-        elif helper in ("linear_programming", "curve_fit", "optimize_portfolio") or code == "OPTIMIZE_ERROR":
-            domain_label = "Optimization"
-            default_helper = default_helper or "optimization"
-            failed_message = failed_message or "Optimization failed."
-        elif helper == "query_folder_sql" or code in ("READONLY_VIOLATION", "DUCKDB_SQL_ERROR", "DUCKDB_ERROR", "MISSING_SCOPED_DIR"):
-            domain_label = "SQL"
-            default_helper = default_helper or "query_folder_sql"
-            failed_message = failed_message or "SQL query failed."
-        else:
-            domain_label = "Helper"
-            default_helper = default_helper or "helper"
-            failed_message = failed_message or "Helper failed."
-    else:
-        default_helper = default_helper or "helper"
-        failed_message = failed_message or "Helper failed."
-
-    grid = format_helper_result_for_calc(
+    grid = format_tabular_helper_for_calc(
         result,
         domain_label=domain_label,
         default_helper=default_helper,

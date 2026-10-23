@@ -49,8 +49,7 @@ class OptimizeDataTool(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
-        from plugin.scripting.optimize import run_trusted_optimize
-        from plugin.scripting.helper_domain import insert_helper_result_into_calc
+        from plugin.scripting.optimize import insert_optimize_result_into_calc, run_trusted_optimize
 
         helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
@@ -64,6 +63,6 @@ class OptimizeDataTool(ToolBaseDummy):
         result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         if output_range and result.get("status") == "ok":
-            result = write_anchor_result(ctx, result, output_range, insert_helper_result_into_calc)
+            result = write_anchor_result(ctx, result, output_range, insert_optimize_result_into_calc)
 
         return result

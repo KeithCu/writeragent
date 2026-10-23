@@ -50,8 +50,7 @@ class ForecastDataTool(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
-        from plugin.scripting.forecast import run_trusted_forecast
-        from plugin.scripting.helper_domain import insert_helper_result_into_calc
+        from plugin.scripting.forecast import insert_forecast_result_into_calc, run_trusted_forecast
 
         helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
@@ -70,7 +69,7 @@ class ForecastDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run forecast: {exc}")
 
         if output_range and result.get("status") == "ok":
-            result = write_anchor_result(ctx, result, output_range, insert_helper_result_into_calc)
+            result = write_anchor_result(ctx, result, output_range, insert_forecast_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))

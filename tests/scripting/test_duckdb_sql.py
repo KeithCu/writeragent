@@ -948,8 +948,8 @@ def test_session_duckdb_reuses_catalog_across_statements():
 
 
 def test_format_sql_for_calc_shows_truncation_note():
+    from plugin.calc.tabular_egress import format_tabular_helper_for_calc
     from plugin.scripting.duckdb_sql import is_sql_result
-    from plugin.scripting.helper_domain import format_helper_result_for_calc
 
     result = {
         "status": "ok",
@@ -969,7 +969,7 @@ def test_format_sql_for_calc_shows_truncation_note():
         "total_rows": 250,
     }
     assert is_sql_result(result)
-    grid = format_helper_result_for_calc(
+    grid = format_tabular_helper_for_calc(
         result,
         domain_label="SQL",
         default_helper="query_folder_sql",
@@ -978,7 +978,7 @@ def test_format_sql_for_calc_shows_truncation_note():
     flat = [str(cell) for row in grid for cell in row if cell]
     assert any("250" in cell and "truncated" in cell.lower() or "showing first" in cell.lower() for cell in flat)
     assert any("Flags" in cell or "truncated" in cell.lower() for cell in flat)
-    err = format_helper_result_for_calc(
+    err = format_tabular_helper_for_calc(
         {"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"},
         domain_label="SQL",
         default_helper="query_folder_sql",
