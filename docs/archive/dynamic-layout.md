@@ -7,7 +7,7 @@ The chat sidebar uses **XDL for control definitions** plus a **small determinist
 - **Bottom band** (`status`, query row, buttons, toggles, model controls): keep XDL spacing, anchor the block near the panel bottom.
 - **Chat history** (`response` / RichTextControl): fill all remaining vertical space above that band.
 
-Wiring is in [`plugin/chatbot/panel_wiring.py`](../plugin/chatbot/panel_wiring.py). Width negotiation lives in [`ChatToolPanel.getHeightForWidth()`](../plugin/chatbot/panel_factory.py); height is owned by LibreOffice’s deck layouter.
+Wiring is in [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py). Width negotiation lives in [`ChatToolPanel.getHeightForWidth()`](../plugin/chatbot/panel_factory.py); height is owned by LibreOffice’s deck layouter.
 
 ---
 
@@ -56,8 +56,7 @@ There is no deferred relayout chain, height clamp history, or gap re-capture fro
 |------|------|
 | `extension/WriterAgentDialogs/ChatPanelDialog.xdl` | Baseline control geometry |
 | `plugin/chatbot/panel_resize.py` | `compute_chat_panel_layout`, `_PanelResizeListener` |
-| `plugin/chatbot/panel_factory.py` | `getHeightForWidth`, pre-negotiation width cap |
-| `plugin/chatbot/panel_wiring.py` | Listener wiring, rich init, Send/Stop/Clear width measurement before first relayout |
+| `plugin/chatbot/panel_factory.py` | `getHeightForWidth`, pre-negotiation width cap, listener wiring, rich init, Send/Stop/Clear width measurement before first relayout |
 | `plugin/chatbot/rich_text_control.py` | RichText bounds from `placeholder_rect` |
 | `tests/chatbot/test_panel_resize.py` | Pure layout + listener integration tests |
 

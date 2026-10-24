@@ -714,3 +714,58 @@ def test_shape_tool_service_lists_and_scoping():
     assert draw_shapes.AlignShapes.uno_services == ToolDrawShapeBase.uno_services
 
 
+def test_set_shape_text_normalizes_crlf_without_cr() -> None:
+    from typing import Any
+    from plugin.draw.shapes import set_shape_text
+
+    class _FakeCursor:
+        def __init__(self, text_obj: "_FakeText") -> None:
+            self.text_obj = text_obj
+
+        def gotoEnd(self, select: bool) -> None:
+            pass
+
+        def setString(self, val: str) -> None:
+            self.text_obj.paragraphs.append(val)
+
+    class _FakeEnum:
+        def __init__(self) -> None:
+            self._done = False
+
+        def hasMoreElements(self) -> bool:
+            return not self._done
+
+        def nextElement(self) -> Any:
+            self._done = True
+            return object()
+
+    class _FakeText:
+        def __init__(self) -> None:
+            self.paragraphs: list[str] = []
+
+        def setString(self, val: str) -> None:
+            self.paragraphs = [val]
+
+        def createEnumeration(self) -> Any:
+            return _FakeEnum()
+
+        def createTextCursor(self) -> Any:
+            return _FakeCursor(self)
+
+        def insertControlCharacter(self, cursor: Any, char: int, select: bool) -> None:
+            pass
+
+    fake_text = _FakeText()
+
+    class _FakeShape:
+        def getText(self) -> Any:
+            return fake_text
+
+    success = set_shape_text(_FakeShape(), "first\r\nsecond")
+    assert success is True
+    assert fake_text.paragraphs == ["first", "second"]
+    assert "\r" not in fake_text.paragraphs[0]
+    assert "\r" not in fake_text.paragraphs[1]
+
+
+

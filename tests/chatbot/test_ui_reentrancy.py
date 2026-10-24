@@ -183,7 +183,7 @@ def test_typed_image_model_is_saved_unless_refreshing():
 
 
 def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
-    from plugin.chatbot.panel_wiring import _measure_aux_button_max_width
+    from plugin.chatbot.panel_factory import _measure_aux_button_max_width
 
     class _Pos:
         def __init__(self, width: int) -> None:
@@ -201,7 +201,7 @@ def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
         def getPosSize(self):
             return _Pos(len(model.Label))
 
-    monkeypatch.setattr("plugin.chatbot.panel_wiring._", lambda text: text + "XX")
+    monkeypatch.setattr("plugin.chatbot.panel_factory._", lambda text: text + "XX")
     width = _measure_aux_button_max_width(_Ctrl(), ["Stop", "Change"])
     assert model.Label == "Stop"
     assert width == len("ChangeXX")

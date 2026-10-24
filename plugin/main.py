@@ -169,7 +169,7 @@ def _install_terminate_listener(ctx: Any) -> None:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
 
-def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
+def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_factory after sidebar init
     """Run weekly update check at most once per process per product, after init_logging."""
     from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
 

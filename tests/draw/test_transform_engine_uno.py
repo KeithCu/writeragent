@@ -69,13 +69,14 @@ def test_select_text_same_paragraph_absolute_span(ctx, doc):
 def test_select_text_five_forms_on_impress_text_shape(ctx, doc):
     """All five SelectText forms select correct spans on an Impress text shape."""
     from plugin.doc.text_helpers import normalize_linebreaks
-    from plugin.draw.transform_engine import SlideCommandEngine, _set_shape_text
+    from plugin.draw.shapes import set_shape_text
+    from plugin.draw.transform_engine import SlideCommandEngine
     from plugin.framework.tool import ToolContext
 
     page = doc.getDrawPages().getByIndex(0)
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     page.add(shape)
-    _set_shape_text(shape, "first paragraph\nsecond paragraph\nthird paragraph")
+    set_shape_text(shape, "first paragraph\nsecond paragraph\nthird paragraph")
 
     tctx = ToolContext(doc, ctx, "impress", None, "test")
     eng = SlideCommandEngine(tctx)
@@ -189,14 +190,15 @@ def test_insert_text_leaves_selection_for_formatting(ctx, doc):
 @with_native_doc("impress")
 def test_whole_shape_selection_formats_cursor_without_toggle(ctx, doc):
     """SelectText: [] applies mapped UNO formatting to full cursor without toggling."""
-    from plugin.draw.transform_engine import SlideCommandEngine, _set_shape_text
+    from plugin.draw.shapes import set_shape_text
+    from plugin.draw.transform_engine import SlideCommandEngine
     from plugin.framework.tool import ToolContext
 
     page = doc.getDrawPages().getByIndex(0)
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     page.add(shape)
     shape_idx = page.getCount() - 1
-    _set_shape_text(shape, "Hello\nHello")
+    set_shape_text(shape, "Hello\nHello")
 
     tctx = ToolContext(doc, ctx, "impress", None, "test")
     eng = SlideCommandEngine(tctx)

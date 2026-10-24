@@ -29,14 +29,12 @@ from plugin.draw.transform_schema import (
 )
 from plugin.framework.errors import is_disposed_exception, uno_probe
 from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.draw.shapes import set_shape_text
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
-
-_PARAGRAPH_BREAK = 0
-
 
 def _clear_empty_pres_obj(shape: Any) -> None:
     def _apply() -> None:
@@ -47,48 +45,6 @@ def _clear_empty_pres_obj(shape: Any) -> None:
 
     uno_probe(_apply, None)
 
-
-
-def _set_shape_text(shape: Any, text: str) -> bool:
-    text = normalize_linebreaks(text)
-    if hasattr(shape, "getText") and callable(getattr(shape, "getText", None)):
-        try:
-            xtext = shape.getText()
-            if xtext is not None and hasattr(xtext, "setString") and callable(getattr(xtext, "setString", None)):
-                xtext.setString(text)
-                # Ensure \n creates paragraph breaks if setString left a single paragraph.
-                if "\n" in text and hasattr(xtext, "createEnumeration") and callable(getattr(xtext, "createEnumeration", None)):
-                    enum = xtext.createEnumeration()
-                    para_count = 0
-                    while enum.hasMoreElements():
-                        enum.nextElement()
-                        para_count += 1
-                    if para_count <= 1:
-                        lines = text.split("\n")
-                        xtext.setString(lines[0])
-                        cursor = xtext.createTextCursor()
-                        cursor.gotoEnd(False)
-                        for line in lines[1:]:
-                            try:
-                                xtext.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-                            except Exception as exc:
-                                if is_disposed_exception(exc):
-                                    raise
-                            cursor.setString(line)
-                            cursor.gotoEnd(False)
-                return True
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            # non-dispose falls through
-    if hasattr(shape, "setString") and callable(getattr(shape, "setString", None)):
-        try:
-            shape.setString(text)
-            return True
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-    return False
 
 
 def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool = True) -> int | None:
@@ -662,7 +618,7 @@ class SlideCommandEngine:
         shape = page.getByIndex(shape_index)
         if not hasattr(shape, "getText") or not callable(getattr(shape, "getText", None)):
             return self._fail("SetText.%d: shape has no callable getText" % shape_index)
-        if _set_shape_text(shape, text):
+        if set_shape_text(shape, text):
             _clear_empty_pres_obj(shape)
             self.applied.append("SetText.%d" % shape_index)
             return None

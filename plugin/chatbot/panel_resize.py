@@ -346,7 +346,7 @@ def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     return w, h
 
 
-class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedClass]  # constructed from panel_wiring; covered by tests
+class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedClass]  # constructed from panel_factory; covered by tests
     """Repositions sidebar controls when the panel root is resized.
 
     Layout policy: XDL snapshot defines control sizes and bottom-band spacing;
