@@ -351,7 +351,7 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
         return JSONHistory(session_id, db_path)
 
 
-def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:  # pyright: ignore[reportUnusedFunction]
+def fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     """Copy document-chat rows onto *new_session_id*.
 
     Snapshot the source first and replace the destination in one write.

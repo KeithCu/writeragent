@@ -215,7 +215,7 @@ def test_setup_sessions_fork_failure_keeps_old_id(tmp_path, monkeypatch):
     def failing_fork(old, new):
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(plugin.chatbot.history_db, "_fork_doc_chat_history", failing_fork)
+    monkeypatch.setattr(plugin.chatbot.history_db, "fork_doc_chat_history", failing_fork)
 
     _save_as_sessions(tmp_path, props, new_url)
 
@@ -785,7 +785,7 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     toggle = MagicMock()
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -935,7 +935,7 @@ def test_chat_mode_listener_reverts_selector_when_busy() -> None:
     mode_flags = SidebarModeFlags()
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value="web"),
         patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock,
     ):
@@ -1023,7 +1023,7 @@ def test_wire_buttons_get_document_uno_services_raising_attaches_listeners() -> 
     sentinel = MagicMock(name="send_listener")
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -1091,7 +1091,7 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     )
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -1336,7 +1336,7 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
     }
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),

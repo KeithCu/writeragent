@@ -239,7 +239,7 @@ def is_image_mode(mode: str) -> bool:
     return mode == CHAT_MODE_IMAGE
 
 
-def _greeting_for_sidebar_mode(mode: str, model: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+def greeting_for_sidebar_mode(mode: str, model: Any) -> str:
     # Literals inside _() so xgettext extracts them (_(CONST) is invisible).
     from plugin.framework.prompts import get_greeting_for_document
 

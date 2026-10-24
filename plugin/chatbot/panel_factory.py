@@ -936,7 +936,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             clear_librarian_session,
             clear_ppt_master_session,
             is_image_mode,
-            _greeting_for_sidebar_mode,
+            greeting_for_sidebar_mode,
         )
 
         if send_listener is not None:
@@ -965,7 +965,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if session is not None and model is not None:
                 best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
         toggle_image_ui(is_image_mode(mode))
-        greeting = _greeting_for_sidebar_mode(mode, model)
+        greeting = greeting_for_sidebar_mode(mode, model)
         if send_listener:
             send_listener.set_session(self.session)
         if clear_listener:
@@ -1076,10 +1076,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", session_url, url)
                 old_session_id = session_id
                 try:
-                    from plugin.chatbot.history_db import _fork_doc_chat_history
+                    from plugin.chatbot.history_db import fork_doc_chat_history
 
-                    _fork_doc_chat_history(str(old_session_id), fork_to)
-                    _fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
+                    fork_doc_chat_history(str(old_session_id), fork_to)
+                    fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
                     if model:
                         set_document_property(model, "WriterAgentSessionID", fork_to)
                     # Id write succeeded, or there is no model to stamp.
@@ -1117,11 +1117,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_LIBRARIAN,
             LIBRARIAN_HISTORY_SESSION_ID,
-            _greeting_for_sidebar_mode,
+            greeting_for_sidebar_mode,
         )
 
         self.librarian_session = ChatSession(
-            _greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
+            greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
             session_id=LIBRARIAN_HISTORY_SESSION_ID,
         )
         self.session = self.doc_session
@@ -1299,9 +1299,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.exception("Send/Stop button wiring failed")
 
         clear_listener = None
-        from plugin.chatbot.chat_sidebar_mode import _greeting_for_sidebar_mode
+        from plugin.chatbot.chat_sidebar_mode import greeting_for_sidebar_mode
 
-        active_greeting = _greeting_for_sidebar_mode(initial_mode, model)
+        active_greeting = greeting_for_sidebar_mode(initial_mode, model)
         if controls["clear"]:
             clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
             controls["clear"].addActionListener(clear_listener)

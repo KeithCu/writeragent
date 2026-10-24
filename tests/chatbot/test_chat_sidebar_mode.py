@@ -279,20 +279,20 @@ def test_greeting_for_sidebar_mode():
         CHAT_MODE_PPT_MASTER,
         CHAT_MODE_WEB_RESEARCH,
         CHAT_MODE_WRITING_PLAN,
-        _greeting_for_sidebar_mode,
+        greeting_for_sidebar_mode,
     )
 
     fake_model = MagicMock()
 
-    assert "web research" in _greeting_for_sidebar_mode(CHAT_MODE_WEB_RESEARCH, fake_model).lower()
-    assert "deep research" in _greeting_for_sidebar_mode(CHAT_MODE_DEEP_RESEARCH, fake_model).lower()
-    assert "design your idea" in _greeting_for_sidebar_mode(CHAT_MODE_BRAINSTORMING, fake_model).lower()
-    assert "writing plan" in _greeting_for_sidebar_mode(CHAT_MODE_WRITING_PLAN, fake_model).lower()
-    assert "ppt-master" in _greeting_for_sidebar_mode(CHAT_MODE_PPT_MASTER, fake_model).lower()
-    assert "librarian" in _greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, fake_model).lower()
+    assert "web research" in greeting_for_sidebar_mode(CHAT_MODE_WEB_RESEARCH, fake_model).lower()
+    assert "deep research" in greeting_for_sidebar_mode(CHAT_MODE_DEEP_RESEARCH, fake_model).lower()
+    assert "design your idea" in greeting_for_sidebar_mode(CHAT_MODE_BRAINSTORMING, fake_model).lower()
+    assert "writing plan" in greeting_for_sidebar_mode(CHAT_MODE_WRITING_PLAN, fake_model).lower()
+    assert "ppt-master" in greeting_for_sidebar_mode(CHAT_MODE_PPT_MASTER, fake_model).lower()
+    assert "librarian" in greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, fake_model).lower()
 
     with patch("plugin.framework.prompts.get_greeting_for_document", return_value="Default doc greeting") as mock_fallback:
-        res = _greeting_for_sidebar_mode(CHAT_MODE_CHAT, fake_model)
+        res = greeting_for_sidebar_mode(CHAT_MODE_CHAT, fake_model)
         assert res == "Default doc greeting"
         mock_fallback.assert_called_once_with(fake_model)
 
