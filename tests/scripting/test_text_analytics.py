@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from plugin.scripting import text_analytics as ta
+from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
 
@@ -669,7 +670,7 @@ def test_format_topics_missing_package_reads_inner_payload(monkeypatch):
     )
     res = vta.run_text_analytics("topics", "alpha " * 40)
     assert res["status"] == "error"
-    out = ta.format_text_analytics_result_for_display("topics", res)
+    out = format_text_analytics_result_for_display("topics", res)
     expected = (
         "Topics: MISSING_PACKAGE\n\n"
         "scikit-learn (part of the Data Analysis / EDA stack)\n\n"
@@ -688,7 +689,7 @@ def test_format_topic_model_failed_has_no_install_hint():
             "error": "topic_model_failed: boom",
         },
     }
-    out = ta.format_text_analytics_result_for_display("topics", fake)
+    out = format_text_analytics_result_for_display("topics", fake)
     assert out == "Topics: topic_model_failed: boom"
 
 
@@ -700,7 +701,7 @@ def test_format_topics_insufficient_terms_has_no_install_hint():
             "note": "insufficient distinct terms",
         },
     }
-    out = ta.format_text_analytics_result_for_display("topics", fake)
+    out = format_text_analytics_result_for_display("topics", fake)
     assert out == "Topics: insufficient distinct terms"
 
 
@@ -718,7 +719,7 @@ def test_format_sentiment_missing_package_and_model_load():
             "detail": "ImportError: No module named 'transformers'",
         },
     }
-    out_missing = ta.format_text_analytics_result_for_display("sentiment", missing_dict)
+    out_missing = format_text_analytics_result_for_display("sentiment", missing_dict)
     assert (
         "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
         in out_missing
@@ -742,7 +743,7 @@ def test_format_sentiment_missing_package_and_model_load():
             "detail": "OSError: model file corrupt",
         },
     }
-    out_load = ta.format_text_analytics_result_for_display("sentiment", load_dict)
+    out_load = format_text_analytics_result_for_display("sentiment", load_dict)
     assert (
         "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
         in out_load
@@ -761,7 +762,7 @@ def test_format_unknown_helper_is_one_line():
         "helper": "nope",
         "message": "Unknown text analytics helper 'nope'",
     }
-    out = ta.format_text_analytics_result_for_display("nope", err_dict)
+    out = format_text_analytics_result_for_display("nope", err_dict)
     assert out == "Error: Unknown text analytics helper 'nope'"
 
 
@@ -775,7 +776,7 @@ def test_format_diagnostics_inner_error_still_shows_install():
             "text_analytics_install": "uv pip install spacy",
         },
     }
-    out = ta.format_text_analytics_result_for_display("diagnostics", diag)
+    out = format_text_analytics_result_for_display("diagnostics", diag)
     assert "Diagnostics Error" in out
     assert "uv pip install spacy" in out
 
@@ -790,7 +791,7 @@ def test_format_diagnostics_reports_sklearn():
             "has_torch": False,
         },
     }
-    out_installed = ta.format_text_analytics_result_for_display("diagnostics", data_installed)
+    out_installed = format_text_analytics_result_for_display("diagnostics", data_installed)
     assert "scikit-learn: Installed" in out_installed
     assert "scikit-learn version: 1.2.3" in out_installed
 
@@ -802,7 +803,7 @@ def test_format_diagnostics_reports_sklearn():
             "has_torch": False,
         },
     }
-    out_missing = ta.format_text_analytics_result_for_display("diagnostics", data_missing)
+    out_missing = format_text_analytics_result_for_display("diagnostics", data_missing)
     assert "scikit-learn: Missing" in out_missing
     assert "scikit-learn version" not in out_missing
 
@@ -815,7 +816,7 @@ def test_format_readability_bool_is_not_int():
             "descriptive_stats": {"flag": False, "n_tokens": 3},
         },
     }
-    out = ta.format_text_analytics_result_for_display("readability", data)
+    out = format_text_analytics_result_for_display("readability", data)
     assert "flag: True" in out
     assert "score: 1.50" in out
     assert "flag: 1" not in out
@@ -824,8 +825,8 @@ def test_format_readability_bool_is_not_int():
 
 
 def test_format_non_dict_is_no_result():
-    assert ta.format_text_analytics_result_for_display("readability", None) == "No result."
-    assert ta.format_text_analytics_result_for_display("readability", "x") == "No result."  # type: ignore[arg-type]
+    assert format_text_analytics_result_for_display("readability", None) == "No result."
+    assert format_text_analytics_result_for_display("readability", "x") == "No result."  # type: ignore[arg-type]
 
 
 def test_selection_scope_does_not_fall_through_to_document(monkeypatch):

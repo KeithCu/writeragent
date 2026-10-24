@@ -32,12 +32,14 @@ from .calc_functions_util import (
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
+    is_number,
 )
 from .coerce import is_missing_value
 
 
 
 __all__ = [
+    "n",
     "na",
     "negbinomdist",
     "networkdays",
@@ -90,6 +92,16 @@ __all__ = [
 def na() -> float:
     # Usually #N/A in Calc maps to NaN in Python data array
     return float("nan")
+
+
+def n(val: Any) -> float:
+    # N() of any text is 0, including a numeric-looking string such as "5".
+    if is_number(val):
+        # OverflowError (huge int) is left to the worker exception path, which returns #NUM!
+        return float(val)
+    if isinstance(val, (bool, np.bool_)):
+        return 1.0 if val else 0.0
+    return 0.0
 
 
 def negbinomdist(x: Any, r: Any, p: Any) -> float:

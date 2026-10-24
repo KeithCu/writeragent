@@ -29,6 +29,7 @@ from .calc_functions_util import (
     _parse_complex,
     _serial_to_date,
     _to_complex,
+    is_number,
     match_criteria,
 )
 from .coerce import is_blank_value, is_na_value
@@ -102,7 +103,6 @@ __all__ = [
     "mtrans",
     "multinomial",
     "munit",
-    "n",
     "slope",
 ]
 
@@ -491,7 +491,7 @@ def isformula(val: Any) -> bool:
 def islogical(val: Any) -> bool:
     # What was wrong: islogical(np.bool_(True)) was False.
     # How it happened: np.bool_ is not a subclass of bool, and this was the
-    # only logical check that tested bool alone. _is_number excludes both,
+    # only logical check that tested bool alone. is_number excludes both,
     # and n() maps both to 1.0 / 0.0.
     # Why this change fixes it: a NumPy logical is logical, matching ISLOGICAL.
     return isinstance(val, (bool, np.bool_))
@@ -499,11 +499,6 @@ def islogical(val: Any) -> bool:
 
 def isna(val: Any) -> bool:
     return is_na_value(val)
-
-
-def _is_number(val: Any) -> bool:
-    # np.integer and np.floating count. bool and np.bool_ do not: they are logical.
-    return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
 def isnontext(val: Any) -> bool:
@@ -514,7 +509,7 @@ def isnontext(val: Any) -> bool:
 
 
 def isnumber(val: Any) -> bool:
-    return _is_number(val)
+    return is_number(val)
 
 
 def isodd(val: Any) -> bool:
@@ -1024,16 +1019,6 @@ def munit(dimension: Any) -> Any:
         return "#VALUE!"
     # np.eye of a size in 1..1024 does not raise
     return np.eye(size).tolist()
-
-
-def n(val: Any) -> float:
-    # N() of any text is 0, including a numeric-looking string such as "5".
-    if _is_number(val):
-        # OverflowError (huge int) is left to the worker exception path, which returns #NUM!
-        return float(val)
-    if isinstance(val, (bool, np.bool_)):
-        return 1.0 if val else 0.0
-    return 0.0
 
 
 def slope(data_y: Any, data_x: Any) -> float:

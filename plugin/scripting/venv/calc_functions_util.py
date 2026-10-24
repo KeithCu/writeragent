@@ -250,6 +250,12 @@ def _is_calc_error(val: Any) -> bool:
     return False
 
 
+def is_number(val: Any) -> bool:
+    """Return True if val is a numeric type (int, float, np.integer, np.floating), excluding booleans."""
+    # np.integer and np.floating count. bool and np.bool_ do not: they are logical.
+    return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
+
+
 def _calc_sort_key(val: Any) -> tuple[int, Any]:
     """Sort key matching Calc/Excel ordering: numbers < text (case-insensitive) < bools < blanks/errors."""
     if val is None or val == "" or _is_calc_error(val):

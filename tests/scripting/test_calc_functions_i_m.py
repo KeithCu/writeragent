@@ -388,20 +388,6 @@ def test_mround_zero_multiple():
     assert calc.mround(0, 0) == 0.0
 
 
-def test_n_text_returns_zero():
-    # Bug Z5: n(str) should return 0.0, not convert numeric text
-    assert calc.n("5") == 0.0
-    assert calc.n("hello") == 0.0
-    assert calc.n("") == 0.0
-    assert calc.n(5) == 5.0
-    assert calc.n(True) == 1.0
-    assert calc.n(False) == 0.0
-    assert calc.n(np.int64(42)) == 42.0
-    assert calc.n(np.float64(3.5)) == 3.5
-    with pytest.raises(OverflowError):
-        calc.n(10**400)
-
-
 def test_error_predicates_i_m():
     # Bug Z7: iserror, iserr, istext, isnumber, iferror
     assert calc.iserror(float("nan")) is True

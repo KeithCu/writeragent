@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import math
 
+import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
@@ -525,5 +526,19 @@ def test_sort_flat_vector_index():
     assert calc.sort([3, 1, 2], 2, 1, True) == [3, 1, 2]
     assert math.isnan(calc.sort([3, 1, 2], 4, 1, True))
     assert calc.sort([], 99) == []
+
+
+def test_n_text_returns_zero():
+    # Bug Z5: n(str) should return 0.0, not convert numeric text
+    assert calc.n("5") == 0.0
+    assert calc.n("hello") == 0.0
+    assert calc.n("") == 0.0
+    assert calc.n(5) == 5.0
+    assert calc.n(True) == 1.0
+    assert calc.n(False) == 0.0
+    assert calc.n(np.int64(42)) == 42.0
+    assert calc.n(np.float64(3.5)) == 3.5
+    with pytest.raises(OverflowError):
+        calc.n(10**400)
 
 
