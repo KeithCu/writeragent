@@ -524,3 +524,17 @@ GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class})({_sterm_clas
 def count_nonspace_chars(text: str) -> int:
     return sum(1 for c in (text or "") if not c.isspace())
 
+
+def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Drop incomplete sentences shorter than ``GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS`` (conservative churn avoidance)."""
+    out: list[tuple[int, int, str]] = []
+    for s, e, txt in spans:
+        nonspace_len = count_nonspace_chars(txt)
+        complete_sentence = looks_complete_sentence(txt)
+        partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+        if not complete_sentence and not partial_allowed:
+            continue
+        out.append((s, e, txt))
+    return out
+
+

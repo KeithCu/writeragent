@@ -357,7 +357,7 @@ def test_sentences_for_speech_uses_grammar_splitter_and_keeps_short_fragments():
         "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
         return_value=(_FakeSentenceBI(), "en-US"),
     ), patch(
-        "plugin.writer.locale.grammar_proofread_text.filter_sentence_spans_for_thresholds",
+        "plugin.writer.locale.grammar_proofread_locale.filter_sentence_spans_for_thresholds",
         side_effect=AssertionError("TTS must not apply the grammar churn filter"),
     ):
         spoken = sentences_for_speech("Hi. No", object())

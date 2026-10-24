@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from plugin.writer.locale import grammar_proofread_locale as gl
 from plugin.writer.locale import grammar_proofread_text as gt
 
 import pytest
@@ -593,27 +594,12 @@ def test_candidate_sentence_spans_for_proofreading() -> None:
     assert gt.candidate_sentence_spans_for_proofreading(ctx, loc, "", 0, 10) == []
 
 
-def test_filter_sentence_spans_for_thresholds() -> None:
-    spans = [
-        (0, 5, "Hi."), # Complete + Short -> Kept
-        (5, 30, "This is a much longer sentence."), # Complete + Long -> Kept
-        (30, 40, "The quick"), # Incomplete + Short -> Dropped
-        (40, 70, "This is an incomplete but very long fragment"), # Incomplete + Long -> Kept
-    ]
-    
-    filtered = gt.filter_sentence_spans_for_thresholds(spans)
-    assert len(filtered) == 3
-    assert filtered[0][2] == "Hi."
-    assert filtered[1][2] == "This is a much longer sentence."
-    assert filtered[2][2] == "This is an incomplete but very long fragment"
-
-
 def test_active_spans_from_paragraph_n_start_zero_keeps_all() -> None:
     """Paragraph-scale pass ignores suggested end (do not naive-overlap)."""
     text = "Sentence one. Sentence two. Sentence three."
     ctx = None
     loc = "en-US"
-    paragraph = gt.filter_sentence_spans_for_thresholds(
+    paragraph = gl.filter_sentence_spans_for_thresholds(
         gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 0, len(text))
     )
     assert len(paragraph) == 3
@@ -639,7 +625,7 @@ def test_active_spans_overlap_after_threshold_drops_short_fragments() -> None:
         (14, 24, "The quick"),  # incomplete + short → dropped by threshold
         (24, 40, "Sentence three."),
     ]
-    filtered = gt.filter_sentence_spans_for_thresholds(spans)
+    filtered = gl.filter_sentence_spans_for_thresholds(spans)
     assert [t for _s, _e, t in filtered] == ["Sentence one. ", "Sentence three."]
     text = "x" * 40
     active = gt.active_spans_from_paragraph(filtered, text, 14, 30)

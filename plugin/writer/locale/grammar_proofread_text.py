@@ -52,11 +52,8 @@ from .grammar_obs import grammar_obs
 
 from .grammar_ignore_rules import WA_G_RULE_PREFIX
 from .grammar_proofread_locale import (
-    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
     GRAMMAR_WHITESPACE_RUN_RE,
-    count_nonspace_chars,
     is_whitespace_sentence_locale,
-    looks_complete_sentence,
     split_sentence_chunks_by_separator_regex,
     word_before_period_is_abbrev,
 )
@@ -364,19 +361,6 @@ def active_spans_from_paragraph(
     if n_start == 0:
         return list(paragraph_spans)
     return filter_sentence_spans_for_overlap(paragraph_spans, n_start, n_suggested_end, len(a_text))
-
-
-def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
-    """Drop incomplete sentences shorter than ``GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS`` (conservative churn avoidance)."""
-    out: list[tuple[int, int, str]] = []
-    for s, e, txt in spans:
-        nonspace_len = count_nonspace_chars(txt)
-        complete_sentence = looks_complete_sentence(txt)
-        partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-        if not complete_sentence and not partial_allowed:
-            continue
-        out.append((s, e, txt))
-    return out
 
 
 def resolve_work_spans(

@@ -73,6 +73,7 @@ from plugin.framework.grammar_rule_ids import (
 )
 from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
+    filter_sentence_spans_for_thresholds,
     uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (
@@ -80,7 +81,6 @@ from plugin.writer.locale.grammar_proofread_text import (
     Utf16OffsetMap,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
-    filter_sentence_spans_for_thresholds,
     reconcile_active_and_paragraph_spans,
     resolve_work_spans,
     slice_preview_debug,

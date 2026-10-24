@@ -321,4 +321,20 @@ def test_checked_grammar_text() -> None:
     assert gl.checked_grammar_text("a" * 30, 20) == "a" * 20
 
 
+def test_filter_sentence_spans_for_thresholds() -> None:
+    spans = [
+        (0, 5, "Hi."),  # Complete + Short -> Kept
+        (5, 30, "This is a much longer sentence."),  # Complete + Long -> Kept
+        (30, 40, "The quick"),  # Incomplete + Short -> Dropped
+        (40, 70, "This is an incomplete but very long fragment"),  # Incomplete + Long -> Kept
+    ]
+
+    filtered = gl.filter_sentence_spans_for_thresholds(spans)
+    assert len(filtered) == 3
+    assert filtered[0][2] == "Hi."
+    assert filtered[1][2] == "This is a much longer sentence."
+    assert filtered[2][2] == "This is an incomplete but very long fragment"
+
+
+
 
