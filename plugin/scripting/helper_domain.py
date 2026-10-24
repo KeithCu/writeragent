@@ -38,12 +38,6 @@ from plugin.framework.i18n import _
 log = logging.getLogger("writeragent.scripting")
 
 
-def is_calc(doc: Any) -> bool:
-    """Lazy import of is_calc to keep helper_domain importable without loading thread_guard."""
-    from plugin.doc.doc_type import is_calc as _is_calc
-
-    return _is_calc(doc)
-
 if TYPE_CHECKING:
     from collections.abc import Collection
 
@@ -356,6 +350,8 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """
     # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
     # because plots insert on Writer, and that must not enable this toolbar.
+    from plugin.doc.doc_type import is_calc
+
     if not code or not is_calc(doc):
         return False
     try:
