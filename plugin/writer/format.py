@@ -36,34 +36,9 @@ from . import xhtml_style_postprocess as xhtml_post  # noqa: F401  # pyright: ig
 log = logging.getLogger("writeragent.writer")
 
 __all__ = [
-    "_deletion_author",
-    "_resolve_style_name",
     "_with_temp_buffer",
     "_strip_html_boilerplate",
 ]
-
-
-def _deletion_author() -> Any:
-    """WriterAgent split-author coloring; no-op when ``review_authors`` is omitted (LibrePy)."""
-    try:
-        from .review_authors import deletion_author
-
-        return deletion_author()
-    except ImportError:
-        return contextlib.nullcontext()
-
-
-def _resolve_style_name(model: Any, style_name: str) -> str:
-    """Resolve a style name case-insensitively against document ParagraphStyles."""
-    families = model.getStyleFamilies()
-    para_styles = families.getByName("ParagraphStyles")
-    if para_styles.hasByName(style_name):
-        return style_name
-    lower = style_name.lower()
-    for name in para_styles.getElementNames():
-        if name.lower() == lower:
-            return name
-    return style_name
 
 
 # ---------------------------------------------------------------------------
@@ -561,16 +536,6 @@ def apply_paragraph_style_preserving_direct_char(
     if capture_failures > 0:
         report["capture_incomplete"] = True
     return report
-
-
-# ---------------------------------------------------------------------------
-# Text search (forwarded to plugin.writer.search)
-# ---------------------------------------------------------------------------
-
-
-def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: int | None = None, case_sensitive: bool = True) -> list[dict[str, Any]]:
-    from .search import find_text_ranges as impl
-    return impl(model, ctx, search, start=start, limit=limit, case_sensitive=case_sensitive)
 
 
 # ---------------------------------------------------------------------------

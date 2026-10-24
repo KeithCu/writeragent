@@ -605,7 +605,6 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     (an 18pt bold opening heading spread over the whole document)."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import format as format_mod
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -614,7 +613,7 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     leftover = text.createTextCursorByRange.return_value
     leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(format_mod, "_deletion_author"):
+         patch.object(html_import, "_deletion_author"):
         html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
@@ -627,16 +626,29 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
 def test_full_document_without_review_imports_in_place():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer import format as format_mod
     from plugin.writer import html_import
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(format_mod, "_deletion_author"):
+         patch.object(html_import, "_deletion_author"):
         html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
+
+
+def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
+    """LibrePy omits review_authors; tracked-delete helper must not ImportError."""
+    import contextlib
+    import sys
+
+    import plugin.writer.html_import as html_import
+
+    monkeypatch.setitem(sys.modules, "plugin.writer.review_authors", None)
+    cm = html_import._deletion_author()
+    with cm:
+        pass
+    assert type(cm).__name__ == type(contextlib.nullcontext()).__name__ or hasattr(cm, "__enter__")
 
 
 @pytest.mark.parametrize(
@@ -1133,6 +1145,26 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
     fam.hasByName.return_value = True
     assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
+
+
+def test_resolve_style_name():
+    from unittest.mock import MagicMock
+    from plugin.writer.html_import_styles import _resolve_style_name
+
+    fam = MagicMock()
+    fam.hasByName.side_effect = lambda name: name == "Heading 1"
+    fam.getElementNames.return_value = ("Heading 1", "Standard")
+    families = MagicMock()
+    families.getByName.return_value = fam
+    model = MagicMock()
+    model.getStyleFamilies.return_value = families
+
+    # Exact match
+    assert _resolve_style_name(model, "Heading 1") == "Heading 1"
+    # Case-insensitive match
+    assert _resolve_style_name(model, "heading 1") == "Heading 1"
+    # Fallback to input string on unknown style
+    assert _resolve_style_name(model, "UnknownStyle") == "UnknownStyle"
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():

@@ -20,8 +20,8 @@ from plugin.writer.format import (
     insert_content_at_position as _insert_content_at_position,
     content_has_markup as _content_has_markup,
     replace_preserving_format as _replace_text_preserving_format,
-    find_text_ranges,
 )
+from plugin.writer.search import find_text_ranges
 from plugin.framework.uno_context import get_desktop
 
 def _move_cursor_by_offset(cursor, offset, expand=False):

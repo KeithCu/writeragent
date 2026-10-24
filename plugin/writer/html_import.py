@@ -16,6 +16,7 @@ base run. Not a text field — do not use ``TextField.Ruby``.
 
 from __future__ import annotations
 
+import contextlib
 import html as html_mod
 import logging
 import re
@@ -579,6 +580,16 @@ def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = 
         _replace_full_document(model, ctx, swapped, config_svc)
 
 
+def _deletion_author() -> Any:
+    """WriterAgent split-author coloring; no-op when ``review_authors`` is omitted (LibrePy)."""
+    try:
+        from .review_authors import deletion_author
+
+        return deletion_author()
+    except ImportError:
+        return contextlib.nullcontext()
+
+
 def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
     content = _decode_complete_character_references(content)
 
@@ -586,8 +597,7 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    from . import format as format_mod
-    with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
+    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
     cursor.gotoStart(False)
     if not image_placeholders._is_recording_changes(model):
@@ -658,7 +668,7 @@ def _replace_single_range_with_content(
     # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
     raise_if_range_hosts_nested_table(text_range)
     from . import format as format_mod
-    with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
+    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
 
     if saved_style is not None:
@@ -1014,8 +1024,7 @@ def replace_preserving_format(
         # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
         # context rollback also cleans up).
         original = cursor.getString()
-        from . import format as format_mod
-        with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
+        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         if new_text:
             try:

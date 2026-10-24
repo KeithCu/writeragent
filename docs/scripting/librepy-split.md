@@ -365,7 +365,8 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
 | [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager |
-| [`plugin/writer/format.py`](../../plugin/writer/format.py) | HTML insert, mixed math segments. `review_authors` / `content` are `ImportError`-guarded (LibrePy applies HTML without split-author coloring or WriterAgent style lookup) |
+| [`plugin/writer/format.py`](../../plugin/writer/format.py) | HTML insert facade, mixed math segments |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
 | [`plugin/calc/address_utils.py`](../../plugin/calc/address_utils.py) | `index_to_column` for anchor cell |

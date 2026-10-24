@@ -1024,40 +1024,6 @@ def test_format_module_avoids_document_helpers_ops_review_authors():
     assert "review_authors" not in mods
 
 
-def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
-    """LibrePy omits review_authors; tracked-delete helper must not ImportError."""
-    import contextlib
-    import sys
-
-    import plugin.writer.format as fmt
-
-    monkeypatch.setitem(sys.modules, "plugin.writer.review_authors", None)
-    cm = fmt._deletion_author()
-    with cm:
-        pass
-    assert type(cm).__name__ == type(contextlib.nullcontext()).__name__ or hasattr(cm, "__enter__")
-
-
-def test_resolve_style_name():
-    from unittest.mock import MagicMock
-    import plugin.writer.format as fmt
-
-    fam = MagicMock()
-    fam.hasByName.side_effect = lambda name: name == "Heading 1"
-    fam.getElementNames.return_value = ("Heading 1", "Standard")
-    families = MagicMock()
-    families.getByName.return_value = fam
-    model = MagicMock()
-    model.getStyleFamilies.return_value = families
-
-    # Exact match
-    assert fmt._resolve_style_name(model, "Heading 1") == "Heading 1"
-    # Case-insensitive match
-    assert fmt._resolve_style_name(model, "heading 1") == "Heading 1"
-    # Fallback to input string on unknown style
-    assert fmt._resolve_style_name(model, "UnknownStyle") == "UnknownStyle"
-
-
 # --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
 
 

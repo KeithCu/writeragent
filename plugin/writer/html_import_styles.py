@@ -138,6 +138,19 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 
 
 
+def _resolve_style_name(model: Any, style_name: str) -> str:
+    """Resolve a style name case-insensitively against document ParagraphStyles."""
+    families = model.getStyleFamilies()
+    para_styles = families.getByName("ParagraphStyles")
+    if para_styles.hasByName(style_name):
+        return style_name
+    lower = style_name.lower()
+    for name in para_styles.getElementNames():
+        if name.lower() == lower:
+            return name
+    return style_name
+
+
 def _resolve_paragraph_style_token(
     model: Any,
     fam: Any,
@@ -153,7 +166,6 @@ def _resolve_paragraph_style_token(
     to ``Standard`` instead of silently picking one. No candidate -> case-insensitive resolve,
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
-    from . import format as format_mod
     names = element_names
     if names is None and fam is not None:
         names = uno_read(lambda: list(fam.getElementNames()), [])
@@ -171,7 +183,7 @@ def _resolve_paragraph_style_token(
             log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
                       token, candidates)
             return "Standard"
-    resolved = format_mod._resolve_style_name(model, token)
+    resolved = _resolve_style_name(model, token)
     if fam is None or fam.hasByName(resolved):
         return resolved
     return "Standard"
