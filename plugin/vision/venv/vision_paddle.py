@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html as html_module
 import importlib
+import io
 import logging
 from collections.abc import Iterator
 from html.parser import HTMLParser
@@ -23,7 +24,6 @@ from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     bbox_to_xywh,
     css_inline_unavailable_result,
-    decode_image_bytes,
     error_result,
     is_css_inline_import_error,
     ok_result,
@@ -235,6 +235,32 @@ def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
     if not parts:
         return ""
     return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
+
+
+def decode_image_bytes(image: Any) -> Any:
+    """Return a numpy RGB array from raw PNG/JPEG bytes."""
+    # Transpose EXIF orientation, then composite transparent pixels onto white.
+    # convert('RGB') drops alpha and paints transparent images black-on-black.
+    if image is None:
+        raise ValueError("image bytes are required")
+    if not isinstance(image, (bytes, bytearray)):
+        raise ValueError("image must be raw bytes")
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as exc:
+        raise ImportError("Pillow is required to decode image bytes for OCR") from exc
+    import numpy as np
+
+    with Image.open(io.BytesIO(bytes(image))) as raw_img:
+        transposed = ImageOps.exif_transpose(raw_img)
+        img = transposed if transposed is not None else raw_img
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            rgba = img.convert("RGBA")
+            bg = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            rgb = Image.alpha_composite(bg, rgba).convert("RGB")
+        else:
+            rgb = img.convert("RGB")
+        return np.array(rgb)
 
 
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:

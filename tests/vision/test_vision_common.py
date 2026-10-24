@@ -6,16 +6,13 @@
 
 from __future__ import annotations
 
-import io
 from unittest.mock import patch
 
 import pytest
-from PIL import Image
 
 from plugin.vision.vision_common import (
     bbox_to_xywh,
     css_inline_unavailable_result,
-    decode_image_bytes,
     detect_vision_input_format,
     is_css_inline_import_error,
     merge_vision_params,
@@ -76,16 +73,6 @@ def test_resolve_engine_valid_and_unknown():
     assert resolve_engine({"engine": "paddle"}) == "paddle"
     with pytest.raises(ValueError, match="Unknown vision engine 'padle'"):
         resolve_engine({"engine": "padle"})
-
-
-def test_decode_image_bytes_composites_transparent_image_onto_white():
-    # What was wrong: convert("RGB") on transparent images converted transparent background to black.
-    # Why this change: composite alpha channel onto white background before converting to RGB.
-    img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))  # fully transparent
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    arr = decode_image_bytes(buf.getvalue())
-    assert (arr == 255).all()
 
 
 def test_table_to_tsv_lines_preserves_empty_cells():

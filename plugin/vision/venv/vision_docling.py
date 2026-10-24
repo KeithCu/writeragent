@@ -14,12 +14,12 @@ from typing import Any, Literal
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
+    bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
     error_result,
     is_css_inline_import_error,
     ok_result,
-    prov_bbox_to_xywh,
     resolve_ocr_backend,
     table_from_span_cells,
     table_to_tsv_lines,
@@ -471,6 +471,20 @@ def _cell_text(cell: Any) -> str:
     if isinstance(cell, dict):
         return str(cell.get("text") or cell.get("value") or "").strip()
     return str(getattr(cell, "text", "") or "").strip()
+
+
+def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[int]:
+    """Extract [x,y,w,h] from Docling provenance list or dict."""
+    if isinstance(prov, list) and prov:
+        prov = prov[0]
+    if not isinstance(prov, dict) and not hasattr(prov, "bbox"):
+        return [0, 0, 0, 0]
+    bbox = prov.get("bbox") if isinstance(prov, dict) else getattr(prov, "bbox", None)
+    if bbox is None:
+        bbox = prov.get("box") if isinstance(prov, dict) else None
+    if bbox is None:
+        return [0, 0, 0, 0]
+    return bbox_to_xywh(bbox, page_height=page_height)
 
 
 def _map_docling_document(

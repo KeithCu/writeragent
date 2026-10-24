@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import io
 import logging
 from typing import Any
 
@@ -150,46 +149,6 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
             return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
         return [int(x0), int(y0), int(max(0, x1)), int(max(0, y1))]
     return _box_to_xywh(bbox)
-
-
-def decode_image_bytes(image: Any) -> Any:
-    """Return a numpy RGB array from raw PNG/JPEG bytes."""
-    # Transpose EXIF orientation, then composite transparent pixels onto white.
-    # convert('RGB') drops alpha and paints transparent images black-on-black.
-    if image is None:
-        raise ValueError("image bytes are required")
-    if not isinstance(image, (bytes, bytearray)):
-        raise ValueError("image must be raw bytes")
-    try:
-        from PIL import Image, ImageOps
-    except ImportError as exc:
-        raise ImportError("Pillow is required to decode image bytes for OCR") from exc
-    import numpy as np
-
-    with Image.open(io.BytesIO(bytes(image))) as raw_img:
-        transposed = ImageOps.exif_transpose(raw_img)
-        img = transposed if transposed is not None else raw_img
-        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-            rgba = img.convert("RGBA")
-            bg = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-            rgb = Image.alpha_composite(bg, rgba).convert("RGB")
-        else:
-            rgb = img.convert("RGB")
-        return np.array(rgb)
-
-
-def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[int]:
-    """Extract [x,y,w,h] from Docling provenance list or dict."""
-    if isinstance(prov, list) and prov:
-        prov = prov[0]
-    if not isinstance(prov, dict) and not hasattr(prov, "bbox"):
-        return [0, 0, 0, 0]
-    bbox = prov.get("bbox") if isinstance(prov, dict) else getattr(prov, "bbox", None)
-    if bbox is None:
-        bbox = prov.get("box") if isinstance(prov, dict) else None
-    if bbox is None:
-        return [0, 0, 0, 0]
-    return bbox_to_xywh(bbox, page_height=page_height)
 
 
 def resolve_engine(params: dict[str, Any]) -> str:

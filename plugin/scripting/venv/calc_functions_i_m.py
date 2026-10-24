@@ -32,7 +32,7 @@ from .calc_functions_util import (
     is_number,
     match_criteria,
 )
-from .coerce import is_blank_value, is_na_value
+from .coerce import is_blank_value
 
 
 __all__ = [
@@ -126,6 +126,23 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
         return val
     except Exception:
         return alt
+
+
+def is_na_value(value: Any) -> bool:
+    """True for float or numpy NaN, or a stripped #N/A token."""
+    if isinstance(value, float):
+        if math.isnan(value):
+            return True
+    if isinstance(value, str) and value.strip().upper() == "#N/A":
+        return True
+    try:
+        import numpy as np
+
+        if isinstance(value, np.floating) and np.isnan(value):
+            return True
+    except ImportError:
+        pass
+    return False
 
 
 def _im_suffix(first: str, second: str = "") -> str:

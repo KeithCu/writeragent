@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from PIL import Image
 from pytest import MonkeyPatch
 
 from plugin.vision.venv import vision_paddle as paddle_mod
@@ -444,3 +446,13 @@ def test_html_from_paddle_structure_keeps_plain_table_text():
     assert "See totals" in html
     assert html.lower().count("<table") == 1
     assert "&lt;table" not in html.lower()
+
+
+def test_decode_image_bytes_composites_transparent_image_onto_white():
+    # What was wrong: convert("RGB") on transparent images converted transparent background to black.
+    # Why this change: composite alpha channel onto white background before converting to RGB.
+    img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))  # fully transparent
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    arr = paddle_mod.decode_image_bytes(buf.getvalue())
+    assert (arr == 255).all()

@@ -1023,7 +1023,7 @@ Do these **before** building layout HTML to avoid dead ends.
 **Objective:** Red banner, gray subheads, and white-on-color titles **approximately** match the image.
 
 1. **Collect blocks** from Docling after `_convert_image_bytes(..., for_structure=True)`:
-   - Reuse [`_map_docling_structure`](../../plugin/vision/venv/vision_docling.py) / provenance [`_prov_bbox_to_xywh`](../../plugin/vision/vision_common.py).
+   - Reuse [`_map_docling_structure`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
    - Map `label` → HTML tag (`section_header` → `h2`, `text` → `p`, `list_item` → `li`, …).
 
 2. **Sample colors** per block bbox from PNG (Pillow already in vision stack):

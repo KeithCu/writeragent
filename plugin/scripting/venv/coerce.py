@@ -128,23 +128,6 @@ def is_blank_value(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == ""
 
 
-def is_na_value(value: Any) -> bool:
-    """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(value, float):
-        if math.isnan(value):
-            return True
-    if isinstance(value, str) and value.strip().upper() == "#N/A":
-        return True
-    try:
-        import numpy as np
-
-        if isinstance(value, np.floating) and np.isnan(value):
-            return True
-    except ImportError:
-        pass
-    return False
-
-
 def _signed_magnitude(sign_a: str | None, sign_b: str | None, digits: str) -> float | None:
     """Apply one leading sign. Two signs means the text is not a single number."""
     if sign_a and sign_b:
