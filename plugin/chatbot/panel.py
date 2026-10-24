@@ -605,7 +605,6 @@ class SendButtonListener(BaseActionListener):
                 post_to_main_thread(self._set_status, text)
         except Exception as e:
             log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
-            return
 
     def _on_http_server_started(self, url: str = "", **kwargs: Any) -> None:
         self._events._on_http_server_started(url, **kwargs)

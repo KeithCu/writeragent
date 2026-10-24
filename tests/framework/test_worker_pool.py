@@ -1476,3 +1476,53 @@ def test_terminate_closes_captured_child_pipes_not_the_replacement() -> None:
     assert replacement2.stderr.closed is False
 
 
+def test_async_process_registers_with_managed_subprocess() -> None:
+    from plugin.framework.managed_subprocess import _instances
+
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(0.05)"])
+    ap.start()
+    assert ap._managed is not None
+    assert ap._managed in _instances
+
+    ap._wait_thread.join(timeout=2)
+    assert ap._managed not in _instances
+
+
+def test_async_process_kill_tree_kills_process_group() -> None:
+    from plugin.framework.managed_subprocess import _instances
+
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
+    ap.start()
+    assert ap._managed in _instances
+    assert ap.is_running is True
+
+    ap.kill_tree()
+    ap._wait_thread.join(timeout=2)
+    assert ap.is_running is False
+    assert ap._managed not in _instances
+
+
+def test_async_process_terminate_unregisters_from_managed_subprocess() -> None:
+    from plugin.framework.managed_subprocess import _instances
+
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
+    ap.start()
+    managed = ap._managed
+    assert managed in _instances
+
+    ap.terminate(timeout=0.1)
+    ap._wait_thread.join(timeout=2)
+    deadline = time.time() + 2.0
+    while time.time() < deadline and managed in _instances:
+        time.sleep(0.05)
+    assert managed not in _instances
+
+
+def test_read_stderr_chunk_returns_bytes_directly() -> None:
+    import io
+    from plugin.framework.worker_pool import _read_stderr_chunk
+
+    raw = io.BytesIO(b"hello stderr")
+    reader = io.BufferedReader(raw)
+    chunk = _read_stderr_chunk(reader)
+    assert chunk == b"hello stderr"

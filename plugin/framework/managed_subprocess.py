@@ -184,17 +184,21 @@ class ManagedSubprocess:
         *,
         label: str,
         stderr_tail: StderrTail | None = None,
+        register: bool = False,
     ) -> ManagedSubprocess:
-        """Attach a process this object did not spawn. Does not Popen and does not register.
+        """Attach a process this object did not spawn. Does not Popen.
 
+        Registers with the shutdown registry when *register* is True.
         ``start()`` then raises single-use because ``_proc`` is already set.
         Test doubles live here. ``kill_tree`` will not call ``kill_process_tree``
         unless ``proc`` is a real ``subprocess.Popen``. An integer pid on a double
         would be ``killpg`` of a live process group.
         """
-        inst = cls(["managed-wrap"], label=label)
+        inst = cls(["managed-wrap"], label=label, register=register)
         inst._proc = proc
         inst._stderr_drain = stderr_tail
+        if register:
+            _register_instance(inst)
         return inst
 
     def kill_tree(self) -> None:

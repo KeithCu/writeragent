@@ -457,13 +457,18 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
     buffer = getattr(stream, "buffer", None)
     readable: IO[Any] = buffer if buffer is not None and hasattr(buffer, "read1") else stream
     read1 = getattr(readable, "read1", None)
+    # What was wrong: read1 had an odd `isinstance(chunk, (bytes, str)) or chunk is None` check
+    # that redundantly returned None either way when not bytes/str, while read lacked narrowing.
+    # How it happened: defensive check against unconfigured mock objects in tests.
+    # Why this change fixes it: reads read1 or read and returns chunk only when bytes/str, else None.
     try:
         if callable(read1):
             chunk = read1(4096)
-            if isinstance(chunk, (bytes, str)) or chunk is None:
-                return chunk
-            return None
-        return readable.read(4096)
+        else:
+            chunk = readable.read(4096)
+        if isinstance(chunk, (bytes, str)):
+            return chunk
+        return None
     except (OSError, ValueError):
         # ValueError: I/O operation on closed file, same as AsyncProcess readers.
         return None
@@ -630,6 +635,8 @@ class AsyncProcess:
             self._popen_kwargs.setdefault(key, value)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
+        if sys.platform != "win32":
+            self._popen_kwargs.setdefault("start_new_session", True)
         # Force binary pipes. _read_stream reads the binary buffer and
         # decodes UTF-8; a TextIOWrapper plus that read desyncs the two
         # buffers. No AsyncProcess caller passes text=True (the tunnel uses
@@ -643,6 +650,7 @@ class AsyncProcess:
         self._popen_kwargs.pop("universal_newlines", None)
         self._popen_kwargs.setdefault("bufsize", 0)
 
+        self._managed: Any = None
         self._stdout_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
         self._wait_thread: BackgroundHandle | None = None
@@ -660,17 +668,24 @@ class AsyncProcess:
             # terminate() returns before the child is dead so it cannot join
             # callback threads on this stack. Wait here, without those joins.
             old = self.process
+            old_managed = self._managed
             self.terminate()
             try:
                 old.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 log.warning("Previous process still alive after terminate")
+                if old_managed is not None:
+                    old_managed.kill_tree()
         try:
             proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
         self.process = proc
+        from plugin.framework.managed_subprocess import ManagedSubprocess
+
+        managed = ManagedSubprocess.wrap_existing(proc, label=f"asyncproc-{getattr(proc, 'pid', 'unknown')}", register=True)
+        self._managed = managed
         stdout_thread: BackgroundHandle | None = None
         stderr_thread: BackgroundHandle | None = None
         wait_thread: BackgroundHandle | None = None
@@ -688,20 +703,25 @@ class AsyncProcess:
 
             # Pass this child and these readers. _wait_for_exit must not read
             # self.process later: a second start() replaces them.
-            wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, generation, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
+            wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, generation, managed, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
         except BaseException:
             # On thread spawn failure, clear self.process and the handle fields,
-            # kill the child and wait with a 1.0s timeout directly on this stack
-            # (since terminate()'s reaper would need another thread), close
-            # unattached pipes via _close_child_pipes, and re-raise.
+            # kill the child process tree and wait with a 1.0s timeout directly on
+            # this stack (since terminate()'s reaper would need another thread),
+            # close unattached pipes via _close_child_pipes, and re-raise.
             self.process = None
+            self._managed = None
             self._stdout_thread = None
             self._stderr_thread = None
             self._wait_thread = None
-            try:
-                proc.kill()
-            except OSError:
-                pass
+            if managed is not None:
+                managed.kill_tree()
+                managed.unregister()
+            else:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
             try:
                 proc.wait(timeout=1.0)
             except (subprocess.TimeoutExpired, OSError):
@@ -803,13 +823,15 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, generation: int) -> None:
+    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, generation: int, managed: Any = None) -> None:
         # Wait and join only this call's child. Reading self.process and
         # the reader handles at wait time follows start() if it runs again
         # and points those at a new child, so the first wait thread blocks
         # on that child and fires on_exit_cb for its exit as well. _reap
         # already captures the handles it was given.
         rc = proc.wait()
+        if managed is not None:
+            managed.unregister()
         # A bounded join still delivers a trailing line without a newline
         # when the readers finish in time, and on_exit_cb still runs when
         # they do not. timeout=None never returns if a grandchild inherited
@@ -834,8 +856,8 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float) -> None:
-        """Wait, then SIGKILL, off the caller stack. See terminate().
+    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float, managed: Any = None) -> None:
+        """Wait, then SIGKILL via kill_tree, off the caller stack. See terminate().
 
         Handles are captured at terminate() time. A later start() replaces
         self.process; this reaper must not wait on that new child.
@@ -844,15 +866,20 @@ class AsyncProcess:
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                try:
-                    proc.kill()
-                except OSError:
-                    pass
+                if managed is not None:
+                    managed.kill_tree()
+                else:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
                 # A stuck SIGKILL (uninterruptible sleep) must not block forever.
                 try:
                     proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     log.warning("Process still alive after kill (timeout=%ss)", timeout)
+        if managed is not None:
+            managed.unregister()
         self._join_handles((stdout_thread, stderr_thread, wait_thread))
 
     def terminate(self, timeout: float = 5.0) -> None:
@@ -873,6 +900,7 @@ class AsyncProcess:
         proc = self.process
         if proc is None:
             return
+        managed = self._managed
         stdout_thread = self._stdout_thread
         stderr_thread = self._stderr_thread
         wait_thread = self._wait_thread
@@ -889,4 +917,15 @@ class AsyncProcess:
         # attached; reader threads close their pipe in their own finally block
         # upon reaching EOF.
         self._close_child_pipes(proc, stdout_thread=stdout_thread, stderr_thread=stderr_thread)
-        run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, name="asyncproc-reap", dedicated=True)
+        run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, managed, name="asyncproc-reap", dedicated=True)
+
+    def kill_tree(self) -> None:
+        """Immediate SIGKILL of the process group (including grandchildren and helper processes)."""
+        managed = self._managed
+        if managed is not None:
+            managed.kill_tree()
+        elif self.process is not None:
+            try:
+                self.process.kill()
+            except OSError:
+                pass
