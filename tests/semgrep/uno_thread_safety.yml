@@ -190,6 +190,9 @@ rules:
           - pattern: $TK.processEventsToIdle()
           - pattern: $TK.XYield()
       - pattern-not-inside: |
+          def pump_vcl_events(...):
+            ...
+      - pattern-not-inside: |
           def _pump_vcl_events(...):
             ...
       - pattern-not-inside: |
@@ -202,7 +205,6 @@ rules:
       exclude:
         - "**/tests/**"
         - "**/plugin/tests/**"
-        - "**/plugin/framework/queue_executor.py"
 
   - id: piped-stderr-needs-drain
     languages: [python]

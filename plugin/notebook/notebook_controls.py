@@ -73,7 +73,6 @@ __all__ = [
     "NotebookFormRunListener",
     "wire_all_notebook_run_buttons",
     "install_notebook_run_button_wiring",
-    "_resolve_para_style",
     "_page_style",
     "_text_width_from_style",
     "_cap_from_style",
@@ -85,7 +84,6 @@ __all__ = [
     "_set_model_props",
     "_style_code_field_model",
     "_style_run_button_model",
-    "_style_control_paragraph",
     "_log_shape_add",
     "_insert_run_button_in_flow",
     "_insert_code_input_in_flow",
@@ -111,20 +109,6 @@ __all__ = [
 
 def _mono_ms(t0: float) -> int:
     return int((time.monotonic() - t0) * 1000)
-
-
-def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
-    """Map English style label to a name that exists in this document (locale-safe)."""
-    if not style_name:
-        return None
-    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-    if para_styles.hasByName(style_name):
-        return style_name
-    lower = style_name.lower()
-    for name in para_styles.getElementNames():
-        if name.lower() == lower:
-            return name
-    return None
 
 
 def _page_style(doc: Any | None) -> Any | None:
@@ -303,25 +287,6 @@ def _style_run_button_model(model: Any) -> None:
             ("DefaultControl", "com.sun.star.form.control.CommandButton"),
         ],
     )
-
-
-def _style_control_paragraph(doc: Any) -> None:
-    """Field-only paragraph: full text-area width, no hanging indent for ▶."""
-
-    def _style() -> None:
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        body = _resolve_para_style(doc, "Text Body")
-        if body:
-            cursor.setPropertyValue("ParaStyleName", body)
-        cursor.setPropertyValue("ParaFirstLineIndent", 0)
-        cursor.setPropertyValue("ParaLeftMargin", 0)
-        cursor.setPropertyValue("ParaTopMargin", 0)
-        cursor.setPropertyValue("ParaBottomMargin", 150)
-        cursor.setPropertyValue("ParaKeepTogether", False)
-
-    best_effort(_style, "notebook controls paragraph style failed")
 
 
 def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated: bool = False, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:

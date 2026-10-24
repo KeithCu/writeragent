@@ -37,8 +37,10 @@ _list_prefix_for_paragraph.
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
-from typing import Any, cast
+from html import unescape
+from typing import Any, Sequence, cast
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
@@ -49,6 +51,7 @@ from plugin.chatbot.rich_text import (
     append_rich_text,
     apply_chat_char_props,
     contains_html_tag,
+    render_calc_cell_refs,
     restore_writer_text,
     span_matches_message,
     strip_legacy_ai_label,
@@ -66,13 +69,9 @@ from plugin.chatbot.rich_text_control import (
     log_rich_scroll,
 )
 from plugin.calc.navigation import (
-    cell_links_for_rows,
-    extract_cell_links_from_html,
+    WRITERAGENT_CELL_URL_PREFIX,
     normalize_cell_address,
-    portion_cell_href,
-    portion_looks_like_cell_link,
     register_cell_link_span,
-    render_calc_cell_refs,
 )
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.html_stripper import strip_html_tags
@@ -83,6 +82,51 @@ log = logging.getLogger(__name__)
 
 # Rich-sidebar formatted-insert fallback diagnostics use WARNING so release builds
 # (default log_level=WARN) capture direct-copy failures and clipboard fallbacks.
+
+_CELL_LINK_ANCHOR_RE = re.compile(
+    r"""<a\s+[^>]*href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1[^>]*>(.*?)</a>""",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_cell_links_from_html(html: str) -> list[tuple[str, str]]:
+    """Return ``(label, address)`` pairs from HTML ``cell://`` anchors in document order."""
+    if not html or "cell://" not in html.lower() and WRITERAGENT_CELL_URL_PREFIX not in html.lower():
+        return []
+    links: list[tuple[str, str]] = []
+    for match in _CELL_LINK_ANCHOR_RE.finditer(html):
+        addr = normalize_cell_address(match.group(2))
+        label = re.sub(r"<[^>]+>", "", match.group(3))
+        label = unescape(label).strip()
+        if addr and label:
+            links.append((label, addr))
+    return links
+
+
+def cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
+    links: list[tuple[str, str]] = []
+    for _role, content in rows:
+        rendered = render_calc_cell_refs(content) if content else content
+        links.extend(extract_cell_links_from_html(rendered or ""))
+    return links
+
+
+def portion_cell_href(portion: Any) -> str | None:
+    """Read a ``cell://`` or ``writeragent-cell://`` URL from a Writer text portion, if any."""
+    if portion is None:
+        return None
+    for prop in ("HyperLinkURL", "HyperlinkURL", "HYPERLINK"):
+        url = getattr(portion, prop, None)
+        if isinstance(url, str) and url and ("cell://" in url.lower() or WRITERAGENT_CELL_URL_PREFIX in url.lower()):
+            return url
+    return None
+
+
+def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
+    """True when *text* is a cell address and the portion is underlined like a hyperlink."""
+    if not text or normalize_cell_address(text.strip()) is None:
+        return False
+    return int(getattr(portion, "CharUnderline", 0) or 0) != 0
 
 
 def create_hidden_html_writer(ctx: Any) -> Any | None:

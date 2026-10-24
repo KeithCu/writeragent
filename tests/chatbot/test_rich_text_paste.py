@@ -9,6 +9,7 @@
 
 import logging
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -30,8 +31,12 @@ from plugin.chatbot.rich_text_paste import (
     _tab_stop_positions_twips,
     append_formatted_rows,
     append_formatted_row,
+    cell_links_for_rows,
+    extract_cell_links_from_html,
     fold_transcript_chunk,
     paint_message_items,
+    portion_cell_href,
+    portion_looks_like_cell_link,
     session_history_items,
 )
 
@@ -1695,3 +1700,44 @@ def test_hidden_writer_close_failure_is_logged(caplog):
     for record in close_records:
         assert record.exc_info is not None
         assert record.exc_info[0] is RuntimeError
+
+
+def test_extract_cell_links_from_html():
+    html = (
+        '<p>See <a href="cell://B2">B2</a> and <a href="writeragent-cell://C3">cell C3</a> '
+        'and <a href="cell://Orders!A1">jump</a>.</p>'
+    )
+    assert extract_cell_links_from_html(html) == [
+        ("B2", "B2"),
+        ("cell C3", "C3"),
+        ("jump", "Orders.A1"),
+    ]
+
+
+def test_cell_links_for_rows():
+    rows = [
+        ("user", "Check cell A1"),
+        ("assistant", '<a href="cell://Sheet1.B2">B2</a> and <a href="cell://C3">C3</a>'),
+        ("user", ""),
+    ]
+    assert cell_links_for_rows(rows) == [
+        ("B2", "Sheet1.B2"),
+        ("C3", "C3"),
+    ]
+
+
+def test_portion_cell_href():
+    p = SimpleNamespace(HyperLinkURL="cell://Sheet1.A1")
+    assert portion_cell_href(p) == "cell://Sheet1.A1"
+    assert portion_cell_href(None) is None
+    p_none = SimpleNamespace()
+    assert portion_cell_href(p_none) is None
+
+
+def test_portion_looks_like_cell_link():
+    p = SimpleNamespace(CharUnderline=1)
+    assert portion_looks_like_cell_link(p, "A1") is True
+    assert portion_looks_like_cell_link(p, "not_cell") is False
+    p_no_ul = SimpleNamespace(CharUnderline=0)
+    assert portion_looks_like_cell_link(p_no_ul, "A1") is False
+

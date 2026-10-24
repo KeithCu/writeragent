@@ -800,3 +800,27 @@ class TestChatThemeAndImporter:
         )
 
 
+def test_render_calc_cell_refs_html():
+    from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX
+    from plugin.chatbot.rich_text import render_calc_cell_refs
+
+    text = (
+        '<p>See <a href="cell://B2">B2</a> and <a href=\'cell://Sheet1.C3\'>C3</a> '
+        'and <a href="cell://Orders!A1">A1</a>.</p>'
+    )
+    out = render_calc_cell_refs(text)
+    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}B2"' in out
+    assert f"href='{WRITERAGENT_CELL_URL_PREFIX}Sheet1.C3'" in out
+    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}Orders.A1"' in out
+    assert 'href="cell://' not in out.lower()
+    assert "href='cell://" not in out.lower()
+
+
+def test_render_calc_cell_refs_passthrough():
+    from plugin.chatbot.rich_text import render_calc_cell_refs
+
+    assert render_calc_cell_refs("no links here") == "no links here"
+    assert render_calc_cell_refs("") == ""
+
+
+

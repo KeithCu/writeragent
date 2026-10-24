@@ -67,7 +67,6 @@ from plugin.framework.errors import NetworkError, WriterAgentException, is_dispo
 from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
-from . import model_fetcher
 from .errors import (
     _format_http_error_response,
     _log_chat_request_body_diag,
@@ -75,12 +74,20 @@ from .errors import (
     _parse_provider_envelope,
     _path_without_query,
     _redact_secret_from_log_text,
-    _stream_error_is_overload,
-    _stream_error_message,
     append_zai_unknown_model_hint,
+    stream_error_message,
 )
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json
-from .request_controls import RETRY_MAX_ATTEMPTS, backoff_delay_sec, clear_host_gap, emit_retry_status, remember_host_gap, request_model_from_body, wait_abortable
+from .request_controls import (
+    RETRY_MAX_ATTEMPTS,
+    backoff_delay_sec,
+    clear_host_gap,
+    emit_retry_status,
+    remember_host_gap,
+    request_model_from_body,
+    stream_error_is_overload,
+    wait_abortable,
+)
 from .stream_normalizer import (
     THINKING_DELTA_KEYS,
     ThinkTagStreamSplitter,
@@ -239,7 +246,11 @@ class LlmClient:
         # query and redact any echoed secret before logging.
         safe_path = _redact_secret_from_log_text(_path_without_query(path), api_key)
         log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), safe_path, request_model)
-        n_ctx = model_fetcher._peek_live_ollama_num_ctx(self) if response.status == 500 else None
+        n_ctx = None
+        if response.status == 500:
+            from .model_fetcher import peek_live_ollama_num_ctx
+
+            n_ctx = peek_live_ollama_num_ctx(self)
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
         err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
@@ -750,14 +761,14 @@ class LlmClient:
 
                         # A 200 stream can still carry a provider error object. Skipping it
                         # used to look like a short successful answer.
-                        stream_err = _stream_error_message(chunk)
+                        stream_err = stream_error_message(chunk)
                         if stream_err is not None:
                             # Chat HTTP errors already redact an echoed key. A 200
                             # SSE error used to raise the raw provider string, which
                             # the sidebar and the debug log then showed.
                             api_key = str(self.config.get("api_key") or "").strip()
                             stream_err = _redact_secret_from_log_text(stream_err, api_key)
-                            if (not emitted_any) and _stream_error_is_overload(chunk) and sends_left > 1:
+                            if (not emitted_any) and stream_error_is_overload(chunk) and sends_left > 1:
                                 self._close_connection()
                                 sends_left -= 1
                                 wait_index += 1

@@ -114,7 +114,8 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
         pos += 1
 
-        from plugin.main import _get_menu_icon, _tests_bundled, get_menu_text
+        from plugin.framework.main_shared import tests_bundled
+        from plugin.main import _get_menu_icon, get_menu_text
 
         mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
         add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
@@ -143,7 +144,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             pos += 1
 
         # Release builds strip Debug from Addons.xcu; omit commands when tests are unbundled.
-        if _tests_bundled():
+        if tests_bundled():
             # 6. Separator
             popup.insertSeparator(pos)
             pos += 1

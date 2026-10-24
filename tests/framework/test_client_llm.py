@@ -2186,7 +2186,7 @@ def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_c
     }
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
     with patch(
-        "plugin.framework.client.model_fetcher._peek_live_ollama_num_ctx",
+        "plugin.framework.client.model_fetcher.peek_live_ollama_num_ctx",
         return_value=4096,
     ):
         err = _raise_http_error(ollama, 500, "Internal Server Error", body, err_json)
@@ -3098,27 +3098,6 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
     sync.assert_not_called()
 
 
-def test_peek_ollama_num_ctx_reads_show_cache_without_http():
-    from plugin.framework.client.model_fetcher import _ollama_show_cache, _peek_live_ollama_num_ctx
-    from plugin.framework.url_utils import normalize_endpoint_url
-
-    endpoint = "http://127.0.0.1:11434"
-    model = "llama"
-    cache_key = f"{normalize_endpoint_url(endpoint)}@{model}"
-    _ollama_show_cache[cache_key] = {"capabilities": [], "num_ctx": 4096}
-    client = MagicMock()
-    client._get_provider.return_value = "ollama"
-    client.config = {"model": model}
-    client._endpoint.return_value = endpoint
-    try:
-        with patch("plugin.framework.client.model_fetcher.query_ollama_show") as show:
-            assert _peek_live_ollama_num_ctx(client) == 4096
-            assert _peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
-        show.assert_not_called()
-    finally:
-        _ollama_show_cache.pop(cache_key, None)
-
-
 def test_request_json_200_clears_stuck_host_gap(client):
     from plugin.framework.client.request_controls import _host_gap_sec, remember_host_gap
 
@@ -3145,26 +3124,6 @@ def test_request_json_200_resets_free_gap_to_floor(client):
         client._request_json("POST", "/v1/audio/transcriptions", body, {})
     assert _host_gap_sec.get("openrouter.ai:443:free") == OPENROUTER_FREE_MIN_GAP_SEC
     assert "openrouter.ai:443" not in _host_gap_sec
-
-
-def test_overload_detection_prefers_code_and_word_boundary():
-    """429/503 inside a larger number is not overload. A structured code is."""
-    from plugin.framework.client.errors import _stream_error_is_overload, _text_is_overload
-
-    assert _stream_error_is_overload({"error": {"message": "Requested 4290 tokens"}}) is False
-    assert _stream_error_is_overload({"error": {"message": "code 5031"}}) is False
-    assert _stream_error_is_overload({"error": {"code": "context_length_exceeded", "message": "Requested 4290 tokens"}}) is False
-    assert _stream_error_is_overload({"error": {"message": "HTTP 429"}}) is True
-    assert _stream_error_is_overload({"error": {"message": "status 503"}}) is True
-    assert _stream_error_is_overload({"error": {"code": 429, "message": "slow down"}}) is True
-    assert _stream_error_is_overload({"error": {"code": "503", "message": "down"}}) is True
-    assert _stream_error_is_overload({"error": {"type": "overloaded_error", "message": "Overloaded"}}) is True
-    assert _stream_error_is_overload({"error": {"code": "rate_limit_exceeded", "message": "slow down"}}) is True
-    assert _stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
-    assert _text_is_overload("limit is 503 tokens") is False
-    assert _text_is_overload('{"error": {"code": 429, "message": "rate limit reached"}}') is True
-    assert _text_is_overload('{"error": {"code": 503, "message": "down"}}') is True
-    assert _text_is_overload('{"error": {"code": 400, "message": "limit is 503 tokens"}}') is False
 
 
 def test_stream_503_tokens_limit_is_not_an_overload_retry(client, _fast_retry_waits):

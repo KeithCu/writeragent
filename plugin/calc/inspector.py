@@ -28,7 +28,6 @@ from plugin.calc.datetime_wire import (
     format_category_from_type,
     iso8601_from_serial,
     is_elapsed_format_string,
-    iso_duration_from_serial,
 )
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_type_name, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
@@ -37,6 +36,28 @@ from plugin.scripting.config_limits import configured_python_max_data_cells, pyt
 log = logging.getLogger("writeragent.calc")
 
 _CELL_FLAG_DATETIME = 2
+
+
+def iso_duration_from_serial(serial: float) -> str:
+    """Emit compact ``PTnHnMnS`` with hours allowed to exceed 24 (not ``P1DT6H``).
+
+    Negative serials are out of scope for the wire contract (gate rejects ``-PT…``);
+    raise rather than silently emitting a positive duration.
+    """
+    value = float(serial)
+    if value < 0:
+        raise ValueError(f"negative duration serial is out of scope: {serial!r}")
+    total = round(value * 86400.0)
+    hours, rem = divmod(total, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = ["PT"]
+    if hours:
+        parts.append(f"{hours}H")
+    if minutes:
+        parts.append(f"{minutes}M")
+    if seconds or not (hours or minutes):
+        parts.append(f"{seconds}S")
+    return "".join(parts)
 
 
 class CellInspector:
