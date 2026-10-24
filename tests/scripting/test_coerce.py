@@ -312,69 +312,30 @@ def test_ndarray_and_series_are_grids():
     assert res_3d.df.iloc[0, 0] is arr_3d
 
 
-def test_parse_trusted_spec_layout_errors():
-    from plugin.scripting.venv.coerce import parse_trusted_spec
+def test_grid_dataframe_round_trip():
+    # Item 28: round-trip tests: grid_to_dataframe → dataframe_to_labeled_grid
+    # keeps values and header for int, float, text, blank and dates.
+    from plugin.scripting.calc_range import dataframe_to_labeled_grid
+    from plugin.scripting.venv.coerce import grid_to_dataframe
 
-    names = frozenset({"describe_data"})
-
-    # header_row: None, "abc", True, and 1.5 each return code=="INVALID_SPEC" and do not raise
-    for bad in (None, "abc", True, 1.5):
-        spec = {"helper": "describe_data", "header_row": bad}
-        res = parse_trusted_spec(spec, helper_names=names)
-        assert isinstance(res, dict)
-        assert res["status"] == "error"
-        assert res["code"] == "INVALID_SPEC"
-
-    # "header_row": "2" returns tuple index 3 equal to 2
-    spec_str_row = {"helper": "describe_data", "header_row": "2"}
-    res_str_row = parse_trusted_spec(spec_str_row, helper_names=names)
-    assert not isinstance(res_str_row, dict)
-    assert res_str_row[3] == 2
-
-    # Missing header_row is 0
-    spec_missing_row = {"helper": "describe_data"}
-    res_missing_row = parse_trusted_spec(spec_missing_row, helper_names=names)
-    assert not isinstance(res_missing_row, dict)
-    assert res_missing_row[3] == 0
-
-    # headers: "false" returns tuple index 2 False
-    spec_false_str = {"helper": "describe_data", "headers": "false"}
-    res_false_str = parse_trusted_spec(spec_false_str, helper_names=names)
-    assert not isinstance(res_false_str, dict)
-    assert res_false_str[2] is False
-
-    # headers: "true" is True
-    spec_true_str = {"helper": "describe_data", "headers": "true"}
-    res_true_str = parse_trusted_spec(spec_true_str, helper_names=names)
-    assert not isinstance(res_true_str, dict)
-    assert res_true_str[2] is True
-
-    # Missing headers is True
-    spec_missing_hdr = {"helper": "describe_data"}
-    res_missing_hdr = parse_trusted_spec(spec_missing_hdr, helper_names=names)
-    assert not isinstance(res_missing_hdr, dict)
-    assert res_missing_hdr[2] is True
-
-    # headers: None is True
-    spec_none_hdr = {"helper": "describe_data", "headers": None}
-    res_none_hdr = parse_trusted_spec(spec_none_hdr, helper_names=names)
-    assert not isinstance(res_none_hdr, dict)
-    assert res_none_hdr[2] is True
-
-    # headers: 2 is INVALID_SPEC
-    spec_bad_hdr = {"helper": "describe_data", "headers": 2}
-    res_bad_hdr = parse_trusted_spec(spec_bad_hdr, helper_names=names)
-    assert isinstance(res_bad_hdr, dict)
-    assert res_bad_hdr["status"] == "error"
-    assert res_bad_hdr["code"] == "INVALID_SPEC"
-
-    # A bad headers value is reported even if header_row is also bad (headers checked first)
-    spec_both_bad = {"helper": "describe_data", "headers": 2, "header_row": "abc"}
-    res_both_bad = parse_trusted_spec(spec_both_bad, helper_names=names)
-    assert isinstance(res_both_bad, dict)
-    assert res_both_bad["status"] == "error"
-    assert res_both_bad["code"] == "INVALID_SPEC"
-    assert "headers" in res_both_bad["message"]
+    input_grid = [
+        ["int_col", "float_col", "text_col", "blank_col", "date_col"],
+        [10, 1.25, "hello", "", "2024-01-01"],
+        [20, 2.5, "world", None, "2024-01-02"],
+    ]
+    res = grid_to_dataframe(input_grid, parse_strings=False, date_cols=["date_col"])
+    labeled = dataframe_to_labeled_grid([str(c) for c in res.df.columns], res.df.values.tolist())
+    assert labeled[0] == ["int_col", "float_col", "text_col", "blank_col", "date_col"]
+    assert labeled[1][0] == 10
+    assert labeled[1][1] == 1.25
+    assert labeled[1][2] == "hello"
+    assert labeled[1][3] in ("", None)
+    assert str(labeled[1][4]).startswith("2024-01-01")
+    assert labeled[2][0] == 20
+    assert labeled[2][1] == 2.5
+    assert labeled[2][2] == "world"
+    assert labeled[2][3] in ("", None)
+    assert str(labeled[2][4]).startswith("2024-01-02")
 
 
 def test_numeric_columns_empty_list_is_empty():

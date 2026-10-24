@@ -23,15 +23,18 @@ import re
 import threading
 from typing import Any
 
+from plugin.scripting.calc_functions_common import (
+    ANALYSIS_DATA_TABLE_ROWS as MAX_TABLE_ROWS,
+)
 from plugin.scripting.venv.coerce import (
-    ok_result as _ok_result,
-    error_result as _error_result,
     table_from_df as _table_from_df,
+)
+from plugin.scripting.venv.trusted_dispatch import (
+    error_result as _error_result,
+    ok_result as _ok_result,
 )
 
 log = logging.getLogger(__name__)
-
-MAX_TABLE_ROWS = 200
 
 # Direct DuckDB binders (venv). Sibling .xlsx/.xls/.ods stay on the host LO import path.
 FLAT_CSV_EXTS = (".csv", ".tsv")

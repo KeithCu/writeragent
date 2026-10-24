@@ -15,6 +15,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import numpy as np
+
 from plugin.scripting.calc_range import (
     CalcRange,
     _is_pandas_frame_or_series,
@@ -71,26 +73,11 @@ class BroadcastResult(tuple[Any, ...]):
 
 
 def _to_plain_sequence(val: Any) -> Any:
-    """Unwrap a pandas DataFrame/Series or ndarray to plain Python values.
-
-    What was wrong: any object with ``to_numpy``, ``tolist``, or ``to_list``
-    was unwrapped, and a raised method was swallowed so the value became a
-    scalar. ``to_list`` has no caller in this repository.
-    How it happened: duck-typing plus ``except Exception: pass``.
-    Why this fixes it: only a pandas DataFrame or Series (via ``to_numpy``)
-    or an ``ndarray`` is a sequence, matching
-    ``calc_range._materialize_inner_grid``. Those conversions propagate.
-    An ``np.generic`` becomes a Python scalar via ``item()``. Anything else
-    stays one cell.
-    """
+    """Unwrap a CalcRange, pandas DataFrame/Series, or ndarray to plain Python values."""
     if isinstance(val, CalcRange):
-        return val
+        return val.values
     if _is_pandas_frame_or_series(val):
         val = val.to_numpy()
-    try:
-        import numpy as np
-    except ImportError:
-        return val
     if isinstance(val, np.ndarray):
         return val.tolist()
     if isinstance(val, np.generic):
@@ -115,35 +102,26 @@ def inspect_input(val: Any) -> InspectedInput:
     if val is None or isinstance(val, (str, bytes, int, float, bool)):
         return InspectedInput(flat_items=[val], is_scalar=True, is_python_1d=False, nrows=1, ncols=1, length=1)
 
-    grid: Any
-    if isinstance(val, CalcRange):
-        grid = val.values
-    elif isinstance(val, (list, tuple)):
-        grid = val
-    else:
-        # Unknown non-sequence object
-        return InspectedInput(flat_items=[val], is_scalar=True, is_python_1d=False, nrows=1, ncols=1, length=1)
+    if isinstance(val, (list, tuple)):
+        if not val:
+            return InspectedInput(flat_items=[], is_scalar=False, is_python_1d=True, nrows=0, ncols=0, length=0)
+        # Distinguish 1D list from 2D list
+        if not isinstance(val[0], (list, tuple)):
+            items = list(val)
+            return InspectedInput(flat_items=items, is_scalar=False, is_python_1d=True, nrows=1, ncols=len(items), length=len(items))
 
-    if not grid:
-        return InspectedInput(flat_items=[], is_scalar=False, is_python_1d=True, nrows=0, ncols=0, length=0)
+        rect_grid = ensure_rectangular_2d(val)
+        nrows = len(rect_grid)
+        ncols = len(rect_grid[0]) if rect_grid else 0
 
-    # Distinguish 1D list from 2D list
-    if not isinstance(grid[0], (list, tuple)):
-        # Plain 1D Python sequence: [10, 20] or [10]
-        items = list(grid)
-        return InspectedInput(flat_items=items, is_scalar=False, is_python_1d=True, nrows=1, ncols=len(items), length=len(items))
+        if nrows == 1 and ncols == 1:
+            # 1x1 CalcRange / [[v]] is treated as scalar for single-cell formulas
+            return InspectedInput(flat_items=[rect_grid[0][0]], is_scalar=True, is_python_1d=False, nrows=1, ncols=1, length=1)
 
-    # 2D sequence or CalcRange
-    rect_grid = ensure_rectangular_2d(grid)
-    nrows = len(rect_grid)
-    ncols = len(rect_grid[0]) if rect_grid else 0
+        flat = [cell for row in rect_grid for cell in row]
+        return InspectedInput(flat_items=flat, is_scalar=False, is_python_1d=False, nrows=nrows, ncols=ncols, length=len(flat))
 
-    if nrows == 1 and ncols == 1:
-        # 1x1 CalcRange / [[v]] is treated as scalar for single-cell formulas
-        return InspectedInput(flat_items=[rect_grid[0][0]], is_scalar=True, is_python_1d=False, nrows=1, ncols=1, length=1)
-
-    flat = [cell for row in rect_grid for cell in row]
-    return InspectedInput(flat_items=flat, is_scalar=False, is_python_1d=False, nrows=nrows, ncols=ncols, length=len(flat))
+    return InspectedInput(flat_items=[val], is_scalar=True, is_python_1d=False, nrows=1, ncols=1, length=1)
 
 
 def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
@@ -156,7 +134,7 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
     - M x N grid -> [[...], [...]].
     """
     if inspected.is_scalar:
-        return results[0] if results else None
+        return results[0] if results else ""
     if inspected.is_python_1d:
         return list(results)
     if inspected.ncols == 1:
@@ -167,7 +145,15 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
     # M x N grid
     nrows = inspected.nrows
     ncols = inspected.ncols
-    return [list(results[i * ncols : (i + 1) * ncols]) for i in range(nrows)]
+    padded_results = list(results)
+    if len(padded_results) < nrows * ncols:
+        padded_results.extend([""] * (nrows * ncols - len(padded_results)))
+    grid = [padded_results[i * ncols : (i + 1) * ncols] for i in range(nrows)]
+    max_w = max((len(r) for r in grid), default=ncols)
+    for r in grid:
+        if len(r) < max_w:
+            r.extend([""] * (max_w - len(r)))
+    return grid
 
 
 def broadcast_args(
@@ -185,13 +171,14 @@ def broadcast_args(
     inspected_args = [inspect_input(a) for a in args]
     inspected_kwargs = {k: inspect_input(v) for k, v in kwargs.items()}
 
-    all_inspected = inspected_args + list(inspected_kwargs.values())
-
-    vector_items = [insp for insp in all_inspected if not insp.is_scalar]
+    all_named = [(f"parameter {i + 1}", insp) for i, insp in enumerate(inspected_args)] + [
+        (f"parameter {k!r}", insp) for k, insp in inspected_kwargs.items()
+    ]
+    vector_named = [(name, insp) for name, insp in all_named if not insp.is_scalar]
     vector_arg_indices = [i for i, insp in enumerate(inspected_args) if not insp.is_scalar]
     vector_kwarg_keys = [k for k, insp in inspected_kwargs.items() if not insp.is_scalar]
 
-    if not vector_items:
+    if not vector_named:
         # All scalar
         primary = inspected_args[0] if inspected_args else (list(inspected_kwargs.values())[0] if inspected_kwargs else inspect_input(None))
         scalar_args = [[insp.flat_items[0]] for insp in inspected_args]
@@ -200,18 +187,28 @@ def broadcast_args(
 
     # Compare (nrows, ncols), not just length. Equal-shape grids are valid.
     # A 1×N vector zipped with an N×1 vector is an orientation mismatch.
-    target_shape = (vector_items[0].nrows, vector_items[0].ncols)
-    target_length = vector_items[0].length
-    primary = vector_items[0]
+    primary_name, primary = vector_named[0]
+    target_shape = (primary.nrows, primary.ncols)
+    target_length = primary.length
 
-    for insp in vector_items[1:]:
+    for name, insp in vector_named[1:]:
         if (insp.nrows, insp.ncols) != target_shape:
             has_grid = (insp.nrows > 1 and insp.ncols > 1) or (target_shape[0] > 1 and target_shape[1] > 1)
             if has_grid:
-                raise ValueError("Cannot pair an M×N grid with a vector parameter; broadcast only with scalars.")
+                raise ValueError(
+                    f"{name} has shape {insp.nrows}×{insp.ncols}, expected {target_shape[0]}×{target_shape[1]}; "
+                    "Cannot pair an M×N grid with a vector parameter; broadcast only with scalars."
+                )
             if insp.length != target_length:
-                raise ValueError(f"Vector length mismatch: {insp.length} != {target_length}")
-            raise ValueError(f"Vector orientation mismatch: {(insp.nrows, insp.ncols)} != {target_shape}")
+                raise ValueError(
+                    f"{name} has shape {insp.nrows}×{insp.ncols} (length {insp.length}), "
+                    f"expected {target_shape[0]}×{target_shape[1]} (length {target_length}); "
+                    "Vector length mismatch; transpose it or pass a scalar."
+                )
+            raise ValueError(
+                f"{name} has shape {insp.nrows}×{insp.ncols}, expected {target_shape[0]}×{target_shape[1]}; "
+                "Vector orientation mismatch; transpose it or pass a scalar."
+            )
 
     b_args: list[list[Any]] = []
     for insp in inspected_args:
@@ -259,6 +256,8 @@ def map_over_range(
     n_items = primary.length
 
     results: list[Any] = []
+    unexpected_count = 0
+    first_unexpected: BaseException | None = None
     for i in range(n_items):
         row_args = [arg_list[i] for arg_list in b_args]
         row_kwargs = {k: kwarg_list[i] for k, kwarg_list in b_kwargs.items()}
@@ -290,12 +289,30 @@ def map_over_range(
                 results.append("#DIV/0!")
             else:
                 raise
-        except Exception as exc:
-            # Log before returning #VALUE! so the cell failure is visible.
+        except (ValueError, TypeError, ArithmeticError) as exc:
             log.debug("map_over_range evaluation error: %s", exc, exc_info=True)
             if return_errors:
                 results.append("#VALUE!")
             else:
                 raise
+        except Exception as exc:
+            unexpected_count += 1
+            if first_unexpected is None:
+                first_unexpected = exc
+            log.debug("map_over_range unexpected error: %s", exc, exc_info=True)
+            if return_errors:
+                results.append("#VALUE!")
+            else:
+                raise
+
+    if unexpected_count > 0:
+        fn_name = getattr(fn, "__name__", repr(fn))
+        log.warning(
+            "map_over_range unexpected error in %s: %d cell failure(s) (first: %s: %s)",
+            fn_name,
+            unexpected_count,
+            type(first_unexpected).__name__,
+            first_unexpected,
+        )
 
     return rewrap_output(results, primary)

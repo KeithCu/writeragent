@@ -555,3 +555,58 @@ def test_calc_range_accepts_pandas_frame_and_series_only():
     assert cr_not_pd.values[0][0] is np_instance
 
 
+def test_materialize_calc_range_shape_assertion():
+    """materialize_calc_range validates envelope shape against actual grid dimensions."""
+    from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope
+
+    env = pack_calc_range_envelope([[1, 2], [3, 4]])
+    cr = materialize_calc_range(env)
+    assert cr.shape == (2, 2)
+
+    # Mismatched shape in wire raises AssertionError
+    bad_env = dict(env)
+    bad_env["shape"] = [3, 2]
+    with pytest.raises(AssertionError):
+        materialize_calc_range(bad_env)
+
+
+def test_json_list_of_grids_single_item():
+    """A list holding a single 2D grid is detected as a list of grids and roundtrips."""
+    from plugin.scripting.calc_range import _is_json_list_of_grids, materialize_inputs
+
+    single_grid_list = [[[1, 2], [3, 4]]]
+    assert _is_json_list_of_grids(single_grid_list) is True
+
+    # materialize_inputs unpacks each grid to a CalcRange
+    ranges = materialize_inputs(single_grid_list)
+    assert len(ranges) == 1
+    assert ranges[0].values == [[1, 2], [3, 4]]
+
+    # A normal 2D grid is not a list of grids
+    assert _is_json_list_of_grids([[1, 2], [3, 4]]) is False
+
+
+def test_result_to_calc_grid_total_egress():
+    """result_to_calc_grid handles dataframe with None body, iterables, and scalars."""
+    from plugin.scripting.calc_range import result_to_calc_grid
+
+    # DataFrame payload with None body -> header row only
+    df_wire = {
+        "__wa_payload__": "dataframe",
+        "columns": ["colA", "colB"],
+        "data": None,
+    }
+    assert result_to_calc_grid(df_wire) == [["colA", "colB"]]
+
+    # Generator / set -> list
+    gen = (x * 2 for x in [1, 2, 3])
+    assert result_to_calc_grid(gen) == [2, 4, 6]
+    assert sorted(result_to_calc_grid({3, 1, 2})) == [1, 2, 3]
+
+    # Scalars stay unchanged
+    assert result_to_calc_grid(42) == 42
+    assert result_to_calc_grid("text") == "text"
+    assert result_to_calc_grid(None) is None
+
+
+

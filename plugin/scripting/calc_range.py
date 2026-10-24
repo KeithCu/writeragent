@@ -39,17 +39,23 @@ _DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
 _DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
-def _cells_of_row(row: Any) -> list[Any]:
-    """One logical row. Non-sequence objects, ``str``, and ``bytes`` are a single cell.
+def _assert_rectangular(grid: list[list[Any]]) -> None:
+    """Assert rectangular 2D invariant: list of lists with uniform width."""
+    if not grid:
+        return
+    width = len(grid[0])
+    assert all(isinstance(row, list) and len(row) == width for row in grid), "Grid must be rectangular list[list]"
 
-    Once the first row is a real sequence, every later row used to go through
-    ``list(row)``.
-    """
-    # list(row) raises TypeError on a non-iterable cell such as an int.
-    # Any non-list/tuple (including str and bytes) is one cell: [row].
+
+def _cells_of_row(row: Any, width: int = 0) -> list[Any]:
+    """One logical row, padded to *width* if specified. Non-sequences, ``str``, and ``bytes`` are one cell."""
     if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
-        return [row]
-    return list(row)
+        pad = width - 1
+        return [row] if pad <= 0 else [row] + [None] * pad
+    pad = width - len(row)
+    if pad <= 0:
+        return list(row)
+    return list(row) + [None] * pad
 
 
 @deal.post(lambda result: isinstance(result, list))
@@ -71,24 +77,18 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
         return []
     first = grid[0]
     if isinstance(first, (list, tuple)):
-        rows = [_cells_of_row(row) for row in grid]
-        width = max((len(row) for row in rows), default=0)
-        return [row + [None] * (width - len(row)) for row in rows]
+        width = 0
+        for row in grid:
+            rlen = len(row) if isinstance(row, (list, tuple)) and not isinstance(row, (str, bytes)) else 1
+            if rlen > width:
+                width = rlen
+        out = [_cells_of_row(row, width) for row in grid]
+        _assert_rectangular(out)
+        return out
     # Flat sequence → single row (Calc 1D row) unless callers pass column shape.
-    return [list(grid)]
-
-
-_deal_column_vector_ok = _profile(
-    lambda values: isinstance(values, list) and len(values) <= _DEAL_GRID_DIM
-)
-
-
-@deal.pre(lambda values: _deal_column_vector_ok(values))
-@deal.post(lambda result: isinstance(result, list) and all(isinstance(row, list) and len(row) == 1 for row in result))
-@deal.ensure(lambda values, result: len(result) == len(values))
-def column_vector_as_2d(values: list[Any]) -> list[list[Any]]:
-    """Wrap a flat column vector as ``[[v], …]`` (N×1)."""
-    return [[v] for v in values]
+    out = [list(grid)]
+    _assert_rectangular(out)
+    return out
 
 
 @deal.post(lambda result: isinstance(result, dict) and is_calc_range_payload(result))
@@ -106,6 +106,7 @@ def pack_calc_range_envelope(
     """
     # crosshair: off
     rows = ensure_rectangular_2d(grid)
+    _assert_rectangular(rows)
     nrows = len(rows)
     ncols = len(rows[0]) if rows else 0
     inner = pack_inner(rows) if callable(pack_inner) else rows
@@ -196,6 +197,7 @@ class CalcRange:
         # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
         # unpacks those, and nested structures, into a rectangular 2D list.
         self._values = _materialize_inner_grid(values)
+        _assert_rectangular(self._values)
         self._address = address
 
     @property
@@ -491,7 +493,12 @@ def materialize_calc_range(wire: Any) -> CalcRange:
         addr = address.strip() if isinstance(address, str) and address.strip() else None
         # __init__ calls _materialize_inner_grid. Unpacking here first built
         # the rectangular list, then __init__ walked every cell again.
-        return CalcRange(inner, address=addr)
+        cr = CalcRange(inner, address=addr)
+        if "shape" in wire:
+            assert cr.shape == tuple(wire["shape"]), f"Shape mismatch: {cr.shape} != {tuple(wire['shape'])}"
+        elif "rows" in wire and "cols" in wire:
+            assert cr.shape == (wire["rows"], wire["cols"]), f"Shape mismatch: {cr.shape} != ({wire['rows']}, {wire['cols']})"
+        return cr
 
     # Legacy / test wires: bare split_grid or nested list (no calc_range wrapper).
     return CalcRange(wire)
@@ -642,7 +649,7 @@ def _is_json_list_of_grids(obj: Any) -> bool:
     A normal 2D sheet block ``[[1, 2], [3, 4]]`` has scalar cells — not a list of grids.
     ``[[[1, 2]], [[3], [4]]]`` is two rectangular ranges.
     """
-    if not isinstance(obj, (list, tuple)) or len(obj) < 2:
+    if not isinstance(obj, (list, tuple)) or len(obj) < 1:
         return False
     if not all(isinstance(item, (list, tuple)) for item in obj):
         return False
@@ -705,13 +712,16 @@ def dataframe_to_labeled_grid(
     else:
         body = [[data]]
     if not include_header:
+        _assert_rectangular(body)
         return body
     header = [str(c) for c in columns]
     if body and len(body[0]) != len(header):
         # Pad/truncate header to body width if inconsistent.
         width = len(body[0])
         header = (header + [f"col_{i}" for i in range(len(header), width)])[:width]
-    return [header] + body
+    out = [header] + body
+    _assert_rectangular(out)
+    return out
 
 
 def _host_ndarray_as_list(value: Any) -> list[Any] | None:
@@ -745,6 +755,7 @@ def result_to_calc_grid(result: Any) -> Any:
 
     DataFrame envelopes become a labeled 2D grid (header row + body).
     Lists pass through. A leftover ndarray body is converted with ``tolist``.
+    Unknown iterables (e.g. set, generator) become lists; scalars stay unchanged.
     """
     if is_dataframe_payload(result):
         cols = list(result.get("columns") or [])
@@ -756,13 +767,19 @@ def result_to_calc_grid(result: Any) -> Any:
     listed = _host_ndarray_as_list(result)
     if listed is not None:
         return listed
+    if isinstance(result, (str, bytes, bytearray, dict)):
+        return result
+    if hasattr(result, "__iter__"):
+        try:
+            return list(result)
+        except Exception:
+            return result
     return result
 
 
 __all__ = [
     "PAYLOAD_CALC_RANGE",
     "CalcRange",
-    "column_vector_as_2d",
     "dataframe_to_labeled_grid",
     "ensure_rectangular_2d",
     "is_calc_range_payload",

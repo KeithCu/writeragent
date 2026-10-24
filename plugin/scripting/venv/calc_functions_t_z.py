@@ -69,7 +69,6 @@ __all__ = [
     "xnpv",
     "xor",
     "yearfrac",
-    "yield_calc",
     "yielddisc",
     "yieldmat",
     "ztest",
@@ -203,6 +202,24 @@ def text(val: Any, fmt: Any) -> str | float:
             return str(val)
         try:
             return day.strftime(date_fmt)
+        except (ValueError, TypeError, OverflowError):
+            return str(val)
+    if fmt_str.lower() == "mmm d, yyyy":
+        day = _serial_to_date(val)
+        if day is None:
+            return str(val)
+        try:
+            return f"{day.strftime('%b')} {day.day}, {day.year}"
+        except (ValueError, TypeError, OverflowError):
+            return str(val)
+    if fmt_str.lower() == "hh:mm:ss":
+        try:
+            total_sec = round(float(val) * 86400.0)
+            wrapped_sec = total_sec % 86400
+            h = wrapped_sec // 3600
+            m = (wrapped_sec % 3600) // 60
+            s = wrapped_sec % 60
+            return f"{h:02d}:{m:02d}:{s:02d}"
         except (ValueError, TypeError, OverflowError):
             return str(val)
     # ScText calls NFGetPreviewStringGuess and PushIllegalArgument (Err:502)
@@ -659,6 +676,15 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
     data = np.asarray(arr, dtype=object)
     if data.size == 0:
         return []
+    if data.ndim == 1 and any(isinstance(x, (list, tuple)) for x in data):
+        max_len = max(len(x) if isinstance(x, (list, tuple)) else 1 for x in data)
+        padded = []
+        for x in data:
+            if isinstance(x, (list, tuple)):
+                padded.append(list(x) + [""] * (max_len - len(x)))
+            else:
+                padded.append([x] + [""] * (max_len - 1))
+        data = np.asarray(padded, dtype=object)
     if data.ndim < 2:
         return _unique_items(data.reshape(-1).tolist(), once)
     if not by_column:
@@ -956,36 +982,34 @@ def _find_match_index(
             return cell == target
 
     if mm == 0:
-        for idx in indices:
-            if _is_exact(l_flat[idx], lookup_val):
-                return idx
-    elif mm in (-1, 1):
-        for idx in indices:
-            if _is_exact(l_flat[idx], lookup_val):
-                return idx
-        best_idx = None
+        return next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
+    if mm in (-1, 1):
+        exact = next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
+        if exact is not None:
+            return exact
+        best_idx: int | None = None
+        best_diff: float | None = None
+        try:
+            target_f = float(lookup_val)
+        except (ValueError, TypeError, OverflowError):
+            return None
         for idx in indices:
             try:
-                diff = float(l_flat[idx]) - float(lookup_val)
-                if mm == -1 and diff < 0:
-                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-                elif mm == 1 and diff > 0:
-                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
+                diff = float(l_flat[idx]) - target_f
             except (ValueError, TypeError, OverflowError):
-                pass
+                continue
+            if (mm == -1 and diff < 0 and (best_diff is None or diff > best_diff)) or (
+                mm == 1 and diff > 0 and (best_diff is None or diff < best_diff)
+            ):
+                best_idx, best_diff = idx, diff
         return best_idx
-    elif mm == 2:
+    if mm == 2:
         if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    return idx
-        else:
-            for idx in indices:
-                if _is_exact(l_flat[idx], lookup_val):
-                    return idx
+            return next(
+                (idx for idx in indices if isinstance(l_flat[idx], str) and _wildcard_fullmatch(lookup_val, l_flat[idx])),
+                None,
+            )
+        return next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
     return None
 
 
@@ -1136,11 +1160,6 @@ def xor(*args: Any) -> bool | float | str:
     if not saw:
         return "#VALUE!"
     return trues % 2 == 1
-
-
-def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    """Yield of a security that pays periodic interest. Not implemented in lightweight runtime."""
-    return float("nan")
 
 
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:

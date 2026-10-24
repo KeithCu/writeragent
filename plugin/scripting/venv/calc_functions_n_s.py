@@ -33,8 +33,11 @@ from .calc_functions_util import (
     _scipy_stats,
     _serial_to_date,
     is_number,
+    yearfrac,
 )
 from .coerce import is_missing_value
+
+_PERCENTRANK_MAX_SIG = 15
 
 
 
@@ -379,8 +382,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if f not in (1, 2, 4) or b < 0 or b > 4:
         return float("nan")
     # basic PV approximation
-    days_to_mat = _days_between(s, m, b)
-    years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
+    years = yearfrac(s, m, b)
     n = years * f
     if n <= 0 or not math.isfinite(n):
         return float("nan")
@@ -427,8 +429,7 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if f not in (1, 2, 4) or b < 0 or b > 4:
         return float("nan")
 
-    days_to_mat = _days_between(s, m, b)
-    years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
+    years = yearfrac(s, m, b)
     if years <= 0 or not math.isfinite(years):
         return float("nan")
     c = 100 * r
@@ -508,7 +509,7 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             return float("nan")
         val = float(x)
         sig = int(float(significance))
-        if sig < 1:
+        if sig < 1 or sig > _PERCENTRANK_MAX_SIG:
             return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
@@ -993,28 +994,20 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         return float("nan")
     # *extra used to be ignored, so by_array2/sort_order2 never affected the order.
     specs: list[tuple[Any, int]] = []
-    rest: list[Any] = list(extra)
-    primary = _sort_order_sign(sort_order)
-    if primary == 0:
-        return float("nan")
-    if primary is None:
-        specs.append((by_array, 1))
-        rest.insert(0, sort_order)
-    else:
-        specs.append((by_array, primary))
+    tokens = [by_array, sort_order, *extra]
     idx = 0
-    while idx < len(rest):
-        key = rest[idx]
+    while idx < len(tokens):
+        key = tokens[idx]
+        idx += 1
         sign = 1
-        if idx + 1 < len(rest):
-            nxt = _sort_order_sign(rest[idx + 1])
-            if nxt == 0:
+        if idx < len(tokens):
+            s = _sort_order_sign(tokens[idx])
+            if s == 0:
                 return float("nan")
-            if nxt is not None:
-                sign = nxt
+            if s is not None:
+                sign = s
                 idx += 1
         specs.append((key, sign))
-        idx += 1
 
     # ScSortBy: a 1-D key sorts rows (length must match). A 2-D key of shape
     # (1, ncols) sorts columns; shape (nrows, 1) sorts rows. Mixed axes are
@@ -1226,55 +1219,26 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
     vals = _criteria_numbers(r, crit, sr)
+    if vals is None:
+        return float("nan")
     return float(sum(vals))
 
 
 def sumifs(sr: Any, *args: Any) -> float:
     # Criteria ranges must match the sum range in shape. A shorter range, or a
     # 2x3 next to a 3x2, used to truncate or line up after ravel. That is NaN
-    # here, same as an odd argument count. No pairs still sums nothing:
-    # passing base_len to an empty pair list would sum the whole range.
+    # here, same as an odd argument count. No pairs still sums nothing.
     if len(args) % 2 != 0:
         return float("nan")
     if not args:
         return 0.0
-    # A scalar string is not a range. np.asarray("text", dtype=object) is
-    # shape (), so the shape check treated "text" and "" as a mismatch
-    # against [1, 2] and returned NaN. Text and blanks contribute nothing,
-    # same as sumif. The sum of no numbers is 0.
     if isinstance(sr, str):
         return 0.0
-    sr_arr = np.asarray(sr, dtype=object)
-    sr_flat = sr_arr.ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    mask = _multi_criteria_mask(pairs, base_len=len(sr_flat), base_shape=sr_arr.shape)
-    if mask is None:
+    vals = _criteria_numbers(sr, pairs=pairs)
+    if vals is None:
         return float("nan")
-    total = 0.0
-    for idx in range(len(sr_flat)):
-        if mask[idx]:
-            # Same rule as AVERAGEIFS: text and bools in the sum range
-            # are ignored. float("5") and float(True) used to add them.
-            cell = sr_flat[idx]
-            if isinstance(cell, (bool, np.bool_, str)):
-                continue
-            try:
-                val = float(cell)
-                # What was wrong: SUMIFS skipped a NaN on a row that met
-                # the criteria, so an error in the sum range vanished.
-                # How it happened: np.isnan(val) continued. ScSumIfs calls
-                # GetCellValue only for a matching cell, and that SetError
-                # on a formula error. A failing row never enters this
-                # block, so a NaN there stays ignored. Excel SUMIFS returns
-                # the error when the summed cell is an error.
-                # Why this change fixes it: a matching NaN returns nan.
-                # This block does not run for a non-matching row.
-                if math.isnan(val):
-                    return float("nan")
-                total += val
-            except (ValueError, TypeError, OverflowError):
-                pass
-    return float(total)
+    return float(sum(vals))
 
 
 def sumproduct(*args: Any) -> float:

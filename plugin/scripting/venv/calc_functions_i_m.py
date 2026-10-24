@@ -14,6 +14,7 @@ import cmath
 import math
 import statistics
 import sys
+import unicodedata
 from collections import Counter
 from typing import Any, Callable
 
@@ -30,6 +31,7 @@ from .calc_functions_util import (
     _serial_to_date,
     is_number,
     match_criteria,
+    yearfrac,
 )
 from .coerce import is_blank_value
 
@@ -71,7 +73,6 @@ __all__ = [
     "iserr",
     "iserror",
     "iseven",
-    "isformula",
     "islogical",
     "isna",
     "isnontext",
@@ -79,7 +80,6 @@ __all__ = [
     "isodd",
     "isoweeknum",
     "ispmt",
-    "isref",
     "istext",
     "jis",
     "kurt",
@@ -134,8 +134,6 @@ def is_na_value(value: Any) -> bool:
     if isinstance(value, str) and value.strip().upper() == "#N/A":
         return True
     try:
-        import numpy as np
-
         if isinstance(value, np.floating) and np.isnan(value):
             return True
     except ImportError:
@@ -408,8 +406,6 @@ def intercept(data_y: Any, data_x: Any) -> float:
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
-    from .calc_functions_util import yearfrac
-
     # type errors are left to the worker exception path, which returns #VALUE!
     s = float(settlement)
     m = float(maturity)
@@ -534,11 +530,6 @@ def iseven(val: Any) -> bool:
     return number is not None and number % 2 == 0
 
 
-def isformula(val: Any) -> bool:
-    # We do not have access to formula strings in PY() by default.
-    return False
-
-
 def islogical(val: Any) -> bool:
     # What was wrong: islogical(np.bool_(True)) was False.
     # How it happened: np.bool_ is not a subclass of bool, and this was the
@@ -595,25 +586,41 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     return -(bal * r)
 
 
-def isref(val: Any) -> bool:
-    # We do not have object references in PY(), only values.
-    return False
-
-
 def istext(val: Any) -> bool:
     # Text, except a real Calc error token. '#hashtag' is text.
     return isinstance(val, str) and not _is_calc_error(val)
 
 
 def jis(text: Any) -> str:
-    # No half-width map. str(1.0) is "1.0"; an integral float is the digits.
-    # None is a blank cell. str() of a cell does not raise ValueError.
+    # Convert half-width ASCII (0x21-0x7E) to full-width (U+FF01-U+FF5E), space to
+    # U+3000, and half-width katakana (U+FF61-U+FF9F) to full-width via NFKC.
     if text is None:
         return ""
     # nan and inf are not integers; str() is their text
     if isinstance(text, float) and text.is_integer():
-        return str(int(text))
-    return str(text)
+        s = str(int(text))
+    else:
+        s = str(text)
+
+    out: list[str] = []
+    kana_buf: list[str] = []
+    for ch in s:
+        cp = ord(ch)
+        if 0xFF61 <= cp <= 0xFF9F:
+            kana_buf.append(ch)
+        else:
+            if kana_buf:
+                out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
+                kana_buf = []
+            if ch == " ":
+                out.append("\u3000")
+            elif 0x21 <= cp <= 0x7E:
+                out.append(chr(cp + 0xFEE0))
+            else:
+                out.append(ch)
+    if kana_buf:
+        out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
+    return "".join(out)
 
 
 def kurt(*args: Any) -> float:
@@ -716,7 +723,7 @@ def linest(*args: Any, **kwargs: Any) -> Any:
             return "#VALUE!"
         data_y, data_x, const = parsed
         return _fit_line(data_y, data_x, const)
-    except Exception:
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
 
@@ -736,7 +743,7 @@ def logest(*args: Any, **kwargs: Any) -> Any:
         if const:
             return [float(np.exp(v)) for v in fitted]
         return [float(np.exp(v)) for v in fitted[:-1]] + [1.0]
-    except Exception:
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
 
@@ -914,7 +921,7 @@ def minverse(matrix: Any) -> Any:
         # #NUM!. This helper reports that as #VALUE!. A scalar is 1×1, so
         # MINVERSE(5) is [[0.2]] rather than #VALUE!.
         return np.linalg.inv(_as_matrix(matrix, numeric=True)).tolist()
-    except Exception:
+    except (ValueError, TypeError, OverflowError, np.linalg.LinAlgError):
         return "#VALUE!"
 
 
@@ -934,7 +941,7 @@ def mmult(array1: Any, array2: Any) -> Any:
         left = _as_matrix(array1, numeric=True)
         right = _as_matrix(array2, numeric=True)
         return np.matmul(left, right).tolist()
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
 
@@ -942,26 +949,11 @@ def mode(*args: Any) -> Any:
     # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
     # numbers only. mode(1, 2, 2) used to raise TypeError. Text is not a
     # candidate. A Calc bool is a numeric cell, so True and 1 are the same
-    # value and must stay merged. dtype=object so a mixed range is not
-    # stringified (1 used to come back as text).
-    vals: list[float] = []
-    for arg in args:
-        for value in np.asarray(arg, dtype=object).ravel():
-            if isinstance(value, (bool, np.bool_)):
-                vals.append(float(value))
-                continue
-            if isinstance(value, str) or value is None:
-                continue
-            try:
-                number = float(value)
-            except (ValueError, TypeError, OverflowError):
-                continue
-            if math.isnan(number):
-                continue
-            vals.append(number)
-    if not vals:
+    # value and must stay merged.
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=False, propagate_nan=False)
+    if not arr.size:
         return float("nan")
-    counts = Counter(vals)
+    counts = Counter(arr.tolist())
     best = max(counts.values())
     # No repeat is #N/A. na() is float nan, which isna() already treats as #N/A.
     if best < 2:
@@ -1008,7 +1000,7 @@ def mtrans(matrix: Any) -> Any:
         if m.ndim == 1:
             m = m.reshape(1, -1)
         return np.transpose(m).tolist()
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
 

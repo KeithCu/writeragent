@@ -29,29 +29,12 @@ from plugin.scripting.config_limits import (
     _timeout_sec_ok,
 )
 from plugin.scripting.calc_range import (
-    column_vector_as_2d,
     ensure_rectangular_2d,
     is_calc_range_payload,
     pack_calc_range_envelope,
     CalcRange,
 )
 from plugin.scripting.venv.coerce import _dedupe_column_names
-
-
-@given(vals=st.lists(st.integers(), max_size=DEAL_MAX_SHAPE_DIM))
-def test_column_vector_as_2d_contracts(vals: list[int]) -> None:
-    res = column_vector_as_2d(vals)
-    assert isinstance(res, list)
-    assert len(res) == len(vals)
-    assert all(isinstance(row, list) and len(row) == 1 and row[0] == val for row, val in zip(res, vals))
-
-
-def test_column_vector_longer_than_shape_dim_wraps() -> None:
-    """A sheet column past SHAPE_DIM is a normal vector, not a contract error."""
-    vals = [0] * (DEAL_MAX_SHAPE_DIM + 1)
-    res = column_vector_as_2d(vals)
-    assert len(res) == len(vals)
-    assert all(row == [0] for row in res)
 
 
 def test_import_policy_contracts() -> None:

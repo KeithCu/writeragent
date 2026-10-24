@@ -17,6 +17,7 @@ from plugin.scripting.venv.trusted_dispatch import (
     dispatch_symbolic,
     dispatch_text,
     dispatch_units,
+    parse_trusted_spec,
 )
 
 
@@ -131,3 +132,67 @@ def test_dispatch_sql_ignores_helper_and_session_id() -> None:
         with pytest.raises(ValueError, match="sql is required"):
             dispatch_sql({"sql": "   "})
         assert mock_query.call_count == 1
+
+
+def test_parse_trusted_spec_layout_errors():
+    names = frozenset({"describe_data"})
+
+    # header_row: None, "abc", True, and 1.5 each return code=="INVALID_SPEC" and do not raise
+    for bad in (None, "abc", True, 1.5):
+        spec = {"helper": "describe_data", "header_row": bad}
+        res = parse_trusted_spec(spec, helper_names=names)
+        assert isinstance(res, dict)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_SPEC"
+
+    # "header_row": "2" returns tuple index 3 equal to 2
+    spec_str_row = {"helper": "describe_data", "header_row": "2"}
+    res_str_row = parse_trusted_spec(spec_str_row, helper_names=names)
+    assert not isinstance(res_str_row, dict)
+    assert res_str_row[3] == 2
+
+    # Missing header_row is 0
+    spec_missing_row = {"helper": "describe_data"}
+    res_missing_row = parse_trusted_spec(spec_missing_row, helper_names=names)
+    assert not isinstance(res_missing_row, dict)
+    assert res_missing_row[3] == 0
+
+    # headers: "false" returns tuple index 2 False
+    spec_false_str = {"helper": "describe_data", "headers": "false"}
+    res_false_str = parse_trusted_spec(spec_false_str, helper_names=names)
+    assert not isinstance(res_false_str, dict)
+    assert res_false_str[2] is False
+
+    # headers: "true" is True
+    spec_true_str = {"helper": "describe_data", "headers": "true"}
+    res_true_str = parse_trusted_spec(spec_true_str, helper_names=names)
+    assert not isinstance(res_true_str, dict)
+    assert res_true_str[2] is True
+
+    # Missing headers is True
+    spec_missing_hdr = {"helper": "describe_data"}
+    res_missing_hdr = parse_trusted_spec(spec_missing_hdr, helper_names=names)
+    assert not isinstance(res_missing_hdr, dict)
+    assert res_missing_hdr[2] is True
+
+    # headers: None is True
+    spec_none_hdr = {"helper": "describe_data", "headers": None}
+    res_none_hdr = parse_trusted_spec(spec_none_hdr, helper_names=names)
+    assert not isinstance(res_none_hdr, dict)
+    assert res_none_hdr[2] is True
+
+    # headers: 2 is INVALID_SPEC
+    spec_bad_hdr = {"helper": "describe_data", "headers": 2}
+    res_bad_hdr = parse_trusted_spec(spec_bad_hdr, helper_names=names)
+    assert isinstance(res_bad_hdr, dict)
+    assert res_bad_hdr["status"] == "error"
+    assert res_bad_hdr["code"] == "INVALID_SPEC"
+
+    # A bad headers value is reported even if header_row is also bad (headers checked first)
+    spec_both_bad = {"helper": "describe_data", "headers": 2, "header_row": "abc"}
+    res_both_bad = parse_trusted_spec(spec_both_bad, helper_names=names)
+    assert isinstance(res_both_bad, dict)
+    assert res_both_bad["status"] == "error"
+    assert res_both_bad["code"] == "INVALID_SPEC"
+    assert "headers" in res_both_bad["message"]
+

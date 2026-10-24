@@ -17,12 +17,14 @@ from plugin.scripting.venv.coerce import (
     coerce_bool,
     coerce_optional_float,
     coerce_str_list,
+    resolve_df as _resolve_df,
+    table_from_df as _table_from_df,
+)
+from plugin.scripting.venv.trusted_dispatch import (
     dispatch_common_kwargs,
     error_result as _error_result,
     ok_result as _ok_result,
-    resolve_df as _resolve_df,
     run_trusted_spec,
-    table_from_df as _table_from_df,
 )
 
 log = logging.getLogger(__name__)

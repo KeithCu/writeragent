@@ -174,10 +174,10 @@ def test_days360_method_is_numeric():
     assert calc.days360(d1, d2, "0") == 1.0
     assert calc.days360(d1, d2, True) == 3.0
     assert calc.days360(d1, d2, 1) == 3.0
-    with pytest.raises(ValueError):
-        calc.days360(d1, d2, "FALSE")
-    with pytest.raises(ValueError):
-        calc.days360(d1, d2, "TRUE")
+    assert math.isnan(calc.days360(d1, d2, "FALSE"))
+    assert math.isnan(calc.days360(d1, d2, "TRUE"))
+    assert calc.days360(d1, d2, "") == 1.0
+    assert calc.days360(d1, d2, None) == 1.0
 
 
 def test_finv_and_gammainv_open_bounds_are_nan():
@@ -291,7 +291,7 @@ _D_H_BAD_INPUTS = [
     ("euroconvert-text", "euroconvert", ("x", "EUR", "DEM"), ValueError),
     ("euroconvert-blank", "euroconvert", ("", "EUR", "DEM"), ValueError),
     ("euroconvert-oor", "euroconvert", (1e308, "EUR", "BEF"), _NAN),
-    ("euroconvert-precision", "euroconvert", (100, "DEM", "ATS", False, float("inf")), OverflowError),
+    ("euroconvert-precision", "euroconvert", (100, "DEM", "ATS", False, float("inf")), _NAN),
     ("even-blank", "even", ("",), ValueError),
     ("expondist-text", "expondist", ("x", 1), ValueError),
     ("expondist-blank", "expondist", ("", 1), ValueError),
@@ -529,5 +529,39 @@ def test_frequency_conversion_error_is_value():
             raise ValueError("conversion failed")
 
     assert calc.frequency(BadArray(), [1, 2]) == "#VALUE!"
+
+
+def test_filter_criteria_truthiness():
+    assert calc.filter([1, 2], ["0", 1]) == [2]
+    assert calc.filter([1, 2], ["text", 1]) == "#VALUE!"
+    assert calc.filter([[1, 2], [3, 4]], ["0", 1]) == [[3, 4]]
+    assert calc.filter([[1, 2], [3, 4]], [["0"], [1]]) == [[3, 4]]
+
+
+def test_duration_and_mduration_excel_doc_examples():
+    from plugin.scripting.venv.calc_functions_i_m import mduration
+
+    d1 = _serial(2008, 1, 1)
+    d2 = _serial(2016, 1, 1)
+    d = calc.duration(d1, d2, 0.08, 0.09, 2, 1)
+    md = mduration(d1, d2, 0.08, 0.09, 2, 1)
+    assert math.isclose(d, 5.993775, rel_tol=1e-6)
+    assert math.isclose(md, 5.735670, rel_tol=1e-6)
+
+
+def test_round_sig_and_euroconvert_precision():
+    from plugin.scripting.venv.calc_functions_util import _round_sig
+
+    assert math.isnan(_round_sig(float("nan"), 3))
+    assert math.isinf(_round_sig(float("inf"), 3))
+    assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, 109))
+    assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, 2))
+    assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, -1))
+
+
+def test_dget_zero_row_database():
+    assert calc.dget([], "x", [["x"], [1]]) == "#VALUE!"
+    assert calc.dget([[]], "x", [["x"], [1]]) == "#VALUE!"
+
 
 

@@ -419,9 +419,7 @@ def test_asc():
     from plugin.scripting.calc_functions import asc
     res = asc("Ｅｘｃｅｌ　Ｐｙｔｈｏｎ")
     assert res == "Excel Python"
-def test_bahttext():
-    with pytest.raises(NotImplementedError):
-        calc.bahttext(123)
+
 
 def test_clean():
     assert calc.clean("A" + chr(7) + "B" + chr(10)) == "AB"
@@ -442,7 +440,7 @@ def test_fixed():
     assert calc.fixed(1234.567, 1, True) == "1234.6"
 
 def test_jis():
-    assert calc.jis("test") == "test"
+    assert calc.jis("test") == "ｔｅｓｔ"
 
 def test_numbervalue():
     assert calc.numbervalue("1,234.56") == 1234.56
@@ -1147,7 +1145,6 @@ def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
 
 
 def test_yield_functions():
-    assert math.isnan(calc.yield_calc(1, 2, 0.05, 95, 100, 2))
     assert calc.yielddisc(1, 2, 95, 100) > 0
     assert calc.yieldmat(1, 2, 0, 0.05, 95) > 0
 

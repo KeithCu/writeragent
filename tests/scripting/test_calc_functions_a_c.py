@@ -52,9 +52,9 @@ def test_aggregate_stubs_and_bools():
     res_bool = calc.aggregate(1, 4, [1.0, 2.0, True, False, 3.0])
     assert res_bool == 2.0
 
-    # Functions 14..19 must raise NotImplementedError
+    # Functions 14..19 must fail assertion 1 <= fn <= 13
     for fn in range(14, 20):
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AssertionError):
             calc.aggregate(fn, 4, [1, 2, 3])
 
     import warnings
@@ -85,11 +85,6 @@ def test_areas():
     assert calc.areas("A1:B2") == 1.0
     assert calc.areas([[1, 2], [3, 4]]) == 1.0
     assert calc.areas([[[1, 2]], [[3, 4]]]) == 2.0
-
-
-def test_bahttext_raises_not_implemented():
-    with pytest.raises(NotImplementedError):
-        calc.bahttext(123)
 
 
 def test_amordegrc_rounds_half_away_from_zero():
@@ -353,5 +348,76 @@ def test_trig_errors_propagate():
         calc.coth(0)
     with pytest.raises(ZeroDivisionError):
         calc.csc(0)
+
+
+def test_oracle_address_table():
+    """Oracle tests for ADDRESS covering styles, sheet names, relative and absolute modes."""
+    cases = [
+        # (row, col, abs_num, a1_style, sheet, expected)
+        (1, 1, 1, True, "", "$A$1"),
+        (2, 3, 2, True, "", "C$2"),
+        (3, 4, 3, True, "", "$D3"),
+        (4, 5, 4, True, "", "E4"),
+        (2, 3, 1, False, "", "R2C3"),
+        (2, 3, 1, 0, "", "R2C3"),
+        (1, 1, 1, 1, "Sheet1", "'Sheet1'!$A$1"),
+        (5, 6, 4, 1, "My Sheet", "'My Sheet'!F5"),
+    ]
+    for row, col, abs_num, a1_style, sheet, expected in cases:
+        if sheet:
+            assert calc.address(row, col, abs_num, a1_style, sheet) == expected
+        else:
+            assert calc.address(row, col, abs_num, a1_style) == expected
+
+
+def test_oracle_averageif_averageifs_table():
+    """Oracle tests for AVERAGEIF and AVERAGEIFS from documentation."""
+    # AVERAGEIF single condition
+    props = [100000, 200000, 300000, 400000]
+    assert calc.averageif(props, ">250000") == 350000.0
+
+    vals = [1000, 2000, 3000, 4000]
+    commissions = [70, 140, 210, 280]
+    assert calc.averageif(vals, "<2500", commissions) == 105.0
+
+    # AVERAGEIFS multiple conditions
+    avg_range = [10, 20, 30, 40]
+    cr1 = [1, 2, 3, 4]
+    cr2 = ["a", "b", "b", "b"]
+    assert calc.averageifs(avg_range, cr1, ">1", cr2, "b") == 30.0
+
+
+def test_oracle_binomdist_table():
+    """Oracle tests for BINOMDIST against Excel reference documentation."""
+    cases = [
+        # (number_s, trials, probability_s, cumulative, expected)
+        (6, 10, 0.5, False, 0.205078125),
+        (6, 10, 0.5, True, 0.828125),
+        (0, 1, 0.5, False, 0.5),
+        (1, 1, 0.5, True, 1.0),
+        (0, 10, 0.5, False, 0.0009765625),
+    ]
+    for k, n, p, cum, expected in cases:
+        assert math.isclose(calc.binomdist(k, n, p, cum), expected, rel_tol=1e-7)
+
+
+def test_oracle_coup_functions_table():
+    """Oracle tests for COUP* functions using standard bond schedule parameters."""
+    s = 39077  # 2007-01-25
+    m = 41228  # 2012-11-15
+    freq = 2
+    basis = 1  # Actual/actual
+
+    assert calc.coupdaybs(s, m, freq, basis) == 41.0
+    assert calc.coupdays(s, m, freq, basis) == 181.0
+    assert calc.coupdaysnc(s, m, freq, basis) == 140.0
+    assert calc.coupncd(s, m, freq, basis) == 39217.0
+    assert calc.coupnum(s, m, freq, basis) == 12.0
+    assert calc.couppcd(s, m, freq, basis) == 39036.0
+
+    # Basis 0 (US 30/360)
+    assert calc.coupdays(s, m, freq, 0) == 180.0
+    assert calc.coupnum(s, m, freq, 0) == 12.0
+
 
 

@@ -19,8 +19,24 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
+import numpy as np
+
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
+
+_pd: Any = None
+
+
+def _get_pd() -> Any:
+    global _pd
+    if _pd is None:
+        try:
+            import pandas as pd
+
+            _pd = pd
+        except ImportError:
+            _pd = False
+    return _pd if _pd is not False else None
 
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
@@ -97,24 +113,15 @@ def is_missing_value(value: Any) -> bool:
         return stripped == "" or stripped.upper() in _LO_ERROR_TOKENS
     if isinstance(value, float):
         return math.isnan(value)
-    try:
-        import numpy as np
-
-        if isinstance(value, np.floating) and np.isnan(value):
-            return True
-        # numpy.datetime64 and timedelta64 NaT are not np.floating, so the NaN
-        # check misses them. Test them explicitly with np.isnat.
-        if isinstance(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
-            return True
-    except ImportError:
-        pass
-    try:
-        import pandas as pd
-
-        if value is pd.NA or value is pd.NaT:
-            return True
-    except ImportError:
-        pass
+    if isinstance(value, np.floating) and np.isnan(value):
+        return True
+    # numpy.datetime64 and timedelta64 NaT are not np.floating, so the NaN
+    # check misses them. Test them explicitly with np.isnat.
+    if isinstance(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
+        return True
+    pd = _get_pd()
+    if pd is not None and (value is pd.NA or value is pd.NaT):
+        return True
     return False
 
 
@@ -219,27 +226,18 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
     # A raw ndarray used to be stored as the single cell of a 1x1 frame.
-    try:
-        import numpy as np
-
-        if isinstance(data, np.ndarray):
-            if data.ndim == 0:
-                return [[data.item()]]
-            if data.ndim == 1:
-                return ensure_rectangular_2d(data.tolist())
-            if data.ndim == 2:
-                return ensure_rectangular_2d(data.tolist())
-            return [[data]]
-    except ImportError:
-        pass
-    try:
-        import pandas as pd
-
-        if isinstance(data, pd.Series):
-            return ensure_rectangular_2d(cast("Any", data).tolist())
-    except ImportError:
-        pass
-    return [[data]]
+    if isinstance(data, np.ndarray):
+        if data.ndim == 0:
+            return [[data.item()]]
+        if data.ndim in (1, 2):
+            return ensure_rectangular_2d(data.tolist())
+        return [[data]]
+    pd = _get_pd()
+    if pd is not None and isinstance(data, pd.Series):
+        return ensure_rectangular_2d(cast("Any", data).tolist())
+    if isinstance(data, (int, float, str, bool)):
+        return [[data]]
+    raise ValueError(f"Cannot normalize input of type {type(data).__name__} to 2D grid")
 
 
 def _is_pandas_dataframe(data: Any) -> bool:
@@ -359,22 +357,29 @@ def _coerce_column_types(
             series = out[col]
             if series.dtype == object or str(series.dtype) == "string":
                 coerced = series.map(_coerce_cell_parse_strings)
-                numeric: Any = pd.to_numeric(coerced, errors="coerce")
-                non_null = coerced.notna().sum()
-                numeric_non_null = numeric.notna().sum()
-                # Promote only when every non-null cell parsed. An 80% cutoff
-                # replaced the column with to_numeric and turned the remaining
-                # text into NaN (a mixed [10, "x", 30, ...] column became float).
-                if non_null > 0 and numeric_non_null == non_null:
-                    out[col] = numeric
-                else:
+                non_null = 0
+                all_numeric = True
+                for v in coerced:
+                    if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                        non_null += 1
+                        if not isinstance(v, (int, float, np.integer, np.floating)):
+                            all_numeric = False
+                if non_null > 0 and all_numeric:
+                    out[col] = pd.to_numeric(coerced, errors="coerce")
+                elif non_null > 0:
                     dt: Any = pd.to_datetime(coerced, errors="coerce", utc=False, format="mixed")
-                    dt_non_null = dt.notna().sum()
-                    if non_null > 0 and dt_non_null == non_null:
+                    if dt.notna().sum() == non_null:
                         out[col] = dt
                     else:
                         out[col] = coerced
+                else:
+                    out[col] = coerced
     return out
+
+
+def _column_labels(df: Any) -> list[str]:
+    """Return DataFrame columns as a list of string labels."""
+    return [str(c) for c in df.columns]
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
@@ -386,8 +391,7 @@ def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> di
     numeric_cols: list[str] = []
     categorical_cols: list[str] = []
     datetime_cols: list[str] = []
-    for col, dtype in zip(df.columns, df.dtypes):
-        label = str(col)
+    for label, dtype in zip(_column_labels(df), df.dtypes):
         if _is_datetime_dtype(dtype):
             datetime_cols.append(label)
         elif _is_numeric_dtype(dtype):
@@ -573,31 +577,32 @@ def coerce_optional_int(value: Any, name: str = "value") -> int | None:
     return coerce_int(value, name=name)
 
 
-def coerce_float(value: Any, name: str = "value") -> float:
-    """Coerce *value* to float or raise ValueError."""
+def _coerce_number(value: Any) -> float | None:
+    """Coerce value to float or return None."""
     if isinstance(value, bool):
-        raise ValueError(f"{name} must be a float, got {value!r}")
-    try:
-        import numpy as np
-        num_types = (int, float, np.integer, np.floating)
-    except ImportError:
-        num_types = (int, float)  # type: ignore[assignment]
-
-    if isinstance(value, num_types):
+        return None
+    if isinstance(value, (int, float, np.integer, np.floating)):
         f = float(value)
-        if math.isfinite(f):
-            return f
-        raise ValueError(f"{name} must be a float, got {value!r}")
+        return f if math.isfinite(f) else None
     if isinstance(value, str):
+        parsed = _parse_numeric_string(value)
+        if parsed is not None:
+            return parsed
         stripped = value.strip()
         if stripped:
             try:
                 f = float(stripped)
-                if math.isfinite(f):
-                    return f
+                return f if math.isfinite(f) else None
             except (ValueError, TypeError):
                 pass
-        raise ValueError(f"{name} must be a float, got {value!r}")
+    return None
+
+
+def coerce_float(value: Any, name: str = "value") -> float:
+    """Coerce *value* to float or raise ValueError."""
+    f = _coerce_number(value)
+    if f is not None:
+        return f
     raise ValueError(f"{name} must be a float, got {value!r}")
 
 
@@ -744,12 +749,13 @@ def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
         columns = [columns]
     elif isinstance(columns, tuple):
         columns = list(columns)
+    existing_labels = set(_column_labels(df))
     if columns is not None:
-        missing = [c for c in columns if c not in df.columns]
+        missing = [c for c in columns if c not in existing_labels and c not in df.columns]
         if missing:
             raise ValueError(f"Unknown columns: {', '.join(missing)}")
         return list(columns)
-    return [str(c) for c in df.select_dtypes(include="number").columns]
+    return _column_labels(df.select_dtypes(include="number"))
 
 
 def _apply_index_col(df: Any, index_col: int | None) -> Any:
@@ -757,7 +763,8 @@ def _apply_index_col(df: Any, index_col: int | None) -> Any:
     if index_col is None:
         return df
     idx = int(index_col)
-    n_cols = len(df.columns)
+    cols = _column_labels(df)
+    n_cols = len(cols)
     if n_cols == 0:
         raise ValueError(f"index_col {idx} is outside the columns (no columns)")
     if idx < 0 or idx >= n_cols:
@@ -873,147 +880,6 @@ def coerce_to_dataframe(
         date_origin=date_origin,
         sheet_hint=sheet_hint,
     )
-
-
-# --- Shared Result Shapes ---
-
-def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
-    return {"status": "ok", "helper": helper, **payload}
-
-
-def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[str, Any]:
-    """Extract and validate sheet layout flags (headers, header_row) from spec_dict.
-
-    bool("false") is True, and int on null or "abc" raised outside run_analysis's try.
-    Coerce with validation and return INVALID_SPEC on bad values without raising.
-    """
-    try:
-        headers = coerce_bool(spec_dict.get("headers"), name="headers", default=True)
-        if "header_row" in spec_dict:
-            header_row = coerce_int(spec_dict["header_row"], name="header_row")
-        else:
-            header_row = 0
-    except ValueError as exc:
-        return error_result("INVALID_SPEC", str(exc))
-    return headers, header_row
-
-
-def parse_trusted_spec(
-    spec: dict[str, Any] | str,
-    *,
-    helper_names: frozenset[str] | set[str],
-    context: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any], bool, int, dict[str, Any], dict[str, Any]] | dict[str, Any]:
-    """Shared preamble for run_analysis / run_forecast / run_optimize.
-
-    Returns ``(helper, params, headers, header_row, context, spec)`` or an error dict.
-    """
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return error_result("INVALID_SPEC", "spec must be a dict or helper name string")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return error_result("MISSING_HELPER", "spec.helper is required")
-    if helper not in helper_names:
-        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
-    layout = _sheet_layout_flags(spec_dict)
-    if isinstance(layout, dict):
-        return layout
-    headers, header_row = layout
-    ctx = context if isinstance(context, dict) else {}
-    return helper, params, headers, header_row, ctx, spec_dict
-
-
-def error_result(
-    code: str,
-    message: str,
-    *,
-    helper: str | None = None,
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    if details:
-        out["details"] = details
-    return out
-
-
-def missing_package_error(helper: str, package: str) -> dict[str, Any]:
-    return error_result(
-        "MISSING_PACKAGE",
-        f"{package} is required for {helper}.",
-        helper=helper,
-    )
-
-
-def resolve_spec_helper(
-    spec: dict[str, Any] | str,
-    *,
-    helper_names: frozenset[str] | set[str],
-    missing_code: str = "MISSING_HELPER",
-) -> tuple[str, dict[str, Any]] | dict[str, Any]:
-    """Extract helper name and spec dict from spec, or return an error dict."""
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return error_result("INVALID_SPEC", "spec must be a dict or helper name")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return error_result(missing_code, "helper is required")
-    if helper not in helper_names:
-        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-    return helper, spec_dict
-
-
-def dispatch_common_kwargs(
-    context: dict[str, Any],
-    *,
-    headers: bool,
-    header_row: int,
-) -> dict[str, Any]:
-    """Shared kwargs dictionary for analysis, forecast, optimize, and viz dispatch."""
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    return {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
-
-
-def run_trusted_spec(
-    spec: dict[str, Any] | str,
-    data: Any,
-    context: dict[str, Any] | None = None,
-    *,
-    helper_names: frozenset[str] | set[str],
-    dispatch_fn: Any,
-    domain: str,
-    error_code: str,
-    logger: logging.Logger | None = None,
-) -> dict[str, Any]:
-    """Shared execution body for run_analysis / run_forecast / run_optimize."""
-    parsed = parse_trusted_spec(spec, helper_names=helper_names, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
-
-    try:
-        result = dispatch_fn(helper, data, params, headers=headers, header_row=header_row, context=ctx)
-    except Exception as exc:
-        active_log = logger or log
-        active_log.exception("%s helper %s failed", domain, helper)
-        return error_result(error_code, str(exc), helper=helper)
-
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-
-    return result
 
 
 def _json_frame(df: Any) -> Any:

@@ -6,17 +6,149 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
-# What was wrong: importing extract_sheet_layout from trusted_rpc loaded
-# venv_worker in the child. venv_worker imports config, which imports uno at
-# module scope, plus thread_guard, worker_pool, and sandbox.
-# How it happened: b476c6899 placed the raw header copy in trusted_rpc and
-# pointed this module at it.
-# Why this change: sheet_layout is a leaf, so a trusted action does not import
-# the host worker.
 from plugin.scripting.sheet_layout import extract_sheet_layout
+from plugin.scripting.venv.coerce import coerce_bool, coerce_int
+
+log = logging.getLogger(__name__)
+
+
+def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
+    return {"status": "ok", "helper": helper, **payload}
+
+
+def error_result(
+    code: str,
+    message: str,
+    *,
+    helper: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
+    if helper:
+        out["helper"] = helper
+    if details:
+        out["details"] = details
+    return out
+
+
+def missing_package_error(helper: str, package: str) -> dict[str, Any]:
+    return error_result(
+        "MISSING_PACKAGE",
+        f"{package} is required for {helper}.",
+        helper=helper,
+    )
+
+
+def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[str, Any]:
+    """Extract and validate sheet layout flags (headers, header_row) from spec_dict."""
+    try:
+        headers = coerce_bool(spec_dict.get("headers"), name="headers", default=True)
+        if "header_row" in spec_dict:
+            header_row = coerce_int(spec_dict["header_row"], name="header_row")
+        else:
+            header_row = 0
+    except ValueError as exc:
+        return error_result("INVALID_SPEC", str(exc))
+    return headers, header_row
+
+
+def parse_trusted_spec(
+    spec: dict[str, Any] | str,
+    *,
+    helper_names: frozenset[str] | set[str],
+    context: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any], bool, int, dict[str, Any], dict[str, Any]] | dict[str, Any]:
+    """Shared preamble for run_analysis / run_forecast / run_optimize.
+
+    Returns ``(helper, params, headers, header_row, context, spec)`` or an error dict.
+    """
+    if isinstance(spec, str):
+        spec_dict: dict[str, Any] = {"helper": spec}
+    elif isinstance(spec, dict):
+        spec_dict = spec
+    else:
+        return error_result("INVALID_SPEC", "spec must be a dict or helper name string")
+
+    helper = str(spec_dict.get("helper") or "").strip()
+    if not helper:
+        return error_result("MISSING_HELPER", "spec.helper is required")
+    if helper not in helper_names:
+        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+
+    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
+    layout = _sheet_layout_flags(spec_dict)
+    if isinstance(layout, dict):
+        return layout
+    headers, header_row = layout
+    ctx = context if isinstance(context, dict) else {}
+    return helper, params, headers, header_row, ctx, spec_dict
+
+
+def resolve_spec_helper(
+    spec: dict[str, Any] | str,
+    *,
+    helper_names: frozenset[str] | set[str],
+    missing_code: str = "MISSING_HELPER",
+) -> tuple[str, dict[str, Any]] | dict[str, Any]:
+    """Extract helper name and spec dict from spec, or return an error dict."""
+    if isinstance(spec, str):
+        spec_dict: dict[str, Any] = {"helper": spec}
+    elif isinstance(spec, dict):
+        spec_dict = spec
+    else:
+        return error_result("INVALID_SPEC", "spec must be a dict or helper name")
+
+    helper = str(spec_dict.get("helper") or "").strip()
+    if not helper:
+        return error_result(missing_code, "helper is required")
+    if helper not in helper_names:
+        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+    return helper, spec_dict
+
+
+def dispatch_common_kwargs(
+    context: dict[str, Any],
+    *,
+    headers: bool,
+    header_row: int,
+) -> dict[str, Any]:
+    """Shared kwargs dictionary for analysis, forecast, optimize, and viz dispatch."""
+    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
+    return {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+
+
+def run_trusted_spec(
+    spec: dict[str, Any] | str,
+    data: Any,
+    context: dict[str, Any] | None = None,
+    *,
+    helper_names: frozenset[str] | set[str],
+    dispatch_fn: Any,
+    domain: str,
+    error_code: str,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """Shared execution body for run_analysis / run_forecast / run_optimize."""
+    parsed = parse_trusted_spec(spec, helper_names=helper_names, context=context)
+    if isinstance(parsed, dict):
+        return parsed
+    helper, params, headers, header_row, ctx, _spec = parsed
+
+    try:
+        result = dispatch_fn(helper, data, params, headers=headers, header_row=header_row, context=ctx)
+    except Exception as exc:
+        active_log = logger or log
+        active_log.exception("%s helper %s failed", domain, helper)
+        return error_result(error_code, str(exc), helper=helper)
+
+    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
+
+    return result
 
 
 def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:

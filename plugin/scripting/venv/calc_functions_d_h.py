@@ -11,18 +11,21 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
-from decimal import Decimal, ROUND_HALF_UP
 import math
 from typing import Any, Callable
 
 import numpy as np
 
+from .calc_functions_a_c import _coupon_schedule
 from .calc_functions_util import (
+    _as_nonzero,
     _date_to_serial,
     _days360,
     _extract_numeric_array,
     _npf_result,
     _round_half_up,
+    _round_sig,
+    _scipy_stats,
     _serial_to_date,
     match_criteria,
     yearfrac,
@@ -122,15 +125,6 @@ _EURO_DECIMALS: dict[str, int] = {
 }
 
 
-def _round_sig(x: float, sig: int) -> float:
-    if x == 0 or not math.isfinite(x):
-        return 0.0
-    exponent = math.floor(math.log10(abs(x)))
-    factor = 10 ** (sig - 1 - exponent)
-    d = Decimal(str(x * factor))
-    return float(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) / factor
-
-
 def _roll_ymd(year: int, month: int, day: int) -> dt.date:
     """Spill extra days into later months, matching LibreOffice ``Date::Normalize``.
 
@@ -218,7 +212,7 @@ def datevalue(text: Any) -> float:
 def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any] | None:
     """Shared helper for D* functions (DSUM, DAVERAGE, DMAX, DMIN, etc.)."""
     db_arr = np.asarray(db, dtype=object)
-    if db_arr.ndim != 2:
+    if db_arr.ndim != 2 or db_arr.shape[0] == 0 or db_arr.shape[1] == 0:
         return None
     headers = [header_label(h).upper() for h in db_arr[0]]
     # First duplicate header wins, same as findFieldColumn (doubleref.cxx)
@@ -352,11 +346,10 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     ed = _serial_to_date(end_date)
     if sd is None or ed is None:
         return float("nan")
-    # LibreOffice GetBool() coerces via GetDouble() != 0 (interpre.hxx). Python
-    # bool("0") was True (European count). Coerce with bool(float(method)) so "0"
-    # selects US.
-    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
-    european = bool(float(method))
+    try:
+        european = False if (method is None or method == "") else _as_nonzero(method)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     return _days360(sd, ed, european=european)
 
 
@@ -602,27 +595,43 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
     y = float(yld)
     f = float(frequency)
     b = int(float(basis))
+
     if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
         return float("nan")
 
-    # OverflowError is left to the worker exception path, which returns #NUM!
-    periods = yearfrac(s, m, b) * f
-    n = periods
-    if n <= 0:
+    try:
+        _p_ser, _c_ser, days_in_per, k, _a_days, dsc_days = _coupon_schedule(s, m, f, b)
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
+    n = int(k)
+    if n <= 0 or days_in_per <= 0:
+        return float("nan")
+
+    frac = dsc_days / days_in_per
     yf = y / f
-    cf = c / f
+    cf = c * 100.0 / f
+
     if yf == 0:
-        denom = cf * n + 1.0
-        if denom == 0:
+        pv = float(n * cf + 100.0)
+        if pv == 0:
             return float("nan")
-        res = n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
-    elif cf == 0:
-        res = n / f
+        weighted_t = sum(((i - 1) + frac) * (cf + (100.0 if i == n else 0.0)) for i in range(1, n + 1))
+        res = (weighted_t / pv) / f
     else:
-        res = ((1 + yf) / yf - (1 + yf + n * (cf - yf)) / (cf * ((1 + yf) ** n - 1) + yf)) / f
-    return res if math.isfinite(res) else float("nan")
+        pv = 0.0
+        weighted_t = 0.0
+        for i in range(1, n + 1):
+            t_i = (i - 1) + frac
+            cf_i = cf + (100.0 if i == n else 0.0)
+            disc = (1.0 + yf) ** t_i
+            pv += cf_i / disc
+            weighted_t += (t_i * cf_i) / disc
+        if pv == 0:
+            return float("nan")
+        res = (weighted_t / pv) / f
+
+    return float(res) if math.isfinite(res) else float("nan")
 
 
 def dvar(db: Any, field: Any, criteria: Any) -> float:
@@ -725,9 +734,12 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     else:
         eur_val = val / _EURO_RATES[from_curr]
         if triangulation_precision is not None:
-            # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
-            sig = int(float(triangulation_precision))
-            if sig < 3:
+            try:
+                sig_f = float(triangulation_precision)
+                if not math.isfinite(sig_f) or not (3 <= sig_f <= 99) or int(sig_f) != sig_f:
+                    return float("nan")
+                sig = int(sig_f)
+            except (ValueError, TypeError, OverflowError):
                 return float("nan")
             eur_val = _round_sig(eur_val, sig)
 
@@ -736,11 +748,10 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     else:
         res = eur_val * _EURO_RATES[to_curr]
 
-    if isinstance(full_precision, bool):
-        is_full = full_precision
-    else:
-        # type errors are left to the worker exception path, which returns #VALUE!
-        is_full = bool(float(full_precision))
+    try:
+        is_full = False if (full_precision is None or full_precision == "") else _as_nonzero(full_precision)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
     if not math.isfinite(res):
         return float("nan")
@@ -766,11 +777,16 @@ def even(n: Any) -> float:
 
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st  # type: ignore[import-untyped]
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     x_val = float(x)
     lam = float(lambda_)
-    cum = bool(float(c))
+    try:
+        cum = True if (c is None or c == "") else _as_nonzero(c)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
     # Excel EXPONDIST is #NUM! for both.
     if x_val < 0 or lam <= 0:
@@ -802,8 +818,9 @@ def factdouble(n: Any) -> float:
 
 
 def fdist(x: Any, r1: Any, r2: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     x_val = float(x)
     df1 = float(r1)
@@ -824,27 +841,27 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
             crit_flat = crit.ravel()
             if len(crit_flat) != len(arr):
                 return "#VALUE!"
-            mask = np.asarray([bool(x) for x in crit_flat])
+            mask = np.asarray([_as_nonzero(x) for x in crit_flat])
             out = arr[mask]
         elif arr.ndim == 2:
             if crit.ndim == 1:
                 if len(crit) == arr.shape[0]:
-                    mask = np.asarray([bool(x) for x in crit])
+                    mask = np.asarray([_as_nonzero(x) for x in crit])
                     out = arr[mask]
                 elif len(crit) == arr.shape[1]:
-                    mask = np.asarray([bool(x) for x in crit])
+                    mask = np.asarray([_as_nonzero(x) for x in crit])
                     out = arr[:, mask]
                 else:
                     return "#VALUE!"
             elif crit.ndim == 2:
                 if crit.shape == (arr.shape[0], 1):
-                    mask = np.asarray([bool(x) for x in crit.ravel()])
+                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
                     out = arr[mask]
                 elif crit.shape == (1, arr.shape[1]):
-                    mask = np.asarray([bool(x) for x in crit.ravel()])
+                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
                     out = arr[:, mask]
                 elif crit.shape == arr.shape:
-                    mask = crit.astype(bool)
+                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()]).reshape(crit.shape)
                     out = arr[mask]
                 else:
                     return "#VALUE!"
@@ -852,7 +869,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
                 return "#VALUE!"
         else:
             return "#VALUE!"
-    except (ValueError, TypeError, IndexError):
+    except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
     if out.size == 0:
         return if_empty
@@ -860,8 +877,9 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
 
 
 def finv(p: Any, r1: Any, r2: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     prob = float(p)
     df1 = float(r1)
@@ -891,10 +909,12 @@ def fisherinv(y: Any) -> float:
 
 
 def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float:
-    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf decimals) is #NUM! on that path.
     val = float(number)
     dec = int(float(decimals))
-    nc = bool(float(no_commas))
+    try:
+        nc = False if (no_commas is None or no_commas == "") else _as_nonzero(no_commas)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
     # Non-finite input is #NUM!. _round_half_up(inf) raises ValueError (#VALUE!).
     if not math.isfinite(val):
         return float("nan")
@@ -968,13 +988,17 @@ def gamma(x: Any) -> float:
 
 
 def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     x_val = float(x)
     a = float(alpha)
     b = float(beta)
-    cum = bool(float(c))
+    try:
+        cum = True if (c is None or c == "") else _as_nonzero(c)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
     if x_val < 0 or a <= 0 or b <= 0:
         return float("nan")
@@ -984,8 +1008,9 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
 
 
 def gammainv(p: Any, alpha: Any, beta: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     prob = float(p)
     a = float(alpha)
@@ -1010,8 +1035,9 @@ def gammaln(x: Any) -> float:
 
 
 def gauss(x: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     return float(st.norm.cdf(float(x)) - 0.5)
 
@@ -1050,7 +1076,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
         # A text "0" is truthy in Python, so GROWTH fitted an intercept.
         # expondist and fixed coerce with bool(float()). "FALSE" raises
         # and the handler below returns "#VALUE!".
-        use_const = bool(float(const))
+        use_const = True if (const is None or const == "") else _as_nonzero(const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))
@@ -1073,8 +1099,9 @@ def harmean(*args: Any) -> float:
 
 
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
-    import scipy.stats as st
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
 
     k = int(float(x))
     n = int(float(n_sample))
