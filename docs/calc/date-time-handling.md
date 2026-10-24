@@ -57,14 +57,14 @@ Used interchangeably elsewhere; fixed here. **Serial** (or *day serial*, *serial
 
 Earlier revisions claimed that `NumberFormat.DURATION` (8196) excluded elapsed columns from enrichment. **That bit never appears.** Measured on LibreOffice 26.2.5.2, every elapsed-time format reports `Type` = `TIME` (4) or `DEFINED|TIME` (5), never 8196:
 
-| Format code | `Type` | `_format_category_from_type` | LLM wire (`FormatString` elapsed) |
+| Format code | `Type` | `format_category_from_type` | LLM wire (`FormatString` elapsed) |
 | :--- | :--- | :--- | :--- |
 | `[HH]:MM:SS` (also built-in formatindex 43) | 4 | `"time"` | `"duration"` |
 | `[H]:MM` | 5 | `"time"` | `"duration"` |
 | `[MM]:SS` | 5 | `"time"` | `"duration"` |
 | `HH:MM:SS` | 4 | `"time"` | `"time"` (clock) |
 
-Consequence (pre-fix): a cell holding `1.25` under `[HH]:MM:SS` displayed `30:00:00`, but `read_cell_range` reported `"value": "06:00:00"` with `type: "time"` because `.time()` in `_iso8601_from_serial` dropped whole days. **Shipped fix:** enrich as `"duration"` / `PT30H` — see [§3.2](#32-elapsed-times-over-24-hours-fixed).
+Consequence (pre-fix): a cell holding `1.25` under `[HH]:MM:SS` displayed `30:00:00`, but `read_cell_range` reported `"value": "06:00:00"` with `type: "time"` because `.time()` in `iso8601_from_serial` dropped whole days. **Shipped fix:** enrich as `"duration"` / `PT30H` — see [§3.2](#32-elapsed-times-over-24-hours-fixed).
 
 ### 1.2 The LLM Friction Point
 
@@ -133,7 +133,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
    timestamp = NullDate + timedelta(seconds=round(serial_value * 86400))
    ```
 
-   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py).
+   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py) (`iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py).
 
 **Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. The field is for observation and inheritance checks only — models must not hardcode locale letters into `queryKey` (§6), and after S26 they have no LLM `number_format` re-apply path on `set_style`.
 
@@ -141,7 +141,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
 
 ### 3.2 Elapsed times over 24 hours (fixed)
 
-Because elapsed formats classify as `"time"` (§1.1), routing them through `_iso8601_from_serial` → `.time()` discarded whole days:
+Because elapsed formats classify as `"time"` (§1.1), routing them through `iso8601_from_serial` → `.time()` discarded whole days:
 
 | Cell value | Format | Calc displays | Pre-fix LLM `value` | Post-fix |
 | :--- | :--- | :--- | :--- | :--- |
@@ -275,7 +275,7 @@ The algorithm looks at three pieces of information only — no display-string co
    
    Take this from the **gate**, never from the format key Calc detected. Detection may return an `en-US` AM/PM time key even when the input was a datetime; that must not reclassify the write.
 
-2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`_format_category_from_type`](../../plugin/calc/datetime_wire.py):
+2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`format_category_from_type`](../../plugin/calc/datetime_wire.py):
    - DATE → `"date"`
    - TIME → `"time"` (this includes both clock times and elapsed `[HH]:MM` styles — Calc does not report `DURATION` on those formats; see §1.1 / §8.3)
    - DATE\|TIME → `"datetime"`
@@ -347,7 +347,7 @@ At format-apply time, for each gated cell already converted to a serial:
 | Destination | cell’s current `NumberFormat` key → `Type` via `formats.getByKey` (cache per key for the invocation) |
 
 ```text
-dest_category = _format_category_from_type(Type)       # plugin/calc/datetime_wire.py; None → non-temporal
+dest_category = format_category_from_type(Type)       # plugin/calc/datetime_wire.py; None → non-temporal
 is_midnight   = round(serial * 86400) % 86400 == 0    # exact day at read-path second precision
 
 preserve when:
@@ -363,7 +363,7 @@ preserve when:
 
 Otherwise → **apply** inherited column template key if P1 finds one, else `detected_key` (for duration into non-temporal with no template: formatindex 43).
 
-Reuse [`_format_category_from_type`](../../plugin/calc/datetime_wire.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off) for the destination side of M1 — wire `"duration"` is read-path only. Use integer-second rounding for midnight so the predicate handles negative serials and matches `_iso8601_from_serial`; do not invent a second NullDate-based check or a separate floating-point epsilon.
+Reuse [`format_category_from_type`](../../plugin/calc/datetime_wire.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off) for the destination side of M1 — wire `"duration"` is read-path only. Use integer-second rounding for midnight so the predicate handles negative serials and matches `iso8601_from_serial`; do not invent a second NullDate-based check or a separate floating-point epsilon.
 
 ##### Why not “same category only”?
 
@@ -843,13 +843,13 @@ These are not hypothetical; they are the exact strings `detectNumberFormat` retu
 | `08:00` | `HH:MM:SS AM/PM` | `HH:MM:SS` | `HH:MM:SS` | `TT:MM:SS` |
 | `2026-08-08T08:00:00` | `YYYY-MM-DD"T"HH:MM:SS` | `JJJJ-MM-TT"T"HH:MM:SS` | `AAAA-MM-JJ"T"HH:MM:SS` | `YYYY-MM-DD"T"TT:MM:SS` |
 
-In all cases the production classifier `_format_category_from_type` returns the expected `date` / `time` / `datetime`, so the read path round-trips.
+In all cases the production classifier `format_category_from_type` returns the expected `date` / `time` / `datetime`, so the read path round-trips.
 
 Dates detect as ISO everywhere, but `en-US` times detect as `HH:MM:SS AM/PM`. Per S27 the write path takes that detected key; the wire contract on read is already locale-independent ISO regardless of display.
 
 ### 6.3 Locale-Independent Wire Contract
 
-1. **Read:** LLM wire schema above. Internally, `_iso8601_from_serial()` stays the converter.
+1. **Read:** LLM wire schema above. Internally, `iso8601_from_serial()` stays the converter.
 2. **Write:** the gate accepts only the locale-independent subset in §5.3.
 3. **Display:** whatever key Calc detects for that locale. Display is deliberately not part of the contract.
 

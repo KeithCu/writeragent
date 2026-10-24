@@ -52,7 +52,7 @@ _NUMBER_FORMAT_DATE = 2
 _NUMBER_FORMAT_TIME = 4
 
 
-def _format_category_from_type(format_type: Any) -> str | None:  # pyright: ignore[reportUnusedFunction]
+def format_category_from_type(format_type: Any) -> str | None:
     """Map a UNO NumberFormat.Type to the date/time category exposed to tools."""
     try:
         base_type = int(format_type) & ~_NUMBER_FORMAT_DEFINED
@@ -67,7 +67,7 @@ def _format_category_from_type(format_type: Any) -> str | None:  # pyright: igno
     return None
 
 
-def _iso8601_from_serial(value: float, category: str, null_date: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+def iso8601_from_serial(value: float, category: str, null_date: Any) -> str:
     """Convert a Calc day serial to ISO 8601 using the document's configured epoch."""
     base = datetime.datetime(int(null_date.Year), int(null_date.Month), int(null_date.Day))
     # Round to whole seconds so IEEE float noise does not leak as microseconds.

@@ -25,12 +25,12 @@ from typing import Any
 
 from plugin.calc.address_utils import index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import (
-    _format_category_from_type,
-    _iso8601_from_serial,
+    format_category_from_type,
+    iso8601_from_serial,
     is_elapsed_format_string,
     iso_duration_from_serial,
 )
-from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, _cell_type_name, cell_value_and_type
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_type_name, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
 from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
 
@@ -77,7 +77,7 @@ class CellInspector:
         if key not in cache:
             props = formats.getByKey(key)
             format_code = props.getPropertyValue("FormatString")
-            category = _format_category_from_type(props.getPropertyValue("Type"))
+            category = format_category_from_type(props.getPropertyValue("Type"))
             # DURATION bit never appears on elapsed formats; FormatString is the signal.
             if category == "time" and is_elapsed_format_string(format_code):
                 category = "duration"
@@ -102,7 +102,7 @@ class CellInspector:
             info["value"] = iso_duration_from_serial(float(value))
         else:
             null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
-            info["value"] = _iso8601_from_serial(float(value), category, null_date)
+            info["value"] = iso8601_from_serial(float(value), category, null_date)
         info["type"] = category
         info["format_category"] = category
         if format_code:
@@ -331,7 +331,7 @@ class CellInspector:
                     col_letter = index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
 
-                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": _cell_type_name(cell_type)}
+                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type_name(cell_type)}
                     if null_date is not None and isinstance(value, (int, float)):
                         category = self._category_for_position(format_rows, row, col)
                         if category is not None:
@@ -339,7 +339,7 @@ class CellInspector:
                             if category == "duration":
                                 cell_info["value"] = iso_duration_from_serial(float(value))
                             else:
-                                cell_info["value"] = _iso8601_from_serial(float(value), category, null_date)
+                                cell_info["value"] = iso8601_from_serial(float(value), category, null_date)
                             cell_info["type"] = category
                             cell_info["format_category"] = category
                             format_code = self._format_code_for_position(format_rows, row, col)

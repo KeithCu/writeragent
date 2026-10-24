@@ -50,7 +50,7 @@ from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, CellRect, result_range, returns_array
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
-    _format_category_from_type,
+    format_category_from_type,
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
     is_compatible_temporal_template,
@@ -683,7 +683,7 @@ class CellManipulator:
                     def read_format() -> bool:
                         props = formats.getByKey(key)
                         if key not in category_cache:
-                            category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
+                            category_cache[key] = format_category_from_type(props.getPropertyValue("Type"))
                         if key not in format_code_cache:
                             format_code_cache[key] = props.getPropertyValue("FormatString")
                         return True
@@ -952,7 +952,7 @@ class CellManipulator:
                             s29_snapshots.append((col, row, key))
                         if meta["kind"] == "temporal":
                             if key not in category_cache:
-                                category_cache[key] = uno_probe(lambda: _format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
+                                category_cache[key] = uno_probe(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
                             dest_categories[(col, row)] = category_cache[key]
                     cell_idx += 1
 

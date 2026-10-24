@@ -218,7 +218,7 @@ def cell_value_and_type(cell: Any, *, empty_as_none: bool = True, formula_error_
     return cell.getString(), "unknown"
 
 
-def _cell_type_name(cell_type: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+def cell_type_name(cell_type: Any) -> str:
     """Return a human-readable name for a UNO cell content type."""
     if cell_type == EMPTY:
         return "empty"

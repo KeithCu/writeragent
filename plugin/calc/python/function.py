@@ -25,7 +25,7 @@ from com.sun.star.util import XModifyListener
 from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
 from plugin.calc.datetime_wire import (
-    _format_category_from_type,
+    format_category_from_type,
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
     match_iso_duration,
@@ -1372,7 +1372,7 @@ def perform_deferred_spill(
                                     k = int(cell.getPropertyValue("NumberFormat"))
                                     if k not in category_cache:
                                         props = formats.getByKey(k)
-                                        category_cache[k] = _format_category_from_type(props.getPropertyValue("Type"))
+                                        category_cache[k] = format_category_from_type(props.getPropertyValue("Type"))
                                     dest_cat = category_cache[k]
                                     if should_preserve_temporal_format(in_cat, float(serial_val), dest_cat):
                                         row_dec.append(("preserve", None))
