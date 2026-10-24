@@ -168,6 +168,10 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `python_geometric_recalc_order` | `bool` | `false` |  | Ensures PY cells evaluate in sheet order. Most useful with Shared kernel. |
 | `python_auto_spill` | `bool` | `true` |  | Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells. |
 | `xl_static_rewrite` | `bool` | `false` |  | On Edit Python in Cell save, lift static xl("A1:…") onto =PY data args and rewrite to data / data[i] / .to_pandas(). |
+| `python_allow_network` | `boolean` | `false` |  | Lets Python open network connections with socket, http, urllib and ssl. |
+| `python_allow_files` | `boolean` | `false` |  | Lets Python read, write, rename and delete files anywhere on this computer with open, pathlib, shutil, io, tempfile, glob and the file functions of os. |
+| `python_allow_os` | `boolean` | `false` |  | Gives Python the full os module (environment, processes, system info) and lets Python run other programs with subprocess and os.system. Includes file access. |
+| `python_extra_modules` | `string` | `""` |  | Comma-separated extra modules Python may import (each name also allows name.*). Overrides the built-in blocklist, including os, socket and subprocess. |
 | `force_internal_script_editor` | `bool` | `false` |  | Internal |
 | `native_run_script_modeless` | `bool` | `true` |  | Internal |
 

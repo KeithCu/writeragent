@@ -221,8 +221,13 @@ def _maybe_dispatch_intermediate_response(
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "worker_harness.py")
 
 _SCOPE_UNIT_PREFIX = "writeragent-worker-"
-# None until the first spawn probes; then the systemd-run path or "" when unavailable.
-_systemd_run_for_worker: str | None = None
+# Probe results keyed by (systemd-run path, XDG_RUNTIME_DIR) of the spawn env:
+# the systemd-run path when a scope works there, else "". A single global result
+# let a manager whose env lacks XDG_RUNTIME_DIR (tests pass env={}) reuse a
+# probe from a full env, so systemd-run ran without a user bus and exited.
+_systemd_run_for_worker: dict[tuple[str, str], str] = {}
+# Set once a scoped spawn raised OSError; every later spawn runs plainly.
+_systemd_scope_disabled = False
 _systemd_scope_lock = threading.Lock()
 
 
@@ -248,18 +253,22 @@ def _probe_systemd_scope(env: dict[str, str]) -> str:
 
 
 def _systemd_run_path(env: dict[str, str]) -> str:
-    """Probe once per process; later calls return the cached result."""
-    global _systemd_run_for_worker
+    """Probe once per (systemd-run, XDG_RUNTIME_DIR) pair; later calls reuse it."""
+    if not env.get("XDG_RUNTIME_DIR"):
+        return ""
+    key = (shutil.which("systemd-run", path=env.get("PATH")) or "", env["XDG_RUNTIME_DIR"])
     with _systemd_scope_lock:
-        if _systemd_run_for_worker is None:
-            _systemd_run_for_worker = _probe_systemd_scope(env)
-        return _systemd_run_for_worker
+        if _systemd_scope_disabled:
+            return ""
+        if key not in _systemd_run_for_worker:
+            _systemd_run_for_worker[key] = _probe_systemd_scope(env)
+        return _systemd_run_for_worker[key]
 
 
 def _disable_systemd_scope() -> None:
-    global _systemd_run_for_worker
+    global _systemd_scope_disabled
     with _systemd_scope_lock:
-        _systemd_run_for_worker = ""
+        _systemd_scope_disabled = True
 
 
 def wrap_worker_command(cmd: list[str], *, env: dict[str, str] | None = None, cwd: str | None = None) -> list[str]:
@@ -1176,7 +1185,7 @@ class PythonWorkerManager:
         try:
             self._start_child(managed)
         except OSError as exc:
-            if not _systemd_run_for_worker:
+            if _systemd_scope_disabled or not any(_systemd_run_for_worker.values()):
                 raise
             log.warning("Python worker failed to start under systemd-run, retrying without a scope: %s", exc)
             _disable_systemd_scope()

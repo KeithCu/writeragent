@@ -13,11 +13,13 @@ CMD = ["/venv/bin/python", "/x/worker_harness.py"]
 
 @pytest.fixture(autouse=True)
 def _reset_cache(tmp_path):
-    vw._systemd_run_for_worker = None
+    vw._systemd_run_for_worker.clear()
+    vw._systemd_scope_disabled = False
     (tmp_path / "systemd").mkdir()
     (tmp_path / "systemd" / "private").touch()
     yield
-    vw._systemd_run_for_worker = None
+    vw._systemd_run_for_worker.clear()
+    vw._systemd_scope_disabled = False
 
 
 def _env(tmp_path):
@@ -73,7 +75,7 @@ def test_falls_back_to_plain_command(tmp_path, kw):
         _run, out = _wrap(tmp_path, **kw)
     assert out == ["SANDBOX"] + CMD
     sb.assert_called_once()
-    assert vw._systemd_run_for_worker == ""
+    assert set(vw._systemd_run_for_worker.values()) <= {""}
 
 
 def test_no_user_manager_socket_skips_probe(tmp_path):
@@ -110,9 +112,23 @@ def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
         if len(started) == 1:
             raise OSError("systemd-run vanished")
 
-    vw._systemd_run_for_worker = "/usr/bin/systemd-run"
+    vw._systemd_run_for_worker[("/usr/bin/systemd-run", "/run/user/1000")] = "/usr/bin/systemd-run"
     monkeypatch.setattr(mgr, "_new_managed_worker", new_managed, raising=False)
     monkeypatch.setattr(mgr, "_start_child", start_child, raising=False)
     assert vw.PythonWorkerManager._start_worker_child(mgr) is not None
     assert wrappers == [vw.wrap_worker_command, vw.wrap_command_for_sandbox]
-    assert vw._systemd_run_for_worker == ""
+    assert vw._systemd_scope_disabled
+    assert vw.wrap_worker_command(list(CMD), env={"XDG_RUNTIME_DIR": "/run/user/1000"}) == CMD
+
+
+def test_env_without_runtime_dir_ignores_earlier_scoped_probe(tmp_path):
+    """CI: a full-env probe succeeded, then a manager with env={} got systemd-run
+    without XDG_RUNTIME_DIR and the worker died with 'not defined'."""
+    run, first = _wrap(tmp_path)
+    assert first[0] == "/usr/bin/systemd-run"
+    run2, second = _wrap(tmp_path)
+    run2.assert_not_called()
+    assert second[0] == "/usr/bin/systemd-run"
+    with mock.patch.object(vw.shutil, "which", return_value="/usr/bin/systemd-run"):
+        assert vw.wrap_worker_command(list(CMD), env={"PATH": "/usr/bin"}) == CMD
+        assert vw.wrap_worker_command(list(CMD), env={}) == CMD
