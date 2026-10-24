@@ -23,10 +23,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, is_disposed_exception, uno_probe
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_output_anchor
-from plugin.calc.calc_utils import resolve_cell_address
+from plugin.calc.calc_utils import resolve_sheet_and_cell
 from plugin.scripting.analysis import HELPER_NAMES
 
 
@@ -67,6 +67,20 @@ def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> 
     if _user_requested_java_nlp_engine(engine_name):
         return False
     return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
+
+
+def resolve_cell_address(doc: Any, address: str) -> Any:
+    """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a UNO CellAddress struct.
+
+    Raises:
+        UnoObjectError: When sheet cannot be found or address is invalid.
+    """
+    resolved = resolve_sheet_and_cell(doc, address)
+    if resolved is None:
+        raise UnoObjectError(f"Cannot resolve cell address '{address}'.")
+    sheet, col, row = resolved
+    cell = sheet.getCellByPosition(col, row)
+    return cell.getCellAddress()
 
 
 class GoalSeekTool(ToolBaseDummy):

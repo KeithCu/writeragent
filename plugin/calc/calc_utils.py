@@ -24,7 +24,7 @@ import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import uno_read
 
 # What was wrong: CellContentType was imported from com.sun.star.table, which is not an attribute
 # in live PyUNO (enum types are packages/modules in LibreOffice's python bridge). The resulting
@@ -77,20 +77,6 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     if sheet is None:
         return None
     return sheet, col, row
-
-
-def resolve_cell_address(doc: Any, address: str) -> Any:
-    """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a UNO CellAddress struct.
-
-    Raises:
-        UnoObjectError: When sheet cannot be found or address is invalid.
-    """
-    resolved = resolve_sheet_and_cell(doc, address)
-    if resolved is None:
-        raise UnoObjectError(f"Cannot resolve cell address '{address}'.")
-    sheet, col, row = resolved
-    cell = sheet.getCellByPosition(col, row)
-    return cell.getCellAddress()
 
 
 def get_cell_geometry(sheet: Any, cell: Any) -> Tuple[Any, Any]:

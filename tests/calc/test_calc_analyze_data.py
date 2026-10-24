@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.address_utils import parse_output_anchor as _output_anchor
-from plugin.calc.analysis import AnalyzeDataTool, GoalSeekTool, SolverTool
-from plugin.framework.errors import ToolExecutionError
+from plugin.calc.analysis import AnalyzeDataTool, GoalSeekTool, SolverTool, resolve_cell_address
+from plugin.framework.errors import ToolExecutionError, UnoObjectError
 
 
 @pytest.fixture
@@ -105,6 +105,29 @@ def test_solver_reraises_disposed(calc_ctx):
         pytest.raises(type(boom), match="URP"),
     ):
         SolverTool().execute(calc_ctx, objective_cell="C1", variables=["A1"])
+
+
+class TestResolveCellAddress:
+    def test_resolve_cell_address_valid(self):
+        mock_cell = MagicMock()
+        mock_cell_addr = MagicMock()
+        mock_cell.getCellAddress.return_value = mock_cell_addr
+
+        mock_sheet = MagicMock()
+        mock_sheet.getCellByPosition.return_value = mock_cell
+
+        doc = MagicMock()
+        controller = MagicMock()
+        controller.getActiveSheet.return_value = mock_sheet
+        doc.getCurrentController.return_value = controller
+
+        assert resolve_cell_address(doc, "A1") is mock_cell_addr
+        mock_sheet.getCellByPosition.assert_called_once_with(0, 0)
+
+    def test_resolve_cell_address_invalid_raises(self):
+        doc = MagicMock()
+        with pytest.raises(UnoObjectError, match="Cannot resolve cell address"):
+            resolve_cell_address(doc, "BadRef")
 
 
 def test_analyze_data_requires_helper(calc_ctx):
