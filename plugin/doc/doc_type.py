@@ -24,6 +24,7 @@ loading ``document_helpers`` → ``SheetAnalyzer``.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Literal
@@ -89,6 +90,7 @@ def _build_label_to_services() -> dict[str, frozenset[str]]:
     return {k: frozenset(v) for k, v in mapping.items()}
 
 
+_log = logging.getLogger(__name__)
 _LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = _build_label_to_services()
 _LABEL_TO_TITLE: dict[str, str] = {meta.label: meta.display for meta in _META.values()}
 
@@ -144,6 +146,20 @@ def doc_type_family_label(doc_type: DocumentType) -> DocTypeFamily:
     """Research / path-family label folding Impress into ``\"draw\"``."""
     meta = _META.get(doc_type)
     return meta.family if meta is not None else "unknown"
+
+
+def doc_type_str_from_doc(doc: Any) -> str | None:
+    """Map UNO document model to tool context doc_type string."""
+    # crosshair: off
+    if doc is None:
+        return None
+    try:
+        dt = get_document_type(doc)
+        label = doc_type_family_label(dt)
+        return None if label == "unknown" else label
+    except Exception:
+        _log.exception("doc_type probe failed")
+    return None
 
 
 def doc_type_title_for_label(label: str | None) -> str:

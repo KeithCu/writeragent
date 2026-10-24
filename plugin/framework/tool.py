@@ -68,22 +68,6 @@ _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
 
 
-def _doc_type_str_from_doc(doc: Any) -> str | None:
-    """Map UNO document model to tool context doc_type string."""
-    # crosshair: off
-    if doc is None:
-        return None
-    try:
-        from plugin.doc.doc_type import doc_type_family_label, get_document_type
-
-        dt = get_document_type(doc)
-        label = doc_type_family_label(dt)
-        return None if label == "unknown" else label
-    except Exception:
-        _log.exception("doc_type probe failed")
-    return None
-
-
 # verb_noun tools (legacy/core): name starts with a read verb.
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
 # domain_verb tools (specialized): a later token is a read verb (image_list, style_get_info).
@@ -753,7 +737,9 @@ class ToolRegistry:
         # In release builds @main_thread_only logs and continues rather than raising,
         # so off-thread callers must avoid probing UNO directly.
         if doc_type is None and doc is not None and filter_doc_type and on_main_thread():
-            doc_type = _doc_type_str_from_doc(doc)
+            from plugin.doc.doc_type import doc_type_str_from_doc
+
+            doc_type = doc_type_str_from_doc(doc)
         if uno_services_supported is None and doc is not None and filter_doc_type:
             from plugin.doc.doc_type import get_document_uno_services
 
@@ -851,7 +837,9 @@ class ToolRegistry:
         doc = kwargs.get("doc")
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None and on_main_thread():
-            doc_type = _doc_type_str_from_doc(doc)
+            from plugin.doc.doc_type import doc_type_str_from_doc
+
+            doc_type = doc_type_str_from_doc(doc)
 
         tools_kwargs = dict(kwargs)
         if doc_type is not None:

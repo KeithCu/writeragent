@@ -20,6 +20,7 @@ from plugin.doc.doc_type import (
     doc_type_family_label,
     doc_type_label_for_enum,
     doc_type_of,
+    doc_type_str_from_doc,
     doc_type_title_for_label,
     get_document_type,
     get_document_uno_services,
@@ -201,5 +202,28 @@ def test_document_service_constants() -> None:
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
+
+
+def test_doc_type_str_from_doc() -> None:
+    assert doc_type_str_from_doc(None) is None
+
+    writer_model = _ServiceModel({_TEXT_SERVICE})
+    calc_model = _ServiceModel({_CALC_SERVICE})
+    draw_model = _ServiceModel({_DRAW_SERVICE})
+    impress_model = _ServiceModel({_IMPRESS_SERVICE, _DRAW_SERVICE})
+    unknown_model = _ServiceModel(set())
+
+    assert doc_type_str_from_doc(writer_model) == "writer"
+    assert doc_type_str_from_doc(calc_model) == "calc"
+    assert doc_type_str_from_doc(draw_model) == "draw"
+    assert doc_type_str_from_doc(impress_model) == "draw"
+    assert doc_type_str_from_doc(unknown_model) is None
+
+    class _BrokenModel:
+        def supportsService(self, name: str) -> bool:
+            raise RuntimeError("probe error")
+
+    assert doc_type_str_from_doc(_BrokenModel()) is None
+
 
 

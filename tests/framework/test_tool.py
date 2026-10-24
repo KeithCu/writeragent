@@ -1900,17 +1900,17 @@ def test_doc_type_probe_on_main_thread_only() -> None:
     doc = MagicMock()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc)
         assert mock_probe.call_count == 1
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc, doc_type="writer")
         mock_probe.assert_not_called()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=False), \
-         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_tools(doc=doc)
         mock_probe.assert_not_called()
         reg.get_schemas(doc=doc)
@@ -1922,7 +1922,7 @@ def test_get_schemas_unknown_protocol_does_not_probe() -> None:
     doc = MagicMock()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe, \
+         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
          patch("plugin.framework.tool.ToolRegistry.get_tools") as mock_get_tools:
         with pytest.raises(ValueError, match="Unknown protocol: xml"):
             reg.get_schemas("xml", doc=doc)
