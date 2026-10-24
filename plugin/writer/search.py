@@ -27,6 +27,7 @@ from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
 from plugin.framework.worker_pool import run_in_background
+from plugin.writer.review_scan import document_has_tracked_deletions
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -103,61 +104,12 @@ def normalize_search_string_for_find(s: str) -> str:
     return re_mod.sub(_HORIZONTAL_SPACE_RE, " ", s).strip()
 
 
-def build_search_replace_response(
-    replaced_count: int,
-    message: str | None = None,
-    *,
-    use_preserve: bool = False,
-    extra: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Standardized search-replace response dictionary shared across production and eval harnesses."""
-    if replaced_count <= 0:
-        msg = message or "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
-        res: dict[str, Any] = {"status": "error", "message": msg, "replaced_count": 0}
-    else:
-        if message:
-            msg = message
-        elif replaced_count == 1:
-            msg = "Replaced 1 occurrence (by old_content)."
-            if use_preserve:
-                msg += " (formatting preserved)"
-        else:
-            msg = f"Replaced {replaced_count} occurrence(s)."
-            if use_preserve:
-                msg += " (formatting preserved)"
-        res = {"status": "ok", "message": msg, "replaced_count": replaced_count}
-    if extra:
-        res.update(extra)
-    return res
-
-
 # LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
 # across such a deletion ("a) no pressuposto" around a struck word) is never found (relato #43).
 _TRACKED_DELETION_HINT = (
     " This document has pending tracked deletions: the search also sees the deleted text, so a"
     " phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
 )
-
-
-def document_has_tracked_deletions(doc: Any) -> bool:
-    """True when *doc* holds at least one pending tracked deletion (best effort)."""
-    from plugin.writer.review_scan import RedlineScanAbort, scan_redlines
-
-    found: list[bool] = []
-
-    def on_item(rl: Any) -> bool:
-        try:
-            is_delete = rl.getPropertyValue("RedlineType") == "Delete"
-        except Exception:
-            return True  # one unreadable redline does not hide the others
-        if is_delete:
-            found.append(True)
-            raise RedlineScanAbort()
-        return True
-
-    if uno_read(lambda: scan_redlines(doc, on_item), _FAILED) is _FAILED:
-        return False
-    return bool(found)
 
 
 def parse_non_negative_int(

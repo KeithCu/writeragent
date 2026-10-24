@@ -6,6 +6,7 @@
 
 from plugin.writer.review_scan import (
     TOKEN_PREFIX,
+    document_has_tracked_deletions,
     is_agent_token,
     make_agent_token,
     redline_is_agent_change,
@@ -241,4 +242,35 @@ def test_agent_change_presence_clean_document():
 
     count, reliable = agent_change_presence(_Doc())
     assert (count, reliable) == (0, True)
+
+
+def test_document_has_tracked_deletions():
+    from unittest.mock import MagicMock
+
+    def doc_with(*types):
+        doc = MagicMock()
+        reds = doc.getRedlines.return_value
+        reds.getCount.return_value = len(types)
+        items = [MagicMock(**{"getPropertyValue.return_value": t}) for t in types]
+        enum = reds.createEnumeration.return_value
+        enum.hasMoreElements.side_effect = [True] * len(items) + [False]
+        enum.nextElement.side_effect = items
+        return doc
+
+    assert document_has_tracked_deletions(doc_with("Insert", "Delete")) is True
+    assert document_has_tracked_deletions(doc_with("Insert")) is False
+
+
+def test_tracked_deletion_scan_skips_an_unreadable_redline():
+    from unittest.mock import MagicMock
+
+    bad = MagicMock()
+    bad.getPropertyValue.side_effect = RuntimeError("gone")
+    good = MagicMock(**{"getPropertyValue.return_value": "Delete"})
+    doc = MagicMock()
+    doc.getRedlines.return_value.getCount.return_value = 2
+    enum = doc.getRedlines.return_value.createEnumeration.return_value
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [bad, good]
+    assert document_has_tracked_deletions(doc) is True
 

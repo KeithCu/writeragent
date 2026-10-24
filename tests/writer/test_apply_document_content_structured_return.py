@@ -16,7 +16,10 @@ import pytest
 
 import plugin.writer.format as format_mod
 import plugin.writer.search as search_mod
-from plugin.writer.apply_document_content import ApplyDocumentContent
+from plugin.writer.apply_document_content import (
+    ApplyDocumentContent,
+    build_search_replace_response,
+)
 
 
 def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
@@ -439,3 +442,44 @@ def test_search_occurrence_dry_run_oor_includes_matches(monkeypatch):
     assert res["details"]["matches"][0]["occurrence"] == 0, res
     assert res["details"]["matches"][1]["location"] == "second", res
     assert "use 0..1" in res["message"]
+
+
+def test_build_search_replace_response():
+    # 0 or negative replacements
+    err0 = build_search_replace_response(0)
+    assert err0["status"] == "error"
+    assert err0["replaced_count"] == 0
+    assert "Replaced 0 occurrence(s)" in err0["message"]
+
+    err_custom = build_search_replace_response(-1, message="Custom failure")
+    assert err_custom["status"] == "error"
+    assert err_custom["message"] == "Custom failure"
+
+    # Single replacement
+    single = build_search_replace_response(1)
+    assert single["status"] == "ok"
+    assert single["replaced_count"] == 1
+    assert single["message"] == "Replaced 1 occurrence (by old_content)."
+
+    single_preserve = build_search_replace_response(1, use_preserve=True)
+    assert single_preserve["status"] == "ok"
+    assert "formatting preserved" in single_preserve["message"]
+
+    # Multiple replacements
+    multi = build_search_replace_response(3)
+    assert multi["status"] == "ok"
+    assert multi["replaced_count"] == 3
+    assert multi["message"] == "Replaced 3 occurrence(s)."
+
+    multi_preserve = build_search_replace_response(3, use_preserve=True)
+    assert multi_preserve["status"] == "ok"
+    assert "formatting preserved" in multi_preserve["message"]
+
+    # Custom message with count > 0
+    custom_ok = build_search_replace_response(2, message="All good")
+    assert custom_ok["status"] == "ok"
+    assert custom_ok["message"] == "All good"
+
+    # Extra fields
+    with_extra = build_search_replace_response(1, extra={"foo": "bar"})
+    assert with_extra["foo"] == "bar"

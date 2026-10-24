@@ -44,6 +44,7 @@ from plugin.writer.edit_review import (
     next_agent_edit_undo_title,
     close_surgical_context,
 )
+from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
@@ -182,6 +183,34 @@ def _doc_table_count(doc: Any) -> int | None:
     except DocumentDisposedError:
         return None
     return None
+
+
+def build_search_replace_response(
+    replaced_count: int,
+    message: str | None = None,
+    *,
+    use_preserve: bool = False,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Standardized search-replace response dictionary shared across production and eval harnesses."""
+    if replaced_count <= 0:
+        msg = message or "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
+        res: dict[str, Any] = {"status": "error", "message": msg, "replaced_count": 0}
+    else:
+        if message:
+            msg = message
+        elif replaced_count == 1:
+            msg = "Replaced 1 occurrence (by old_content)."
+            if use_preserve:
+                msg += " (formatting preserved)"
+        else:
+            msg = f"Replaced {replaced_count} occurrence(s)."
+            if use_preserve:
+                msg += " (formatting preserved)"
+        res = {"status": "ok", "message": msg, "replaced_count": replaced_count}
+    if extra:
+        res.update(extra)
+    return res
 
 
 # ------------------------------------------------------------------
@@ -503,7 +532,7 @@ class ApplyDocumentContent(ToolBase):
                 return annotate_review_status(ctx.ctx, result), session
             return search_mod.build_search_not_found_response(shape_name=shape_name), session
         return search_mod.build_search_not_found_response(
-            all_matches=all_matches, tracked_deletions=search_mod.document_has_tracked_deletions(doc)), session
+            all_matches=all_matches, tracked_deletions=document_has_tracked_deletions(doc)), session
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, raw_content: str, content: Any,
@@ -1239,7 +1268,7 @@ class ApplyDocumentContent(ToolBase):
             if doomed and count == 0:
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:
-                resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
+                resp = build_search_replace_response(count, use_preserve=use_preserve)
                 if max_limit_hit:
                     resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
                 if count > 1:
@@ -1409,7 +1438,7 @@ class ApplyDocumentContent(ToolBase):
             plain_preview=_plain_preview(content))
         if link_err:
             return link_err, session
-        resp = search_mod.build_search_replace_response(1, use_preserve=use_preserve)
+        resp = build_search_replace_response(1, use_preserve=use_preserve)
         if occurrence is not None:
             resp["occurrence"] = occurrence
         if has_table:
