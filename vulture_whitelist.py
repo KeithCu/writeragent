@@ -1,8 +1,10 @@
 # Whitelist for Vulture dead code analyzer.
 #
-# References registry-registered tools, UNO callback methods/listeners,
-# and test-only code so Vulture and similar static tools do not flag them
-# as dead code.
+# Keeps only genuinely used symbols that Vulture cannot trace statically:
+#   1. UNO callback/listener methods and pyuno interface implementations
+#   2. Registry-registered tools and tool-schema fields
+#   3. Dynamic dispatch functions and ServiceRegistry names
+#   4. Test hooks, test fixtures, and code called only by tests
 #
 # Rule: Do not delete code or tests; skip writeragent_api.py.
 
@@ -19,42 +21,15 @@ _ = _mock = _WhitelistMock()
 
 # =============================================================================
 # 1. UNO Callbacks, Listeners, and pyuno Interface Implementations
+#
+# Methods invoked directly by LibreOffice C++ runtime through PyUNO event
+# listener and dispatch interfaces. Vulture cannot trace these callers
+# because the invocations originate outside the Python codebase.
 # =============================================================================
-_.ApplyFormDesignMode  # attribute: plugin/notebook/notebook_controls.py:460
-_.Arguments  # variable: plugin/main.py:1052
-_.ButtonType  # attribute: plugin/notebook/notebook_controls.py:345
-_.CharBackColor  # attribute: plugin/chatbot/rich_text_control.py:1364
-_.FontDescriptor  # attribute: plugin/writer/math/latex_dialog.py:86
-_.HumanPresentableName  # attribute: plugin/chatbot/dialogs.py:433
-_.ImagePosition  # attribute: plugin/chatbot/dialog_views.py:91
-_.IsAscending  # attribute: plugin/calc/manipulator.py:500
-_.IsCaseSensitive  # attribute: plugin/calc/manipulator.py:501
-_.IsEnabled  # attribute: plugin/main.py:805
-_.NumberingRules  # attribute: plugin/chatbot/rich_text.py:227
-_.OuterLineWidth  # attribute: plugin/calc/manipulator.py:330
-_.ParaFirstLineIndent  # attribute: plugin/chatbot/rich_text.py:118
-_.ParaLeftMargin  # attribute: plugin/chatbot/rich_text.py:116
-_.ParaRightMargin  # attribute: plugin/chatbot/rich_text.py:117
-_.ParentAccessible  # variable: plugin/chatbot/panel_factory.py:269
-_.PositionX  # attribute: plugin/librepy/settings.py:92
-_.ReplaceString  # attribute: plugin/calc/search.py:107
-_.Requery  # attribute: plugin/main.py:808
-_.SearchCaseSensitive  # attribute: plugin/calc/spreadsheet_search.py:43
-_.SearchRegularExpression  # attribute: plugin/calc/spreadsheet_search.py:42
-_.SearchString  # attribute: plugin/calc/spreadsheet_search.py:41
-_.Seconds  # attribute: plugin/writer/specialized/comments.py:637
-_.Step  # attribute: plugin/chatbot/dialogs.py:1086
-_.TargetFrameName  # variable: plugin/main.py:1157
-_.Visible  # attribute: plugin/mcp/__init__.py:597
-_.aArguments  # variable: plugin/main.py:1141
-_.aFullComment  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:560
-_.aProperties  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:402
-_.aShortComment  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:559
-_.aSuggestions  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:558
 _.actionPerformed  # method: plugin/calc/python/cell_editor_ui.py:240
 _.activeSpreadsheetChanged  # method: plugin/framework/uno_listeners.py:553
 _.addLinguServiceEventListener  # method: plugin/writer/locale/ai_grammar_proofreader.py:1057
-_.calc_addin_args_to_python  # function: plugin/calc/calc_addin_data.py:130
+_.addStatusListener  # method: plugin/main.py:1197
 _.createAccessible  # method: plugin/chatbot/panel_factory.py:269
 _.createUIElement  # method: plugin/chatbot/panel_factory.py:1401
 _.detect  # method: plugin/notebook/import_filter.py:74
@@ -94,13 +69,11 @@ _.mouseEntered  # method: plugin/calc/navigation.py:317
 _.mouseExited  # method: plugin/calc/navigation.py:320
 _.mousePressed  # method: plugin/calc/navigation.py:295
 _.mouseReleased  # method: plugin/calc/navigation.py:298
-_.nErrorLength  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:552
-_.nErrorStart  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:551
-_.nErrorType  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:556
 _.notifyContextMenuExecute  # method: plugin/calc/python/editor_context_menu.py:77
 _.queryDispatches  # method: plugin/main.py:1163
 _.queryTermination  # method: plugin/main.py:139
 _.removeLinguServiceEventListener  # method: plugin/writer/locale/ai_grammar_proofreader.py:1067
+_.removeStatusListener  # method: plugin/main.py:1227
 _.resetIgnoreRules  # method: plugin/writer/locale/ai_grammar_proofreader.py:1045
 _.setLocale  # method: plugin/calc/addin_common.py:100
 _.setTargetDocument  # method: plugin/notebook/import_filter.py:88
@@ -117,11 +90,14 @@ _.windowNormalized  # method: plugin/framework/uno_listeners.py:502
 _.windowOpened  # method: plugin/framework/uno_listeners.py:486
 _.windowResized  # method: plugin/framework/uno_listeners.py:456
 _.windowShown  # method: plugin/framework/uno_listeners.py:464
-_.xProofreader  # attribute: plugin/writer/locale/ai_grammar_proofreader.py:403
-_.xSomething  # variable: plugin/calc/addin_common.py:103
 
 # =============================================================================
 # 2. Registry-Registered Tools and Tool Schemas
+#
+# Tool classes (ToolBase subclasses) discovered dynamically by package
+# auto-discovery / tool registries, and tool schema fields/flags inspected
+# via reflection during LLM dispatch. Vulture cannot trace reflective tool
+# invocation from static Python ASTs.
 # =============================================================================
 _.AddCellComment  # class: plugin/calc/comments.py:119
 _.AddComment  # class: plugin/writer/specialized/comments.py:87
@@ -145,7 +121,6 @@ _.BookmarkRename  # class: plugin/writer/specialized/bookmarks.py:659
 _.BookmarkResolve  # class: plugin/writer/specialized/bookmarks.py:715
 _.BrainstormResearchWeb  # class: plugin/chatbot/brainstorming.py:74
 _.BrainstormingSessionTool  # class: plugin/chatbot/brainstorming.py:153
-_.ChatbotModule  # class: plugin/chatbot/__init__.py:38
 _.ClearSheetFilter  # class: plugin/calc/sheet_filter.py:210
 _.CloneHeadingBlock  # class: plugin/writer/structural.py:359
 _.Command  # attribute: plugin/writer/specialized/mail_merge.py:537
@@ -178,7 +153,6 @@ _.DetectErrors  # class: plugin/calc/errors.py:38
 _.DistributeShapes  # class: plugin/draw/shapes.py:896
 _.DocumentHealthCheck  # class: plugin/doc/diagnostics.py:19
 _.DocumentURL  # attribute: plugin/writer/specialized/mail_merge.py:534
-_.DrawModule  # class: plugin/draw/__init__.py:24
 _.DuplicateSlide  # class: plugin/draw/pages.py:304
 _.EmbeddedEdit  # class: plugin/writer/specialized/embedded.py:43
 _.EmbeddedInsert  # class: plugin/writer/specialized/embedded.py:18
@@ -235,7 +209,6 @@ _.ImageList  # class: plugin/writer/images/images.py:482
 _.ImageListNearbyFiles  # class: plugin/writer/images/images.py:433
 _.ImageReplace  # class: plugin/writer/images/images.py:1470
 _.ImageSetProperties  # class: plugin/writer/images/images.py:819
-_.IndexService  # class: plugin/writer/locale/linguistic_index.py:145
 _.IndexesAddMark  # class: plugin/writer/specialized/indexes.py:1529
 _.IndexesCreate  # class: plugin/writer/specialized/indexes.py:1440
 _.IndexesDeleteTocEntry  # class: plugin/writer/specialized/indexes.py:1020
@@ -265,7 +238,6 @@ _.ListSheets  # class: plugin/calc/sheets.py:42
 _.ManageTableStructure  # class: plugin/writer/specialized/tables.py:691
 _.ManageTrackedChanges  # class: plugin/writer/tracking.py:363
 _.Maximize  # attribute: plugin/calc/analysis.py:249
-_.McpModule  # class: plugin/mcp/__init__.py:111
 _.MergeCells  # class: plugin/calc/cells.py:866
 _.MoveSlide  # class: plugin/draw/pages.py:331
 _.NamedRangeAdd  # class: plugin/calc/named_ranges.py:371
@@ -293,7 +265,6 @@ _.PageSetStyleProperties  # class: plugin/writer/page.py:779
 _.PlotDataTool  # class: plugin/calc/viz.py:22
 _.PrintDocument  # class: plugin/doc/print_doc.py:15
 _.ProtectSheet  # class: plugin/calc/sheets.py:156
-_.ProximityService  # class: plugin/writer/proximity.py:62
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37
 _.ReadCellRange  # class: plugin/calc/cells.py:412
 _.ReadSlideText  # class: plugin/draw/pages.py:189
@@ -309,8 +280,10 @@ _.RunVenvPythonScript  # class: plugin/calc/python/venv.py:131
 _.SaveAsSingleFile  # attribute: plugin/writer/specialized/mail_merge.py:547
 _.SaveDesignSpec  # class: plugin/chatbot/brainstorming.py:84
 _.SaveFilter  # attribute: plugin/writer/specialized/mail_merge.py:553
+_.SearchEmbeddings  # class: plugin/embeddings/document_research_search_tool.py:23
 _.SearchInDocument  # class: plugin/writer/search.py:956
 _.SearchInSpreadsheet  # class: plugin/calc/search.py:31
+_.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
 _.SectionList  # class: plugin/writer/structural.py:63
 _.SectionRead  # class: plugin/writer/structural.py:276
 _.SendPeerResult  # class: plugin/doc/peer_message.py:812
@@ -362,19 +335,49 @@ _.ValidatePptMasterProject  # class: plugin/ppt_master/tools.py:58
 _.Variables  # attribute: plugin/calc/analysis.py:251
 _.WriteCellRange  # class: plugin/calc/cells.py:488
 _.WriteDocumentSection  # class: plugin/chatbot/writing.py:61
-_.WriterModule  # class: plugin/writer/__init__.py:41
 _.WritingPlanSessionTool  # class: plugin/chatbot/writing.py:129
 _.WritingResearchWeb  # class: plugin/chatbot/writing.py:51
 _.long_running  # variable: plugin/calc/analysis.py:354
 
 # =============================================================================
-# 3. Test-Only Code, Fixtures, Hooks, and Samples
+# 3. ServiceRegistry and Scripting Domain Registries
+#
+# Services registered with ServiceRegistry and trusted dispatch functions
+# dispatched dynamically by string name across the IPC boundary. Vulture
+# cannot trace dynamic string-based dispatch.
+# =============================================================================
+_.IndexService  # class: plugin/writer/locale/linguistic_index.py:145
+_.ProximityService  # class: plugin/writer/proximity.py:62
+_.dispatch_analysis  # function: plugin/scripting/venv/trusted_dispatch.py:85
+_.dispatch_embedding  # function: plugin/scripting/venv/trusted_dispatch.py:160
+_.dispatch_forecast  # function: plugin/scripting/venv/trusted_dispatch.py:91
+_.dispatch_langdetect  # function: plugin/scripting/venv/trusted_dispatch.py:168
+_.dispatch_languagetool  # function: plugin/scripting/venv/trusted_dispatch.py:141
+_.dispatch_optimize  # function: plugin/scripting/venv/trusted_dispatch.py:97
+_.dispatch_quant  # function: plugin/scripting/venv/trusted_dispatch.py:103
+_.dispatch_sql  # function: plugin/scripting/venv/trusted_dispatch.py:126
+_.dispatch_symbolic  # function: plugin/scripting/venv/trusted_dispatch.py:73
+_.dispatch_text  # function: plugin/scripting/venv/trusted_dispatch.py:109
+_.dispatch_units  # function: plugin/scripting/venv/trusted_dispatch.py:67
+_.dispatch_vale  # function: plugin/scripting/venv/trusted_dispatch.py:150
+_.dispatch_vision  # function: plugin/scripting/venv/trusted_dispatch.py:119
+_.dispatch_viz  # function: plugin/scripting/venv/trusted_dispatch.py:79
+_.initialize_all  # method: plugin/framework/service.py:175
+_.service_names  # other: plugin/framework/service.py:183
+
+# =============================================================================
+# 4. Test-Only Code, Fixtures, Hooks, and Samples
+#
+# Test hooks, reset helpers, mock injector functions, and runner utilities
+# defined in plugin/ that are called exclusively from tests/ (which Vulture
+# does not scan by default).
 # =============================================================================
 _.TTS_TEST_SAMPLE  # variable: plugin/audio/tts_voices.py:76
 _.adopt_chat_sidebar  # function: plugin/chatbot/sidebar_test_hooks.py:1673
 _.approval_active  # function: plugin/chatbot/sidebar_test_hooks.py:2613
 _.assert_no_empty_graphics  # function: plugin/chatbot/sidebar_test_hooks.py:3106
 _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
+_.calc_addin_args_to_python  # function: plugin/calc/calc_addin_data.py:130
 _.clear_all_document_persistence  # function: plugin/writer/locale/grammar_persistence.py:778
 _.clear_all_sandbox_sessions  # function: plugin/scripting/venv/venv_sandbox.py:1116
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
@@ -435,6 +438,7 @@ _.reset_suppressed_vcl_pump_count  # function: plugin/framework/async_drain_guar
 _.set_drain_scheduler_override  # function: plugin/framework/async_stream.py:1145
 _.set_fake_vision  # function: plugin/chatbot/sidebar_test_hooks.py:3075
 _.set_late_transcript_delay  # function: plugin/chatbot/sidebar_test_hooks.py:331
+_.set_test_poke_handler  # function: plugin/framework/queue_executor.py:72
 _.show_window  # variable: plugin/testing_runner.py:647
 _.sidebar_deck_names  # function: plugin/chatbot/sidebar_test_hooks.py:1719
 _.slash_popup_state  # function: plugin/chatbot/sidebar_test_hooks.py:2412
@@ -445,397 +449,3 @@ _.throwaway_writeragent_json  # function: plugin/testing_runner.py:733
 _.toggle_record_changes  # function: plugin/chatbot/sidebar_test_hooks.py:2930
 _.transcript_contains  # function: plugin/chatbot/sidebar_test_hooks.py:2475
 _.wait_controls_send_finished  # function: plugin/chatbot/sidebar_test_hooks.py:2123
-
-# =============================================================================
-# 4. ServiceRegistry and Scripting Domain Registries
-# =============================================================================
-_.dispatch_analysis  # function: plugin/scripting/venv/trusted_dispatch.py:85
-_.dispatch_embedding  # function: plugin/scripting/venv/trusted_dispatch.py:160
-_.dispatch_forecast  # function: plugin/scripting/venv/trusted_dispatch.py:91
-_.dispatch_langdetect  # function: plugin/scripting/venv/trusted_dispatch.py:168
-_.dispatch_languagetool  # function: plugin/scripting/venv/trusted_dispatch.py:141
-_.dispatch_optimize  # function: plugin/scripting/venv/trusted_dispatch.py:97
-_.dispatch_quant  # function: plugin/scripting/venv/trusted_dispatch.py:103
-_.dispatch_sql  # function: plugin/scripting/venv/trusted_dispatch.py:126
-_.dispatch_symbolic  # function: plugin/scripting/venv/trusted_dispatch.py:73
-_.dispatch_text  # function: plugin/scripting/venv/trusted_dispatch.py:109
-_.dispatch_units  # function: plugin/scripting/venv/trusted_dispatch.py:67
-_.dispatch_vale  # function: plugin/scripting/venv/trusted_dispatch.py:150
-_.dispatch_vision  # function: plugin/scripting/venv/trusted_dispatch.py:119
-_.dispatch_viz  # function: plugin/scripting/venv/trusted_dispatch.py:79
-_.initialize_all  # method: plugin/framework/service.py:175
-_.last_run_status  # variable: plugin/notebook/cell_registry.py:75
-_.service_names  # other: plugin/framework/service.py:183
-
-# =============================================================================
-# 5. MCP Server, HTTP Handlers, and RPC Protocol
-# =============================================================================
-_.PARSE_ERROR  # variable: plugin/mcp/wire_types.py:32
-_._execute_tool_on_main  # method: plugin/mcp/mcp_protocol.py:1243
-_.address_family  # variable: plugin/framework/http_server.py:340
-_.authtoken  # variable: plugin/mcp/tunnel.py:178
-_.auto_open  # attribute: plugin/framework/client/http_transport.py:242
-_.close_connection  # attribute: plugin/mcp/mcp_session.py:110
-_.daemon_threads  # variable: plugin/framework/http_server.py:328
-_.do_DELETE  # method: plugin/mcp/server.py:375
-_.do_GET  # method: plugin/mcp/server.py:369
-_.do_OPTIONS  # method: plugin/mcp/server.py:378
-_.do_POST  # method: plugin/mcp/server.py:372
-_.drain_executor  # method: plugin/framework/http_server.py:501
-_.get_extra_allowed_origins  # function: plugin/mcp/cors.py:218
-_.handle_debug_info  # method: plugin/mcp/mcp_protocol.py:575
-_.handle_debug_post  # method: plugin/mcp/mcp_protocol.py:606
-_.handle_mcp_delete  # method: plugin/mcp/mcp_protocol.py:448
-_.handle_mcp_sse  # method: plugin/mcp/mcp_protocol.py:444
-_.handle_sse_post  # method: plugin/mcp/mcp_protocol.py:546
-_.handle_sse_stream  # method: plugin/mcp/mcp_protocol.py:464
-_.progress_notification  # function: plugin/mcp/wire_types.py:334
-
-# =============================================================================
-# 6. Chatbot Sidebar, Dialogs, and UI Controls
-# =============================================================================
-_.ASSISTANT_COLOR  # variable: plugin/chatbot/rich_text.py:143
-_.Bounds  # attribute: plugin/chatbot/slash_popup.py:459
-_.CharFontNameAsian  # attribute: plugin/chatbot/rich_text_paste.py:271
-_.CharFontNameComplex  # attribute: plugin/chatbot/rich_text_paste.py:272
-_.CharLocale  # attribute: plugin/chatbot/rich_text.py:125
-_.CharLocaleAsian  # attribute: plugin/chatbot/rich_text.py:126
-_.CharLocaleComplex  # attribute: plugin/chatbot/rich_text.py:127
-_.HANDS_FREE_STATUS  # variable: plugin/chatbot/record_gesture.py:38
-_.MANUAL_SECTIONS  # variable: plugin/chatbot/agent_manual.py:150
-_.ParaBottomMargin  # attribute: plugin/chatbot/rich_text.py:120
-_.ParaTabStops  # attribute: plugin/chatbot/rich_text_paste.py:234
-_.ParaTopMargin  # attribute: plugin/chatbot/rich_text.py:119
-_.Parent  # attribute: plugin/chatbot/slash_popup.py:457
-_.ParentIndex  # attribute: plugin/chatbot/slash_popup.py:458
-_.SendHandlerCompleteStatus  # variable: plugin/chatbot/state_machine.py:15
-_.SendHandlerFsmStatus  # variable: plugin/chatbot/state_machine.py:13
-_.SendHandlerKind  # variable: plugin/chatbot/state_machine.py:12
-_.USER_COLOR  # variable: plugin/chatbot/rich_text.py:142
-_.Weight  # attribute: plugin/chatbot/rich_text_control.py:714
-_.WindowAttributes  # attribute: plugin/chatbot/slash_popup.py:460
-_.WindowServiceName  # attribute: plugin/chatbot/slash_popup.py:456
-_._frame_controller  # attribute: plugin/chatbot/slash_popup.py:556
-_._ignore_item  # attribute: plugin/chatbot/slash_popup.py:559
-_._stop_partial_text  # attribute: plugin/chatbot/tool_loop.py:177
-_._toolkit  # attribute: plugin/chatbot/slash_popup.py:558
-_._width_negotiated  # attribute: plugin/chatbot/panel_resize.py:374
-_.collect_environment_block  # function: plugin/chatbot/bug_report.py:173
-_.compacted  # variable: plugin/chatbot/compaction.py:192
-_.full_manual_for_model  # function: plugin/chatbot/agent_manual.py:255
-_.get_humanizer_skill_path  # method: plugin/chatbot/skills.py:115
-_.get_signup_url_for_endpoint  # function: plugin/chatbot/config_ui_helpers.py:537
-_.include_brainstorming  # variable: plugin/chatbot/chat_sidebar_mode.py:37
-_.include_ppt_master  # variable: plugin/chatbot/chat_sidebar_mode.py:39
-_.include_writing_plan  # variable: plugin/chatbot/chat_sidebar_mode.py:38
-_.load_framework_dialog  # function: plugin/chatbot/dialogs.py:726
-_.load_module_dialog  # function: plugin/chatbot/dialogs.py:713
-_.msgbox_with_copy  # function: plugin/chatbot/dialogs.py:487
-_.probe_local_servers  # function: plugin/chatbot/quick_setup.py:54
-_.remote_is_newer  # function: plugin/chatbot/extension_update_check.py:110
-_.serialize_for_summary  # function: plugin/chatbot/compaction.py:601
-_.time_info  # variable: plugin/chatbot/audio_recorder.py:408
-_.uses_toolkit_overlay  # function: plugin/chatbot/slash_popup.py:346
-_.worker_q  # variable: plugin/chatbot/send_handlers.py:487
-
-# =============================================================================
-# 7. Third-Party and Vendored Libraries
-# =============================================================================
-_.BROWSER_CDP_SCHEMA  # variable: plugin/contrib/cdp/browser_cdp_tool.py:579
-_.CODEAGENT_RESPONSE_FORMAT  # variable: plugin/contrib/smolagents/models.py:51
-_.CONVERSION_DICT  # variable: plugin/contrib/smolagents/tools.py:94
-_.CommitOperationAdd  # variable: plugin/contrib/smolagents/tools.py:39
-_.Live  # variable: plugin/contrib/smolagents/agents.py:40
-_.MODEL_REGISTRY  # variable: plugin/contrib/smolagents/models.py:1838
-_.Markdown  # variable: plugin/contrib/smolagents/agents.py:41
-_.OFF  # variable: plugin/contrib/smolagents/monitoring.py:182
-_.PreTool  # class: plugin/contrib/smolagents/default_tools.py:189
-_.RETRY_EXPONENTIAL_BASE  # variable: plugin/contrib/smolagents/models.py:48
-_.RETRY_JITTER  # variable: plugin/contrib/smolagents/models.py:49
-_.RETRY_WAIT  # variable: plugin/contrib/smolagents/models.py:46
-_.RateLimiter  # other: plugin/contrib/smolagents/models.py:29
-_.Retrying  # other: plugin/contrib/smolagents/models.py:29
-_.STRUCTURED_GENERATION_PROVIDERS  # variable: plugin/contrib/smolagents/models.py:50
-_.StoppingCriteriaList  # other: plugin/contrib/smolagents/models.py:41
-_.__ast__  # attribute: plugin/contrib/smolagents/local_python_executor.py:887
-_.__signature__  # attribute: plugin/contrib/smolagents/local_python_executor.py:809
-_._authorized_imports  # attribute: plugin/contrib/smolagents/local_python_executor.py:1779
-_._extract_method_body  # method: plugin/contrib/smolagents/serialization.py:348
-_._ipython_display_  # method: plugin/contrib/smolagents/agent_types.py:115
-_.add_description  # function: plugin/contrib/smolagents/tools.py:896
-_.agent_name  # attribute: plugin/contrib/smolagents/agents.py:341
-_.allow_new_attr  # method: plugin/contrib/nbformat/_struct.py:242
-_.console_errors  # variable: plugin/contrib/cdp/browser_supervisor.py:268
-_.create_agent_gradio_app_template  # function: plugin/contrib/smolagents/utils.py:644
-_.create_commit  # variable: plugin/contrib/smolagents/tools.py:39
-_.create_repo  # variable: plugin/contrib/smolagents/tools.py:39
-_.evaluate_runtime  # method: plugin/contrib/cdp/browser_supervisor.py:491
-_.get_deserializer_code  # method: plugin/contrib/smolagents/serialization.py:451
-_.get_or_start  # method: plugin/contrib/cdp/browser_supervisor.py:1427
-_.get_safe_serializer_code  # method: plugin/contrib/smolagents/serialization.py:376
-_.get_succinct_steps  # method: plugin/contrib/smolagents/memory.py:243
-_.get_tools_definition_code  # function: plugin/contrib/smolagents/tools.py:1358
-_.get_total_token_counts  # method: plugin/contrib/smolagents/monitoring.py:150
-_.handle_data  # method: plugin/contrib/smolagents/default_tools.py:389
-_.handle_endtag  # method: plugin/contrib/smolagents/default_tools.py:377
-_.handle_starttag  # method: plugin/contrib/smolagents/default_tools.py:359
-_.hf_hub_download  # variable: plugin/contrib/smolagents/tools.py:40
-_.highlight  # variable: plugin/contrib/smolagents/monitoring.py:22
-_.initial_plan  # variable: plugin/contrib/smolagents/agents.py:175
-_.log_code  # method: plugin/contrib/smolagents/monitoring.py:235
-_.make_init_file  # function: plugin/contrib/smolagents/utils.py:594
-_.mcp  # other: plugin/contrib/smolagents/tools.py:63
-_.metadata_update  # variable: plugin/contrib/smolagents/tools.py:40
-_.model_dump_json  # method: plugin/contrib/smolagents/models.py:144
-_.parse_code_blobs  # function: plugin/contrib/smolagents/utils.py:352
-_.planning  # variable: plugin/contrib/smolagents/agents.py:218
-_.post_messages  # variable: plugin/contrib/smolagents/agents.py:203
-_.pre_messages  # variable: plugin/contrib/smolagents/agents.py:202
-_.reads_json  # variable: plugin/contrib/nbformat/v4/__init__.py:41
-_.references_dir  # function: plugin/contrib/ppt_master/config.py:25
-_.render_as_markdown  # method: plugin/contrib/smolagents/models.py:168
-_.replay  # method: plugin/contrib/smolagents/memory.py:255
-_.respond_to_dialog  # method: plugin/contrib/cdp/browser_supervisor.py:430
-_.return_full_code  # method: plugin/contrib/smolagents/memory.py:280
-_.signum  # variable: plugin/contrib/smolagents/local_python_executor.py:652
-_.skill_md_path  # function: plugin/contrib/ppt_master/config.py:33
-_.stop_all  # method: plugin/contrib/cdp/browser_supervisor.py:1478
-_.templates_dir  # function: plugin/contrib/ppt_master/config.py:21
-_.throttle  # method: plugin/contrib/smolagents/utils.py:685
-_.to_code_prompt  # method: plugin/contrib/smolagents/tools.py:257
-_.undefined_names  # attribute: plugin/contrib/smolagents/tool_validation.py:19
-_.update_plan_post_messages  # variable: plugin/contrib/smolagents/agents.py:177
-_.update_plan_pre_messages  # variable: plugin/contrib/smolagents/agents.py:176
-_.upstream_scripts_path  # function: plugin/contrib/ppt_master/upstream.py:20
-_.visit_AnnAssign  # method: plugin/contrib/smolagents/tool_validation.py:73
-_.visualize_agent_tree  # method: plugin/contrib/smolagents/monitoring.py:285
-_.workflows_dir  # function: plugin/contrib/ppt_master/config.py:29
-_.writes_json  # variable: plugin/contrib/nbformat/v4/__init__.py:42
-
-# =============================================================================
-# 8. Scripting, Worker Harness, and Trusted Dispatch
-# =============================================================================
-_.MAX_BENCH_CELLS  # variable: plugin/scripting/payload_codec.py:421
-_.TEXT_ANALYTICS_HEADER_PREFIX  # variable: plugin/scripting/text_analytics.py:55
-_._format_self_check_success  # function: plugin/scripting/venv_diagnostics.py:862
-_._on_closed  # attribute: plugin/scripting/editor_host.py:908
-_._reader_thread  # attribute: plugin/scripting/editor_host.py:283
-_._reset_cache  # function: plugin/scripting/sandbox.py:751
-_.binary_envelope_skip_reason  # function: plugin/scripting/payload_codec.py:1029
-_.calc_method  # method: plugin/scripting/venv/calc_functions_a_c.py:140
-_.column_kinds_for_grid  # function: plugin/scripting/payload_codec.py:797
-_.delete_script  # method: plugin/scripting/venv/editor_main.py:468
-_.differentiate  # function: plugin/scripting/venv/symbolic.py:263
-_.execute_and_insert_result  # function: plugin/scripting/python_runner.py:542
-_.extract_units_insert_kwargs  # function: plugin/scripting/units.py:98
-_.first_interest  # variable: plugin/scripting/venv/calc_functions_a_c.py:134
-_.get_analysis_script_templates  # variable: plugin/scripting/analysis.py:89
-_.get_forecast_script_templates  # variable: plugin/scripting/forecast.py:84
-_.get_forecast_template  # variable: plugin/scripting/forecast.py:85
-_.get_math_script_templates  # variable: plugin/scripting/symbolic.py:66
-_.get_optimize_script_templates  # variable: plugin/scripting/optimize.py:67
-_.get_optimize_template  # variable: plugin/scripting/optimize.py:68
-_.get_quant_script_templates  # variable: plugin/scripting/quant.py:58
-_.get_quant_template  # variable: plugin/scripting/quant.py:59
-_.get_sql_script_templates  # function: plugin/scripting/duckdb_sql.py:117
-_.get_text_analytics_script_templates  # variable: plugin/scripting/text_analytics.py:75
-_.get_units_script_templates  # variable: plugin/scripting/units.py:69
-_.get_viz_script_templates  # variable: plugin/scripting/viz.py:66
-_.host_pack_multi_data  # function: plugin/scripting/payload_codec.py:1767
-_.insert_sql_result_into_calc  # function: plugin/scripting/duckdb_sql.py:182
-_.insert_units_result_into_doc  # function: plugin/scripting/units.py:204
-_.is_forecast_result  # function: plugin/scripting/forecast.py:115
-_.is_jedi_available  # method: plugin/scripting/venv/editor_main.py:349
-_.is_numeric_coercible  # function: plugin/scripting/payload_codec.py:1071
-_.is_optimize_result  # function: plugin/scripting/optimize.py:102
-_.is_safe_workspace_path  # function: plugin/scripting/sandbox.py:1036
-_.is_sql_result  # function: plugin/scripting/duckdb_sql.py:166
-_.is_symbolic_result  # function: plugin/scripting/symbolic.py:117
-_.is_text_analytics_result  # function: plugin/scripting/text_analytics.py:295
-_.is_units_result  # function: plugin/scripting/units.py:112
-_.is_viz_result  # function: plugin/scripting/viz.py:98
-_.latex_to_math_object  # function: plugin/scripting/venv/symbolic.py:376
-_.notify_cancel  # method: plugin/scripting/venv/editor_main.py:474
-_.notify_dirty  # method: plugin/scripting/venv/editor_main.py:424
-_.notify_run  # method: plugin/scripting/venv/editor_main.py:453
-_.notify_save_script  # method: plugin/scripting/venv/editor_main.py:456
-_.parse_analysis_script_header  # variable: plugin/scripting/analysis.py:90
-_.parse_forecast_script_header  # variable: plugin/scripting/forecast.py:83
-_.parse_optimize_script_header  # variable: plugin/scripting/optimize.py:66
-_.parse_quant_script_header  # variable: plugin/scripting/quant.py:57
-_.parse_sql_script_header  # function: plugin/scripting/duckdb_sql.py:126
-_.parse_viz_script_header  # variable: plugin/scripting/viz.py:67
-_.poll_messages  # method: plugin/scripting/venv/editor_main.py:328
-_.pool_is_running  # method: plugin/scripting/venv_worker.py:516
-_.quick_stats  # function: plugin/scripting/venv/analysis.py:518
-_.records_from_df  # function: plugin/scripting/venv/coerce.py:999
-_.request_scripts  # method: plugin/scripting/venv/editor_main.py:462
-_.save_script  # method: plugin/scripting/venv/editor_main.py:465
-_.select_script  # method: plugin/scripting/venv/editor_main.py:471
-_.solve_equation  # function: plugin/scripting/venv/symbolic.py:312
-_.supports_calc_or_writer_manual  # function: plugin/scripting/helper_domain.py:913
-_.supports_text_analytics_manual  # function: plugin/scripting/text_analytics.py:80
-_.symbolic_simplify  # function: plugin/scripting/venv/symbolic.py:254
-_.time_info  # variable: plugin/scripting/venv/audio_recorder.py:92
-_.venv_blocked_modules  # function: plugin/scripting/import_policy.py:133
-_.write_pickle_frame_with_timeout  # function: plugin/scripting/ipc.py:617
-
-# =============================================================================
-# 9. Framework Core, Document Processing, and Conversion
-# =============================================================================
-_.CALC_PYTHON_FORMULA_LLM_HINT  # variable: plugin/framework/prompts.py:576
-_.CODE  # variable: plugin/framework/constants.py:106
-_.DEFAULT_CALC_GREETING  # variable: plugin/framework/prompts.py:589
-_.DEFAULT_DRAW_GREETING  # variable: plugin/framework/prompts.py:848
-_.DEFAULT_WRITER_GREETING  # variable: plugin/framework/prompts.py:519
-_.DepRole  # variable: plugin/calc/excel_py_convert/models.py:25
-_.EMBEDDINGS  # variable: plugin/framework/constants.py:102
-_.EXCEL_DEP_TOKEN_FIDELITY  # variable: plugin/calc/excel_py_convert/models.py:28
-_.EmbeddingsModule  # class: plugin/embeddings/__init__.py:10
-_.MODERATIONS  # variable: plugin/framework/constants.py:104
-_.OFFICE_NS  # variable: plugin/embeddings/embeddings_locale.py:23
-_.PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE  # variable: plugin/framework/prompts.py:252
-_.REALTIME  # variable: plugin/framework/constants.py:105
-_.STOPWORDS_ISO_KEY  # variable: plugin/framework/grammar_rule_ids.py:254
-_.SVG_NS  # variable: plugin/ppt_master/fidelity.py:29
-_.SearchEmbeddings  # class: plugin/embeddings/document_research_search_tool.py:23
-_.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
-_.WRITER_DOCUMENT_SERVICE  # variable: plugin/doc/doc_type.py:41
-_.__package__  # attribute: plugin/framework/uno_bootstrap.py:49
-_._aget_query_embedding  # method: plugin/embeddings/venv/embeddings_llama_index.py:272
-_._aget_text_embedding  # method: plugin/embeddings/venv/embeddings_llama_index.py:275
-_._aget_text_embeddings  # method: plugin/embeddings/venv/embeddings_llama_index.py:278
-_._frame_listener  # attribute: plugin/framework/frame_session.py:170
-_._get_connection  # method: plugin/framework/client/llm_client.py:400
-_._hb_start  # attribute: plugin/embeddings/search_ui.py:97
-_._reader_thread  # attribute: plugin/acp/acp_connection.py:191
-_._retrieve  # method: plugin/embeddings/venv/embeddings_llama_index.py:419
-_._strip_python_in_excel_parts  # function: plugin/calc/excel_py_convert/xlsx_write.py:220
-_.activity  # variable: plugin/framework/logging.py:56
-_.activity_lock  # variable: plugin/framework/logging.py:57
-_.addStatusListener  # method: plugin/main.py:1197
-_.agent_changes  # function: plugin/writer/inline_review.py:320
-_.all_start_indices  # function: plugin/writer/search.py:912
-_.api_keys_by_endpoint  # variable: plugin/framework/config_schema.py:362
-_.asserts_enabled  # function: plugin/framework/deal_shim.py:238
-_.audio_support_map  # variable: plugin/framework/config_schema.py:381
-_.batch_mode  # variable: plugin/framework/tool.py:616
-_.body_paragraphs  # variable: plugin/doc/text_helpers.py:296
-_.capture_incomplete  # variable: plugin/writer/format.py:313
-_.chapter_number  # variable: plugin/doc/text_helpers.py:307
-_.chat_compaction_enabled  # variable: plugin/framework/config_schema.py:359
-_.chat_max_tokens  # variable: plugin/framework/config_schema.py:356
-_.claim_host_send_slot  # function: plugin/framework/client/request_controls.py:309
-_.cleared_char_properties  # variable: plugin/writer/format.py:310
-_.cleared_paragraph_properties  # variable: plugin/writer/format.py:311
-_.count_svg_text_elements  # function: plugin/ppt_master/fidelity.py:112
-_.create_module  # method: plugin/framework/uno_bootstrap.py:47
-_.create_presentation_from_design  # function: plugin/draw/designs.py:1310
-_.dag_formula  # variable: plugin/calc/excel_py_convert/models.py:155
-_.deduplicate_grammar_batch  # function: plugin/writer/locale/grammar_work_queue.py:118
-_.delete_kwargs  # variable: plugin/embeddings/venv/embeddings_llama_index.py:348
-_.direct_formatting  # variable: plugin/writer/format.py:306
-_.dispatch_trusted  # function: plugin/embeddings/venv/embeddings_index_dispatch.py:13
-_.doc_agent_edit_review_mode  # variable: plugin/framework/config_schema.py:414
-_.doc_path  # variable: plugin/embeddings/embeddings_fs.py:56
-_.documents  # variable: plugin/embeddings/venv/embeddings_ingest_graph.py:43
-_.edit_selection_system_prompt  # variable: plugin/framework/config_schema.py:380
-_.embedding_provider  # variable: plugin/framework/config_schema.py:370
-_.enable_agent_log  # variable: plugin/framework/config_schema.py:372
-_.excel_formula  # variable: plugin/calc/excel_py_convert/models.py:156
-_.execute_unguarded  # function: plugin/framework/tool.py:1007
-_.expand_placeholders_to_literals  # function: plugin/calc/excel_py_convert/to_excel.py:383
-_.extend_selection_system_prompt  # variable: plugin/framework/config_schema.py:379
-_.extension_update_check_epoch  # variable: plugin/framework/config_schema.py:375
-_.extract_autostyle_overrides_from_fodt  # function: plugin/writer/xhtml_style_postprocess.py:199
-_.extract_autostyle_parents_from_fodt  # function: plugin/writer/xhtml_style_postprocess.py:186
-_.extract_code_from_formula  # function: plugin/calc/python/cell_discovery.py:75
-_.extract_vision_insert_kwargs  # function: plugin/vision/vision_runner.py:35
-_.fallback_message  # variable: plugin/writer/specialized/indexes.py:480
-_.file_bytes  # variable: plugin/ppt_master/fidelity.py:45
-_.format_all_outputs  # function: plugin/notebook/writer_importer.py:1587
-_.format_vision_structure_for_calc  # function: plugin/calc/vision_egress.py:107
-_.formula_order  # attribute: plugin/calc/spreadsheet_import/graph.py:147
-_.formula_raw  # variable: plugin/calc/excel_py_convert/models.py:50
-_.from_absolute  # method: plugin/framework/process_worker.py:148
-_.get_calc_error_name  # function: plugin/calc/error_detector.py:124
-_.get_chat_system_prompt_for_kind  # function: plugin/framework/prompts.py:1191
-_.get_file_index_state  # function: plugin/embeddings/embeddings_cache.py:202
-_.get_full_document_text  # function: plugin/doc/document_helpers.py:117
-_.get_manifest_modules  # function: plugin/framework/config_schema.py:101
-_.get_vision_script_templates  # function: plugin/vision/vision_templates.py:24
-_.handle_charref  # method: plugin/writer/xhtml_style_postprocess.py:282
-_.handle_comment  # method: plugin/writer/xhtml_style_postprocess.py:286
-_.handle_data  # method: plugin/vision/venv/vision_paddle.py:353
-_.handle_endtag  # method: plugin/vision/venv/vision_paddle.py:332
-_.handle_entityref  # method: plugin/writer/xhtml_style_postprocess.py:278
-_.handle_startendtag  # method: plugin/writer/html_import_styles.py:101
-_.handle_starttag  # method: plugin/vision/venv/vision_paddle.py:316
-_.has_agent_changes  # function: plugin/writer/inline_review.py:195
-_.hung_shown  # variable: plugin/framework/logging.py:58
-_.image_auto_gallery  # variable: plugin/framework/config_schema.py:366
-_.image_base_size  # variable: plugin/framework/config_schema.py:363
-_.image_default_aspect  # variable: plugin/framework/config_schema.py:364
-_.image_insert_frame  # variable: plugin/framework/config_schema.py:367
-_.image_steps  # variable: plugin/framework/config_schema.py:365
-_.imported_pdf  # variable: plugin/ppt_master/fidelity.py:58
-_.imported_pdf_info  # variable: plugin/ppt_master/fidelity.py:60
-_.init_lock  # variable: plugin/framework/logging.py:55
-_.inline_py_code_has_lexer_collisions  # function: plugin/calc/python/formula_edit.py:346
-_.insert_quant_result_into_calc  # function: plugin/calc/quant_egress.py:62
-_.is_collabora_py_formula  # function: plugin/calc/python/collabora_formula.py:78
-_.is_name_call_expr  # function: plugin/framework/ast_stmt_edit.py:32
-_.is_quant_result  # function: plugin/calc/quant_egress.py:22
-_.is_vision_result  # function: plugin/vision/vision_egress.py:19
-_.iter_matching_expr_statements  # function: plugin/framework/ast_stmt_edit.py:95
-_.iter_matching_statements  # function: plugin/framework/ast_stmt_edit.py:89
-_.last_latex_display_block  # variable: plugin/framework/config_schema.py:408
-_.last_latex_input  # variable: plugin/framework/config_schema.py:407
-_.last_python_script_name_calc  # variable: plugin/framework/config_schema.py:396
-_.last_python_script_name_draw  # variable: plugin/framework/config_schema.py:397
-_.last_python_script_name_writer  # variable: plugin/framework/config_schema.py:395
-_.last_run_status  # attribute: plugin/notebook/notebook_runner.py:999
-_.libreharper_update_check_epoch  # variable: plugin/framework/config_schema.py:377
-_.librepy_update_check_epoch  # variable: plugin/framework/config_schema.py:376
-_.migrate_bare_data_to_index0  # function: plugin/calc/python/xl_static_rewrite.py:127
-_.n_found  # variable: plugin/calc/python/geometric_recalc_core.py:163
-_.node_ids  # variable: plugin/embeddings/venv/embeddings_llama_index.py:103
-_.notes_for_slides  # function: plugin/ppt_master/project_notes.py:25
-_.num_workers  # variable: plugin/audio/kokoro_pool.py:260
-_.odf_shape_counts  # variable: plugin/ppt_master/fidelity.py:38
-_.original_formula  # variable: plugin/calc/spreadsheet_import/models.py:52
-_.page_size_pts  # variable: plugin/ppt_master/fidelity.py:43
-_.paragraph_chunks_from_path  # function: plugin/embeddings/embeddings_fs.py:306
-_.parallel_tool_calls  # variable: plugin/framework/config_schema.py:392
-_.parse_config_json_text  # function: plugin/framework/config.py:299
-_.parse_vision_script_header  # function: plugin/vision/vision_templates.py:29
-_.pending_agent_change_count  # function: plugin/writer/inline_review.py:444
-_.preserved_char_overrides  # variable: plugin/writer/format.py:308
-_.prune_default_values  # function: plugin/framework/config_schema.py:909
-_.reference_pdf  # variable: plugin/ppt_master/fidelity.py:57
-_.reference_pdf_info  # variable: plugin/ppt_master/fidelity.py:59
-_.remaining_host_gap  # function: plugin/framework/client/request_controls.py:319
-_.removeStatusListener  # method: plugin/main.py:1227
-_.remove_expr_statements  # function: plugin/framework/ast_stmt_edit.py:268
-_.removed_char_overrides  # variable: plugin/writer/format.py:309
-_.replace_image_in_place  # function: plugin/writer/images/image_tools.py:661
-_.request_timeout  # variable: plugin/framework/config_schema.py:360
-_.resolve_all_agent_changes  # function: plugin/writer/inline_review.py:1093
-_.resolve_design  # function: plugin/draw/designs.py:352
-_.rewrite_excel_code  # function: plugin/calc/excel_py_convert/to_dag.py:372
-_.row_factory  # attribute: plugin/embeddings/venv/embeddings_sqlite.py:186
-_.run_project_fidelity  # function: plugin/ppt_master/fidelity.py:473
-_.set_api_key_for_endpoint  # function: plugin/framework/config.py:1281
-_.set_test_poke_handler  # function: plugin/framework/queue_executor.py:72
-_.shutdown_harper_runtime  # function: plugin/writer/locale/harper.py:489
-_.size_bytes  # variable: plugin/doc/document_research.py:65
-_.stacks_dumped  # variable: plugin/framework/logging.py:59
-_.stores_text  # variable: plugin/embeddings/venv/embeddings_llama_index.py:282
-_.tasks_executed  # variable: plugin/framework/process_worker.py:339
-_.temp_suffix  # variable: plugin/calc/excel_py_convert/ooxml_util.py:250
-_.template_doc  # variable: plugin/ppt_master/adapter/uno_template_fill.py:17
-_.text_analytics_sentiment_model  # variable: plugin/framework/config_schema.py:404
-_.visible_offset  # variable: plugin/writer/html_ruby.py:269
-_.vision_packages_probe_ready  # function: plugin/vision/vision_availability.py:97
-_.vision_support_map  # variable: plugin/framework/config_schema.py:386
-_.write_agent_summary  # function: plugin/ppt_master/fidelity.py:542
