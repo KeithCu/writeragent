@@ -66,6 +66,24 @@ def local_name(tag: str) -> str:
     return tag
 
 
+def shared_strings(zf: zipfile.ZipFile) -> list[str]:
+    """Read all shared strings from xl/sharedStrings.xml in a ZIP archive."""
+    try:
+        root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+    except KeyError:
+        return []
+    out: list[str] = []
+    for si in list(root):
+        if local_name(si.tag) != "si":
+            continue
+        parts: list[str] = []
+        for t in si.iter():
+            if local_name(t.tag) == "t" and t.text:
+                parts.append(t.text)
+        out.append("".join(parts))
+    return out
+
+
 def find_all(parent: ET.Element, name: str) -> list[ET.Element]:
     """Find all descendant elements whose local tag matches *name*."""
     return [el for el in parent.iter() if local_name(el.tag) == name]

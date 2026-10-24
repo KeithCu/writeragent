@@ -43,7 +43,7 @@ from plugin.calc.calc_utils import (
     cell_value_and_type,
     resolve_sheet,
 )
-from plugin.calc.error_detector import formula_evaluation_error_message as formula_evaluation_error_message
+from plugin.calc.error_detector import ERROR_TYPES
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBase
 
@@ -158,6 +158,40 @@ class ListCalcFunctions(ToolBase):
             matched_functions.append({"name": name, "description": desc, "category_id": func_data.get("Category", 0), "arguments": arg_list})
         log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
         return {"status": "ok", "functions": matched_functions}
+
+
+_EVAL_ERROR_LABELS = {
+    503: "#NUM! (Invalid numeric value, code 503)",
+    532: "#DIV/0! (Division by zero, code 532)",
+    508: "Pair missing bracket (code 508)",
+    509: "Operator missing (code 509)",
+    510: "Variable missing (code 510)",
+    511: "Parameter missing (code 511)",
+    524: "#REF! (Invalid reference, code 524)",
+    525: "#NAME? (Invalid name, code 525)",
+}
+
+
+def formula_evaluation_error_message(error_code: int) -> str:
+    """Human-readable evaluate_formula message for a Calc error code."""
+    if error_code in _EVAL_ERROR_LABELS:
+        label = _EVAL_ERROR_LABELS[error_code]
+    elif error_code in ERROR_TYPES:
+        info = ERROR_TYPES[error_code]
+        symbol = info.get("code", "")
+        name = info.get("name", "")
+        if symbol.startswith("#") and symbol != "#NULL!":
+            if name and name != symbol:
+                label = f"{symbol} ({name}, code {error_code})"
+            else:
+                label = f"{symbol} (code {error_code})"
+        elif name:
+            label = f"{name} (code {error_code})"
+        else:
+            label = f"code {error_code}"
+    else:
+        label = f"code {error_code}"
+    return f"Formula evaluation error: {label}"
 
 
 class EvaluateFormula(ToolCalcErrorBase):

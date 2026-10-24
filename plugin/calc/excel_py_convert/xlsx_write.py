@@ -27,10 +27,10 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     parse_and_extract_namespaces,
     rewrite_zip,
     serialize_xml_preserving_namespaces,
+    shared_strings,
     workbook_sheets,
     xml_namespace_lock,
 )
-from plugin.calc.excel_py_convert.parse_dag_formulas import _shared_strings
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     _col_row,
     _shared_formula_map,
@@ -728,7 +728,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             name = dn.attrib.get("name") or ""
             val = "".join(dn.itertext()).strip()
             defined_names.append((name, val))
-        shared_strings = _shared_strings(zin)
+        shared_strs = shared_strings(zin)
 
         code_sheets = [s for s in sheets if s.title.startswith(CODE_SHEET_PREFIX)]
         drop_parts: set[str] = set()
@@ -737,7 +737,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         for s in code_sheets:
             if not s.part_name:
                 continue
-            if is_py_code_bank_sheet(zin, s.title, s.part_name, defined_names, shared_strings):
+            if is_py_code_bank_sheet(zin, s.title, s.part_name, defined_names, shared_strs):
                 drop_parts.add(s.part_name)
                 drop_rids.add(s.rel_id)
                 drop_titles.add(s.title)
@@ -866,13 +866,13 @@ def write_dag_formulas_xlsx(
         defined_names: list[tuple[str, str]] = []
         for dn in find_all(wb_root, "definedName"):
             defined_names.append((dn.attrib.get("name") or "", "".join(dn.itertext()).strip()))
-        shared_strings = _shared_strings(zin)
+        shared_strs = shared_strings(zin)
 
         # Collision check: existing sheet with bank prefix must be a verified script bank sheet.
         for code_sheet in bank:
             existing_sh = title_to_info.get(code_sheet) or title_to_info_l.get(code_sheet.lower())
             if existing_sh is not None:
-                if not is_py_code_bank_sheet(zin, existing_sh.title, existing_sh.part_name, defined_names, shared_strings):
+                if not is_py_code_bank_sheet(zin, existing_sh.title, existing_sh.part_name, defined_names, shared_strs):
                     raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
 
         patched: dict[str, ET.Element] = {}

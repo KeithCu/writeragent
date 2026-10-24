@@ -7,26 +7,15 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
-from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child, local_name, workbook_sheets
+from plugin.calc.excel_py_convert.ooxml_util import (
+    find_all,
+    find_child,
+    local_name,
+    shared_strings,
+    workbook_sheets,
+)
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import parse_python_formula
-
-
-def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
-    try:
-        root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
-    except KeyError:
-        return []
-    out: list[str] = []
-    for si in list(root):
-        if local_name(si.tag) != "si":
-            continue
-        parts: list[str] = []
-        for t in si.iter():
-            if local_name(t.tag) == "t" and t.text:
-                parts.append(t.text)
-        out.append("".join(parts))
-    return out
 
 
 def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
@@ -134,7 +123,7 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     with zipfile.ZipFile(path, "r") as zf:
         sheets = workbook_sheets(zf)
-        shared = _shared_strings(zf)
+        shared = shared_strings(zf)
         sheet_cells: dict[str, dict[str, tuple[str, str]]] = {}
         for sh in sheets:
             if not sh.part_name:

@@ -3420,3 +3420,30 @@ def test_write_dag_formulas_places_calc_pr_before_extlst(tmp_path: Path):
         assert "extLst" in tags
         assert tags.index("calcPr") < tags.index("extLst")
 
+
+def test_shared_strings_helper(tmp_path: Path):
+    """shared_strings extracts strings from xl/sharedStrings.xml or returns [] if absent."""
+    from plugin.calc.excel_py_convert.ooxml_util import shared_strings
+
+    zip_path = tmp_path / "test_sst.zip"
+    sst_xml = (
+        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<si><t>Alpha</t></si>'
+        '<si><r><t>Beta</t></r><r><t>Gamma</t></r></si>'
+        '<si><other>Ignored</other></si>'
+        '</sst>'
+    )
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("xl/sharedStrings.xml", sst_xml)
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        assert shared_strings(zf) == ["Alpha", "BetaGamma", ""]
+
+    empty_zip = tmp_path / "empty.zip"
+    with zipfile.ZipFile(empty_zip, "w") as zf:
+        zf.writestr("xl/workbook.xml", "<workbook/>")
+
+    with zipfile.ZipFile(empty_zip, "r") as zf:
+        assert shared_strings(zf) == []
+
+
