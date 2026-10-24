@@ -17,7 +17,6 @@ from tests.harness.strip_bundle import deal_pre_present
 
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
-    venv_authorized_top_level_modules,
     venv_blocked_modules,
     format_venv_import_policy_for_prompt,
 )
@@ -56,16 +55,10 @@ def test_column_vector_longer_than_shape_dim_wraps() -> None:
 
 
 def test_import_policy_contracts() -> None:
-    auth = venv_authorized_top_level_modules()
-    assert isinstance(auth, tuple)
-    assert len(auth) > 0
-    assert "numpy" in auth or "math" in auth
-
     blocked = venv_blocked_modules()
     assert isinstance(blocked, tuple)
     assert len(blocked) > 0
-    assert "subprocess" in blocked or "os" in blocked
-
+    assert "subprocess" in blocked
 
     prompt = format_venv_import_policy_for_prompt(compact=True)
     assert isinstance(prompt, str)

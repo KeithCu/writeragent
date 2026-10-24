@@ -8,7 +8,7 @@
 """Venv worker sandbox: path setup for vendored smolagents + LocalPythonExecutor.
 
 Used by worker_harness.py (venv child adds repo root to sys.path for ``plugin.*`` imports).
-Import policy is only VENV_AUTHORIZED_IMPORTS passed to LocalPythonExecutor—no find_spec pre-checks.
+Import policy is default-allow plus overrides against a short blocklist—no find_spec pre-checks.
 
 Trusted host helpers (vision, embeddings, …) use ``run_trusted_action`` via the worker
 harness / ``trusted_action_registry`` — not string stubs through this sandbox.
@@ -56,10 +56,13 @@ from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.sandbox import (
+    SANDBOX_BLOCKED_MODULES,
+    SANDBOX_EXTRA_MODULES,
     SandboxPolicy,
     build_sandbox_policy,
     parse_extra_modules,
     policy_allowlist,
+    policy_blocked_imports,
     policy_digest,
     policy_relaxed_roots,
 )
@@ -1712,11 +1715,10 @@ def run_sandboxed_code(
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
-    if policy.files:
-        _, file_os_ids = get_file_os_proxy()
-    else:
-        file_os_ids = frozenset()
+    _, file_os_ids = get_file_os_proxy(files=policy.files)
     policy_token = SANDBOX_POLICY_CONTEXT.set((relaxed_roots, file_os_ids))
+    blocked_token = SANDBOX_BLOCKED_MODULES.set(frozenset(policy_blocked_imports(policy)))
+    extra_token = SANDBOX_EXTRA_MODULES.set(frozenset(policy_allowlist(policy)))
 
     try:
         init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
@@ -1774,6 +1776,8 @@ def run_sandboxed_code(
         _inject_session_duckdb(executor)
         return _run_on_executor(executor, code)
     finally:
+        SANDBOX_EXTRA_MODULES.reset(extra_token)
+        SANDBOX_BLOCKED_MODULES.reset(blocked_token)
         SANDBOX_POLICY_CONTEXT.reset(policy_token)
         _CURRENT_SANDBOX_SCOPED_DIR.reset(dir_token)
         _CURRENT_SANDBOX_SESSION.reset(token)

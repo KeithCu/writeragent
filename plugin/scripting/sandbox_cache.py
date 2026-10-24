@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Static AST sandbox policy checks and in-memory parse/validation hot cache."""
+"""Static AST sandbox policy checks and in-memory parse/validation hot cache (extras + blocklist)."""
 
 from __future__ import annotations
 
@@ -57,6 +57,20 @@ _deal_sandbox_imports_ok = (
 )
 
 
+def _deal_sandbox_blocked_ok(blocked_imports: object) -> bool:
+    if blocked_imports is None:
+        return True
+    if not isinstance(blocked_imports, (list, tuple, set, frozenset)):
+        return False
+    return all(
+        isinstance(x, str)
+        and "\0" not in x
+        and "\n" not in x
+        and str_bounded(x, DEAL_MAX_TOKEN)
+        for x in blocked_imports
+    )
+
+
 def _deal_sandbox_code_ok_pytest(code: object) -> bool:
     # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
     # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
@@ -80,11 +94,26 @@ _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
 
+@deal.pre(
+    lambda module, authorized_imports, blocked_imports=None: _deal_sandbox_imports_ok(authorized_imports)
+    and _deal_sandbox_blocked_ok(blocked_imports)
+)
 @deal.post(lambda result: result is None or isinstance(result, str))
-def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) -> str | None:
+def validate_sandbox_ast(
+    module: ast.Module,
+    authorized_imports: Sequence[str],
+    blocked_imports: Sequence[str] | None = None,
+) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     # AST walk on a symbolic module hangs deep check.
     # crosshair: off
+    if blocked_imports is not None:
+        effective_blocked = tuple(blocked_imports)
+    else:
+        from plugin.scripting.sandbox import active_blocked_imports
+
+        effective_blocked = tuple(active_blocked_imports())
+
     for node in ast.walk(module):
         if isinstance(node, (ast.stmt, ast.expr)):
             node_type = type(node)
@@ -97,16 +126,16 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) 
                 # writeragent.X is checked as plugin.X. A blanket writeragent.*
                 # on the list used to pass here, then AliasImporter loaded
                 # framework.config and LlmClient.
-                if not import_authorized(alias.name, authorized_imports):
-                    # Keep the message short. Dumping authorized_imports exposes duckdb.
+                if not import_authorized(alias.name, authorized_imports, blocked_imports=effective_blocked):
+                    # Keep the message short. Never leak the blocklist or extras.
                     return f"Import of {alias.name} is not allowed."
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.level > 0:
                 # Relative imports (from . import x) are not supported in the sandbox.
                 return "Relative imports are not allowed."
             module_name = node.module or ""
-            if not import_authorized(module_name, authorized_imports):
-                # Keep the message short. Dumping authorized_imports exposes duckdb.
+            if not import_authorized(module_name, authorized_imports, blocked_imports=effective_blocked):
+                # Keep the message short. Never leak the blocklist or extras.
                 return f"Import from {module_name} is not allowed."
             for alias in node.names:
                 if alias.name != "*" and is_forbidden_dunder_attribute(alias.name):
@@ -146,10 +175,37 @@ def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
     return _memoized_fingerprint(tuple(authorized_imports))
 
 
-@deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def _cache_key(code: str, authorized_imports: Sequence[str]) -> str:
+@functools.cache
+def _memoized_blocked_fingerprint(blocked_tuple: tuple[str, ...]) -> str:
+    return "\n".join(sorted(set(blocked_tuple)))
+
+
+def _blocked_fingerprint(blocked_imports: Sequence[str] | None) -> str:
+    if blocked_imports is not None:
+        return _memoized_blocked_fingerprint(tuple(blocked_imports))
+    from plugin.scripting.sandbox import active_blocked_imports
+
+    return _memoized_blocked_fingerprint(tuple(active_blocked_imports()))
+
+
+@deal.pre(
+    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
+    and _deal_sandbox_imports_ok(authorized_imports)
+    and _deal_sandbox_blocked_ok(blocked_imports)
+)
+def _cache_key(
+    code: str,
+    authorized_imports: Sequence[str],
+    blocked_imports: Sequence[str] | None = None,
+) -> str:
     # crosshair: off
-    material = code + "\0" + _imports_fingerprint(authorized_imports)
+    material = (
+        code
+        + "\0"
+        + _imports_fingerprint(authorized_imports)
+        + "\0"
+        + _blocked_fingerprint(blocked_imports)
+    )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -170,8 +226,16 @@ def _format_syntax_error(exc: SyntaxError) -> str:
     )
 
 
-@deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
+@deal.pre(
+    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
+    and _deal_sandbox_imports_ok(authorized_imports)
+    and _deal_sandbox_blocked_ok(blocked_imports)
+)
+def _build_entry(
+    code: str,
+    authorized_imports: Sequence[str],
+    blocked_imports: Sequence[str] | None = None,
+) -> HotEntry:
     # A long 1+1+... chain makes ast.parse or validate_sandbox_ast raise
     # RecursionError (an Exception). execute_with_return logged it with
     # log.exception as an internal fault. It is bad user source, so return
@@ -199,24 +263,32 @@ def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
             compile(module, "<sandbox>", "exec", dont_inherit=True)
         except SyntaxError as exc:
             return HotEntry(module=None, error=_format_syntax_error(exc))
-        validation_error = validate_sandbox_ast(module, authorized_imports)
+        validation_error = validate_sandbox_ast(module, authorized_imports, blocked_imports=blocked_imports)
         return HotEntry(module=module, error=validation_error)
     except RecursionError:
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def get_hot_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
+@deal.pre(
+    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
+    and _deal_sandbox_imports_ok(authorized_imports)
+    and _deal_sandbox_blocked_ok(blocked_imports)
+)
+def get_hot_entry(
+    code: str,
+    authorized_imports: Sequence[str],
+    blocked_imports: Sequence[str] | None = None,
+) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
     # crosshair: off
     if len(code) > _MAX_CACHED_SOURCE_CHARS:
-        return _build_entry(code, authorized_imports)
-    key = _cache_key(code, authorized_imports)
+        return _build_entry(code, authorized_imports, blocked_imports=blocked_imports)
+    key = _cache_key(code, authorized_imports, blocked_imports=blocked_imports)
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    entry = _build_entry(code, authorized_imports)
+    entry = _build_entry(code, authorized_imports, blocked_imports=blocked_imports)
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)

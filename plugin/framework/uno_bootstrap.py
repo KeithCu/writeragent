@@ -148,28 +148,16 @@ class AliasImporter:
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         if fullname != "writeragent" and not fullname.startswith("writeragent."):
             return None
-        # The venv checker treats writeragent.* as "any submodule" when that
-        # pattern is on the list. This hook then loaded the matching plugin
-        # module, including framework.config and LlmClient. Refuse unless the
-        # same allowlist accepts the plugin target or an explicit alias entry.
-        from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
-        if not import_authorized(fullname, VENV_AUTHORIZED_IMPORTS):
-            # Import walks parent packages before submodules
-            # ('writeragent.scripting' before 'writeragent.scripting.analysis').
-            # import_authorized rejects those intermediate names, so a parent
-            # of an authorized module still gets a package spec. The parent
-            # itself stays blocked; only the walk through it succeeds.
-            prefix = fullname + "."
-            real_prefix = (
-                fullname.replace("writeragent", "plugin", 1) + "."
-                if fullname.startswith("writeragent.")
-                else None
-            )
-            has_authorized_child = any(
-                (entry != "writeragent.*" and (entry.startswith(prefix) or (real_prefix is not None and entry.startswith(real_prefix))))
-                for entry in VENV_AUTHORIZED_IMPORTS
-            )
-            if not has_authorized_child:
+        # The sandbox import gate is default-allow, but AliasImporter remains an alias gate:
+        # writeragent.* may only resolve to public API modules or explicit extras.
+        # Calling import_authorized(fullname, ()) delegates extras to SANDBOX_EXTRA_MODULES.
+        from plugin.scripting.sandbox import alias_has_authorized_child, import_authorized
+
+        if not import_authorized(fullname, ()):
+            # Import walks parent packages before submodules ('writeragent.scripting'
+            # before 'writeragent.scripting.analysis'). If an authorized child exists,
+            # allow the walk through the parent to succeed.
+            if not alias_has_authorized_child(fullname):
                 return None
         if fullname == "writeragent":
             real_name = _WRITERAGENT_API

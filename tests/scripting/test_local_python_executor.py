@@ -125,12 +125,11 @@ def test_local_python_executor_does_not_import_tools():
 def test_direct_import_os_still_forbidden():
     executor = LocalPythonExecutor(additional_authorized_imports=["platform"])
     executor.send_tools({})
-    try:
-        executor("import os")
-    except InterpreterError as err:
-        assert "os" in str(err).lower() or "not allowed" in str(err).lower()
-    else:
-        raise AssertionError("import os must stay unauthorized")
+    executor("import os\nresult = hasattr(os, 'system')")
+    assert executor.state["result"] is False
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import subprocess")
+    assert "subprocess" in str(exc_info.value).lower() or "not allowed" in str(exc_info.value).lower()
 
 
 @pytest.mark.parametrize(
@@ -150,18 +149,19 @@ def test_platform_os_is_not_the_os_module(value, value_2, value_3):
         return
     raise AssertionError(value_3)
 
-def test_evaluate_import_does_not_dump_allowlist():
-    """Executor import failure must not dump the allowlist or expose duckdb."""
+def test_evaluate_import_hide_blocklist():
+    """Executor import failure must not dump the blocklist or expose duckdb."""
     import pytest
 
     executor = LocalPythonExecutor(additional_authorized_imports=["duckdb"])
     executor.send_tools({})
     with pytest.raises(InterpreterError) as exc_info:
-        executor("import os")
+        executor("import subprocess")
     msg = str(exc_info.value)
-    assert msg == "Import of os is not allowed."
+    assert msg == "Import of subprocess is not allowed."
     assert "duckdb" not in msg
     assert "Authorized imports" not in msg
+    assert "Blocked imports" not in msg
 
 
 def test_control_flow_not_swallowed_by_except_exception():
@@ -1273,7 +1273,7 @@ def test_slice9_timeout_validation_and_unwinding():
     assert val_at_timeout == val_after_wait
 
 
-def test_slice10_import_authorized_drift():
+def test_slice10_import_authorized_default_and_alias():
     from plugin.contrib.smolagents.local_python_executor import check_import_authorized
     from plugin.scripting.sandbox import import_authorized
 
@@ -1281,53 +1281,55 @@ def test_slice10_import_authorized_drift():
     assert check_import_authorized("", ["matplotlib"]) is False
 
     for check_fn in (import_authorized, check_import_authorized):
-        # 1. writeragent allowed when list contains only plugin.scripting.writeragent_api
-        assert check_fn("writeragent", ["plugin.scripting.writeragent_api"]) is True
-        assert check_fn("writeragent", ["other_pkg"]) is False
+        # 1. writeragent root is allowed as public alias root
+        assert check_fn("writeragent", ()) is True
+        assert check_fn("writeragent.vision", ()) is True
+        assert check_fn("writeragent.scripting.calc_functions", ()) is True
+        assert check_fn("writeragent.unknown_submodule", ()) is False
+        assert check_fn("writeragent.framework.config", ()) is False
 
-        # 2. writeragent.vision allowed when list contains plugin.vision or explicit alias
-        assert check_fn("writeragent.vision", ["plugin.vision"]) is True
-        assert check_fn("writeragent.vision", ["writeragent.vision"]) is True
-        assert check_fn("writeragent.vision", ["other_pkg"]) is False
+        # 2. plugin root and internal modules are blocked; public aliases allowed
+        assert check_fn("plugin", ()) is False
+        assert check_fn("plugin.framework.config", ()) is False
+        assert check_fn("plugin.scripting.calc_functions", ()) is True
 
-        # 3. matplotlib not allowed when list contains only matplotlib.pyplot
-        assert check_fn("matplotlib", ["matplotlib.pyplot"]) is False
+        # 3. Third-party and stdlib modules are default-allowed
+        assert check_fn("math", ()) is True
+        assert check_fn("matplotlib", ()) is True
+        assert check_fn("matplotlib.pyplot", ()) is True
 
-        # 4. matplotlib.pyplot not allowed when list contains only matplotlib (no star)
-        assert check_fn("matplotlib.pyplot", ["matplotlib"]) is False
-        # With star wildcard it is allowed
-        assert check_fn("matplotlib.pyplot", ["matplotlib.*"]) is True
-        assert check_fn("os", ["*"]) is False
-        assert check_fn("plugin.framework.config", ["*"]) is False
-        assert check_fn("math", ["*", "math"]) is True
+        # 4. Blocked modules reject unless extra matches
+        assert check_fn("subprocess", ()) is False
+        assert check_fn("subprocess", ["subprocess"]) is True
+        assert check_fn("subprocess", ["*"]) is False
+        assert check_fn("os", ()) is True
 
 
-def test_slice10_dotted_import_with_allowlist():
+def test_slice10_dotted_import_with_extra_modules():
     executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.*"])
     executor.send_tools({})
     executor("import xml.etree.ElementTree\nx = hasattr(xml, 'etree')")
     assert executor.state["x"] is True
 
 
-def test_b3_parent_module_rejected_when_only_child_listed():
-    """B3: with an allowlist naming only plugin.scripting.viz, importing plugin
-
+def test_b3_parent_module_rejected_when_only_child_is_extra():
+    """B3: with an extra list naming only plugin.scripting.viz, importing plugin
     and plugin.scripting must be REJECTED by the runtime import checker
     (check_import_authorized -> import_authorized), while plugin.scripting.viz is ACCEPTED.
     """
     from plugin.contrib.smolagents.local_python_executor import check_import_authorized
     from plugin.scripting.sandbox import import_authorized
 
-    allowlist = ["plugin.scripting.viz"]
+    extras = ["plugin.scripting.viz"]
 
     # 1. Direct checks on both import_authorized and check_import_authorized
     for check_fn in (import_authorized, check_import_authorized):
-        assert check_fn("plugin", allowlist) is False
-        assert check_fn("plugin.scripting", allowlist) is False
-        assert check_fn("plugin.scripting.viz", allowlist) is True
+        assert check_fn("plugin", extras) is False
+        assert check_fn("plugin.scripting", extras) is False
+        assert check_fn("plugin.scripting.viz", extras) is True
 
     # 2. Executing imports through LocalPythonExecutor
-    executor = LocalPythonExecutor(additional_authorized_imports=allowlist)
+    executor = LocalPythonExecutor(additional_authorized_imports=extras)
     executor.send_tools({})
 
     with pytest.raises(InterpreterError) as exc_info:
@@ -1362,8 +1364,8 @@ def test_future_annotations_and_collections_abc_execute():
     assert executor.state["result"] is True
 
     with pytest.raises(InterpreterError) as exc_info:
-        executor("import os")
-    assert str(exc_info.value) == "Import of os is not allowed."
+        executor("import subprocess")
+    assert str(exc_info.value) == "Import of subprocess is not allowed."
 
 
 def test_import_from_forbidden_dunder_attributes():
@@ -1415,10 +1417,10 @@ def test_operator_loader_and_spec_checks():
 
     with pytest.raises(InterpreterError) as exc_info:
         executor("import operator, collections\noperator.attrgetter('_collections_abc.sys._getframe')(collections)")
-    assert "Forbidden access to module" in str(exc_info.value)
+    assert "Forbidden access to function" in str(exc_info.value)
 
     import os
-    executor.send_variables({"f": os.listdir})
+    executor.send_variables({"f": os.remove})
     with pytest.raises(InterpreterError) as exc_info:
         executor('f(".")')
     assert "Forbidden" in str(exc_info.value)
@@ -2319,22 +2321,37 @@ def test_stable_tool_wrappers_and_safety_checks():
 def test_local_python_executor_empty_context():
     import socket as _real_socket
 
-    executor = LocalPythonExecutor(additional_authorized_imports=["socket"])
-    executor.send_tools({})
-    with pytest.raises(InterpreterError) as exc:
-        executor("import socket\nsocket.create_connection(('127.0.0.1', 9), timeout=1)")
-    assert "has no attribute create_connection" in str(exc.value)
-
-    executor.send_tools({"connect": _real_socket.create_connection})
-    with pytest.raises(InterpreterError) as exc_fn:
-        executor("connect(('127.0.0.1', 9), timeout=1)")
-    assert "Forbidden access to function" in str(exc_fn.value)
-
+    # No extras blocks socket:
     executor_default = LocalPythonExecutor(additional_authorized_imports=[])
     executor_default.send_tools({})
-    with pytest.raises(InterpreterError) as exc2:
-        executor_default("import os")
-    assert "Import of os is not allowed" in str(exc2.value)
+    with pytest.raises(InterpreterError) as exc_blocked:
+        executor_default("import socket")
+    assert "Import of socket is not allowed" in str(exc_blocked.value)
+
+    # Extra socket allows raw socket:
+    executor_sock = LocalPythonExecutor(additional_authorized_imports=["socket"])
+    executor_sock.send_tools({})
+    executor_sock("import socket\nres = hasattr(socket, 'create_connection')")
+    assert executor_sock.state["res"] is True
+
+    # Tool returning create_connection without extras raises Forbidden access to function:
+    executor_default.send_tools({"connect": _real_socket.create_connection})
+    with pytest.raises(InterpreterError) as exc_fn:
+        executor_default("connect(('127.0.0.1', 9), timeout=1)")
+    assert "Forbidden access to function" in str(exc_fn.value)
+
+    # Default import os succeeds via read-only proxy:
+    executor_default("import os\np = os.path.join('a', 'b')\nitems = os.listdir('.')")
+    assert executor_default.state["p"] in ("a/b", "a\\b")
+    assert isinstance(executor_default.state["items"], list)
+    with pytest.raises(InterpreterError) as exc_rm:
+        executor_default("import os\nos.remove('nonexistent')")
+    assert "Forbidden access to function" in str(exc_rm.value)
+    with pytest.raises(InterpreterError) as exc_mkdir:
+        executor_default("import os\nos.mkdir('test_dir')")
+    assert "Forbidden access to function" in str(exc_mkdir.value)
+    executor_default("import os\nhas_sys = hasattr(os, 'system')")
+    assert executor_default.state["has_sys"] is False
 
 
 def test_local_python_executor_network_relax():
@@ -2412,7 +2429,6 @@ scandir_type = type(scandir)
 
         for op in (
             "os.system('echo hi')",
-            "os.environ",
             "os.getpid()",
             "os.chdir('.')",
             "os.open('x', 0)",
@@ -2420,6 +2436,10 @@ scandir_type = type(scandir)
         ):
             with pytest.raises((InterpreterError, AttributeError)):
                 executor(f"import os\n{op}")
+
+        # os.environ read is allowed
+        executor("import os\nres_env = isinstance(os.environ, dict) or hasattr(os.environ, 'get')")
+        assert executor.state["res_env"] is True
 
         raw_mod = sys.modules.get("posix") or sys.modules.get("nt")
         raw_system = getattr(raw_mod, "system", None)
@@ -2439,12 +2459,11 @@ scandir_type = type(scandir)
         executor("from pathlib import Path\nPath(path_file).write_text('path-ok')")
         assert _real_os.path.exists(path_file)
 
-        # If subprocess is allowlisted, it is still empty under files relax
+        # If subprocess is allowlisted, it yields the raw module
         exec_sub = LocalPythonExecutor(additional_authorized_imports=["subprocess"])
         exec_sub.send_tools({})
         exec_sub("import subprocess")
-        assert not hasattr(exec_sub.state["subprocess"], "run")
-        assert not [x for x in dir(exec_sub.state["subprocess"]) if not x.startswith("_")]
+        assert hasattr(exec_sub.state["subprocess"], "run")
     finally:
         SANDBOX_POLICY_CONTEXT.reset(token)
 
@@ -2498,6 +2517,112 @@ sys_res = os.system("echo ok > /dev/null")
         with pytest.raises(InterpreterError) as exc_pty:
             executor("import pty")
         assert "Import of pty is not allowed" in str(exc_pty.value)
+    finally:
+        SANDBOX_POLICY_CONTEXT.reset(token)
+
+
+@pytest.mark.parametrize(
+    "mod_name",
+    [
+        "builtins",
+        "ctypes",
+        "importlib",
+        "pickle",
+        "marshal",
+        "shelve",
+        "dill",
+        "cloudpickle",
+        "runpy",
+        "zipimport",
+        "subprocess",
+        "pty",
+        "plugin.framework.config",
+        "writeragent.framework.config",
+    ],
+)
+def test_default_blocklist_blocks_host_escape_side_doors(mod_name: str) -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(f"import {mod_name}")
+    assert "not allowed" in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize("mod_name", ["subprocess", "ctypes", "pickle"])
+def test_extra_modules_override_host_escape(mod_name: str) -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[mod_name])
+    executor.send_tools({})
+    executor(f"import {mod_name}\nres = bool({mod_name})")
+    assert executor.state["res"] is True
+
+
+@pytest.mark.parametrize(
+    "mod_name",
+    [
+        "io",
+        "logging",
+        "glob",
+        "zipfile",
+        "gzip",
+        "bz2",
+        "lzma",
+        "asyncio",
+        "inspect",
+        "sys",
+        "signal",
+        "concurrent.futures",
+        "pathlib",
+    ],
+)
+def test_safe_modules_not_blocked(mod_name: str) -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    executor(f"import {mod_name}\nres = bool({mod_name})")
+    assert executor.state["res"] is True
+
+
+def test_process_callables_blocked_when_os_false():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import asyncio\nfn = asyncio.create_subprocess_exec")
+    assert "Forbidden access to function: create_subprocess_exec" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import asyncio\nfn = asyncio.create_subprocess_shell")
+    assert "Forbidden access to function: create_subprocess_shell" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import concurrent.futures\np = concurrent.futures.ProcessPoolExecutor")
+    assert "Forbidden access to function: ProcessPoolExecutor" in str(exc.value)
+
+    with pytest.raises(InterpreterError) as exc:
+        executor("import multiprocessing.pool\np = multiprocessing.pool.Pool")
+    assert "Import of multiprocessing.pool is not allowed" in str(exc.value)
+
+
+def test_process_callables_allowed_when_os_true():
+    from plugin.contrib.smolagents.local_python_executor import SANDBOX_POLICY_CONTEXT
+
+    token = SANDBOX_POLICY_CONTEXT.set((frozenset({"os"}), frozenset()))
+    try:
+        executor = LocalPythonExecutor(additional_authorized_imports=[])
+        executor.send_tools({})
+
+        executor("import asyncio\nfn = asyncio.create_subprocess_exec\nres = callable(fn)")
+        assert executor.state["res"] is True
+
+        executor("import asyncio\nfn = asyncio.create_subprocess_shell\nres = callable(fn)")
+        assert executor.state["res"] is True
+
+        executor("import concurrent.futures\np = concurrent.futures.ProcessPoolExecutor\nres = callable(p)")
+        assert executor.state["res"] is True
+
+        # multiprocessing stays blocked even with os=True
+        with pytest.raises(InterpreterError) as exc:
+            executor("import multiprocessing.pool\np = multiprocessing.pool.Pool")
+        assert "not allowed" in str(exc.value).lower()
     finally:
         SANDBOX_POLICY_CONTEXT.reset(token)
 

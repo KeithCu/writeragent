@@ -210,7 +210,7 @@ def _is_binding_xl_call(node: ast.Call) -> bool:
 
 
 def collect_safety_warnings(code: str) -> list[str]:
-    """Advisory checks: non-binding ``xl()``, imports outside the venv whitelist.
+    """Advisory checks: non-binding ``xl()``, imports blocked by the sandbox.
 
     ``xl("%Pn%")`` is the converted Excel shape (sandbox injects binding-only ``xl``).
     Warn only on A1 / dynamic / non-string forms that are not DAG-safe.
@@ -225,22 +225,36 @@ def collect_safety_warnings(code: str) -> list[str]:
         return warnings
 
     try:
-        from plugin.scripting.import_policy import venv_authorized_top_level_modules
+        from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
 
-        authorized = set(venv_authorized_top_level_modules())
+        blocked = policy_blocked_imports(build_sandbox_policy())
+
+        def is_blocked(name: str) -> bool:
+            return not import_authorized(name, (), blocked)
     except ImportError:
-        authorized = {"numpy", "pandas", "matplotlib", "seaborn", "scipy", "sklearn", "sympy"}
+        _FALLBACK_BLOCKED = (
+            "subprocess",
+            "socket",
+            "shutil",
+            "tempfile",
+            "sqlite3",
+            "pickle",
+            "importlib",
+            "ctypes",
+        )
+
+        def is_blocked(name: str) -> bool:
+            root = (name or "").split(".", 1)[0]
+            return root in _FALLBACK_BLOCKED
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                root = (alias.name or "").split(".", 1)[0]
-                if root and root not in authorized:
-                    warnings.append(f"import not in venv whitelist: {alias.name}")
+                if alias.name and is_blocked(alias.name):
+                    warnings.append(f"import is blocked by the Python sandbox: {alias.name}")
         elif isinstance(node, ast.ImportFrom) and node.module:
-            root = node.module.split(".", 1)[0]
-            if root and root not in authorized:
-                warnings.append(f"import not in venv whitelist: {node.module}")
+            if is_blocked(node.module):
+                warnings.append(f"import is blocked by the Python sandbox: {node.module}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "xl":
             if not _is_binding_xl_call(node):
                 warnings.append('non-binding xl() call (sandbox xl only resolves "%Pn%" formula bindings; no live sheet reads)')

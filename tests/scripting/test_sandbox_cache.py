@@ -45,12 +45,32 @@ def test_different_imports_fingerprint_separate_entries() -> None:
     assert a.module is not b.module
 
 
+def test_different_blocked_policies_separate_entries() -> None:
+    from plugin.scripting.sandbox import SANDBOX_BLOCKED_MODULES
+
+    code = "result = 1"
+    imports = ["math"]
+    token1 = SANDBOX_BLOCKED_MODULES.set(frozenset({"subprocess"}))
+    try:
+        e1 = get_hot_entry(code, imports)
+    finally:
+        SANDBOX_BLOCKED_MODULES.reset(token1)
+
+    token2 = SANDBOX_BLOCKED_MODULES.set(frozenset({"subprocess", "socket"}))
+    try:
+        e2 = get_hot_entry(code, imports)
+    finally:
+        SANDBOX_BLOCKED_MODULES.reset(token2)
+
+    assert e1.module is not e2.module
+
+
 def test_blocked_import_cached_error() -> None:
     imports = list(BASE_BUILTIN_MODULES)
-    code = "import os\nresult = 1"
+    code = "import subprocess\nresult = 1"
     e1 = get_hot_entry(code, imports)
     assert e1.error is not None
-    assert "os" in e1.error
+    assert "subprocess" in e1.error
     with patch("plugin.scripting.sandbox_cache.validate_sandbox_ast") as mock_validate:
         e2 = get_hot_entry(code, imports)
         mock_validate.assert_not_called()
@@ -108,7 +128,7 @@ def test_validate_sandbox_ast_rejects_global() -> None:
     assert "Global" in err
 
 
-def test_validate_sandbox_ast_writeragent_star_does_not_allow_secrets() -> None:
+def test_validate_sandbox_ast_writeragent_star_still_blocks_secrets() -> None:
     """A passed-in writeragent.* must not authorize config or LlmClient."""
     allowed = ["writeragent.*", "plugin.scripting.analysis", "duckdb", "duckdb.*"]
     config_err = validate_sandbox_ast(ast.parse("import writeragent.framework.config"), allowed)
@@ -133,7 +153,7 @@ def test_validate_sandbox_ast_allows_future_and_collections_abc() -> None:
     assert validate_sandbox_ast(ast.parse("from __future__ import annotations\nresult = 1\n"), imports) is None
     assert validate_sandbox_ast(ast.parse("import collections.abc\n"), imports) is None
     assert validate_sandbox_ast(ast.parse("from collections.abc import Mapping\n"), imports) is None
-    assert validate_sandbox_ast(ast.parse("import os\n"), ["*"]) == "Import of os is not allowed."
+    assert validate_sandbox_ast(ast.parse("import subprocess\n"), ["*"]) == "Import of subprocess is not allowed."
 
 
 def test_recursion_error_is_parse_error() -> None:
@@ -214,12 +234,23 @@ def test_null_byte_source_is_parse_error() -> None:
     assert "\n" not in entry.error
 
 
-def test_allowlist_entries_fit_cache_key() -> None:
+def test_blocked_entries_fit_cache_key() -> None:
+    from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES
     from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as SMOL_BASE_BUILTIN_MODULES
     from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+    from plugin.scripting.sandbox import (
+        FILE_BLOCKED_MODULES,
+        NETWORK_BLOCKED_MODULES,
+        VENV_AUTHORIZED_IMPORTS,
+    )
 
-    for seq in (SMOL_BASE_BUILTIN_MODULES, VENV_AUTHORIZED_IMPORTS):
+    for seq in (
+        DANGEROUS_MODULES,
+        NETWORK_BLOCKED_MODULES,
+        FILE_BLOCKED_MODULES,
+        SMOL_BASE_BUILTIN_MODULES,
+        VENV_AUTHORIZED_IMPORTS,
+    ):
         for name in seq:
             assert "\0" not in name
             assert "\n" not in name

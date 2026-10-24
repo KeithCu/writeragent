@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Tests for plugin.scripting.sandbox (whitelist host utilities + path resolution)."""
+"""Tests for plugin.scripting.sandbox (import blocklist host utilities + path resolution)."""
 
 from __future__ import annotations
 
@@ -523,7 +523,7 @@ def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:
 
 
 def test_import_authorized_alias_uses_plugin_allowlist() -> None:
-    """writeragent.X follows plugin.X. A blanket writeragent.* does not open config."""
+    """writeragent.X follows plugin.X. A blanket writeragent.* is ignored and public aliases are gated separately."""
     from plugin.scripting.sandbox import import_authorized
 
     allowed = [
@@ -545,13 +545,12 @@ def test_import_authorized_alias_uses_plugin_allowlist() -> None:
 def test_import_authorized_explicit_alias_without_plugin_entry() -> None:
     from plugin.scripting.sandbox import import_authorized
 
-    allowed = ["writeragent.vision", "writeragent.scripting.duckdb_sql", "writeragent.*"]
-    assert import_authorized("writeragent.vision", allowed) is True
-    assert import_authorized("writeragent.scripting.duckdb_sql", allowed) is True
-    assert import_authorized("writeragent.vision.venv.vision", allowed) is False
-    assert import_authorized("plugin.vision", allowed) is False
-    assert import_authorized("plugin.scripting.duckdb_sql", allowed) is False
-    assert import_authorized("writeragent.framework.config", allowed) is False
+    assert import_authorized("writeragent.vision", ()) is True
+    assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True
+    assert import_authorized("writeragent.vision.venv.vision", ()) is False
+    assert import_authorized("plugin.vision", ()) is False
+    assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
+    assert import_authorized("writeragent.framework.config", ()) is False
 
 
 def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
@@ -566,34 +565,36 @@ def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
         if entry.startswith("plugin."):
             mirror = "writeragent." + entry[len("plugin."):]
             assert mirror in VENV_AUTHORIZED_IMPORTS
-    assert import_authorized("import-not-used", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("writeragent.framework.config", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("writeragent.framework.client.llm_client", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("writeragent.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("writeragent.vision", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("writeragent.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("duckdb", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("duckdb.functional", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("import-not-used", ()) is True
+    assert import_authorized("subprocess", ()) is False
+    assert import_authorized("writeragent.framework.config", ()) is False
+    assert import_authorized("writeragent.framework.client.llm_client", ()) is False
+    assert import_authorized("writeragent.scripting.analysis", ()) is True
+    assert import_authorized("writeragent.vision", ()) is True
+    assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True
+    assert import_authorized("duckdb", ()) is True
+    assert import_authorized("duckdb.functional", ()) is True
+    assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
 
 
 def test_import_authorized_intermediate_nodes_rejected() -> None:
     """Intermediate nodes (plugin, plugin.scripting, writeragent.scripting) must not be authorized."""
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+    from plugin.scripting.sandbox import import_authorized
 
-    assert import_authorized("plugin", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("plugin.scripting", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("writeragent.scripting", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("plugin.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("writeragent.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("plugin", ()) is False
+    assert import_authorized("plugin.scripting", ()) is False
+    assert import_authorized("writeragent.scripting", ()) is False
+    assert import_authorized("plugin.scripting.analysis", ()) is True
+    assert import_authorized("writeragent.scripting.analysis", ()) is True
 
     # Wildcard prefix tests: 'a.b.*' must allow 'a.b' and 'a.b.x' but reject 'a' or 'a.bc'.
     policy = ["a.b.*"]
-    assert import_authorized("a", policy) is False
-    assert import_authorized("a.b", policy) is True
-    assert import_authorized("a.b.c", policy) is True
-    assert import_authorized("a.b.c.d", policy) is True
-    assert import_authorized("a.bc", policy) is False
+    blocked = ["a"]
+    assert import_authorized("a", policy, blocked_imports=blocked) is False
+    assert import_authorized("a.b", policy, blocked_imports=blocked) is True
+    assert import_authorized("a.b.c", policy, blocked_imports=blocked) is True
+    assert import_authorized("a.b.c.d", policy, blocked_imports=blocked) is True
+    assert import_authorized("a.bc", policy, blocked_imports=blocked) is False
 
 
 def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_abc() -> None:
@@ -602,12 +603,17 @@ def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_a
     assert import_authorized("__future__", BASE_BUILTIN_MODULES) is True
     assert import_authorized("collections.abc", BASE_BUILTIN_MODULES) is True
     assert import_authorized("collections", BASE_BUILTIN_MODULES) is True
-    assert import_authorized("concurrent.futures", BASE_BUILTIN_MODULES) is False
-    assert import_authorized("json.tool", BASE_BUILTIN_MODULES) is False
-    assert import_authorized("os", ["*"]) is False
+    assert import_authorized("concurrent.futures", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("json.tool", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("sys", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("io", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("pathlib", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("pickle", BASE_BUILTIN_MODULES) is False
+    assert import_authorized("subprocess", BASE_BUILTIN_MODULES) is False
+    assert import_authorized("subprocess", ["*"]) is False
     assert import_authorized("plugin.framework.config", ["*"]) is False
     assert import_authorized("math", ["*", "math"]) is True
-    assert import_authorized("matplotlib.pyplot", ["matplotlib"]) is False
+    assert import_authorized("matplotlib.pyplot", ["matplotlib"]) is True
     assert import_authorized("matplotlib.pyplot", ["matplotlib.*"]) is True
 
 
@@ -802,20 +808,20 @@ def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None
         if not entry.startswith("plugin."):
             continue
         alias = "writeragent." + entry[len("plugin.") :]
-        assert import_authorized(alias, VENV_AUTHORIZED_IMPORTS) == import_authorized(
-            entry, VENV_AUTHORIZED_IMPORTS
+        assert import_authorized(alias, ()) == import_authorized(
+            entry, ()
         )
         if entry.endswith(".*"):
             prefix = entry[: -2]
             child = prefix + ".child"
             alias_child = "writeragent." + child[len("plugin.") :]
-            assert import_authorized(alias_child, VENV_AUTHORIZED_IMPORTS) == import_authorized(
-                child, VENV_AUTHORIZED_IMPORTS
+            assert import_authorized(alias_child, ()) == import_authorized(
+                child, ()
             )
-    assert import_authorized("writeragent.vision", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("plugin.vision", VENV_AUTHORIZED_IMPORTS) is False
-    assert import_authorized("writeragent.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.vision", ()) is True
+    assert import_authorized("plugin.vision", ()) is False
+    assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True
+    assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
 
 
 def test_sandbox_policy_module_yaml_keys() -> None:
@@ -862,19 +868,26 @@ def test_sandbox_policy_module_yaml_keys() -> None:
 
 def test_sandbox_policy_defaults() -> None:
     from plugin.scripting.sandbox import (
-        VENV_AUTHORIZED_IMPORTS,
         build_sandbox_policy,
         policy_allowlist,
+        policy_blocked_imports,
         policy_relaxed_roots,
     )
 
     p = build_sandbox_policy()
-    assert policy_allowlist(p) == list(VENV_AUTHORIZED_IMPORTS)
+    assert policy_allowlist(p) == []
+    blocked = policy_blocked_imports(p)
+    assert "subprocess" in blocked
+    assert "socket" in blocked
+    assert "importlib" in blocked
+    assert "pickle" in blocked
+    assert "os" not in blocked
     assert policy_relaxed_roots(p) == frozenset()
 
 
 def test_sandbox_policy_network() -> None:
     from plugin.scripting.sandbox import (
+        NETWORK_BLOCKED_MODULES,
         build_sandbox_policy,
         import_authorized,
         policy_allowlist,
@@ -883,11 +896,14 @@ def test_sandbox_policy_network() -> None:
 
     p = build_sandbox_policy(network=True)
     allowed = policy_allowlist(p)
+    for mod in NETWORK_BLOCKED_MODULES:
+        assert mod in allowed
     assert import_authorized("socket", allowed) is True
     assert import_authorized("http.client", allowed) is True
     assert import_authorized("urllib.request", allowed) is True
     assert import_authorized("ssl", allowed) is True
-    assert import_authorized("requests", allowed) is False
+    assert import_authorized("requests", allowed) is True
+    assert import_authorized("httpx", allowed) is True
     assert policy_relaxed_roots(p) == frozenset({"socket"})
 
 
@@ -902,13 +918,14 @@ def test_sandbox_policy_files() -> None:
     p = build_sandbox_policy(files=True)
     allowed = policy_allowlist(p)
     assert import_authorized("os", allowed) is True
-    assert import_authorized("os.path", allowed) is False
+    assert import_authorized("os.path", allowed) is True
     assert import_authorized("posixpath", allowed) is True
     assert import_authorized("pathlib", allowed) is True
     assert import_authorized("pathlib.Path", allowed) is True
     assert import_authorized("shutil", allowed) is True
     assert import_authorized("io", allowed) is True
     assert import_authorized("tempfile", allowed) is True
+    assert import_authorized("sqlite3", allowed) is True
     assert import_authorized("glob", allowed) is True
     assert import_authorized("subprocess", allowed) is False
     assert policy_relaxed_roots(p) == frozenset({"shutil", "pathlib", "io"})
@@ -987,5 +1004,81 @@ def test_sandbox_policy_digest() -> None:
     d_os = policy_digest(build_sandbox_policy(os_=True))
     d_extra = policy_digest(build_sandbox_policy(extra=("foo",)))
     assert len({d0, d_net, d_files, d_os, d_extra}) == 5
+
+
+def test_policy_blocked_imports_drops_flag_and_extra_entries() -> None:
+    from plugin.scripting.sandbox import (
+        FILE_BLOCKED_MODULES,
+        NETWORK_BLOCKED_MODULES,
+        build_sandbox_policy,
+        policy_blocked_imports,
+    )
+
+    default_blocked = set(policy_blocked_imports(build_sandbox_policy()))
+    assert "subprocess" in default_blocked
+    assert "socket" in default_blocked
+    assert "shutil" in default_blocked
+    assert "os" not in default_blocked
+
+    net_blocked = set(policy_blocked_imports(build_sandbox_policy(network=True)))
+    for mod in NETWORK_BLOCKED_MODULES:
+        assert mod not in net_blocked
+
+    files_blocked = set(policy_blocked_imports(build_sandbox_policy(files=True)))
+    for mod in FILE_BLOCKED_MODULES:
+        assert mod not in files_blocked
+    assert "os" not in files_blocked
+
+    os_blocked = set(policy_blocked_imports(build_sandbox_policy(os_=True)))
+    assert "subprocess" not in os_blocked
+
+    extra_blocked = set(policy_blocked_imports(build_sandbox_policy(extra=("requests",))))
+    assert "requests" not in extra_blocked
+
+
+def test_import_authorized_default_allows_safe_stdlib() -> None:
+    from plugin.scripting.sandbox import import_authorized
+
+    for safe_mod in (
+        "io",
+        "logging",
+        "glob",
+        "zipfile",
+        "gzip",
+        "bz2",
+        "lzma",
+        "asyncio",
+        "inspect",
+        "sys",
+        "signal",
+        "concurrent.futures",
+        "pathlib",
+    ):
+        assert import_authorized(safe_mod, ()) is True
+
+    for blocked_mod in ("subprocess", "pickle", "importlib", "builtins", "ctypes"):
+        assert import_authorized(blocked_mod, ()) is False
+
+
+def test_extra_modules_override_name_star() -> None:
+    from plugin.scripting.sandbox import import_authorized
+
+    assert import_authorized("subprocess", ()) is False
+    assert import_authorized("subprocess.run", ["subprocess"]) is True
+    assert import_authorized("subprocess", ["subprocess"]) is True
+
+    assert import_authorized("a", ["a.b"], blocked_imports=["a"]) is False
+    assert import_authorized("a.b", ["a.b"], blocked_imports=["a"]) is True
+    assert import_authorized("a.b.c", ["a.b"], blocked_imports=["a"]) is True
+
+
+def test_plugin_public_alias_allowed_but_framework_blocked() -> None:
+    from plugin.scripting.sandbox import import_authorized
+
+    assert import_authorized("plugin.scripting.analysis", ()) is True
+    assert import_authorized("writeragent.scripting.analysis", ()) is True
+    assert import_authorized("plugin.framework.config", ()) is False
+    assert import_authorized("writeragent.framework.config", ()) is False
+
 
 

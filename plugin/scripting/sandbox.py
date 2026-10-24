@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Host-side venv sandbox boundary: import whitelist, subprocess spawn env, interpreter resolution."""
+"""Host-side venv sandbox boundary: import blocklist, subprocess spawn env, interpreter resolution."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import functools
 import hashlib
 import os
 import sys
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -64,16 +65,29 @@ try:
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
 except (ImportError, ModuleNotFoundError):
     DANGEROUS_MODULES = (
-        "builtins",
-        "io",
-        "multiprocessing",
-        "os",
-        "pathlib",
-        "pty",
-        "shutil",
-        "socket",
         "subprocess",
-        "sys",
+        "_posixsubprocess",
+        "ctypes",
+        "_ctypes",
+        "cffi",
+        "pty",
+        "multiprocessing",
+        "_multiprocessing",
+        "builtins",
+        "importlib",
+        "_frozen_importlib",
+        "_frozen_importlib_external",
+        "zipimport",
+        "runpy",
+        "pickle",
+        "marshal",
+        "shelve",
+        "dill",
+        "cloudpickle",
+        "posix",
+        "nt",
+        "plugin",
+        "writeragent.framework",
     )
 
 
@@ -246,36 +260,109 @@ def _matches_allowlist(name: str, exact: frozenset[str], wildcards: tuple[str, .
     return any(name.startswith(p) for p in wildcards)
 
 
-def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
-    """Whether *name* is on the sandbox import allowlist.
+def _matches_prefix(
+    name: str,
+    entries: Sequence[str] | frozenset[str] | set[str] | tuple[str, ...],
+) -> bool:
+    """Prefix matching for blocklist and extra overrides.
 
-    An intermediate trie node such as 'plugin' or 'plugin.scripting' is not
-    an authorized import. Require an exact allowlist entry or a wildcard
-    prefix ('a.b.*' matching 'a.b' and 'a.b.<child>'). Precompute exact names
-    and wildcard prefixes per allowlist instead of rebuilding the trie on
-    every check.
+    An entry ending in '.*' is normalized to its root. '*' and 'writeragent.*'
+    are ignored. An exact 'writeragent' entry is exact-only (never a prefix),
+    so a list containing the public root cannot re-open writeragent.framework.
+    """
+    if not name:
+        return False
+    for entry in entries:
+        if not entry or entry == "*" or entry == "writeragent.*":
+            continue
+        if entry.endswith(".*"):
+            entry = entry[:-2]
+            if not entry:
+                continue
+        if entry == "writeragent":
+            if name == "writeragent":
+                return True
+            continue
+        if name == entry or name.startswith(entry + "."):
+            return True
+    return False
 
-    A ``writeragent.*`` import is allowed only when the plugin module
-    AliasImporter would load is on the same list, or the alias itself is an
-    explicit entry. The blanket pattern ``writeragent.*`` is ignored: it
-    authorized every alias, and the hook then loaded ``plugin.framework.config``
-    and ``LlmClient``. A bare ``*`` entry is ignored; it used to compile to a
-    wildcard prefix of ``""`` and authorize every module, including ``os``.
-    ``name.*`` entries are unchanged. Names that are not aliases, including
-    ``duckdb`` and ``duckdb.*``, are checked against the precomputed allowlist.
+
+def import_authorized(
+    name: str,
+    authorized_imports: Sequence[str] | None = None,
+    blocked_imports: Sequence[str] | None = None,
+) -> bool:
+    """Whether *name* is allowed by the sandbox import policy.
+
+    Default-allow with a short explicit blocklist. Order:
+    1. explicit extras (authorized_imports or SANDBOX_EXTRA_MODULES) win;
+    2. public alias list (VENV_AUTHORIZED_IMPORTS) is the alias gate;
+    3. non-public writeragent.* alias is rejected;
+    4. otherwise rejected if name matches active blocklist.
     """
     # crosshair: off
-    tuple_imports = tuple(authorized_imports)
-    exact, wildcards = _compile_allowlist(tuple_imports)
-    if _matches_allowlist(name, exact, wildcards):
-        return True
+    if not name:
+        return False
+    extras = tuple(authorized_imports) if authorized_imports else tuple(active_extra_imports())
     real = _alias_real_module(name)
-    return real is not None and _matches_allowlist(real, exact, wildcards)
+    if _matches_prefix(name, extras) or (real is not None and _matches_prefix(real, extras)):
+        return True
+    exact, wildcards = _compile_allowlist(VENV_AUTHORIZED_IMPORTS)
+    if _matches_allowlist(name, exact, wildcards) or (
+        real is not None and _matches_allowlist(real, exact, wildcards)
+    ):
+        return True
+    if real is not None:
+        return False
+    blocked = tuple(blocked_imports) if blocked_imports is not None else tuple(active_blocked_imports())
+    return not _matches_prefix(name, blocked)
 
 
 # --- Python sandbox policy flags and os proxy allowlist ---
 
-FILE_OS_NAMES: tuple[str, ...] = (
+SANDBOX_BLOCKED_MODULES: ContextVar[frozenset[str] | None] = ContextVar(
+    "sandbox_blocked_modules", default=None
+)
+SANDBOX_EXTRA_MODULES: ContextVar[frozenset[str] | None] = ContextVar(
+    "sandbox_extra_modules", default=None
+)
+
+NETWORK_BLOCKED_MODULES: tuple[str, ...] = (
+    "socket",
+    "requests",
+    "urllib",
+    "urllib3",
+    "http",
+    "httpx",
+    "ssl",
+    "_socket",
+    "_ssl",
+    "httpcore",
+    "h11",
+    "h2",
+    "aiohttp",
+    "websockets",
+    "websocket",
+    "paramiko",
+    "ftplib",
+    "smtplib",
+    "poplib",
+    "imaplib",
+    "nntplib",
+    "telnetlib",
+    "xmlrpc",
+    "socketserver",
+    "dns",
+)
+
+FILE_BLOCKED_MODULES: tuple[str, ...] = (
+    "shutil",
+    "tempfile",
+    "sqlite3",
+)
+
+FILE_OS_READ_NAMES: tuple[str, ...] = (
     # Module
     "path",
     # Directories
@@ -283,31 +370,13 @@ FILE_OS_NAMES: tuple[str, ...] = (
     "scandir",
     "walk",
     "fwalk",
-    "mkdir",
-    "makedirs",
-    "rmdir",
-    "removedirs",
     "getcwd",
     "getcwdb",
-    # Files
-    "remove",
-    "unlink",
-    "rename",
-    "renames",
-    "replace",
-    "truncate",
     # Metadata
     "stat",
     "lstat",
     "access",
-    "chmod",
-    "lchmod",
-    "chown",
-    "lchown",
-    "utime",
     # Links
-    "symlink",
-    "link",
     "readlink",
     # Path helpers and types
     "fspath",
@@ -332,36 +401,83 @@ FILE_OS_NAMES: tuple[str, ...] = (
     "SEEK_SET",
     "SEEK_CUR",
     "SEEK_END",
+    # Environment reads
+    "environ",
+    "getenv",
 )
 
-_NETWORK_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
-    "socket",
-    "http",
-    "http.*",
-    "urllib",
-    "urllib.*",
-    "ssl",
-    "ssl.*",
+FILE_OS_WRITE_NAMES: tuple[str, ...] = (
+    # Directories
+    "mkdir",
+    "makedirs",
+    "rmdir",
+    "removedirs",
+    # Files
+    "remove",
+    "unlink",
+    "rename",
+    "renames",
+    "replace",
+    "truncate",
+    # Metadata
+    "chmod",
+    "lchmod",
+    "chown",
+    "lchown",
+    "utime",
+    # Links
+    "symlink",
+    "link",
+    # Environment writes
+    "putenv",
+    "unsetenv",
 )
 
-_FILES_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
-    "os",
-    "posixpath",
-    "ntpath",
-    "genericpath",
-    "pathlib",
-    "pathlib.*",
-    "shutil",
-    "io",
-    "tempfile",
-    "glob",
-)
+FILE_OS_NAMES: tuple[str, ...] = FILE_OS_READ_NAMES + FILE_OS_WRITE_NAMES
 
-_OS_ALLOWLIST_ADDITIONS: tuple[str, ...] = (
-    "os.*",
-    "subprocess",
-    "subprocess.*",
-)
+
+def active_blocked_imports() -> frozenset[str]:
+    """Active blocked imports from context if set, else default policy blocklist."""
+    ctx_blocked = SANDBOX_BLOCKED_MODULES.get()
+    if ctx_blocked is not None:
+        return ctx_blocked
+    return frozenset(policy_blocked_imports(build_sandbox_policy()))
+
+
+def active_extra_imports() -> frozenset[str]:
+    """Active extra modules from context if set, else empty frozenset."""
+    ctx_extra = SANDBOX_EXTRA_MODULES.get()
+    if ctx_extra is not None:
+        return ctx_extra
+    return frozenset()
+
+
+def alias_has_authorized_child(fullname: str) -> bool:
+    """Parent package walk for AliasImporter: returns True if fullname has an authorized child."""
+    if not fullname:
+        return False
+    prefix = fullname + "."
+    real_prefix = (
+        fullname.replace("writeragent", "plugin", 1) + "."
+        if fullname.startswith("writeragent.")
+        else None
+    )
+    candidates = set(VENV_AUTHORIZED_IMPORTS)
+    for extra in active_extra_imports():
+        candidates.add(extra)
+        if extra.startswith("plugin."):
+            candidates.add("writeragent." + extra[len("plugin.") :])
+        elif extra.startswith("writeragent."):
+            candidates.add("plugin." + extra[len("writeragent.") :])
+
+    for entry in candidates:
+        if entry == "writeragent.*" or entry == "*":
+            continue
+        if entry.endswith(".*"):
+            entry = entry[:-2]
+        if entry.startswith(prefix) or (real_prefix is not None and entry.startswith(real_prefix)):
+            return True
+    return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -405,16 +521,31 @@ def build_sandbox_policy(
 
 
 def policy_allowlist(policy: SandboxPolicy) -> list[str]:
-    result = list(VENV_AUTHORIZED_IMPORTS)
+    result: list[str] = []
     if policy.network:
-        result.extend(_NETWORK_ALLOWLIST_ADDITIONS)
-    if policy.files or policy.os:
-        result.extend(_FILES_ALLOWLIST_ADDITIONS)
+        result.extend(NETWORK_BLOCKED_MODULES)
+    if policy.files:
+        result.extend(FILE_BLOCKED_MODULES)
     if policy.os:
-        result.extend(_OS_ALLOWLIST_ADDITIONS)
-    for name in policy.extra:
-        result.extend([name, f"{name}.*"])
-    return result
+        result.extend(("subprocess",))
+    result.extend(policy.extra)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in result:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
+
+
+def policy_blocked_imports(policy: SandboxPolicy) -> list[str]:
+    blocked = set(DANGEROUS_MODULES)
+    if not policy.network:
+        blocked.update(NETWORK_BLOCKED_MODULES)
+    if not policy.files:
+        blocked.update(FILE_BLOCKED_MODULES)
+    allowed = tuple(policy_allowlist(policy))
+    return sorted(b for b in blocked if not _matches_prefix(b, allowed))
 
 
 def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:

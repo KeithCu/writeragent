@@ -471,22 +471,45 @@ _IMPORT_OVERRIDABLE_TOOLS = frozenset(
     if getattr(v, "__module__", None) == "math" or v is getattr(math, k, None)
 )
 
-# Non-exhaustive list of dangerous modules that should not be imported
+# Canonical always-blocked dangerous modules (host escape, process spawn, native code, dynamic import, serialization, raw OS, internals)
 DANGEROUS_MODULES = [
-    "builtins",
-    "io",
-    "multiprocessing",
-    "os",
-    "pathlib",
-    "pty",
-    "shutil",
-    "socket",
+    # Process / native code
     "subprocess",
-    "sys",
+    "_posixsubprocess",
+    "ctypes",
+    "_ctypes",
+    "cffi",
+    "pty",
+    "multiprocessing",
+    "_multiprocessing",
+    # Dynamic import / builtins side doors
+    "builtins",
+    "importlib",
+    "_frozen_importlib",
+    "_frozen_importlib_external",
+    "zipimport",
+    "runpy",
+    # Code-running deserialization
+    "pickle",
+    "marshal",
+    "shelve",
+    "dill",
+    "cloudpickle",
+    # Raw OS modules (bypass the os proxy)
+    "posix",
+    "nt",
+    # Plugin / alias internals
+    "plugin",
+    "writeragent.framework",
 ]
 
-_DANGEROUS_CALLABLE_MODULES = frozenset(m for m in DANGEROUS_MODULES if m != "builtins") | {"posix", "nt"}
+_DANGEROUS_CALLABLE_MODULES = (
+    frozenset(m for m in DANGEROUS_MODULES if m not in ("builtins", "plugin", "writeragent.framework"))
+    | {"os", "socket", "_socket", "shutil", "tempfile", "sqlite3"}
+)
 _DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
+_DANGEROUS_SYS_FUNCTIONS = frozenset({"_getframe", "_current_frames", "settrace", "setprofile"})
+_PROCESS_CALLABLE_NAMES = frozenset({"create_subprocess_exec", "create_subprocess_shell", "ProcessPoolExecutor"})
 
 SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = ContextVar(
     "sandbox_policy_context", default=(frozenset(), frozenset())
@@ -495,19 +518,50 @@ SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = Cont
 
 def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None) -> None:
     if isinstance(val, ModuleType):
+        relaxed_roots, _ = SANDBOX_POLICY_CONTEXT.get()
+        extras_roots = {entry.split(".", 1)[0] for entry in authorized_imports} if authorized_imports else set()
+        try:
+            from plugin.scripting.sandbox import active_extra_imports
+
+            for entry in active_extra_imports():
+                extras_roots.add(entry.split(".", 1)[0])
+        except (ImportError, ModuleNotFoundError):
+            pass
+        os_allowed = ("os" in relaxed_roots) or ("os" in extras_roots)
+        if val.__name__ == "os" and not isinstance(val, _FileOsProxy) and not os_allowed:
+            raise InterpreterError(f"Forbidden access to module: {val.__name__}")
         if not check_import_authorized(val.__name__, authorized_imports or []):
             raise InterpreterError(f"Forbidden access to module: {val.__name__}")
-    elif isinstance(val, (FunctionType, BuiltinFunctionType)):
+    elif callable(val):
         mod = getattr(val, "__module__", None)
+        fn_name = getattr(val, "__name__", "")
         if mod:
             root = mod.split(".")[0]
             relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
+            extras_roots = {entry.split(".", 1)[0] for entry in authorized_imports} if authorized_imports else set()
+            try:
+                from plugin.scripting.sandbox import active_extra_imports
+
+                for entry in active_extra_imports():
+                    extras_roots.add(entry.split(".", 1)[0])
+            except (ImportError, ModuleNotFoundError):
+                pass
+            allowed_file_ids = file_os_ids or _get_default_file_os_ids()
             if root in _DANGEROUS_CALLABLE_MODULES:
                 # os file functions are posix callables, hence the id set.
-                if root not in relaxed_roots and id(val) not in file_os_ids:
-                    raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
-            if root == "builtins" and getattr(val, "__name__", "") in _DANGEROUS_BUILTIN_FUNCTIONS:
-                raise InterpreterError(f"Forbidden access to function: {getattr(val, '__name__', '')}")
+                if root not in relaxed_roots and id(val) not in allowed_file_ids and root not in extras_roots:
+                    raise InterpreterError(f"Forbidden access to function: {fn_name}")
+            if root == "builtins" and fn_name in _DANGEROUS_BUILTIN_FUNCTIONS:
+                if "builtins" not in extras_roots:
+                    raise InterpreterError(f"Forbidden access to function: {fn_name}")
+            if root == "sys" and fn_name in _DANGEROUS_SYS_FUNCTIONS:
+                if "sys" not in extras_roots:
+                    raise InterpreterError(f"Forbidden access to function: {fn_name}")
+
+            os_allowed = ("os" in relaxed_roots) or ("os" in extras_roots) or ("subprocess" in extras_roots)
+            if not os_allowed:
+                if fn_name in _PROCESS_CALLABLE_NAMES or mod.startswith("concurrent.futures.process"):
+                    raise InterpreterError(f"Forbidden access to function: {fn_name}")
 
 
 _SAFE_RESULT_TYPES = frozenset({
@@ -702,8 +756,8 @@ def timeout(timeout_seconds: Any):
 def check_import_authorized(import_to_check: str, authorized_imports: list[str]) -> bool:
     if not import_to_check:
         return False
-    # Bugfix: import_authorized and check_import_authorized previously diverged
-    # on package parents, aliases, and wildcards. Delegate directly to import_authorized.
+    # Check whether an import is authorized against the sandbox blocklist and extras.
+    # Delegate directly to import_authorized.
     from plugin.scripting.sandbox import import_authorized
 
     return import_authorized(import_to_check, authorized_imports)
@@ -1757,14 +1811,6 @@ def evaluate_with(
 
 
 
-def _dangerous_module_name(name: str) -> bool:
-    """True for os/sys/subprocess and the rest of DANGEROUS_MODULES (including nested posix.os)."""
-    if not name:
-        return False
-    root = name.split(".", 1)[0]
-    return name in DANGEROUS_MODULES or root in DANGEROUS_MODULES
-
-
 _REAL_MODULES: dict[int, ModuleType] = {}
 
 
@@ -1839,24 +1885,43 @@ class _FileOsProxy(ModuleType):
 
 
 _FILE_OS_PROXY: _FileOsProxy | None = None
-_FILE_OS_IDS: frozenset[int] | None = None
+_FILE_OS_READ_IDS: frozenset[int] | None = None
+_FILE_OS_WRITE_IDS: frozenset[int] | None = None
 
 
-def get_file_os_proxy() -> tuple[_FileOsProxy, frozenset[int]]:
-    global _FILE_OS_PROXY, _FILE_OS_IDS
+def _get_default_file_os_ids() -> frozenset[int]:
+    global _FILE_OS_READ_IDS
+    if _FILE_OS_READ_IDS is None:
+        get_file_os_proxy(files=False)
+    assert _FILE_OS_READ_IDS is not None
+    return _FILE_OS_READ_IDS
+
+
+def get_file_os_proxy(files: bool = True) -> tuple[_FileOsProxy, frozenset[int]]:
+    global _FILE_OS_PROXY, _FILE_OS_READ_IDS, _FILE_OS_WRITE_IDS
     if _FILE_OS_PROXY is None:
         import os as _real_os
+        from plugin.scripting.sandbox import FILE_OS_READ_NAMES, FILE_OS_WRITE_NAMES
 
         proxy = _FileOsProxy(_real_os)
-        func_ids: set[int] = set()
-        for name in _FILE_OS_NAMES_SET:
-            val = getattr(proxy, name)
+        read_ids: set[int] = set()
+        for name in FILE_OS_READ_NAMES:
+            val = getattr(proxy, name, None)
             if callable(val):
-                func_ids.add(id(val))
+                read_ids.add(id(val))
+        write_ids: set[int] = set()
+        for name in FILE_OS_WRITE_NAMES:
+            val = getattr(proxy, name, None)
+            if callable(val):
+                write_ids.add(id(val))
         _FILE_OS_PROXY = proxy
-        _FILE_OS_IDS = frozenset(func_ids)
-    assert _FILE_OS_IDS is not None
-    return _FILE_OS_PROXY, _FILE_OS_IDS
+        _FILE_OS_READ_IDS = frozenset(read_ids)
+        _FILE_OS_WRITE_IDS = frozenset(write_ids)
+    assert _FILE_OS_PROXY is not None
+    assert _FILE_OS_READ_IDS is not None
+    assert _FILE_OS_WRITE_IDS is not None
+    ids = (_FILE_OS_READ_IDS | _FILE_OS_WRITE_IDS) if files else _FILE_OS_READ_IDS
+    return _FILE_OS_PROXY, ids
 
 
 _SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
@@ -1868,14 +1933,17 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
         return raw_module
 
     name = getattr(raw_module, "__name__", "") or ""
-    if _dangerous_module_name(name):
-        root = name.split(".", 1)[0]
-        relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
-        if root in relaxed_roots:
-            return raw_module
-        if name == "os" and file_os_ids:
-            proxy, _ = get_file_os_proxy()
-            return proxy
+    root = name.split(".", 1)[0]
+    relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
+
+    if name == "os" and root not in relaxed_roots:
+        proxy, _ = get_file_os_proxy(files=bool(file_os_ids and file_os_ids != _get_default_file_os_ids()))
+        return proxy
+
+    if root in relaxed_roots:
+        return raw_module
+
+    if not check_import_authorized(name, authorized_imports or []):
         return ModuleType(name)
 
     if name in ("operator", "string"):
@@ -1937,14 +2005,22 @@ def evaluate_import(
                         if name in tools:
                             # Silently skip names in static_tools (overridable or not)
                             continue
-                        state[name] = safe_getattr(module, name)
+                        val = safe_getattr(module, name)
+                        if isinstance(val, ModuleType):
+                            val = get_safe_module(val, authorized_imports)
+                        _check_dangerous_value(val, authorized_imports)
+                        state[name] = val
                 else:  # If no __all__, import all public names (those not starting with '_')
                     for name in dir(module):
                         if not name.startswith("_"):
                             if name in tools:
                                 # Silently skip names in static_tools (overridable or not)
                                 continue
-                            state[name] = safe_getattr(module, name)
+                            val = safe_getattr(module, name)
+                            if isinstance(val, ModuleType):
+                                val = get_safe_module(val, authorized_imports)
+                            _check_dangerous_value(val, authorized_imports)
+                            state[name] = val
             else:  # regular from imports
                 sentinel = object()
                 for alias in expression.names:
@@ -1956,6 +2032,9 @@ def evaluate_import(
                     val = nodunder_getattr(module, alias.name, sentinel)
                     if val is sentinel:
                         raise InterpreterError(f"Module {expression.module} has no attribute {alias.name}")
+                    if isinstance(val, ModuleType):
+                        val = get_safe_module(val, authorized_imports)
+                    _check_dangerous_value(val, authorized_imports)
                     state[target_name] = val
         else:
             # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
@@ -2441,11 +2520,11 @@ class LocalPythonExecutor(PythonExecutor):
         self.authorized_imports = list(set(BASE_BUILTIN_MODULES) | set(self.additional_authorized_imports))
         # WriterAgent vendored change (2026-05): upstream HuggingFace smolagents calls
         # _check_authorized_imports_are_installed() here, which runs find_spec() on every
-        # whitelisted top-level module at executor construction ("Non-installed authorized
-        # modules: …"). We disabled that pre-flight probe. Import policy is whitelist-only:
-        # evaluate_import → check_import_authorized → import_module at the line that imports.
-        # If a whitelisted package is missing, the user gets a normal ModuleNotFoundError
-        # wrapped as InterpreterError when their code actually imports it—not at init.
+        # authorized top-level module at executor construction ("Non-installed authorized
+        # modules: …"). We disabled that pre-flight probe. Import policy is default-allow plus
+        # extras that override a short blocklist: evaluate_import → check_import_authorized →
+        # import_module at the line that imports. If an authorized package is missing, the user
+        # gets a normal ModuleNotFoundError wrapped as InterpreterError when code actually imports it.
         self.additional_functions = additional_functions or {}
         self.static_tools = {**BASE_PYTHON_TOOLS.copy(), **self.additional_functions}
         self.timeout_seconds = timeout_seconds

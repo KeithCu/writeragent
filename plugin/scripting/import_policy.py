@@ -7,64 +7,24 @@
 # (at your option) any later version.
 """Venv / in-process Python sandbox import policy for LLM prompts.
 
-Derived from ``VENV_AUTHORIZED_IMPORTS``, ``BASE_BUILTIN_MODULES``, and
-``DANGEROUS_MODULES`` — single source of truth for agent-facing import guidance.
+Derived from ``DANGEROUS_MODULES``, ``NETWORK_BLOCKED_MODULES``, and
+``FILE_BLOCKED_MODULES`` — single source of truth for agent-facing import guidance.
 """
 
 from __future__ import annotations
 
-import sys
-
 from plugin.framework.constants import AUTO_IMPORTS
-from plugin.scripting.sandbox import (
-    BASE_BUILTIN_MODULES,
-    DANGEROUS_MODULES,
-    VENV_AUTHORIZED_IMPORTS,
-    _VENV_STDLIB,
-)
-
 from plugin.framework.deal_shim import UNDER_CROSSHAIR, ascii_bounded, deal
-
-# Stdlib roots from VENV_AUTHORIZED_IMPORTS beyond BASE_BUILTIN_MODULES.
-_VENV_STDLIB_EXTRA: frozenset[str] = frozenset(_VENV_STDLIB)
-
-# Dropped from the LLM allowed-packages line (substring match). Still
-# importable. duckdb: session_duckdb() is the guarded helper. payload_codec,
-# writeragent_api, and writeragent_namespace are the wire codec, the generated
-# tool proxy, and the LibrePy namespace stub. Scripts use wa and the domain
-# helpers, not those modules.
-_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = (
-    "duckdb",
-    "payload_codec",
-    "writeragent_api",
-    "writeragent_namespace",
-)
-
-# Compact blurb "networking" list and common blocked modules.
-_NETWORK_BLOCKED_COMMON: tuple[str, ...] = (
-    "requests",
-    "urllib",
-    "urllib3",
-    "http",
-    "httpx",
-    "ssl",
-)
-
-# socket is blocked via DANGEROUS_MODULES and is listed here explicitly.
-_PROMPT_NETWORK_BLOCKED: tuple[str, ...] = ("socket",) + _NETWORK_BLOCKED_COMMON
-
-# Not whitelisted — common LLM mistakes (guidance only; blocked at import check).
-_VENV_COMMON_BLOCKED: tuple[str, ...] = _NETWORK_BLOCKED_COMMON + (
-    "pickle",
-    "sqlite3",
-    "logging",
-    "importlib",
-    "ctypes",
-    "threading",
+from plugin.scripting.sandbox import (
+    DANGEROUS_MODULES,
+    FILE_BLOCKED_MODULES,
+    NETWORK_BLOCKED_MODULES,
+    build_sandbox_policy,
+    policy_blocked_imports,
 )
 
 PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
-    "PYTHON VENV SANDBOX: You are running in a Python sandbox (AST import whitelist) inside a "
+    "PYTHON VENV SANDBOX: You are running in a Python sandbox (AST import blocklist) inside a "
     "same-user venv subprocess — not a second OS account, and not LibreOffice/UNO. "
     "Pass inputs via data/data_range; assign outputs (any type: string, list, NumPy array, "
     "or dictionary with structured keys) to the 'result' variable. Prefer NumPy arrays in 'result' for faster serialization. "
@@ -73,73 +33,15 @@ PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
 )
 
 
-
-@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
-def venv_authorized_top_level_modules() -> tuple[str, ...]:
-    """Top-level module names allowed in the venv worker sandbox."""
-    # Return real top-level module names, not dotted paths (plugin.scripting.*).
-    # Intermediate nodes such as 'plugin' are not authorized top-level imports.
-    roots: set[str] = {entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}
-    for entry in VENV_AUTHORIZED_IMPORTS:
-        if entry.startswith("plugin."):
-            continue
-        top = entry.split(".", 1)[0]
-        roots.add(top)
-    return tuple(sorted(roots))
-
-
-def _known_stdlib_names() -> frozenset[str]:
-    """Stdlib top-level names used to split the prompt's allowed lists.
-
-    ``sys.stdlib_module_names`` (3.10+) tracks the running interpreter, so a
-    stdlib name added to ``VENV_AUTHORIZED_IMPORTS`` is not labeled a package.
-    Older LibreOffice Pythons use ``_VENV_STDLIB_EXTRA`` (locked to that set
-    by ``test_venv_stdlib_extra_matches_authorized_stdlib``).
-    """
-    names = getattr(sys, "stdlib_module_names", None)
-    if isinstance(names, frozenset):
-        # getattr does not preserve the frozenset[str] parameter.
-        return frozenset(name for name in names if isinstance(name, str))
-    return frozenset({entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}) | _VENV_STDLIB_EXTRA
-
-
-def _venv_stdlib_modules() -> tuple[str, ...]:
-    stdlib = _known_stdlib_names()
-    authorized_stdlib = {name for name in venv_authorized_top_level_modules() if name in stdlib}
-    base_roots = {entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}
-    return tuple(sorted(base_roots | authorized_stdlib))
-
-
-def _venv_package_modules() -> tuple[str, ...]:
-    stdlib = set(_venv_stdlib_modules())
-    return tuple(sorted(m for m in venv_authorized_top_level_modules() if m not in stdlib))
-
-
-def _venv_writeragent_helpers() -> tuple[str, ...]:
-    """WriterAgent scripting helpers exposed to sandbox code."""
-    helpers: set[str] = set()
-    for entry in VENV_AUTHORIZED_IMPORTS:
-        if entry.startswith("writeragent.") and not entry.endswith(".*"):
-            helpers.add(entry)
-    return tuple(sorted(helpers))
-
-
-def _omit_from_prompt_packages(name: str) -> bool:
-    """True when an importable package must not appear in the =PY blurb."""
-    lowered = name.lower()
-    return any(marker in lowered for marker in _PROMPT_OMIT_PACKAGE_MARKERS)
-
-
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_blocked_modules() -> tuple[str, ...]:
-    """Explicitly dangerous modules plus common not-whitelisted mistakes."""
-    return tuple(sorted(set(DANGEROUS_MODULES) | set(_VENV_COMMON_BLOCKED)))
+    """Default blocked modules from sandbox policy."""
+    return tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
 
 
-
-
-def _join_modules(modules: tuple[str, ...]) -> str:
-    return ", ".join(modules)
+def _host_escape_blocked_list() -> str:
+    escapes = [m for m in DANGEROUS_MODULES if m not in ("plugin", "writeragent.framework")]
+    return ", ".join(escapes) + "; plugin internals"
 
 
 # _DEAL_ALIAS_MOD and _DEAL_ALIAS_STMT constrain string lengths of module names
@@ -192,29 +94,24 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         f"DO NOT import {do_not_import}. "
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
     )
-    blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))
-    blocked_network = _join_modules(_PROMPT_NETWORK_BLOCKED)
+    host_escape = _host_escape_blocked_list()
+    networking = ", ".join(NETWORK_BLOCKED_MODULES)
+    file_writes = ", ".join(FILE_BLOCKED_MODULES)
 
     parts = [PYTHON_VENV_SANDBOX_CONTEXT_PREFIX, auto_imports]
 
     if compact:
         parts.append(
-            f"Blocked in this sandbox: host escape ({blocked_security}); "
-            f"networking ({blocked_network}); other imports not on the whitelist fail."
+            f"Blocked in this sandbox: host escape ({host_escape}); "
+            f"networking ({networking}); "
+            f"file writes ({file_writes}, plus the open() builtin). "
+            "All other imports are allowed. Extra modules in Settings override this list; each also allows name.*."
         )
     else:
-        stdlib = _join_modules(_venv_stdlib_modules())
-        # duckdb stays on VENV_AUTHORIZED_IMPORTS. Listing it here would steer
-        # default chat toward raw import duckdb instead of session_duckdb().
-        packages_list = [m for m in _venv_package_modules() if not _omit_from_prompt_packages(m)]
-        # Show writeragent.scripting helpers once (excluding plugin.* twins).
-        helpers = [h for h in _venv_writeragent_helpers() if not _omit_from_prompt_packages(h)]
-        packages = _join_modules(tuple(sorted(set(packages_list) | set(helpers))))
-        common = _join_modules(_VENV_COMMON_BLOCKED)
-        parts.append(f"Allowed stdlib in this sandbox: {stdlib}.")
-        parts.append(f"Allowed packages in this sandbox (+ submodules where applicable): {packages}.")
-        parts.append(f"Always blocked in this sandbox: {blocked_security}.")
-        parts.append(f"Common not-whitelisted (will fail): {common}, and anything else not listed above.")
+        parts.append(f"Blocked host escape (always): {host_escape}.")
+        parts.append(f"Blocked networking (unless Allow network access): {networking}.")
+        parts.append(f"Blocked file writes (unless Allow file access): {file_writes} (plus the open() builtin).")
+        parts.append("All other imports are allowed. Extra modules in Settings override this list; each also allows name.*.")
 
     return " ".join(parts)
 

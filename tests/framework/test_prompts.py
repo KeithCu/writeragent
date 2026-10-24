@@ -592,7 +592,7 @@ def test_images_domain_descriptions_steer_source_image():
 def test_python_specialized_sub_agent_hint_writer():
     hint = python_specialized_sub_agent_hint("Writer")
     assert "PYTHON VENV SANDBOX" in hint
-    assert "Allowed stdlib in this sandbox" in hint
+    assert "Blocked host escape" in hint
     assert "sandbox" in hint.lower()
     assert "DO NOT import numpy" in hint
     assert "does not inject spreadsheet" in hint

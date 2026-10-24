@@ -17,56 +17,76 @@ from plugin.scripting.import_policy import (
     format_matplotlib_plot_hint,
     format_units_helper_hint,
     format_venv_import_policy_for_prompt,
-    venv_authorized_top_level_modules,
     venv_blocked_modules,
 )
 import pytest
 
 
-def test_venv_authorized_includes_json_numpy_matplotlib():
-    allowed = venv_authorized_top_level_modules()
-    assert "json" in allowed
-    assert "numpy" in allowed
-    assert "matplotlib" in allowed
-    assert "duckdb" in allowed
-    assert "plugin.scripting.duckdb_sql" not in allowed
-    assert "plugin.vision.venv.vision" not in allowed
-    assert "plugin.embeddings.venv.embeddings_index" not in allowed
-    assert "plugin.writer.locale.vale" not in allowed
-    assert "plugin.writer.locale.languagetool" not in allowed
-    assert "plugin.scripting.venv.vale" not in allowed
-    assert "plugin.scripting.venv.languagetool" not in allowed
-    assert "__future__" in venv_authorized_top_level_modules()
-    assert "collections.abc" not in venv_authorized_top_level_modules()
-
-
-def test_venv_authorized_excludes_requests():
-    assert "requests" not in venv_authorized_top_level_modules()
-
-
-def test_venv_blocked_includes_sys_os():
+def test_blocked_list_excludes_safe_stdlib_and_packages():
     blocked = venv_blocked_modules()
-    assert "sys" in blocked
-    assert "os" in blocked
-    assert "requests" in blocked
+    for safe in (
+        "json",
+        "numpy",
+        "matplotlib",
+        "io",
+        "logging",
+        "glob",
+        "zipfile",
+        "gzip",
+        "bz2",
+        "lzma",
+        "asyncio",
+        "inspect",
+        "sys",
+        "signal",
+        "concurrent.futures",
+        "pathlib",
+    ):
+        assert safe not in blocked
+    for dangerous in ("subprocess", "importlib", "pickle"):
+        assert dangerous in blocked
+
+
+def test_network_blocked_unless_enabled():
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        import_authorized,
+        policy_allowlist,
+        policy_blocked_imports,
+    )
+
+    assert "requests" in venv_blocked_modules()
+    network_policy = build_sandbox_policy(network=True)
+    assert "requests" not in policy_blocked_imports(network_policy)
+    assert import_authorized("requests", policy_allowlist(network_policy)) is True
+
+
+def test_venv_blocked_includes_os_not_sys():
+    blocked = venv_blocked_modules()
+    for b in ("requests", "subprocess", "importlib", "pickle"):
+        assert b in blocked
+    assert "os" not in blocked
+    assert "sys" not in blocked
 
 
 def test_sandbox_prefix_uses_sandbox_twice():
     assert PYTHON_VENV_SANDBOX_CONTEXT_PREFIX.lower().count("sandbox") >= 2
 
 
-def test_venv_policy_prefix_before_module_lists():
+def test_venv_policy_prefix_before_blocked_lists():
     policy = format_venv_import_policy_for_prompt(compact=False)
     assert policy.startswith("PYTHON VENV SANDBOX:")
-    assert policy.index("Allowed stdlib") > policy.index("PYTHON VENV SANDBOX")
-    assert "__future__" in policy
-    assert "collections.abc" not in policy
+    assert "Blocked host escape" in policy
+    assert policy.index("Blocked host escape") > policy.index("PYTHON VENV SANDBOX")
+    assert "Allowed stdlib" not in policy
+    assert "Allowed packages" not in policy
 
 
 def test_venv_policy_compact_mentions_blocked_categories():
     policy = format_venv_import_policy_for_prompt(compact=True)
     assert "networking" in policy
     assert "host escape" in policy
+    assert "file writes" in policy
     assert "DO NOT import numpy" in policy
     assert "calc" in policy
     assert "st" in policy
@@ -101,7 +121,7 @@ def test_venv_policy_auto_imports_match_constants():
 @pytest.mark.parametrize(
     "value, value_2, value_3",
     [
-        pytest.param("Writer", "Allowed stdlib in this sandbox", "does not inject spreadsheet", id="test_python_specialized_sub_agent_hint_includes_full_policy"),
+        pytest.param("Writer", "Blocked host escape", "does not inject spreadsheet", id="test_python_specialized_sub_agent_hint_includes_full_policy"),
         pytest.param("Calc", "PLOTS:", "Do not call image_insert", id="test_python_specialized_sub_agent_calc_plot_hint"),
     ],
 )
@@ -174,31 +194,35 @@ def test_venv_policy_does_not_advertise_duckdb():
         assert "session_duckdb" not in lower
         assert "run_sql" not in lower
         assert "duckdb" not in lower
-    # Importable in the venv; the allowed-packages blurb still omits the name.
-    assert "duckdb" in venv_authorized_top_level_modules()
+    assert "duckdb" not in venv_blocked_modules()
 
 
-def test_venv_stdlib_extra_matches_authorized_stdlib() -> None:
-    """The pre-3.10 fallback set must match sys.stdlib_module_names or prompts drift."""
-    import sys
+def test_blocked_categories_are_disjoint_and_valid() -> None:
+    from plugin.scripting.sandbox import DANGEROUS_MODULES, FILE_BLOCKED_MODULES, NETWORK_BLOCKED_MODULES
 
-    from plugin.scripting.import_policy import _VENV_STDLIB_EXTRA, _venv_package_modules, _venv_stdlib_modules
-    from plugin.scripting.sandbox import BASE_BUILTIN_MODULES
+    assert len(DANGEROUS_MODULES) > 0
+    assert len(NETWORK_BLOCKED_MODULES) > 0
+    assert len(FILE_BLOCKED_MODULES) > 0
 
-    authorized = set(venv_authorized_top_level_modules())
-    expected = frozenset(
-        name
-        for name in authorized
-        if name in sys.stdlib_module_names and name not in set(BASE_BUILTIN_MODULES)
-    )
-    assert _VENV_STDLIB_EXTRA == expected
-    stdlib = set(_venv_stdlib_modules())
-    packages = set(_venv_package_modules())
-    assert stdlib.isdisjoint(packages)
-    for name in authorized:
-        if name in sys.stdlib_module_names:
-            assert name in stdlib
-            assert name not in packages
+    dangerous = set(DANGEROUS_MODULES)
+    network = set(NETWORK_BLOCKED_MODULES)
+    files = set(FILE_BLOCKED_MODULES)
+
+    assert len(dangerous) == len(DANGEROUS_MODULES)
+    assert len(network) == len(NETWORK_BLOCKED_MODULES)
+    assert len(files) == len(FILE_BLOCKED_MODULES)
+
+    assert dangerous.isdisjoint(network)
+    assert dangerous.isdisjoint(files)
+    assert network.isdisjoint(files)
+
+    for category in (DANGEROUS_MODULES, NETWORK_BLOCKED_MODULES, FILE_BLOCKED_MODULES):
+        for entry in category:
+            assert not entry.startswith(".")
+            assert not entry.endswith(".*")
+            assert "*" not in entry
+            parts = entry.split(".")
+            assert all(part.isidentifier() for part in parts)
 
 
 def test_compact_policy_lists_network_block_without_string_prepend() -> None:
@@ -217,42 +241,41 @@ def test_python_specialized_sub_agent_units_hint():
     assert "Units Helpers" in hint
 
 
-def test_venv_authorized_top_level_modules_real_roots():
-    """venv_authorized_top_level_modules must only return real top-level module names without dots."""
-    top_level = venv_authorized_top_level_modules()
-    assert all("." not in m for m in top_level)
-    assert "plugin" not in top_level
-    assert "writeragent" in top_level
-    assert "numpy" in top_level
-    assert "matplotlib" in top_level
-    assert "json" in top_level
-    assert "duckdb" in top_level
+def test_blocked_entries_are_valid_import_roots():
+    from plugin.scripting.sandbox import build_sandbox_policy, policy_blocked_imports
+
+    blocked = policy_blocked_imports(build_sandbox_policy())
+    assert len(blocked) > 0
+    for entry in blocked:
+        assert "*" not in entry
+        parts = entry.split(".")
+        assert all(part.isidentifier() for part in parts)
+    assert "subprocess" in blocked
+    assert "socket" in blocked
+    assert "os" not in blocked
 
 
-def test_format_venv_import_policy_for_prompt_helpers_shown_once():
-    """Prompt must show writeragent.scripting helpers once and omit plugin.* twins."""
+def test_prompt_lists_only_blocked_modules():
     policy = format_venv_import_policy_for_prompt(compact=False)
-    assert "writeragent.scripting.analysis" in policy
-    allowed_packages_part = policy.split("Allowed packages in this sandbox")[1]
-    assert "plugin.scripting.analysis" not in allowed_packages_part
-    assert "plugin.scripting." not in allowed_packages_part
-    assert policy.count("writeragent.scripting.analysis") == 1
+    assert "Blocked host escape" in policy
+    assert "Allowed packages" not in policy
+    assert "plugin.scripting.analysis" not in policy
     assert "duckdb" not in policy.lower()
 
 
-def test_import_failure_messages_short_and_hide_allowlist():
-    """Import failure messages must not dump the whole allowlist or expose duckdb."""
+def test_import_failure_messages_short_and_hide_blocklist():
+    """Import failure messages must not dump the whole blocklist or expose duckdb."""
     import ast
     from plugin.scripting.sandbox_cache import validate_sandbox_ast
 
     allowed = ["math", "duckdb", "duckdb.*"]
 
-    err_import = validate_sandbox_ast(ast.parse("import os"), allowed)
+    err_import = validate_sandbox_ast(ast.parse("import os"), allowed, blocked_imports=["os"])
     assert err_import == "Import of os is not allowed."
     assert "duckdb" not in err_import
     assert "Authorized imports" not in err_import
 
-    err_from = validate_sandbox_ast(ast.parse("from os import path"), allowed)
+    err_from = validate_sandbox_ast(ast.parse("from os import path"), allowed, blocked_imports=["os"])
     assert err_from == "Import from os is not allowed."
     assert "duckdb" not in err_from
     assert "Authorized imports" not in err_from
@@ -265,47 +288,28 @@ def test_import_failure_messages_short_and_hide_allowlist():
 
 
 def test_venv_policy_omits_internal_writeragent_modules() -> None:
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+    from plugin.scripting.sandbox import import_authorized
 
     policy = format_venv_import_policy_for_prompt(compact=False)
-    prefix = "Allowed packages in this sandbox (+ submodules where applicable): "
-    suffix = ". Always blocked"
-    part = policy.split(prefix)[1].split(suffix)[0]
-    packages = {item.strip() for item in part.split(",")}
+    for internal in (
+        "writeragent.framework",
+        "payload_codec",
+        "writeragent_api",
+        "writeragent_namespace",
+        "plugin.scripting.analysis",
+    ):
+        assert internal not in policy
 
-    assert "writeragent" in packages
-    assert "writeragent.scripting.analysis" in packages
-    assert "writeragent.vision" in packages
-    assert "writeragent.scripting.calc_functions" in packages
-
-    assert "writeragent.scripting.payload_codec" not in packages
-    assert "writeragent.scripting.writeragent_api" not in packages
-    assert "writeragent.scripting.writeragent_namespace" not in packages
-
-    assert import_authorized("writeragent.scripting.payload_codec", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("writeragent.scripting.writeragent_api", VENV_AUTHORIZED_IMPORTS) is True
-    assert import_authorized("writeragent.scripting.writeragent_namespace", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.scripting.analysis", ()) is True
+    assert import_authorized("writeragent.framework.config", ()) is False
 
 
-def test_policy_module_lists_pass_import_authorized() -> None:
-    from plugin.scripting.import_policy import (
-        _venv_package_modules,
-        _venv_stdlib_modules,
-        _venv_writeragent_helpers,
-    )
-    from plugin.scripting.sandbox import (
-        BASE_BUILTIN_MODULES,
-        VENV_AUTHORIZED_IMPORTS,
-        import_authorized,
-    )
+def test_extra_modules_override_every_blocked_entry() -> None:
+    from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
 
-    allow = list(set(BASE_BUILTIN_MODULES) | set(VENV_AUTHORIZED_IMPORTS))
-    names = (
-        _venv_stdlib_modules()
-        + _venv_package_modules()
-        + _venv_writeragent_helpers()
-    )
-    denied = [name for name in names if not import_authorized(name, allow)]
-    assert denied == []
+    for e in policy_blocked_imports(build_sandbox_policy()):
+        assert import_authorized(e, ()) is False
+        assert import_authorized(e, (e,)) is True
+        assert import_authorized(e + ".child", (e,)) is True
 
 
