@@ -59,12 +59,12 @@ from .image_utils import (
     IMAGE_CONTENT_TYPE_DENYLIST,
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
-    resolve_generation_size,
     validated_image_suffix,
 )
 from . import image_mark, image_tools
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
+from plugin.framework.client.base_provider_shim import canonical_aspect_ratio
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.model_lru import update_lru_history
@@ -118,6 +118,48 @@ def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_availa
     if source_image and str(source_image).lower() == "selection":
         return True
     return source_image is None and selection_available
+
+
+def resolve_generation_size(
+    base_size: int,
+    aspect: str | None,
+    width: int | None = None,
+    height: int | None = None,
+) -> tuple[int, int, str | None]:
+    """Resolve pixel dimensions and wire aspect ratio for image generation."""
+    normalized = canonical_aspect_ratio(named=aspect) if aspect else "1:1"
+    if not normalized:
+        normalized = "1:1"
+
+    num, den = map(int, normalized.split(":"))
+
+    if width is not None and height is not None:
+        final_w = width
+        final_h = height
+    elif width is not None:
+        final_w = width
+        final_h = round(width * den / num)
+    elif height is not None:
+        final_w = round(height * num / den)
+        final_h = height
+    else:
+        if num > den:
+            calc_w = int(base_size * num / den)
+            calc_h = base_size
+        elif num < den:
+            calc_w = base_size
+            calc_h = int(base_size * den / num)
+        else:
+            calc_w = base_size
+            calc_h = base_size
+
+        calc_w = (calc_w // 64) * 64 or 64
+        calc_h = (calc_h // 64) * 64 or 64
+        final_w = calc_w
+        final_h = calc_h
+
+    wire_ratio = canonical_aspect_ratio(final_w, final_h)
+    return final_w, final_h, wire_ratio
 
 
 class ImageGenerate(ToolWriterImageBase):
@@ -1204,22 +1246,6 @@ class ImageDownload(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _graphic_pixel_size_from_path(ctx: Any, image_path: str) -> tuple[int | None, int | None]:
-    # Probe reads pixel size (or vector fallback). The probed XGraphic is not reused
-    # for insertion because _create_embedded_graphic prefers GraphicURL and keeps Graphic
-    # only as a fallback.
-    try:
-        from plugin.writer.images.image_tools import _file_url_for_path, _graphic_from_provider
-
-        file_url = _file_url_for_path(image_path)
-        xgraphic = _graphic_from_provider(ctx, file_url)
-        if xgraphic is not None:
-            return visual_helpers.graphic_pixel_size(xgraphic)
-    except Exception as ex:
-        log.debug("_graphic_pixel_size_from_path failed: %s", ex)
-    return None, None
-
-
 class ImageInsert(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
@@ -1312,7 +1338,7 @@ class ImageInsert(ToolWriterImageBase):
                 width_mm = float(width_mm_val)
                 height_mm = float(height_mm_val)
             else:
-                px_size = _graphic_pixel_size_from_path(ctx.ctx, image_path)
+                px_size = image_tools.graphic_pixel_size_from_path(ctx.ctx, image_path)
                 px_w, px_h = px_size if px_size is not None else (None, None)
                 if px_w is not None and px_h is not None and px_w > 0 and px_h > 0:
                     if width_mm_val is None and height_mm_val is None:

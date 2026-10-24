@@ -129,6 +129,20 @@ def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
         return None
 
 
+def graphic_pixel_size_from_path(ctx: Any, image_path: str) -> tuple[int | None, int | None]:
+    # Probe reads pixel size (or vector fallback). The probed XGraphic is not reused
+    # for insertion because _create_embedded_graphic prefers GraphicURL and keeps Graphic
+    # only as a fallback.
+    try:
+        file_url = _file_url_for_path(image_path)
+        xgraphic = _graphic_from_provider(ctx, file_url)
+        if xgraphic is not None:
+            return visual_helpers.graphic_pixel_size(xgraphic)
+    except Exception as ex:
+        log.debug("graphic_pixel_size_from_path failed: %s", ex)
+    return None, None
+
+
 def _is_same_graphic(a: Any, b: Any) -> bool:
     if a is None or b is None:
         return False

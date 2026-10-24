@@ -2078,35 +2078,35 @@ def test_image_insert_sizing_rules():
         patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
     ):
         # 1. 200x100 PNG with both sizes omitted lands at 80 x 40 mm
-        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+        with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
             res = ImageInsert().execute(ctx, path="/tmp/test.png")
             assert res["status"] == "ok"
             assert inserted_sizes == [(80.0, 40.0)]
 
         # 2. 100x200 PNG with both sizes omitted lands at 40 x 80 mm
-        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(100, 200)):
+        with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(100, 200)):
             inserted_sizes.clear()
             res = ImageInsert().execute(ctx, path="/tmp/test.png")
             assert res["status"] == "ok"
             assert inserted_sizes == [(40.0, 80.0)]
 
         # 3. Only width_mm=40 scales height proportionally (200x100 -> 40 x 20 mm)
-        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+        with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
             res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=40)
             assert res["status"] == "ok"
             assert inserted_sizes == [(40.0, 20.0)]
 
         # 4. Both 30 and 50 stay 30 and 50 mm (even if stretching)
-        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)):
+        with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
             res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=30, height_mm=50)
             assert res["status"] == "ok"
             assert inserted_sizes == [(30.0, 50.0)]
 
         # 5. Unreadable pixels (e.g. None or 0) stay 80 x 80 mm
-        with patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(None, None)):
+        with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(None, None)):
             inserted_sizes.clear()
             res = ImageInsert().execute(ctx, path="/tmp/test.svg")
             assert res["status"] == "ok"
@@ -2114,7 +2114,7 @@ def test_image_insert_sizing_rules():
 
         # 6. Header insert uses derived size
         with (
-            patch("plugin.writer.images.images._graphic_pixel_size_from_path", return_value=(200, 100)),
+            patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)),
             patch("plugin.writer.images.images.insert_image_into_header_footer") as mock_hf,
         ):
             res = ImageInsert().execute(ctx, path="/tmp/test.png", target="header")

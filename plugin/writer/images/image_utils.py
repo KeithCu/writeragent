@@ -97,48 +97,6 @@ def _unlink_temp_paths(paths: list[str]) -> None:
             pass
 
 
-def resolve_generation_size(
-    base_size: int,
-    aspect: str | None,
-    width: int | None = None,
-    height: int | None = None,
-) -> tuple[int, int, str | None]:
-    """Resolve pixel dimensions and wire aspect ratio for image generation."""
-    normalized = canonical_aspect_ratio(named=aspect) if aspect else "1:1"
-    if not normalized:
-        normalized = "1:1"
-
-    num, den = map(int, normalized.split(":"))
-
-    if width is not None and height is not None:
-        final_w = width
-        final_h = height
-    elif width is not None:
-        final_w = width
-        final_h = round(width * den / num)
-    elif height is not None:
-        final_w = round(height * num / den)
-        final_h = height
-    else:
-        if num > den:
-            calc_w = int(base_size * num / den)
-            calc_h = base_size
-        elif num < den:
-            calc_w = base_size
-            calc_h = int(base_size * den / num)
-        else:
-            calc_w = base_size
-            calc_h = base_size
-
-        calc_w = (calc_w // 64) * 64 or 64
-        calc_h = (calc_h // 64) * 64 or 64
-        final_w = calc_w
-        final_h = calc_h
-
-    wire_ratio = canonical_aspect_ratio(final_w, final_h)
-    return final_w, final_h, wire_ratio
-
-
 def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
     is_stopped = False
     if isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED":

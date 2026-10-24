@@ -682,7 +682,7 @@ class TestCanonicalAspectRatio:
 
 
 def test_resolve_generation_size_enums():
-    from plugin.writer.images.image_utils import resolve_generation_size
+    from plugin.writer.images.images import resolve_generation_size
 
     w43, h43, ratio43 = resolve_generation_size(1024, "4:3")
     w32, h32, ratio32 = resolve_generation_size(1024, "3:2")
@@ -708,7 +708,7 @@ def test_resolve_generation_size_enums():
 
 
 def test_resolve_generation_size_omitted_and_explicit():
-    from plugin.writer.images.image_utils import resolve_generation_size
+    from plugin.writer.images.images import resolve_generation_size
 
     w, h, wire = resolve_generation_size(1024, "Landscape (3:2)")
     assert (w, h, wire) == (1536, 1024, "3:2")
