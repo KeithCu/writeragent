@@ -64,6 +64,7 @@ def test_find_document_by_predicate_fallback() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=mock_desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         doc = session_manager._calc_document(ctx)
@@ -135,6 +136,7 @@ def test_reset_workbook_python_session_prefers_calc() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", side_effect=lambda doc: doc is mock_calc),
         patch("plugin.scripting.session_manager.is_writer", side_effect=lambda doc: doc is mock_writer),
         patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
@@ -162,6 +164,7 @@ def test_reset_headless_refuses_several_calc_documents() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
         patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
         patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
@@ -194,6 +197,7 @@ def test_reset_headless_refuses_several_writer_documents() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=True),
         patch("plugin.scripting.session_manager.reset_notebook_python_session") as mock_reset_nb,
@@ -250,9 +254,9 @@ def test_document_for_script_session_matches_ppt_master_url() -> None:
     focused_comps.createEnumeration.return_value = focused_only
     focused_desktop = MagicMock()
     focused_desktop.getComponents.return_value = focused_comps
-    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "ppt_master:file:///deck-b.odp")
-    with patch("plugin.scripting.session_manager.get_desktop", return_value=focused_desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=focused_desktop):
         missing = session_manager.document_for_script_session(MagicMock(), "ppt_master:active")
     assert found is deck
     assert missing is None
@@ -292,7 +296,7 @@ def test_document_for_script_session_matches_url_not_focused() -> None:
     comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
-    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///other.ods")
     assert found is other
 
@@ -311,7 +315,7 @@ def test_document_for_script_session_wraps_model() -> None:
     desktop.getComponents.return_value = comps
     wrapped = MagicMock(name="wrapped")
     with (
-        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.framework.thread_guard.guard_uno", return_value=wrapped) as mock_guard,
     ):
         found = session_manager.document_for_script_session(MagicMock(), "ppt_master:file:///deck.odp")
@@ -510,6 +514,7 @@ def test_find_document_enumeration_accepts_headless_controller_none() -> None:
     desktop.getComponents.return_value = comps
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         from plugin.framework.thread_guard import _unwrap_uno
@@ -534,6 +539,7 @@ def test_find_document_enumeration_returns_none_when_several_match() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         assert session_manager._calc_document(ctx) is None
@@ -574,7 +580,7 @@ def test_document_for_script_session_stops_on_magicmock_enum() -> None:
     comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
-    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///never.ods")
     assert found is None
     enum.nextElement.assert_not_called()
@@ -595,7 +601,7 @@ def test_document_for_script_session_accepts_has_more_integer_one() -> None:
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
 
-    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///other.ods")
     from plugin.framework.thread_guard import _unwrap_uno
 
@@ -616,7 +622,7 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
     with (
-        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.framework.uno_context._ENUM_CAP", 2),
         caplog.at_level(logging.ERROR, logger="writeragent.context"),
     ):
@@ -976,6 +982,7 @@ def test_reset_headless_one_draw_resets_rps() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=True),
@@ -1009,6 +1016,7 @@ def test_reset_headless_refuses_several_draw_documents() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=True),

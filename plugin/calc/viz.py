@@ -69,8 +69,8 @@ class PlotDataTool(ToolBaseDummy):
         headers = bool(kwargs.get("headers", True)) if "headers" in kwargs else True
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
 
-        from plugin.scripting.viz import run_trusted_viz, extract_image_payload
-        from plugin.scripting.payload_codec import write_image_payload_to_temp
+        from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         try:
             result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)

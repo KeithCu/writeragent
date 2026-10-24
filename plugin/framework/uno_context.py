@@ -563,7 +563,7 @@ _ENUM_CAP = 32
 def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
     """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
     # What was wrong: is not True treats SAL integer 1 as the end of the enum,
-    # so _iter_desktop_models yields nothing and session lookup/reset misses
+    # so iter_desktop_models yields nothing and session lookup/reset misses
     # every open model.
     # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
     # stopping MagicMock.
@@ -632,6 +632,43 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
     except Exception as e:
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         return
+
+
+def iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
+    """Yield all valid open models from desktop component enumeration."""
+    from plugin.framework.errors import check_disposed
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    desktop = get_desktop(ctx)
+    if desktop is None:
+        return
+    comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
+    if comps is None or not hasattr(comps, "createEnumeration"):
+        return
+    enum = comps.createEnumeration()
+    seen = 0
+    while True:
+        if not _enumeration_should_continue(enum, seen, label=label):
+            break
+        seen += 1
+        try:
+            elem = enum.nextElement()
+        except Exception:
+            break
+        model = None
+        if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+            model = elem
+        elif hasattr(elem, "getController"):
+            ctrl = elem.getController()
+            if ctrl:
+                model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+        if model is not None:
+            try:
+                check_disposed(_unwrap_uno(model))
+                getattr(model, "getCurrentController", lambda: None)()
+                yield model
+            except Exception:
+                log.debug("session_manager: skipping broken model", exc_info=True)
 
 
 @main_thread_only

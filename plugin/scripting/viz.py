@@ -112,19 +112,6 @@ def is_viz_result(value: Any) -> bool:
     return False
 
 
-def extract_image_payload(value: Any) -> dict[str, Any] | None:
-    """Return the ``__wa_payload__: image`` envelope from raw or viz-wrapped results."""
-    if is_image_payload(value):
-        return value
-    if isinstance(value, dict):
-        image = value.get("image")
-        if is_image_payload(image):
-            return image
-    # Fallback to the first found image payload if there are multiple
-    images = find_image_payloads(value)
-    return images[0] if images else None
-
-
 def _unlink_plot_temp(path: str) -> None:
     # What was wrong: Writer and Draw plot insert wrote a temp file and returned,
     # so each insert leaked one SVG/PNG.

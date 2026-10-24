@@ -276,7 +276,7 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
         # counted as more. uno_context._enumeration_should_continue stops
         # at _ENUM_CAP and accepts only True or 1. Counting every attempt, then
         # continuing, stops the spin and still keeps a later Calc model when one
-        # element's getURL throws. _iter_desktop_models breaks on nextElement
+        # element's getURL throws. iter_desktop_models breaks on nextElement
         # and would drop that later model.
         seen = 0
         while True:

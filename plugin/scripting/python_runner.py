@@ -27,7 +27,8 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_errors import exception_traceback
 from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_open_expected
 from plugin.scripting.venv_worker import run_code_in_user_venv
-from plugin.scripting.python_runner_ui import show_python_input_dialog, start_native_script_run
+from plugin.framework.worker_pool import run_in_background
+from plugin.scripting.python_runner_ui import show_python_input_dialog
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
@@ -544,7 +545,7 @@ def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str 
 
     Synchronous entry used by tests. The extension UI does not call this.
     The native dialog and Monaco Run both use
-    plugin.scripting.python_runner_ui.start_native_script_run, which keeps
+    plugin.scripting.python_runner.start_native_script_run, which keeps
     the venv wait off the UNO event thread.
     """
     prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range)
@@ -560,6 +561,82 @@ def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str 
         log.exception("execute_and_insert_result failed")
         return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
     return _finish_rps_execution(prepared, response)
+
+
+def start_native_script_run(
+    ctx: Any,
+    doc: Any,
+    code: str,
+    *,
+    on_complete: Any,
+    data_range: str | None = None,
+) -> None:
+    """Run a script without blocking the UNO event thread.
+
+    The Run button must not call ``execute_and_insert_result`` on the dialog
+    dispatch thread. Subprocess spawn and the venv wait froze the native XDL
+    dialog until the script finished. Monaco Run did the same inside the
+    editor save handler. The native listener and Monaco Run both call this.
+    ``data_range`` is the Monaco data-binding text; the native dialog leaves
+    it empty and uses the current selection. Document prep and result insert
+    stay on the main thread (``execute_on_main_thread``). Only the venv IPC
+    wait runs in the background. ``on_complete`` is posted back to the main
+    thread. After the worker is scheduled, ``on_complete`` is called exactly
+    once on the main thread. A non-dict from preparation is an error outcome,
+    not a silent return.
+    """
+    from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+    from plugin.scripting.editor_errors import exception_traceback
+    from plugin.scripting.helper_domain import rps_error_outcome
+
+    def _deliver(outcome: dict[str, Any]) -> None:
+        def _apply() -> None:
+            on_complete(outcome)
+
+        post_to_main_thread(_apply)
+
+    def _native_script_run_worker() -> None:
+        prepared: dict[str, Any] | None = None
+        try:
+            prepared = execute_on_main_thread(
+                _prepare_rps_execution, ctx, doc, code, data_range=data_range
+            )
+            if not isinstance(prepared, dict):
+                # What was wrong: a non-dict from prepare returned without on_complete, so BtnRun stayed disabled.
+                # How it happened: the isinstance guard avoided calling .get on a bad value and returned before _deliver.
+                # Why this change fixes it: the worker still posts one error outcome. A non-dict has no script_session_id, so nothing is released.
+                log.error("native script run: prepare returned %s", type(prepared).__name__)
+                _deliver({"ok": False, "message": _("Script preparation failed.")})
+                return
+            early = prepared.get("early_outcome")
+            if early is not None:
+                _deliver(early)
+                return
+            try:
+                response = _run_prepared_rps(prepared)
+            except Exception as exc:
+                from plugin.scripting.session_manager import release_script_document
+
+                release_script_document(prepared.get("script_session_id"))
+                log.exception("native script run failed")
+                _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
+                return
+            try:
+                outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
+            except Exception:
+                # What was wrong: Main-thread execution failure or timeout leaked the pinned document token.
+                # How it happened: When execute_on_main_thread raised (e.g. timeout), _finish_rps_execution's finally never ran.
+                # Why this change fixes it: Catch exceptions around finish marshal, release the pinned document token, and re-raise.
+                from plugin.scripting.session_manager import release_script_document
+
+                release_script_document(prepared.get("script_session_id"))
+                raise
+            _deliver(outcome)
+        except Exception as exc:
+            log.exception("native script run failed")
+            _deliver({"ok": False, "message": str(exc)})
+
+    run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
 
 
 def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dict[str, Any]:

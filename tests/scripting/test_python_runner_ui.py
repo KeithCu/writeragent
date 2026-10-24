@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework import queue_executor as qe
+from plugin.scripting import python_runner as pr
 from plugin.scripting import python_runner_ui as ui
 from plugin.scripting.document_scripts import DocumentScriptError, DocumentScriptErrorCode
 
@@ -136,10 +137,10 @@ def test_start_native_script_run_returns_before_venv_wait():
         return MagicMock()
 
     with (
-        patch.object(ui, "run_in_background", side_effect=_capture),
+        patch.object(pr, "run_in_background", side_effect=_capture),
         patch("plugin.scripting.python_runner._run_prepared_rps") as mock_run,
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=completed.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=completed.append)
     mock_run.assert_not_called()
     assert completed == []
     assert callable(scheduled["func"])
@@ -235,12 +236,12 @@ def test_start_native_script_run_worker_splits_main_and_venv():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=_run),
         patch("plugin.scripting.python_runner._finish_rps_execution", side_effect=_finish),
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     assert order == ["prepare", "venv", "finish"]
     assert seen == [{"ok": True, "status_ok_text": "done"}]
@@ -265,11 +266,11 @@ def test_start_native_script_run_forwards_data_range():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
         patch("plugin.scripting.python_runner._run_prepared_rps") as mock_run,
     ):
-        ui.start_native_script_run(
+        pr.start_native_script_run(
             ctx, doc, "result = 1", on_complete=seen.append, data_range="A1:B2"
         )
 
@@ -301,12 +302,12 @@ def test_start_native_script_run_reports_venv_failure():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=RuntimeError("venv down")),
         patch("plugin.scripting.python_runner._finish_rps_execution") as mock_finish,
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     mock_finish.assert_not_called()
     assert seen and seen[0]["ok"] is False
@@ -320,10 +321,10 @@ def test_start_native_script_run_scheduling_failure_raises_without_delivering():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=RuntimeError("thread pool full")),
+        patch.object(pr, "run_in_background", side_effect=RuntimeError("thread pool full")),
     ):
         with pytest.raises(RuntimeError, match="thread pool full"):
-            ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+            pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     assert seen == []
 
@@ -341,7 +342,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch(
             "plugin.framework.queue_executor.execute_on_main_thread",
             side_effect=[
@@ -352,7 +353,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
         patch("plugin.scripting.python_runner._run_prepared_rps", return_value={"status": "ok", "result": 1}),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     mock_release.assert_called_once_with("doc:leak")
     assert seen and seen[0]["ok"] is False
@@ -370,11 +371,11 @@ def test_start_native_script_run_prepare_timeout_does_not_release():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=TimeoutError("prepare")),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     mock_release.assert_not_called()
     assert seen and seen[0]["ok"] is False
@@ -391,11 +392,11 @@ def test_start_native_script_run_nondict_prepare_delivers_error():
 
     with (
         _deliver_posted_native_run(),
-        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=None),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
-        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
     mock_release.assert_not_called()
     assert len(seen) == 1
@@ -718,7 +719,7 @@ def test_run_ok_save_shows_running_and_no_save_box():
 
     with (
         patch.object(inst, "_save_current_script", return_value=save_result),
-        patch.object(ui, "start_native_script_run") as mock_start_run,
+        patch.object(pr, "start_native_script_run") as mock_start_run,
         patch.object(ui, "msgbox") as mock_msgbox,
     ):
         trigger("RunListener")
@@ -746,7 +747,7 @@ def test_run_builtin_keeps_warning_on_the_label():
 
     with (
         patch.object(inst, "_save_current_script", return_value=save_result),
-        patch.object(ui, "start_native_script_run", side_effect=_capture_run) as mock_start_run,
+        patch.object(pr, "start_native_script_run", side_effect=_capture_run) as mock_start_run,
         patch.object(ui, "msgbox") as mock_msgbox,
         patch.object(ui, "_report_run_outcome", side_effect=_fake_report_outcome),
     ):
@@ -769,7 +770,7 @@ def test_run_builtin_keeps_warning_on_the_label():
 
     with (
         patch.object(inst2, "_save_current_script", return_value=save_result),
-        patch.object(ui, "start_native_script_run", side_effect=_capture_run2),
+        patch.object(pr, "start_native_script_run", side_effect=_capture_run2),
         patch.object(ui, "msgbox") as mock_msgbox,
         patch.object(ui, "_report_run_outcome"),
     ):
@@ -795,7 +796,7 @@ def test_run_modal_save_boxes_then_runs():
     with (
         patch.object(inst, "_save_current_script", return_value=save_result),
         patch.object(ui, "msgbox", side_effect=_fake_msgbox),
-        patch.object(ui, "start_native_script_run", side_effect=_fake_start_run),
+        patch.object(pr, "start_native_script_run", side_effect=_fake_start_run),
     ):
         trigger("RunListener")
 
@@ -876,8 +877,8 @@ def test_start_native_script_run_uses_dedicated_worker():
         return MagicMock()
 
     ctx = MagicMock()
-    with patch.object(ui, "run_in_background", side_effect=_capture_run):
-        ui.start_native_script_run(ctx, None, "print(1)", on_complete=lambda _o: None)
+    with patch.object(pr, "run_in_background", side_effect=_capture_run):
+        pr.start_native_script_run(ctx, None, "print(1)", on_complete=lambda _o: None)
 
     assert captured.get("dedicated") is True
 

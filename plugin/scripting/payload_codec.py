@@ -635,6 +635,19 @@ def find_image_payloads(
     return []
 
 
+def extract_image_payload(value: Any) -> dict[str, Any] | None:
+    """Return the ``__wa_payload__: image`` envelope from raw or viz-wrapped results."""
+    if is_image_payload(value):
+        return value
+    if isinstance(value, dict):
+        image = value.get("image")
+        if is_image_payload(image):
+            return image
+    # Fallback to the first found image payload if there are multiple
+    images = find_image_payloads(value)
+    return images[0] if images else None
+
+
 # Bugfix: What was wrong: strip_image_payloads dropped image payloads completely, collapsed lists, and dropped dictionary keys.
 # How it happened: It filtered out None values resulting from image payloads, which altered list lengths and deleted dictionary keys or omitted the result key entirely.
 # Why this change fixes it: It replaces any image payload with "<image>" while preserving collection lengths, sequence ordering, and dictionary keys.

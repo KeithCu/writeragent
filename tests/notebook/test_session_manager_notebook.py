@@ -147,6 +147,7 @@ def test_reset_workbook_python_session_dispatches_to_notebook():
     desktop.getComponents.return_value = comps
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=True),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),

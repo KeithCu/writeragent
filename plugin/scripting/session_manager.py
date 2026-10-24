@@ -12,16 +12,13 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
+from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import _enumeration_should_continue, get_desktop
+from plugin.framework.uno_context import get_desktop, iter_desktop_models
 
 log = logging.getLogger(__name__)
 
@@ -65,49 +62,12 @@ def _doc_url(raw_doc: Any) -> str:
     return (raw_doc.getURL() or "").strip()
 
 
-def _iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
-    """Yield all valid open models from desktop component enumeration."""
-    from plugin.framework.errors import check_disposed
-    from plugin.framework.thread_guard import _unwrap_uno
-
-    desktop = get_desktop(ctx)
-    if desktop is None:
-        return
-    comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
-    if comps is None or not hasattr(comps, "createEnumeration"):
-        return
-    enum = comps.createEnumeration()
-    seen = 0
-    while True:
-        if not _enumeration_should_continue(enum, seen, label=label):
-            break
-        seen += 1
-        try:
-            elem = enum.nextElement()
-        except Exception:
-            break
-        model = None
-        if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-            model = elem
-        elif hasattr(elem, "getController"):
-            ctrl = elem.getController()
-            if ctrl:
-                model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-        if model is not None:
-            try:
-                check_disposed(_unwrap_uno(model))
-                getattr(model, "getCurrentController", lambda: None)()
-                yield model
-            except Exception:
-                log.debug("session_manager: skipping broken model", exc_info=True)
-
-
 def _enumerated_matching_models(ctx: Any, predicate: Any) -> list[Any]:
     from plugin.framework.thread_guard import guard_uno
 
     matches: list[Any] = []
     try:
-        for model in _iter_desktop_models(ctx, label="session_manager"):
+        for model in iter_desktop_models(ctx, label="session_manager"):
             try:
                 if predicate(model):
                     matches.append(guard_uno(model))
@@ -374,7 +334,7 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     if not key:
         return None
     try:
-        for model in _iter_desktop_models(ctx, label="document_for_script_session"):
+        for model in iter_desktop_models(ctx, label="document_for_script_session"):
             try:
                 # Read-only: _workbook_session_key would mint a UDProp on docs
                 # that have never run Python.
