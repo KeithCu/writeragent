@@ -267,18 +267,6 @@ def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
 
 
-def resolve_run_script_name_config_key(doc: Any) -> str:
-    """Return the config key for persisting the last selected Run Python Script name for *doc*."""
-    if doc:
-        if is_calc(doc):
-            return "last_python_script_name_calc"
-        if is_writer(doc):
-            return "last_python_script_name_writer"
-        if is_draw(doc):
-            return "last_python_script_name_draw"
-    return "last_python_script_name_writer"
-
-
 def _find_binding_insertion_line(code: str) -> int:
     """Line index (0-based) where injected bindings should be inserted.
 
@@ -444,8 +432,6 @@ def script_imports_module(code: str, module_name: str) -> bool:
                     if alias.name == sub:
                         return True
     return False
-
-
 def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] | None:
     """Return prepared vision execution dict, early error dict, or None if not a vision script."""
     from plugin.scripting.helper_domain import parse_run_import_call_spec
@@ -827,6 +813,8 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         if action != "save" and run_key in _monaco_run_in_flight:
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
+        from plugin.scripting.document_scripts import resolve_run_script_name_config_key
+
         name_config_key = resolve_run_script_name_config_key(doc)
         last_name = get_config_str(name_config_key).strip()
         if not last_name:

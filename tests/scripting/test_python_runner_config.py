@@ -16,7 +16,7 @@ class TestPythonRunnerConfig:
     @patch('plugin.scripting.python_runner.is_draw')
     @patch('plugin.scripting.document_scripts.get_user_scripts', return_value={})
     @patch('plugin.framework.config.get_config_str')
-    @patch('plugin.scripting.python_runner.resolve_run_script_name_config_key')
+    @patch('plugin.scripting.document_scripts.resolve_run_script_name_config_key')
     @patch('plugin.scripting.python_runner.execute_and_insert_result')
     @patch('plugin.scripting.document_scripts.save_user_script')
     @patch('plugin.scripting.python_runner.show_python_input_dialog', return_value=(True, None))

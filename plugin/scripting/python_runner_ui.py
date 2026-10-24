@@ -108,6 +108,7 @@ from plugin.scripting.document_scripts import (
     read_only_helper_message,
     readonly_fallback_name_taken_message,
     readonly_fallback_saved_message,
+    resolve_run_script_name_config_key,
     resolve_script_picker_entry,
     save_document_script,
     save_user_script,
@@ -299,9 +300,6 @@ class NativePythonScriptDialog:
         self._closed = False
         self._top_listener: Any | None = None
         self._open_failure_detail = None
-        # Local import: python_runner imports this module at module level.
-        from plugin.scripting.python_runner import resolve_run_script_name_config_key
-
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
 
     @classmethod
@@ -348,9 +346,6 @@ class NativePythonScriptDialog:
 
         config_key = self._name_config_key
         if not config_key:
-            # Local import: python_runner imports this module at module level.
-            from plugin.scripting.python_runner import resolve_run_script_name_config_key
-
             config_key = resolve_run_script_name_config_key(self._doc)
             self._name_config_key = config_key
 

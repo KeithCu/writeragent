@@ -4,9 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Host-side helpers for venv microphone recording and chat audio.
 
-Spawn goes through ManagedSubprocess and the stop/reap sequence stays here. Chat also uses it to attach a
-finished WAV as ``input_audio`` and to recover when that native-audio POST
-is rejected, so the tool loop does not own those steps.
+Spawn goes through ManagedSubprocess and the stop/reap sequence stays here. Chat
+also uses it to attach a finished WAV as ``input_audio``.
 """
 
 from __future__ import annotations
@@ -540,39 +539,6 @@ def is_audio_recording_supported(ctx: Any) -> bool:
     return check_host_audio_supported()
 
 
-def _error_http_status(err: Any) -> int | None:
-    details: Any = None
-    if isinstance(err, dict):
-        details = err.get("details")
-    else:
-        details = getattr(err, "details", None)
-    status: Any = None
-    if isinstance(details, dict):
-        status = details.get("status")
-    elif details is not None:
-        try:
-            status = details["status"]
-        except Exception:
-            status = getattr(details, "status", None)
-    if isinstance(status, int) and not isinstance(status, bool):
-        return status
-    return None
-
-
-def _is_400_input_validation(err: Any) -> bool:
-    """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
-    # Bugfix: "400" in str(err) is true for any payload whose text happens
-    # to contain those digits, including a non-400 body. The HTTP status is
-    # already on details["status"] from handle_http_status via format_error_payload.
-    if _error_http_status(err) != 400:
-        return False
-    if isinstance(err, dict):
-        msg = str(err.get("message") or "").lower()
-    else:
-        msg = str(getattr(err, "message", None) or err).lower()
-    return "input validation" in msg or "bad request" in msg
-
-
 def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str) -> bool:
     """Read a WAV and append an OpenAI ``input_audio`` content part.
 
@@ -592,93 +558,6 @@ def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str)
     except Exception:
         log.exception("Unexpected audio error")
         return False
-
-
-def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
-    """After a native ``input_audio`` rejection, transcribe and respawn this drain.
-
-    The chat POST already failed, so this must not re-enter
-    ``_do_send_chat_with_tools`` / ``_start_tool_calling_async`` (nested drain).
-    The model-catalog imports stay inside the function so importing this
-    module to spawn a recording does not load the chat model fetcher.
-
-    False: not a native-audio rejection, or STT cannot run. The caller
-    continues with overflow and generic API handling.
-    True: a replacement worker was spawned on this drain. The caller must
-    keep draining. The drain treats only True that way.
-    None: stop the drain without a second API error. Transcription threw
-    (``_transcribe_audio`` already reported it and deleted the WAV), or
-    empty speech already ended the turn (banner shown, no worker).
-    """
-    from plugin.audio.stt_service import uses_local_stt
-    from plugin.framework.client.errors import is_audio_unsupported_error
-    from plugin.framework.client.model_fetcher import get_stt_model, set_native_audio_support
-    from plugin.framework.i18n import _
-
-    if not host.audio_wav_path or not (_is_400_input_validation(error) or is_audio_unsupported_error(error)):
-        return False
-
-    turn = getattr(host, "_turn", None)
-    # Read text_model and endpoint from the turn captured when the audio was
-    # attached. Re-reading the combobox mid-turn would mark the newly chosen
-    # model unsupported instead of the model the audio was sent to.
-    turn_model = getattr(turn, "text_model", None)
-    turn_endpoint = getattr(turn, "endpoint", None)
-    if not turn_model:
-        from plugin.framework.client.model_fetcher import get_text_model
-        from plugin.framework.config import get_current_endpoint
-
-        turn_model = get_text_model()
-        turn_endpoint = get_current_endpoint()
-    if turn_model:
-        log.warning("Model %s failed native audio, caching and falling back to STT", turn_model)
-        set_native_audio_support(turn_model, turn_endpoint, supported=False)
-
-    stt_model = get_stt_model()
-    # Local Whisper does not need an endpoint model id. Endpoint STT still does.
-    local_stt = uses_local_stt()
-    if turn is None or not getattr(turn, "alive", False):
-        return False
-    retry_q = getattr(turn, "batcher", None) or getattr(turn, "queue", None)
-    if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
-        host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
-        try:
-            transcript = host._transcribe_audio(host.audio_wav_path, stt_model)
-            if getattr(host, "_terminal_status", None) == "Stopped":
-                # Stop during fallback STT. None ends the drain. Do not show
-                # "No speech detected" or spawn another chat worker.
-                return None
-            wav_path = host.audio_wav_path
-            host.audio_wav_path = None
-            if wav_path:
-                try:
-                    os.remove(wav_path)
-                except OSError as rem_err:
-                    log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
-            if not (transcript or "").strip():
-                # G27: empty STT must not spawn a blank chat POST.
-                # The drain keeps running only when on_error returns True,
-                # which means a replacement worker was spawned. Empty speech
-                # spawns nothing and posts no STREAM_DONE, so returning True
-                # left the sidebar on Stop. None means this turn is finished
-                # and a second API error should not be shown.
-                host._append_response("\n" + _("[No speech detected.]") + "\n")
-                host._terminal_status = ""
-                return None
-            combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
-            if host.session.messages and host.session.messages[-1].get("role") == "user":
-                host.session.messages[-1]["content"] = combined
-                if getattr(host.session, "db", None):
-                    host.session.db.update_last_user_content(combined)
-            else:
-                host.session.add_user_message(combined)
-            turn.active_query_text = combined
-            host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num, query_text=combined)
-            return True
-        except Exception:
-            log.exception("STT fallback after native-audio error failed")
-        return None
-    return False
 
 
 def clear_pending_audio_wav(host: Any) -> None:

@@ -535,6 +535,18 @@ def build_xdl_script_picker_state(
     return _picker_state_from_parts(user_scripts, doc_scripts, domain_entries)
 
 
+def resolve_run_script_name_config_key(doc: Any) -> str:
+    """Return the config key for persisting the last selected Run Python Script name for *doc*."""
+    if doc:
+        if is_calc(doc):
+            return "last_python_script_name_calc"
+        if is_writer(doc):
+            return "last_python_script_name_writer"
+        if is_draw(doc):
+            return "last_python_script_name_draw"
+    return "last_python_script_name_writer"
+
+
 def resolve_run_script_selection(
     ctx: Any,
     doc: Any | None,
@@ -543,8 +555,6 @@ def resolve_run_script_selection(
     picker_state: tuple[list[str], dict[str, str], dict[str, str]] | None = None,
 ) -> tuple[str, str, dict[str, str]]:
     """Return (selected_name, selected_code, merged_scripts) for Run Python Script."""
-    from plugin.scripting.python_runner import resolve_run_script_name_config_key
-
     name_config_key = resolve_run_script_name_config_key(doc)
     last_name = config.get_config_str(name_config_key)
     if picker_state is not None:
@@ -812,8 +822,6 @@ def _require_writable_session(
 
 
 def _remember_selection(session_doc: Any | None, name: str) -> None:
-    from plugin.scripting.python_runner import resolve_run_script_name_config_key
-
     name_config_key = resolve_run_script_name_config_key(session_doc)
     config.set_config(name_config_key, name)
 

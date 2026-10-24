@@ -156,6 +156,39 @@ def is_audio_unsupported_error(e: Any) -> bool:
     return False
 
 
+def _error_http_status(err: Any) -> int | None:
+    details: Any = None
+    if isinstance(err, dict):
+        details = err.get("details")
+    else:
+        details = getattr(err, "details", None)
+    status: Any = None
+    if isinstance(details, dict):
+        status = details.get("status")
+    elif details is not None:
+        try:
+            status = details["status"]
+        except Exception:
+            status = getattr(details, "status", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        return status
+    return None
+
+
+def is_400_input_validation(err: Any) -> bool:
+    """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
+    # Bugfix: "400" in str(err) is true for any payload whose text happens
+    # to contain those digits, including a non-400 body. The HTTP status is
+    # already on details["status"] from handle_http_status via format_error_payload.
+    if _error_http_status(err) != 400:
+        return False
+    if isinstance(err, dict):
+        msg = str(err.get("message") or "").lower()
+    else:
+        msg = str(getattr(err, "message", None) or err).lower()
+    return "input validation" in msg or "bad request" in msg
+
+
 def is_image_unsupported_error(e: Any) -> bool:
     """True when the provider says the model takes no image input."""
     msg = str(e).lower()

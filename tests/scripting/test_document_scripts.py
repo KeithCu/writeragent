@@ -509,6 +509,24 @@ def test_build_xdl_script_picker_state():
         assert doc_idx < items.index(vision_items[0])
 
 
+def test_resolve_run_script_name_config_key():
+    from plugin.scripting.document_scripts import resolve_run_script_name_config_key
+
+    calc_doc = MagicMock()
+    calc_doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    assert resolve_run_script_name_config_key(calc_doc) == "last_python_script_name_calc"
+
+    writer_doc = MagicMock()
+    writer_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    assert resolve_run_script_name_config_key(writer_doc) == "last_python_script_name_writer"
+
+    draw_doc = MagicMock()
+    draw_doc.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
+    assert resolve_run_script_name_config_key(draw_doc) == "last_python_script_name_draw"
+
+    assert resolve_run_script_name_config_key(None) == "last_python_script_name_writer"
+
+
 def test_resolve_run_script_selection_uses_config_default():
     ctx = MagicMock()
     doc = MagicMock()
@@ -517,7 +535,7 @@ def test_resolve_run_script_selection_uses_config_default():
         "Prime Numbers": "result = 'gaps'",
     }
     with patch("plugin.framework.config.get_config_str", return_value="Prime Numbers"), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         name, code, merged = resolve_run_script_selection(ctx, doc, saved)
@@ -531,7 +549,7 @@ def test_resolve_run_script_selection_falls_back_to_first_name():
     doc = MagicMock()
     saved = {"Alpha": "a = 1", "Beta": "b = 2"}
     with patch("plugin.framework.config.get_config_str", return_value="Missing"), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch("plugin.framework.config.set_config") as mock_set:
         name, code, merged = resolve_run_script_selection(ctx, doc, saved)
@@ -555,7 +573,7 @@ def test_build_scripts_list_message_sections():
     with patch("plugin.framework.config.get_config", return_value={"Prime": "result = 2"}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
     assert msg["document_available"] is True
@@ -578,7 +596,7 @@ def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis()
     with patch("plugin.framework.config.get_config", return_value={"MyLocal": "result = 0"}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key", return_value="last_python_script_name_calc"
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_calc"
     ), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
@@ -594,7 +612,7 @@ def test_build_scripts_list_message_includes_selected_script():
     with patch("plugin.framework.config.get_config", return_value={"Prime": "print('primes')"}), patch(
         "plugin.framework.config.get_config_str", return_value="Prime"
     ) as mock_get_str, patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ) as mock_key:
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
     mock_key.assert_called_once_with(doc)
@@ -608,7 +626,7 @@ def test_build_scripts_list_message_includes_selected_script_name_when_empty():
     with patch("plugin.framework.config.get_config", return_value={"Alpha": "a = 1"}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
@@ -624,7 +642,7 @@ def test_build_scripts_list_message_stale_when_url_changes():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/original.odt")
     assert msg["document_stale"] is True
@@ -641,7 +659,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="")
@@ -777,7 +795,7 @@ def test_handle_editor_script_message_save_user_and_empty_name():
     with patch("plugin.framework.config.get_config", side_effect=lambda key: store if key == "saved_python_scripts" else {}), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value="Mine"), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         assert handle_editor_script_message(
@@ -813,7 +831,7 @@ def test_handle_editor_script_message_save_document_script_updates_config():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         assert handle_editor_script_message(
@@ -837,7 +855,7 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
         "plugin.scripting.document_scripts.save_document_script",
@@ -876,7 +894,7 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
     with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
         "plugin.scripting.document_scripts.save_document_script",
@@ -909,7 +927,7 @@ def test_attach_script_stores_display_name_as_property_key():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         assert handle_editor_script_message(
@@ -935,7 +953,7 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
         "plugin.scripting.document_scripts.save_document_script",
@@ -1140,7 +1158,7 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
         "plugin.framework.config.get_config_str", side_effect=_get_config_str
     ), patch("plugin.framework.config.set_config", side_effect=_set_config), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         listed = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
@@ -1240,7 +1258,7 @@ def test_monaco_overwrite_check_uses_document_display_key():
     with patch("plugin.framework.config.get_config", return_value={"Regional": "user-code"}), patch(
         "plugin.framework.config.get_config_str", return_value=""
     ), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
@@ -1422,7 +1440,7 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     ), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
     ):
         # session_doc_url is different from doc.getURL(), marking document_stale = True
@@ -1449,7 +1467,7 @@ def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
     ):
         handled = handle_editor_script_message(
@@ -1480,7 +1498,7 @@ def test_save_script_too_large_does_not_fallback_to_my_scripts():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.set_config"
     ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
-        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
     ):
         handled = handle_editor_script_message(

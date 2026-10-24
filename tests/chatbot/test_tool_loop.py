@@ -214,7 +214,7 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_con
 
 def test_handle_stream_error_persists_banner():
     panel, session = setup_mock_panel()
-    with patch("plugin.scripting.audio_recorder_service.try_native_audio_stt_fallback", return_value=False), \
+    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=False), \
          patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
          patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
         result = panel._handle_stream_error(Exception("boom"))

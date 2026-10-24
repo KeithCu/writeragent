@@ -119,3 +119,27 @@ class TestStreamErrorMessage:
         assert stream_error_message({"error": {}}) is None
         assert stream_error_message({"error": ""}) is None
         assert stream_error_message({"type": "message_delta"}) is None
+
+
+def test_is_400_input_validation_uses_status():
+    from plugin.framework.client.errors import is_400_input_validation
+
+    assert is_400_input_validation({
+        "code": "HTTP_ERROR",
+        "message": "HTTP Error 400 from AI Provider: Bad Request",
+        "details": {"status": 400},
+    }) is True
+
+    assert is_400_input_validation({
+        "code": "HTTP_ERROR",
+        "message": "HTTP Error 400 from AI Provider: Bad Request input validation",
+        "details": {"status": 500},
+    }) is False
+
+    assert is_400_input_validation("HTTP Error 400 bad request input validation") is False
+
+    assert is_400_input_validation({
+        "code": "HTTP_ERROR",
+        "message": "HTTP Error 400 from AI Provider: Bad Request",
+        "details": {"status": True},
+    }) is False
