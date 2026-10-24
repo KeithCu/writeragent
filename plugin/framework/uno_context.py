@@ -302,6 +302,14 @@ def get_ctx() -> Any:
     return None
 
 
+def resolve_uno_context(ctx: Any) -> Any:
+    """Resolve the UNO component context from the tool context or fallback."""
+    uno_ctx = getattr(ctx, "ctx", None)
+    if uno_ctx is not None:
+        return uno_ctx
+    return get_ctx()
+
+
 def get_service_manager(ctx: Any) -> Any | None:
     """Return the UNO ServiceManager from *ctx*, or None."""
     if ctx is None:

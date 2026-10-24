@@ -1155,15 +1155,14 @@ def test_empty_replacement_keeps_a_table_whose_cell_holds_a_pending_deletion():
     must edit the text, not delete the table (review finding on the #43 change)."""
     from unittest.mock import patch
 
-    from plugin.writer.specialized import tables
+    from plugin.writer import apply_document_content
 
     cell = SimpleNamespace(getString=lambda: "celula novavelha")
     table = SimpleNamespace(getCellNames=lambda: ["A1"], getCellByName=lambda name: cell)
     found = SimpleNamespace(getString=lambda: "celula nova")
-    with patch.object(tables, "_cell_hosted_table_names", return_value=[]), \
-         patch.object(tables, "_range_in_cell", return_value=True), \
-         patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova"):
-        assert tables._empty_replacement_clears_table(table, [found]) is False
+    with patch.object(apply_document_content, "_cell_hosted_table_names", return_value=[]), \
+         patch.object(apply_document_content, "_range_in_cell", return_value=True):
+        assert apply_document_content._empty_replacement_clears_table(table, [found]) is False
 
 
 def test_table_insert_rejects_non_integer_dims_and_non_list_data():
@@ -1282,14 +1281,14 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
 
 
 def test_resolve_uno_context():
-    from plugin.writer.specialized.tables import _resolve_uno_context
+    from plugin.framework.uno_context import resolve_uno_context
     ctx = SimpleNamespace(ctx="CUSTOM_UNO_CTX")
-    assert _resolve_uno_context(ctx) == "CUSTOM_UNO_CTX"
+    assert resolve_uno_context(ctx) == "CUSTOM_UNO_CTX"
 
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.specialized.tables import _is_text_table, _iter_direct_children, _cell_hosted_table_names
+    from plugin.writer.table_nesting import _is_text_table, _iter_direct_children, _cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")

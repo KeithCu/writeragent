@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Nested-table discovery and mutation guards for Writer documents."""
+"""Nested-table discovery, mutation guards, and host-cell paragraph read/write helpers for Writer documents."""
 from typing import Any, Iterator
 
 from plugin.framework.errors import uno_probe
@@ -143,3 +143,35 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
         "edit those tables by name — apply_document_content would delete them."
         % ", ".join(hosted)
     )
+
+
+def cell_plain_siblings(cell: Any) -> str:
+    """Host-cell paragraph text only — skips nested tables' getString() dump."""
+    parts: list[str] = []
+    for kind, obj in _walk_xtext_siblings(cell):
+        if kind != "para":
+            continue
+        part = uno_probe(lambda: obj.getString(), "")
+        if part:
+            parts.append(str(part))
+    return "\n".join(parts)
+
+
+def set_host_paragraphs(cell: Any, text: str) -> None:
+    """Rewrite the cell's own paragraph siblings; leave tables and frames.
+
+    Direct children only — do not rewrite text inside a frame/section (that
+    would be a different XText). No paragraphs: insert at getStart() so a
+    caption lands before a table that table_insert placed at getEnd().
+    """
+    paras: list[Any] = []
+    for element in _iter_direct_children(cell):
+        if _is_text_table(element) or _container_xtext(element) is not None:
+            continue
+        paras.append(element)
+    if not paras:
+        cell.insertString(cell.getStart(), text, False)
+        return
+    paras[0].setString(text)
+    for extra in paras[1:]:
+        extra.setString("")

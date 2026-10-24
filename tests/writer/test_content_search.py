@@ -206,7 +206,7 @@ class _HostCell(_Cell):
 
 
 def _names(ranges, content):
-    from plugin.writer.specialized.tables import writer_tables_emptied_by_matches
+    from plugin.writer.apply_document_content import writer_tables_emptied_by_matches
 
     return [name for _table, name in writer_tables_emptied_by_matches(ranges, content)]
 

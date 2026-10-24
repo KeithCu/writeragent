@@ -890,7 +890,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_found):
         res = ApplyDocumentContent().execute(
             ctx, content="x", target="search", old_content="old", all_matches=True)
@@ -909,7 +909,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_coded):
         res = ApplyDocumentContent().execute(
             ctx, content="x", target="search", old_content="old", all_matches=True)
@@ -930,7 +930,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_link):
         res = ApplyDocumentContent().execute(
             ctx, content="x", target="search", old_content="old", all_matches=True)
@@ -942,7 +942,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_disposed):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(
@@ -973,7 +973,7 @@ def test_emptied_table_delete_reraises_disposed():
     found = MagicMock()
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
          patch("plugin.writer.apply_document_content.record_table_deletions",
                       side_effect=type("DisposedException", (Exception,), {})("gone")):
         with pytest.raises(Exception) as exc_info:

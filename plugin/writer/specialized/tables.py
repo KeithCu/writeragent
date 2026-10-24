@@ -18,11 +18,10 @@ from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     _cell_hosted_table_names,
-    _container_xtext,
-    _is_text_table,
-    _iter_direct_children,
-    _walk_xtext_siblings,
+    cell_plain_siblings,
+    set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
+from plugin.framework.uno_context import resolve_uno_context
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
@@ -102,18 +101,6 @@ def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> s
     )
 
 
-def _cell_plain_siblings(cell: Any) -> str:
-    """Host-cell paragraph text only — skips nested tables' getString() dump."""
-    parts: list[str] = []
-    for kind, obj in _walk_xtext_siblings(cell):
-        if kind != "para":
-            continue
-        part = uno_probe(lambda: obj.getString(), "")
-        if part:
-            parts.append(str(part))
-    return "\n".join(parts)
-
-
 def _cell_matrix_text(cell: Any, visible: bool = True, hosted_tables: list[str] | None = None) -> str:
     """Cell text for table_get_cells: host cells omit concatenated inner-table text.
 
@@ -123,127 +110,8 @@ def _cell_matrix_text(cell: Any, visible: bool = True, hosted_tables: list[str] 
     """
     has_hosted = bool(hosted_tables) if hosted_tables is not None else bool(_cell_hosted_table_names(cell))
     if has_hosted:
-        return _cell_plain_siblings(cell)
+        return cell_plain_siblings(cell)
     return get_string_without_tracked_deletions(cell) if visible else cell.getString()
-
-
-def _table_from_range(found: Any) -> Any:
-    """The TextTable that owns *found*, or None when the match is not in a cell."""
-    return uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
-
-
-def range_table_name(found: Any) -> str | None:
-    """Table name for a search match, or None when the match is not in a cell."""
-    table = _table_from_range(found)
-    if table is None:
-        return None
-    return uno_probe(lambda: str(table.getName() or ""), "") or None
-
-
-def _range_in_cell(found: Any, cell: Any) -> bool:
-    """True when *found* lies in *cell*.
-
-    PyUNO hands out distinct wrappers for one cell, so identity is checked with
-    ``uno_same`` and then by asking the cell to build a cursor at the match.
-    A match in a different cell raises instead of building that cursor.
-    """
-
-    def same_text() -> bool:
-        from plugin.framework.uno_context import uno_same
-
-        return bool(uno_same(found.getText(), cell))
-
-    def cursor_fits() -> bool:
-        cell.createTextCursorByRange(found.getStart())
-        return True
-
-    return uno_probe(same_text, False) or uno_probe(cursor_fits, False)
-
-
-def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tuple[Any, str]]:
-    """Tables whose last text this empty replacement removes.
-
-    Asked to delete a table, agents empty its text with
-    apply_document_content and get status ok — the shell stays and
-    the agent reports success. A hint on every empty cell is the
-    wrong signal: clearing one cell of a fee table is a normal
-    edit. The table goes only when every cell is already empty or
-    one of *ranges* is that cell's entire text. A table that hosts
-    a nested table is left alone (the host-cell wipe refusal still
-    applies). A non-empty replacement returns [].
-    """
-    if str(content or "").strip():
-        return []
-    grouped: dict[str, tuple[Any, list[Any]]] = {}
-    order: list[str] = []
-    for found in ranges:
-        table = _table_from_range(found)
-        if table is None:
-            continue
-        name = uno_probe(lambda: str(table.getName() or ""), "")
-        if not name:
-            continue
-        if name not in grouped:
-            grouped[name] = (table, [])
-            order.append(name)
-        grouped[name][1].append(found)
-    emptied: list[tuple[Any, str]] = []
-    for name in order:
-        table, matches = grouped[name]
-        if _empty_replacement_clears_table(table, matches):
-            emptied.append((table, name))
-    return emptied
-
-
-def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
-    """True when every cell is empty or fully covered by *matches*.
-
-    Unreadable cells and hosted nested tables return False so the caller edits
-    text instead of guessing which table to remove.
-    """
-    cell_names: list[Any] = uno_probe(lambda: list(table.getCellNames()), [])
-    if not cell_names:
-        return False
-    for cell_name in cell_names:
-        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
-        if cell is _FAILED or _cell_hosted_table_names(cell):
-            return False
-        # Raw text, pending deletions included: a cell that still holds a pending change is
-        # not an empty shell, so an empty replacement must not delete the whole table.
-        text = uno_probe(lambda: _cell_matrix_text(cell, visible=False).strip(), None)
-        if text is None:
-            return False
-        if not text:
-            continue
-        if not any(_match_is_whole_cell(found, cell, text) for found in matches):
-            return False
-    return True
-
-
-def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
-    if not _range_in_cell(found, cell):
-        return False
-    return uno_probe(lambda: str(found.getString() or "").strip() == cell_text, False)
-
-
-def _set_host_paragraphs(cell: Any, text: str) -> None:
-    """Rewrite the cell's own paragraph siblings; leave tables and frames.
-
-    Direct children only — do not rewrite text inside a frame/section (that
-    would be a different XText). No paragraphs: insert at getStart() so a
-    caption lands before a table that table_insert placed at getEnd().
-    """
-    paras: list[Any] = []
-    for element in _iter_direct_children(cell):
-        if _is_text_table(element) or _container_xtext(element) is not None:
-            continue
-        paras.append(element)
-    if not paras:
-        cell.insertString(cell.getStart(), text, False)
-        return
-    paras[0].setString(text)
-    for extra in paras[1:]:
-        extra.setString("")
 
 
 def _not_nested() -> dict[str, Any]:
@@ -469,16 +337,6 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     return seen
 
 
-def _resolve_uno_context(ctx: Any) -> Any:
-    """Resolve the UNO component context from the tool context or fallback."""
-    uno_ctx = getattr(ctx, "ctx", None)
-    if uno_ctx is not None:
-        return uno_ctx
-    from plugin.framework.uno_context import get_ctx
-
-    return get_ctx()
-
-
 class TableList(ToolWriterTableBase):
     name: str | None = "table_list"
     description: str = (
@@ -692,8 +550,8 @@ class TableSetCell(ToolWriterTableBase):
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
             nested = _cell_hosted_table_names(cell)
             if nested:
-                old = _cell_plain_siblings(cell)
-                _set_host_paragraphs(cell, str(text))
+                old = cell_plain_siblings(cell)
+                set_host_paragraphs(cell, str(text))
                 return {
                     "status": "ok",
                     "table_name": name,
@@ -913,7 +771,7 @@ class TableInsert(ToolWriterTableBase):
                 else:
                     created_nesting = _not_nested()
 
-            uno_ctx = _resolve_uno_context(ctx)
+            uno_ctx = resolve_uno_context(ctx)
             from plugin.writer.format import run_writer_mutation_with_optional_review
             run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
 
@@ -971,7 +829,7 @@ class TableDelete(ToolWriterTableBase):
             table = _get_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, name)
             tracked: list[bool] = []
-            uno_ctx = _resolve_uno_context(ctx)
+            uno_ctx = resolve_uno_context(ctx)
 
             def _apply() -> None:
                 # In review mode the wrapper below has just turned change tracking on; a user

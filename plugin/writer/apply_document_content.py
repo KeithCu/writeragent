@@ -46,6 +46,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
+from plugin.writer.table_nesting import _cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
     DocumentDisposedError,
@@ -53,6 +54,7 @@ from plugin.framework.errors import (
     format_error_payload,
     reraise_if_disposed,
     safe_json_loads,
+    uno_probe,
     uno_read,
 )
 from plugin.writer import search as search_mod
@@ -168,6 +170,111 @@ def _attach_table_deletion(resp: dict[str, Any], names: list[str], tracked: bool
         resp["pending_review"] = True
     resp["message"] = (resp.get("message") or "").rstrip() + " " + extra["message"]
     return resp
+
+
+# uno_probe default for sites where None is a real UNO result.
+_FAILED: Any = object()
+
+
+def _table_from_range(found: Any) -> Any:
+    """The TextTable that owns *found*, or None when the match is not in a cell."""
+    return uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
+
+
+def range_table_name(found: Any) -> str | None:
+    """Table name for a search match, or None when the match is not in a cell."""
+    table = _table_from_range(found)
+    if table is None:
+        return None
+    return uno_probe(lambda: str(table.getName() or ""), "") or None
+
+
+def _range_in_cell(found: Any, cell: Any) -> bool:
+    """True when *found* lies in *cell*.
+
+    PyUNO hands out distinct wrappers for one cell, so identity is checked with
+    ``uno_same`` and then by asking the cell to build a cursor at the match.
+    A match in a different cell raises instead of building that cursor.
+    """
+
+    def same_text() -> bool:
+        from plugin.framework.uno_context import uno_same
+
+        return bool(uno_same(found.getText(), cell))
+
+    def cursor_fits() -> bool:
+        cell.createTextCursorByRange(found.getStart())
+        return True
+
+    return uno_probe(same_text, False) or uno_probe(cursor_fits, False)
+
+
+def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
+    if not _range_in_cell(found, cell):
+        return False
+    return uno_probe(lambda: str(found.getString() or "").strip() == cell_text, False)
+
+
+def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
+    """True when every cell is empty or fully covered by *matches*.
+
+    Unreadable cells and hosted nested tables return False so the caller edits
+    text instead of guessing which table to remove.
+    """
+    cell_names: list[Any] = uno_probe(lambda: list(table.getCellNames()), [])
+    if not cell_names:
+        return False
+    from plugin.writer.specialized.tables import _cell_matrix_text
+
+    for cell_name in cell_names:
+        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
+        if cell is _FAILED or _cell_hosted_table_names(cell):
+            return False
+        # Raw text, pending deletions included: a cell that still holds a pending change is
+        # not an empty shell, so an empty replacement must not delete the whole table.
+        text = uno_probe(lambda: _cell_matrix_text(cell, visible=False).strip(), None)
+        if text is None:
+            return False
+        if not text:
+            continue
+        if not any(_match_is_whole_cell(found, cell, text) for found in matches):
+            return False
+    return True
+
+
+def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tuple[Any, str]]:
+    """Tables whose last text this empty replacement removes.
+
+    Asked to delete a table, agents empty its text with
+    apply_document_content and get status ok — the shell stays and
+    the agent reports success. A hint on every empty cell is the
+    wrong signal: clearing one cell of a fee table is a normal
+    edit. The table goes only when every cell is already empty or
+    one of *ranges* is that cell's entire text. A table that hosts
+    a nested table is left alone (the host-cell wipe refusal still
+    applies). A non-empty replacement returns [].
+    """
+    if str(content or "").strip():
+        return []
+    grouped: dict[str, tuple[Any, list[Any]]] = {}
+    order: list[str] = []
+    for found in ranges:
+        table = _table_from_range(found)
+        if table is None:
+            continue
+        name = uno_probe(lambda: str(table.getName() or ""), "")
+        if not name:
+            continue
+        if name not in grouped:
+            grouped[name] = (table, [])
+            order.append(name)
+        grouped[name][1].append(found)
+    emptied: list[tuple[Any, str]] = []
+    for name in order:
+        table, matches = grouped[name]
+        if _empty_replacement_clears_table(table, matches):
+            emptied.append((table, name))
+    return emptied
 
 
 def _doc_table_count(doc: Any) -> int | None:
@@ -1151,8 +1258,6 @@ class ApplyDocumentContent(ToolBase):
             # Decide before any replace. An empty replacement that is the last text
             # in a table deletes the table instead of leaving an empty shell; those
             # matches are not also cleared as text (that would add a second redline).
-            from plugin.writer.specialized.tables import range_table_name, writer_tables_emptied_by_matches
-
             doomed = writer_tables_emptied_by_matches(list(ranges), content)
             doomed_names = {name for _table, name in doomed}
             if doomed_names:
@@ -1392,8 +1497,6 @@ class ApplyDocumentContent(ToolBase):
         # is only part of its cell) falls through to the text replace
         # below. Same delete path as table_delete, inside this edit's
         # review session.
-        from plugin.writer.specialized.tables import writer_tables_emptied_by_matches
-
         doomed = writer_tables_emptied_by_matches([found], content)
         if doomed:
             # execute_safe reports a failed delete. This catch hid a closed
