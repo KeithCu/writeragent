@@ -299,3 +299,8 @@ source = ["plugin/framework"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.vulture]
+paths = ["plugin", "vulture_whitelist.py"]
+exclude = ["plugin/scripting/writeragent_api.py"]
+min_confidence = 60

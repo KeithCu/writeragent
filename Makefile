@@ -163,7 +163,7 @@ endif
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
-        ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
+        ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar vulture \
         eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -274,6 +274,7 @@ help:
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check plugin/"
 	@echo "  make ruff-for-build         Ruff --fix then check (used by make build)"
 	@echo "  make ruff-format-grammar    Ruff format ai_grammar_proofreader.py only (project line-length 320)"
+	@echo "  make vulture                Dead code check with vulture and vulture_whitelist.py"
 	@echo ""
 	@echo "Translation:"
 	@echo "  make translate-missing      Auto-translate missing strings with AI"
@@ -965,6 +966,16 @@ pyspector-report:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
 	@$(MKDIR) build
 	"$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False -f json -o build/pyspector-report.json
+
+# Dead code analysis with repo whitelist
+vulture:
+	@if command -v vulture >/dev/null 2>&1; then \
+		vulture; \
+	elif command -v uv >/dev/null 2>&1; then \
+		uv run --with vulture vulture; \
+	else \
+		"$(PYTHON)" -m vulture; \
+	fi
 
 # demos/ is never in the ruff gate (local packs only).
 RUFF_PATHS := plugin tests scripts

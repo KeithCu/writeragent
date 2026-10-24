@@ -49,6 +49,12 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 - Like other static checkers, Pyrefly treats **`typing.TYPE_CHECKING` as true**, so imports and types under **`if TYPE_CHECKING:`** participate in analysis. Config sets **`search-path = ["."]`** so **`from plugin...`** in those blocks resolves from the repo root, and **`check-unannotated-defs`**, **`infer-return-types`**, and **`infer-with-first-use`** match Pyrefly’s defaults for full analysis of checked modules.
 - Until the project drives Pyrefly to **zero errors**, CI should not gate on it; treat output as experimental signal alongside ty/mypy/basedpyright.
 
+### Vulture (dead code detection)
+
+- **`make vulture`** — runs `vulture` configured via `[tool.vulture]` in `pyproject.toml`.
+- Whitelist file: [`vulture_whitelist.py`](../../vulture_whitelist.py) captures registry-registered tools, UNO callbacks/listeners, and test-only code so static dead code analysis does not flag dynamic reflection points.
+- Exclusions: `plugin/scripting/writeragent_api.py` (public scripting API).
+
 ---
 
 ## Basedpyright vs `ty` and mypy (what differed in practice)
