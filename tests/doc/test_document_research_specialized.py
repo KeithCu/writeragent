@@ -81,7 +81,7 @@ def test_filter_document_research_discovery_tools_respects_config():
 
 
 def test_document_research_workflow_hint_off():
-    from plugin.doc.document_research import get_document_research_workflow_hint
+    from plugin.framework.prompts import get_document_research_workflow_hint
 
     ctx = MagicMock()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
@@ -93,7 +93,7 @@ def test_document_research_workflow_hint_off():
 
 
 def test_document_research_workflow_hint_on():
-    from plugin.doc.document_research import get_document_research_workflow_hint
+    from plugin.framework.prompts import get_document_research_workflow_hint
 
     ctx = MagicMock()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
@@ -105,7 +105,7 @@ def test_document_research_workflow_hint_on():
 
 
 def test_document_research_workflow_hint_peer_choice_when_peers_open():
-    from plugin.doc.document_research import get_document_research_workflow_hint
+    from plugin.framework.prompts import get_document_research_workflow_hint
 
     ctx = MagicMock()
     doc = MagicMock()

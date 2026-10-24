@@ -250,10 +250,8 @@ class DelegateToSpecializedBase(ToolBase):
             peer_catalog = ""
             document_research_hint = ""
             if domain == "document_research":
-                from plugin.doc.document_research import (
-                    filter_document_research_discovery_tools,
-                    get_document_research_workflow_hint,
-                )
+                from plugin.doc.document_research import filter_document_research_discovery_tools
+                from plugin.framework.prompts import get_document_research_workflow_hint
                 from plugin.doc.peer_message import (
                     PEER_TOOL_NAMES,
                     filter_peer_tools_for_specialized,

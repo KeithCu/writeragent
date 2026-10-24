@@ -120,7 +120,7 @@ Controlled by [`filter_document_research_discovery_tools`](../plugin/doc/documen
 | **`zvec`** (experimental) | `search_nearby_files` | same |
 | **`lancedb`** (experimental) | `search_nearby_files` | same |
 
-Workflow hints ([`get_document_research_workflow_hint`](../plugin/doc/document_research.py)):
+Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prompts.py)):
 
 - **Off:** `list_nearby_files` → `grep_nearby_files` → `delegate_read_document`
 - **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `search_in_document` on snippet or topic

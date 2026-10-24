@@ -83,7 +83,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
         from plugin.framework.prompts import python_specialized_sub_agent_hint
         return (python_specialized_sub_agent_hint(agent_label) or "").strip()
     if domain == "document_research":
-        from plugin.doc.document_research import get_document_research_workflow_hint
+        from plugin.framework.prompts import get_document_research_workflow_hint
         return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
     return ""
 

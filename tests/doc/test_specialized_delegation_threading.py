@@ -14,10 +14,12 @@ from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.chatbot.smol_agent import SmolToolAdapter
 from plugin.contrib.smolagents.memory import FinalAnswerStep
-from plugin.doc.document_research import get_document_research_workflow_hint
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 from plugin.framework import thread_guard as tg
-from plugin.framework.prompts import get_peer_inner_choice_block
+from plugin.framework.prompts import (
+    get_document_research_workflow_hint,
+    get_peer_inner_choice_block,
+)
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background

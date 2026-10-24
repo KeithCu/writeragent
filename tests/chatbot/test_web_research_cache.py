@@ -348,22 +348,22 @@ def test_resolve_research_locale_reraises_disposed_document():
         pass
 
     doc = MagicMock()
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DisposedException("gone")):
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=DisposedException("gone")):
         with pytest.raises(DisposedException):
             resolve_research_locale(None, doc)
 
     # Thread-guard teardown raises DocumentDisposedError. That name does not
     # contain DisposedException, so a name-only check used to swallow it and
     # cache the run as english.
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DocumentDisposedError("gone")):
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=DocumentDisposedError("gone")):
         with pytest.raises(DocumentDisposedError):
             resolve_research_locale(None, doc)
 
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=RuntimeException("uno")):
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=RuntimeException("uno")):
         with pytest.raises(RuntimeException):
             resolve_research_locale(None, doc)
 
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=[AttributeError("CharLocale"), "fr_FR"]):
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=[AttributeError("CharLocale"), "fr_FR"]):
         assert resolve_research_locale(None, doc) == ("fr_FR", "french")
 
 
@@ -566,7 +566,7 @@ def test_resolve_research_locale_uses_main_thread_for_doc():
         calls.append("main")
         return fn()
 
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=fake_execute), \
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=fake_execute), \
          patch("plugin.chatbot.web_research_cache._read_doc_char_locale", return_value=("de_DE", "german")) as read_doc:
         result_holder: list[tuple[str, str]] = []
 
@@ -585,5 +585,5 @@ def test_resolve_research_locale_uses_main_thread_for_doc():
 def test_resolve_research_locale_send_cancelled_falls_back():
     from plugin.framework.send_cancellation import SendCancelled
 
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=SendCancelled()):
+    with patch("plugin.framework.queue_executor.run_on_main", side_effect=SendCancelled()):
         assert resolve_research_locale(None, MagicMock()) == ("en_US", "english")

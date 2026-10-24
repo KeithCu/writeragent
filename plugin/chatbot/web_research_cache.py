@@ -14,10 +14,7 @@ import hashlib
 import json
 import threading
 import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from typing import Any
 
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
@@ -101,16 +98,6 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     return None
 
 
-def _resolve_on_main(fn: Callable[[], Any]) -> Any:
-    """Run UNO work on the main thread (web_research runs on an async worker)."""
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework.queue_executor import execute_on_main_thread
-
-    if on_main_thread():
-        return fn()
-    return execute_on_main_thread(fn, timeout=30.0)
-
-
 def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     """Return (gettext_lo_locale_tag, snowball_lang) for cache key + stemming.
 
@@ -118,14 +105,14 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     UNO reads are marshalled to the main thread because callers include async web_research.
     """
     from plugin.framework.errors import is_disposed_exception
-    from plugin.framework.queue_executor import _marshal_thread_tag
+    from plugin.framework.queue_executor import _marshal_thread_tag, run_on_main
     from plugin.framework.send_cancellation import SendCancelled
 
     log.debug("resolve_research_locale start doc=%s %s", doc is not None, _marshal_thread_tag())
 
     if doc is not None:
         try:
-            doc_locale = _resolve_on_main(lambda: _read_doc_char_locale(doc))
+            doc_locale = run_on_main(lambda: _read_doc_char_locale(doc))
             if doc_locale is not None:
                 return doc_locale
         except SendCancelled:
@@ -145,7 +132,7 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     try:
         from plugin.framework.i18n import get_lo_locale
 
-        lo_tag = _resolve_on_main(lambda: get_lo_locale(ctx))
+        lo_tag = run_on_main(lambda: get_lo_locale(ctx))
         return lo_tag, snowball_lang_from_locale_tag(lo_tag)
     except SendCancelled:
         log.debug("research cache: LO locale detection cancelled")

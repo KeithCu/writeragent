@@ -324,6 +324,46 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     return f" PYTHON (venv): {policy}{data_hint}{plot_suffix} Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script. {units_hint}{domain_rule}"
 
 
+def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None = None) -> str:
+    """Outer document_research sub-agent workflow text.
+
+    The peer-choice suffix calls ``list_v1_peers`` (RuntimeUID / desktop).
+    Specialized execute gathers this on the main thread; the suffix also
+    marshals if invoked off-main.
+    """
+    from plugin.framework.constants import folder_search_enabled
+
+    common = (
+        "\n\nDocument research workflow:\n"
+        "To do the task (summarize, extract, analyze, answer from document content), use delegate_read_document. "
+        "That opens the file and runs one or more specialized read tasks with full read tools on that document — this is the main path.\n"
+        "To find the proper filename when the user gives a partial or inexact name, use list_nearby_files first. "
+        "Use file_kind=images on list_nearby_files for photos/images. "
+        "Pass filter with a substring from their description (e.g. filter='budget' for \"the budget spreadsheet\"), "
+        "then delegate_read_document on the matched file name. One delegate_read_document per office file.\n"
+    )
+    grep_hint = (
+        "When you are unsure which file — the task names a keyword but no filename — "
+        "use grep_nearby_files to see which nearby files match. "
+        "It returns snippet only, not enough for any real work; use it only for file name discovery, then delegate_read_document for the real task on that document.\n"
+        "Do not use grep_nearby_files when list_nearby_files can resolve the filename (including partial matches, or when you already know "
+        "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
+    )
+    index_hint = (
+        "For cross-file discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
+        "it combines keyword ranking (BM25/NEAR) and semantic embeddings into one fused result list. "
+        "Returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
+        "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
+        "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
+        "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
+    )
+    hint = common + (index_hint if folder_search_enabled() else grep_hint)
+    peer = get_peer_inner_choice_block(ctx, doc)
+    if peer:
+        hint = hint + "\n" + peer
+    return hint
+
+
 def _load_venv_import_policy_full() -> str:
     from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
