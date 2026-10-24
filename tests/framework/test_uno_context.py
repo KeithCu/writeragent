@@ -665,20 +665,23 @@ def test_set_fallback_ctx_returns_previous():
         uc.set_fallback_ctx(saved)
 
 
-def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
-    import os
+def test_property_arg():
+    from plugin.framework.uno_context import property_arg
 
-    from plugin.framework.uno_context import menu_icon_filesystem_paths
+    class _PV:
+        def __init__(self, name: str, value: object):
+            self.Name = name
+            self.Value = value
 
-    paths1 = menu_icon_filesystem_paths("assets/icon.png")
-    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths1)
+    pv1 = _PV("Foo", "bar")
+    pv2 = _PV("Num", 42)
+    args = (pv1, pv2)
 
-    paths2 = menu_icon_filesystem_paths("/assets/icon.png")
-    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths2)
-
-    # Substring in directory name must not be stripped
-    paths3 = menu_icon_filesystem_paths("my_assets/icon.png")
-    assert all(p.endswith(os.path.join("assets", "my_assets", "icon.png")) for p in paths3)
+    assert property_arg(args, "Foo") == "bar"
+    assert property_arg(args, "Num") == 42
+    assert property_arg(args, "NonExistent") is None
+    assert property_arg(None, "Foo") is None
+    assert property_arg((), "Foo") is None
 
 
 def test_get_extension_url_returns_empty_on_all_failures():

@@ -63,8 +63,7 @@ except ImportError:
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled
 from plugin.framework.queue_executor import run_on_main
-from plugin.framework.sidebar_column import property_arg
-from plugin.framework.uno_context import get_extension_url, get_extension_path
+from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 # debug-only: omitted in release (thread_guard stub has no _designated_main_thread).

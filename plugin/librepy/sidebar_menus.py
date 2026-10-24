@@ -55,7 +55,8 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
     """Load a PNG icon from extension assets/ as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
-        from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url, menu_icon_filesystem_paths
+        from plugin.framework.menu_icon_dpi import menu_icon_asset_url, menu_icon_filesystem_paths
+        from plugin.framework.uno_context import get_extension_url
 
         clean_name = icon_filename.replace("assets/", "").lstrip("/")
         ext_url = get_extension_url(ctx) or ""

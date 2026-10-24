@@ -58,7 +58,7 @@ def test_menu_icon_filename_picks_nearest_shipped(monkeypatch, tmp_path):
         (tmp_path / ("running_%s.png" % px)).write_bytes(b"x")
 
     monkeypatch.setattr(
-        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        "plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths",
         lambda name: [str(tmp_path / name)],
     )
     assert m.menu_icon_filename("running", px=16) == "running_16.png"
@@ -70,7 +70,7 @@ def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path)
     m.reset_menu_icon_dpi_cache()
     (tmp_path / "python_32.png").write_bytes(b"x")
     monkeypatch.setattr(
-        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        "plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths",
         lambda name: [str(tmp_path / name)],
     )
     # Even at 1×, only shipped size wins until smaller assets exist.
@@ -83,7 +83,7 @@ def test_menu_icon_filename_caches_and_reset_clears(monkeypatch, tmp_path):
     reset_menu_icon_dpi_cache()
     (tmp_path / "running_16.png").write_bytes(b"x")
     monkeypatch.setattr(
-        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        "plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths",
         lambda name: [str(tmp_path / name)],
     )
 
@@ -168,7 +168,7 @@ def test_provider_icon_filename(monkeypatch, tmp_path):
     m.reset_menu_icon_dpi_cache()
     # Fallback when none found is _48.png
     monkeypatch.setattr(
-        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        "plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths",
         lambda name: [str(tmp_path / name)],
     )
     assert provider_icon_filename("openrouter", px=16) == "openrouter_48.png"
@@ -180,3 +180,19 @@ def test_provider_icon_filename(monkeypatch, tmp_path):
     assert provider_icon_filename("openrouter", px=48) == "openrouter_48.png"
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
     assert provider_icon_filename("openrouter") == "openrouter_48.png"
+
+
+def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
+    import os
+
+    from plugin.framework.menu_icon_dpi import menu_icon_filesystem_paths
+
+    paths1 = menu_icon_filesystem_paths("assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths1)
+
+    paths2 = menu_icon_filesystem_paths("/assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths2)
+
+    # Substring in directory name must not be stripped
+    paths3 = menu_icon_filesystem_paths("my_assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "my_assets", "icon.png")) for p in paths3)

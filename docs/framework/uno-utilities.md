@@ -43,8 +43,7 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `set_package_extension_id` / `resolve_package_extension_id` | Pin / detect LibrePy vs WriterAgent vs LibreHarper OXT id. |
 | `get_extension_url` | Package location URL, else `vnd.sun.star.extension://<id>`. |
 | `get_extension_path` | Filesystem path of the OXT when the package URL is `file://`. |
-| `menu_icon_asset_url` | `GraphicProvider` URL for an icon under OXT `assets/`. |
-| `menu_icon_filesystem_paths` | Local PNG paths (bundle `assets/` then git `extension/assets/`). |
+| `create_property_value` / `property_arg` | Construct `com.sun.star.beans.PropertyValue` / read property by `Name`. |
 | `product_display_name` / `is_libreharper` | User-visible product name / LibreHarper probe. |
 | `get_active_document` | `desktop.getCurrentComponent()` (Start Center possible when nothing is open). |
 | `get_document_from_frame` | Model from a sidebar frame controller (preferred over Desktop for panels). |
@@ -359,7 +358,7 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 - `get_extension_url` → `PackageInformationProvider.getPackageLocation(id)` or `vnd.sun.star.extension://<id>`.
 - Dialogs: `base + "/Dialogs/" + name + ".xdl"` (file URL when the OXT is unpacked; vnd URL as fallback).
-- Icons: `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile).
+- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile).
 
 **Dispatch (menu / protocol handler)**
 
@@ -550,6 +549,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | HTTP `url_utils` + `path_to_file_url` | `tests/framework/test_url_utils.py` |
 | `uno_context` getters | `tests/framework/test_uno_context.py` |
 | listeners | `tests/framework/test_uno_listeners.py` |
+| menu icons and DPI | `tests/framework/test_menu_icon_dpi.py` |
 | type guards | `tests/doc/test_doc_type.py` |
 | text helpers | `tests/doc/test_text_helpers.py`, `tests/doc/test_linebreak.py` |
 | udprops | `tests/doc/test_udprops.py` |

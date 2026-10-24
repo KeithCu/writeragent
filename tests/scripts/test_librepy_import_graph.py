@@ -205,6 +205,8 @@ def test_librepy_shipped_function_level_imports_are_safe():
         "plugin/contrib/smolagents/utils.py",
         # WriterAgent-only API helper in config (get_api_config for LlmClient)
         "plugin/framework/config.py",
+        # WriterAgent-only core handler registration (register_core_handlers is not called in LibrePy)
+        "plugin/framework/main_shared.py",
         # Venv worker trusted dispatch for domains only registered in WriterAgent
         "plugin/scripting/venv/trusted_dispatch.py",
         "plugin/scripting/venv/worker_harness.py",

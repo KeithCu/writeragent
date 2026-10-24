@@ -47,7 +47,6 @@ from plugin.framework.constants import (
     EXTENSION_ID_LIBREHARPER,
     EXTENSION_ID_LIBREPY,
     EXTENSION_ID_WRITERAGENT,
-    get_plugin_dir,
 )
 from plugin.framework.errors import (
     _uno_disposal_message,
@@ -391,36 +390,6 @@ def get_extension_url(ctx: Any | None = None, extension_id: str | None = None) -
     return ""
 
 
-def menu_icon_asset_url(ext_url: str, icon_filename: str) -> str:
-    """Return GraphicProvider URL for a menu icon shipped in OXT assets/."""
-    return "%s/assets/%s" % (ext_url.rstrip("/"), icon_filename)
-
-
-def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
-    """Local PNG paths for menu icons (OXT layout first, then git checkout).
-
-    ``scripts/build_oxt.py`` remaps ``extension/assets/`` to ``assets/`` at the
-    bundle root. ``make release`` pytest/UNO runs against that tree, so looking
-    only under ``extension/assets/`` misses ``python_32.png`` and friends.
-
-    ``removeprefix("assets/")`` after ``lstrip("/")`` removes only a leading
-    assets/ prefix. ``replace("assets/", "")`` strips that substring
-    anywhere ("my_assets/x.png" becomes "my_x.png").
-    On Windows, ``os.path.join`` does not rewrite a "/" already inside the
-    next component, so "my_assets/icon.png" becomes
-    assets\\my_assets/icon.png and fails the endswith check
-    (GHA 37719557033). ``normpath`` the relative remainder so separators
-    match the platform.
-    """
-    clean = icon_filename.replace("\\", "/").lstrip("/").removeprefix("assets/")
-    # normpath("") is "."; an empty remainder must stay empty so the join
-    # remains under assets/ rather than collapsing to the assets directory.
-    if clean:
-        clean = os.path.normpath(clean)
-    root = os.path.dirname(get_plugin_dir())
-    return (os.path.join(root, "assets", clean), os.path.join(root, "extension", "assets", clean))
-
-
 def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) -> str:
     """Return the local filesystem path of the extension package."""
     url = get_extension_url(ctx, extension_id)
@@ -730,3 +699,11 @@ def create_property_value(name: str, value: Any) -> Any:
     p.Name = name
     p.Value = value
     return p
+
+
+def property_arg(args: Any, name: str) -> Any:
+    """Extract PropertyValue from args by Name."""
+    for pv in args or ():
+        if hasattr(pv, "Name") and pv.Name == name:
+            return pv.Value
+    return None
