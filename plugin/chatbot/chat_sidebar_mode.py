@@ -239,6 +239,25 @@ def is_image_mode(mode: str) -> bool:
     return mode == CHAT_MODE_IMAGE
 
 
+def _greeting_for_sidebar_mode(mode: str, model: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+    # Literals inside _() so xgettext extracts them (_(CONST) is invisible).
+    from plugin.framework.prompts import get_greeting_for_document
+
+    if mode == CHAT_MODE_WEB_RESEARCH:
+        return _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
+    if mode == CHAT_MODE_DEEP_RESEARCH:
+        return _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results.")
+    if mode == CHAT_MODE_BRAINSTORMING:
+        return _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
+    if mode == CHAT_MODE_WRITING_PLAN:
+        return _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval.")
+    if mode == CHAT_MODE_PPT_MASTER:
+        return _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder.")
+    if mode == CHAT_MODE_LIBRARIAN:
+        return _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document.")
+    return get_greeting_for_document(model)
+
+
 def librarian_default_mode(ctx: Any = None) -> str:
     """Librarian once on first sidebar open; later opens start on Chat even if USER.md is empty.
 

@@ -205,7 +205,7 @@ def test_setup_sessions_fork_failure_keeps_old_id(tmp_path, monkeypatch):
     """A failed fork keeps the old id and leaves the URL unstamped so the next open retries."""
     import hashlib
 
-    import plugin.chatbot.panel_factory
+    import plugin.chatbot.history_db
 
     old_url = "file:///tmp/original.odt"
     new_url = "file:///tmp/copy.odt"
@@ -215,7 +215,7 @@ def test_setup_sessions_fork_failure_keeps_old_id(tmp_path, monkeypatch):
     def failing_fork(old, new):
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(plugin.chatbot.panel_factory, "_fork_doc_chat_history", failing_fork)
+    monkeypatch.setattr(plugin.chatbot.history_db, "_fork_doc_chat_history", failing_fork)
 
     _save_as_sessions(tmp_path, props, new_url)
 
@@ -759,7 +759,6 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     el.frame_session = None
     el._live_panel_uid = "uid"
     el._apply_sidebar_mode = MagicMock()
-    el._greeting_for_sidebar_mode = MagicMock(return_value="")
     send = MagicMock()
     stop = MagicMock()
     selector = MagicMock()
@@ -786,6 +785,7 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     toggle = MagicMock()
 
     with (
+        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -809,24 +809,6 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     assert isinstance(listener.mode_flags, SidebarModeFlags)
     el._apply_sidebar_mode.assert_called_once()
     assert el._apply_sidebar_mode.call_args.args[-1] is toggle
-
-
-def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path, monkeypatch):
-    import plugin.chatbot.history_db
-    from plugin.chatbot.history_db import get_chat_history
-    from plugin.chatbot.panel_factory import _fork_doc_chat_history
-
-    db_path = str(tmp_path / "writeragent_history.db")
-    monkeypatch.setattr(plugin.chatbot.history_db, "_get_db_path", lambda: db_path)
-
-    get_chat_history("test-old").add_message("user", "this should copy")
-    # Clear seeds a system prompt; that alone is not a conversation to preserve.
-    get_chat_history("test-new").add_message("system", "seeded prompt")
-
-    _fork_doc_chat_history("test-old", "test-new")
-
-    msgs = get_chat_history("test-new").get_messages()
-    assert [m["content"] for m in msgs] == ["this should copy"]
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):
@@ -946,15 +928,17 @@ def test_chat_mode_listener_reverts_selector_when_busy() -> None:
     el.session = el.doc_session
     el._current_mode = "chat"
     el._apply_sidebar_mode = MagicMock()
-    el._greeting_for_sidebar_mode = MagicMock(return_value="")
 
     selector = MagicMock()
     send_listener = MagicMock()
     send_listener.sidebar_state.send.is_busy = True
     mode_flags = SidebarModeFlags()
 
-    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value="web"):
-        with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock:
+    with (
+        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value="web"),
+        patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock,
+    ):
             el._wire_chat_mode_listener(
                 selector, MagicMock(), MagicMock(), send_listener, MagicMock(), MagicMock(), mode_flags
             )
@@ -1014,7 +998,6 @@ def test_wire_buttons_get_document_uno_services_raising_attaches_listeners() -> 
     el.frame_session = None
     el._live_panel_uid = "uid"
     el._apply_sidebar_mode = MagicMock()
-    el._greeting_for_sidebar_mode = MagicMock(return_value="")
 
     send = MagicMock()
     stop = MagicMock()
@@ -1040,6 +1023,7 @@ def test_wire_buttons_get_document_uno_services_raising_attaches_listeners() -> 
     sentinel = MagicMock(name="send_listener")
 
     with (
+        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -1076,7 +1060,6 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     el.frame_session = None
     el._live_panel_uid = "uid"
     el._apply_sidebar_mode = MagicMock()
-    el._greeting_for_sidebar_mode = MagicMock(return_value="")
 
     send = MagicMock()
     stop = MagicMock()
@@ -1108,6 +1091,7 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     )
 
     with (
+        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
@@ -1325,7 +1309,6 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
     el.frame_session = None
     el._live_panel_uid = "uid"
     el._apply_sidebar_mode = MagicMock()
-    el._greeting_for_sidebar_mode = MagicMock(return_value="")
 
     stale_listener = MagicMock(name="stale_send_listener")
     el.send_listener = stale_listener
@@ -1353,6 +1336,7 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
     }
 
     with (
+        patch("plugin.chatbot.chat_sidebar_mode._greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),

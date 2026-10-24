@@ -349,3 +349,27 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
             raise
         log.exception("SQLite failed, falling back to JSON")
         return JSONHistory(session_id, db_path)
+
+
+def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Copy document-chat rows onto *new_session_id*.
+
+    Snapshot the source first and replace the destination in one write.
+    ``clear()`` then ``get_messages()`` wipes the only store when the
+    regenerated id is the stored id, and a JSON ``clear`` that swallows
+    ``OSError`` then appends onto the rows it failed to remove. Save As
+    re-enters setup after a partial property write, or ``os.remove`` fails
+    and the copy still runs. The caller skips this when the two ids are
+    equal.
+    """
+    # If the destination already has a conversation, leave it intact.
+    # We do not overwrite the destination's chat when "Save As" targets
+    # an existing file that already has its own conversation. A seeded
+    # system prompt alone (Clear writes one) is not a conversation.
+    dest_history = get_chat_history(new_session_id)
+    if any(msg.get("role") != "system" for msg in dest_history.get_messages()):
+        return
+
+    messages = list(get_chat_history(old_session_id).get_messages())
+    dest_history.replace_messages(messages)
+

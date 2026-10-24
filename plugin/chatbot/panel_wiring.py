@@ -413,7 +413,9 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     self._panel_resize_listener.relayout_now(root_window)
                 try:
                     log_rich_scroll("on_ready_step", control=rich_control, step="history")
-                    rich_greeting = self._greeting_for_sidebar_mode(initial_mode, model)
+                    from plugin.chatbot.chat_sidebar_mode import _greeting_for_sidebar_mode
+
+                    rich_greeting = _greeting_for_sidebar_mode(initial_mode, model)
                     self._render_session_history(self.session, controls["response"], model, rich_greeting)
                 except Exception:
                     log.exception("Initial RichTextControl render failed")

@@ -22,7 +22,7 @@ Layout: Generic, Writer, Calc, Draw, then Assembly (dispatch + late init).
 
 Other important prompts (not assembled here):
 - plugin/chatbot/brainstorming.py, writing.py, deep_research_session.py, web_research.py, librarian.py, ppt_master.py
-- plugin/chatbot/panel_factory.py (sidebar-mode greetings)
+- plugin/chatbot/chat_sidebar_mode.py (sidebar-mode greetings)
 - plugin/calc/prompt_function.py (=PROMPT() cell)
 - plugin/framework/client/response_normalizers.py (dev-build LLM prefix)
 - plugin/contrib/smolagents/toolcalling_agent_prompts.py (smol ToolCallingAgent)

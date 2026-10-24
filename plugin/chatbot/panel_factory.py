@@ -180,7 +180,7 @@ from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
-from plugin.framework.prompts import get_chat_system_prompt_for_document, get_greeting_for_document
+from plugin.framework.prompts import get_chat_system_prompt_for_document
 from plugin.doc.doc_type import get_document_type
 from plugin.doc.udprops import get_document_property, set_document_property
 
@@ -353,31 +353,6 @@ def _is_sha256_hex(value: Any) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
-    """Copy document-chat rows onto *new_session_id*.
-
-    Snapshot the source first and replace the destination in one write.
-    ``clear()`` then ``get_messages()`` wipes the only store when the
-    regenerated id is the stored id, and a JSON ``clear`` that swallows
-    ``OSError`` then appends onto the rows it failed to remove. Save As
-    re-enters setup after a partial property write, or ``os.remove`` fails
-    and the copy still runs. The caller skips this when the two ids are
-    equal.
-    """
-    from plugin.chatbot.history_db import get_chat_history
-
-    # If the destination already has a conversation, leave it intact.
-    # We do not overwrite the destination's chat when "Save As" targets
-    # an existing file that already has its own conversation. A seeded
-    # system prompt alone (Clear writes one) is not a conversation.
-    dest_history = get_chat_history(new_session_id)
-    if any(msg.get("role") != "system" for msg in dest_history.get_messages()):
-        return
-
-    messages = list(get_chat_history(old_session_id).get_messages())
-    dest_history.replace_messages(messages)
 
 
 def header_third_button_kind(model: Any) -> str:
@@ -857,24 +832,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return sidebar_mode_flags_for_doc_type(doc_type_label_for_enum(get_document_type(model)))
 
-    def _greeting_for_sidebar_mode(self, mode: str, model: Any) -> str:
-        # Literals inside _() so xgettext extracts them (_(CONST) is invisible).
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_DEEP_RESEARCH, CHAT_MODE_LIBRARIAN, CHAT_MODE_PPT_MASTER, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_WRITING_PLAN
-
-        if mode == CHAT_MODE_WEB_RESEARCH:
-            return _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
-        if mode == CHAT_MODE_DEEP_RESEARCH:
-            return _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results.")
-        if mode == CHAT_MODE_BRAINSTORMING:
-            return _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
-        if mode == CHAT_MODE_WRITING_PLAN:
-            return _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval.")
-        if mode == CHAT_MODE_PPT_MASTER:
-            return _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder.")
-        if mode == CHAT_MODE_LIBRARIAN:
-            return _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document.")
-        return get_greeting_for_document(model)
-
     def _wire_chat_mode_ui(
         self,
         aspect_ratio_selector: Any,
@@ -979,6 +936,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             clear_librarian_session,
             clear_ppt_master_session,
             is_image_mode,
+            _greeting_for_sidebar_mode,
         )
 
         if send_listener is not None:
@@ -1007,7 +965,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if session is not None and model is not None:
                 best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
         toggle_image_ui(is_image_mode(mode))
-        greeting = self._greeting_for_sidebar_mode(mode, model)
+        greeting = _greeting_for_sidebar_mode(mode, model)
         if send_listener:
             send_listener.set_session(self.session)
         if clear_listener:
@@ -1118,6 +1076,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", session_url, url)
                 old_session_id = session_id
                 try:
+                    from plugin.chatbot.history_db import _fork_doc_chat_history
+
                     _fork_doc_chat_history(str(old_session_id), fork_to)
                     _fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
                     if model:
@@ -1154,10 +1114,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, LIBRARIAN_HISTORY_SESSION_ID
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_LIBRARIAN,
+            LIBRARIAN_HISTORY_SESSION_ID,
+            _greeting_for_sidebar_mode,
+        )
 
         self.librarian_session = ChatSession(
-            self._greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
+            _greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
             session_id=LIBRARIAN_HISTORY_SESSION_ID,
         )
         self.session = self.doc_session
@@ -1335,7 +1299,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.exception("Send/Stop button wiring failed")
 
         clear_listener = None
-        active_greeting = self._greeting_for_sidebar_mode(initial_mode, model)
+        from plugin.chatbot.chat_sidebar_mode import _greeting_for_sidebar_mode
+
+        active_greeting = _greeting_for_sidebar_mode(initial_mode, model)
         if controls["clear"]:
             clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
             controls["clear"].addActionListener(clear_listener)

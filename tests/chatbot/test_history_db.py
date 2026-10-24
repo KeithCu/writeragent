@@ -321,3 +321,21 @@ def test_json_update_last_user_content(tmp_path):
         {"role": "assistant", "content": "asst text"},
     ]
 
+
+def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path, monkeypatch):
+    import plugin.chatbot.history_db
+    from plugin.chatbot.history_db import _fork_doc_chat_history, get_chat_history
+
+    db_path = str(tmp_path / "writeragent_history.db")
+    monkeypatch.setattr(plugin.chatbot.history_db, "_get_db_path", lambda: db_path)
+
+    get_chat_history("test-old").add_message("user", "this should copy")
+    # Clear seeds a system prompt; that alone is not a conversation to preserve.
+    get_chat_history("test-new").add_message("system", "seeded prompt")
+
+    _fork_doc_chat_history("test-old", "test-new")
+
+    msgs = get_chat_history("test-new").get_messages()
+    assert [m["content"] for m in msgs] == ["this should copy"]
+
+
