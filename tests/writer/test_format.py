@@ -1398,18 +1398,18 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
 
 def test_source_style_is_cached_and_tolerates_a_missing_style():
     from unittest.mock import MagicMock
-    from plugin.writer import html_export as hx
+    from plugin.writer import range_copy as rc
 
     model = MagicMock()
     families = model.getStyleFamilies.return_value.getByName.return_value
     families.getByName.side_effect = lambda n: "STYLE" if n == "Standard" else (_ for _ in ()).throw(KeyError(n))
 
     cache = {}
-    assert hx._source_style(model, "Standard", cache) == "STYLE"
-    assert hx._source_style(model, "Standard", cache) == "STYLE"
+    assert rc.source_style(model, "Standard", cache) == "STYLE"
+    assert rc.source_style(model, "Standard", cache) == "STYLE"
     assert families.getByName.call_count == 1  # second read served from the cache
-    assert hx._source_style(model, "Nope", cache) is None
-    assert hx._source_style(model, "", cache) is None
+    assert rc.source_style(model, "Nope", cache) is None
+    assert rc.source_style(model, "", cache) is None
 
 
 def test_format_uno_skips_windows_leftover_hidden_apply() -> None:

@@ -45,14 +45,6 @@ MAX_BAKE_PIXELS: int = 40_000_000
 Box = tuple[int, int, int, int]
 
 
-def pixel_size(graphic: Any) -> tuple[int, int]:
-    """The picture's pixel frame that every box refers to."""
-    size = visual_helpers.graphic_pixel_size(graphic)
-    if size[0] is not None and size[1] is not None:
-        return size[0], size[1]
-    raise ValueError("Cannot determine this picture's pixel size (no SizePixel or Size100thMM). Boxes need a measurable picture.")
-
-
 def to_pixel_box(box: Any, units: str, width_px: int, height_px: int) -> Box:
     """``[x, y, width, height]`` in px (or percent of the picture) -> pixel box clipped to it.
 
@@ -108,7 +100,7 @@ def visible_region(crop: Any, actual_size: Any, graphic: Any) -> Box:
     substitute: it is 0 for a JPEG without a physical size, and Writer then measures the picture
     at the screen's DPI (about 92 on the Mac this was checked on), so assuming 96 DPI put the crop
     in the wrong place."""
-    width_px, height_px = pixel_size(graphic)
+    width_px, height_px = visual_helpers.pixel_size(graphic)
     if crop is None or not (crop.Left > 0 or crop.Top > 0 or crop.Right > 0 or crop.Bottom > 0):
         return 0, 0, width_px, height_px
     if actual_size is None or actual_size.Width <= 0 or actual_size.Height <= 0:
@@ -164,7 +156,7 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
     from com.sun.star.drawing.LineStyle import NONE as LINE_NONE
 
     smgr = ctx.ServiceManager
-    width_px, height_px = pixel_size(graphic)
+    width_px, height_px = visual_helpers.pixel_size(graphic)
     rx, ry, rw, rh = region
     if rw * rh > MAX_BAKE_PIXELS:
         raise ValueError(

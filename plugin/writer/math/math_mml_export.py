@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import get_desktop, uno_same
 from plugin.writer.math.math_mml_convert import (
     MATH_CLSID,
@@ -205,6 +205,46 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
         pos = match.end()
     parts.append(html[pos:])
     return "".join(parts)
+
+
+def substitute_math_placeholders(
+    content: str,
+    math_records: list[tuple[str, str, bool]],
+    ctx: Any,
+) -> str:
+    """Replace private-use formula placeholders with delimited TeX."""
+    if not math_records or not content:
+        return content
+
+    for placeholder, starmath, display_block in math_records:
+        res = convert_starmath_to_latex(ctx, starmath) if (ctx and starmath) else None
+        if res and res.ok and res.latex:
+            tex = res.latex
+        else:
+            snippet = starmath[:200]
+            tex = f"[Math export fallback] {snippet}".strip()
+        wrapped = wrap_latex_delimiters(tex, display_block=display_block)
+
+        code = ord(placeholder)
+        for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
+            if target in content:
+                content = content.replace(target, wrapped)
+    return content
+
+
+def inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
+    """Replace formula OLE holes with delimited TeX for the model/chat.
+
+    Failures stay in the HTML as a visible fallback; never drop formulas.
+    """
+    if not content or model is None or ctx is None:
+        return content
+    try:
+        return inject_math_tex_into_html(model, ctx, content)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.exception("inject_exported_math_tex failed")
+        return content
 
 
 def selected_math_embeds(doc: Any) -> list[Any]:

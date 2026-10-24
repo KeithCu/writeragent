@@ -32,7 +32,9 @@ from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno
 from plugin.framework.scratch_writer import new_blank_writer
 from plugin.writer.math.math_mml_export import (
     _OBJECT_REPLACEMENT,
+    inject_exported_math_tex,
     portion_math_embed,
+    substitute_math_placeholders,
 )
 from . import range_copy
 from . import xhtml_style_postprocess as xhtml_post
@@ -119,50 +121,6 @@ def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
 from . import html_ruby
 
 
-def _substitute_math_placeholders(
-    content: str,
-    math_records: list[tuple[str, str, bool]],
-    ctx: Any,
-) -> str:
-    """Replace private-use formula placeholders with delimited TeX."""
-    if not math_records or not content:
-        return content
-    from plugin.writer.math.math_mml_export import convert_starmath_to_latex, wrap_latex_delimiters
-
-    for placeholder, starmath, display_block in math_records:
-        res = convert_starmath_to_latex(ctx, starmath) if (ctx and starmath) else None
-        if res and res.ok and res.latex:
-            tex = res.latex
-        else:
-            snippet = starmath[:200]
-            tex = f"[Math export fallback] {snippet}".strip()
-        wrapped = wrap_latex_delimiters(tex, display_block=display_block)
-
-        code = ord(placeholder)
-        for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
-            if target in content:
-                content = content.replace(target, wrapped)
-    return content
-
-
-def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
-    """Replace formula OLE holes with delimited TeX for the model/chat.
-
-    Failures stay in the HTML as a visible fallback; never drop formulas.
-    """
-    if not content or model is None or ctx is None:
-        return content
-    try:
-        from plugin.writer.math.math_mml_export import inject_math_tex_into_html
-
-        return inject_math_tex_into_html(model, ctx, content)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.exception("_inject_exported_math_tex failed")
-        return content
-
-
-
 def _truncate_html(content: str, max_chars: int) -> str:
     """Cut *content* to *max_chars* without ending inside a tag or an entity.
 
@@ -224,17 +182,6 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
 
 
 _COPY_PORTION_LIMIT = 50000
-
-
-def _source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
-    """The source document's paragraph-style object for *style_name*, or None. Cached per read."""
-    if style_name in cache:
-        return cache[style_name]
-    style = None
-    if style_name:
-        style = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name), None)
-    cache[style_name] = style
-    return style
 
 
 def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out: list[str] | None = None) -> Iterator[Any]:
@@ -355,36 +302,6 @@ def _selection_cursor(model: Any) -> Any | None:
     return best_effort(select, "_selection_cursor failed")
 
 
-def _apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
-    """Apply *style* on the scratch paragraph when that style exists there.
-
-    Selection and range export copy each paragraph into a blank
-    scratch document and set ``ParaStyleName`` with no check. A custom
-    or foreign style is not in that document, so ``setPropertyValue``
-    raises and the broad handler returns ``""``, discarding the whole
-    selection. Skip the missing style (the scratch default stays) and
-    keep copying. One style miss must not discard the range.
-    """
-    if not style:
-        return
-    try:
-        families = temp_doc.getStyleFamilies()
-        para_styles = families.getByName("ParagraphStyles")
-        if not para_styles.hasByName(style):
-            log.debug(
-                "range export: paragraph style %r is not in the scratch document; keeping the default",
-                style,
-            )
-            return
-        temp_cursor.setPropertyValue("ParaStyleName", style)
-    except Exception:
-        log.debug(
-            "range export: skipped paragraph style %r on the scratch document",
-            style,
-            exc_info=True,
-        )
-
-
 def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tuple[int, int]:
     """Visible-text window of *element* that lies inside *source*."""
     # getStart/getEnd do not fail on a live range. Compare helpers already
@@ -500,7 +417,7 @@ def _range_to_content_via_temp_doc(
 
             if first_para:
                 temp_cursor.gotoStart(False)
-                _apply_temp_para_style(temp_doc, temp_cursor, style)
+                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
@@ -510,12 +427,12 @@ def _range_to_content_via_temp_doc(
                 # clobbers the previous paragraph instead of filling the new one.
                 temp_cursor.gotoNextParagraph(False)
                 temp_cursor.gotoEndOfParagraph(True)
-                _apply_temp_para_style(temp_doc, temp_cursor, style)
+                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
 
             if not has_formula:
                 temp_cursor.setString(para_text)
                 range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
-                                          _source_style(model, style, style_cache))
+                                          range_copy.source_style(model, style, style_cache))
             else:
                 # Standalone formula: paragraph has no other visible text
                 display_block = not any(
@@ -582,7 +499,7 @@ def _range_to_content_via_temp_doc(
             content = format_mod._strip_html_boilerplate(content)
         content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
-        content = _substitute_math_placeholders(content, math_records, ctx)
+        content = substitute_math_placeholders(content, math_records, ctx)
         content = html_ruby.inject_ruby_into_html(content, copied_ruby)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
@@ -694,7 +611,7 @@ def document_to_content(
         t_phase = time.perf_counter()
         content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
         content = _apply_image_export_options(content, include_images=include_images)
-        content = _inject_exported_math_tex(model, ctx, content)
+        content = inject_exported_math_tex(model, ctx, content)
         content = html_ruby._inject_ruby_from_model(model, content, fodt_has_ruby)
         _raise_if_empty_export(model, content, "the XHTML export came back empty")
         if max_chars and len(content) > max_chars:
@@ -723,7 +640,7 @@ def document_to_content(
                 content = f.read()
             content = format_mod._strip_html_boilerplate(content)
             content = _apply_image_export_options(content, include_images=include_images)
-            content = _inject_exported_math_tex(model, ctx, content)
+            content = inject_exported_math_tex(model, ctx, content)
             content = html_ruby._inject_ruby_from_model(model, content, None)
             _raise_if_empty_export(model, content, "the HTML export came back empty")
             if max_chars and len(content) > max_chars:
@@ -929,7 +846,7 @@ def xtext_to_content(
             include_images=include_images,
         )
         if math_records:
-            content = _substitute_math_placeholders(content, math_records, ctx)
+            content = substitute_math_placeholders(content, math_records, ctx)
 
         if extracted_fields:
             # Re-inject the collected properties into the resulting HTML string

@@ -1336,7 +1336,7 @@ def test_image_crop_bake_failure_is_tool_execution_error():
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
-        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", side_effect=RuntimeError("bake failed")),
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
@@ -1355,7 +1355,7 @@ def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
-        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(50000, 50000)),
+        patch("plugin.doc.visual_helpers.pixel_size", return_value=(50000, 50000)),
         patch("plugin.writer.images.images.image_mark.bake", side_effect=ValueError("Region exceeds maximum bake limit")),
         patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
@@ -1376,7 +1376,7 @@ def test_image_crop_rejects_non_positive_width_mm():
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
-        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=True),
@@ -1426,7 +1426,7 @@ def test_image_crop_reports_frame_failures():
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
-        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=baked_graphic) as mock_bake,
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch("plugin.writer.images.images.visual_helpers.safe_get_property", side_effect=_get_prop),

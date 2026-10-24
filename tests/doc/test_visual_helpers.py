@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from plugin.doc import visual_helpers
 from plugin.doc.doc_type import (
@@ -667,3 +668,23 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     model = MagicMock()
     model.getCurrentController.side_effect = DisposedException("closed")
     assert selected_graphic_object(model) is None
+
+
+def _graphic(px=(2000, 1000), hmm=(52917, 26458)):
+    props = {"SizePixel": SimpleNamespace(Width=px[0], Height=px[1]), "Size100thMM": SimpleNamespace(Width=hmm[0], Height=hmm[1])}
+    return SimpleNamespace(getPropertyValue=props.__getitem__)
+
+
+def test_pixel_size_uses_pixels():
+    assert visual_helpers.pixel_size(_graphic()) == (2000, 1000)
+
+
+def test_pixel_size_vector_picture_gets_96_dpi_frame():
+    # SVG/WMF report no pixels: 2540 (1/100 mm) = 1 inch = 96 px.
+    assert visual_helpers.pixel_size(_graphic(px=(0, 0), hmm=(2540, 5080))) == (96, 192)
+
+
+def test_pixel_size_unmeasurable_raises():
+    with pytest.raises(ValueError, match="Cannot determine this picture's pixel size"):
+        visual_helpers.pixel_size(_graphic(px=(0, 0), hmm=(0, 0)))
+

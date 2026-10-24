@@ -692,7 +692,7 @@ class ImageGetInfo(ToolWriterImageBase):
         source = visual_helpers.graphic_from_object(graphic)
         if source is not None:
             try:
-                width_px, height_px = image_mark.pixel_size(source)
+                width_px, height_px = visual_helpers.pixel_size(source)
             except Exception as exc:
                 reraise_if_disposed(exc)
 
@@ -1099,7 +1099,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
             return self._tool_error(msg, code="INVALID_PARAMETER", **extra)
 
         try:
-            width_px, height_px = image_mark.pixel_size(source)
+            width_px, height_px = visual_helpers.pixel_size(source)
             if crop_box is not None:
                 region = image_mark.to_pixel_box(crop_box, units, width_px, height_px)
             else:

@@ -167,6 +167,14 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
     return None, None
 
 
+def pixel_size(graphic: Any) -> tuple[int, int]:
+    """The picture's pixel frame that every box refers to."""
+    size = graphic_pixel_size(graphic)
+    if size[0] is not None and size[1] is not None:
+        return size[0], size[1]
+    raise ValueError("Cannot determine this picture's pixel size (no SizePixel or Size100thMM). Boxes need a measurable picture.")
+
+
 def has_uno_property(obj: Any, name: str) -> bool:
     """True when *name* exists on the UNO PropertySet.
 

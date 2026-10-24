@@ -151,6 +151,46 @@ def _copy_properties(src: Any, dst: Any, names: tuple[str, ...], style: Any = No
             continue
 
 
+def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
+    """The source document's paragraph-style object for *style_name*, or None. Cached per read."""
+    if style_name in cache:
+        return cache[style_name]
+    style = None
+    if style_name:
+        style = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name), None)
+    cache[style_name] = style
+    return style
+
+
+def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
+    """Apply *style* on the scratch paragraph when that style exists there.
+
+    Selection and range export copy each paragraph into a blank
+    scratch document and set ``ParaStyleName`` with no check. A custom
+    or foreign style is not in that document, so ``setPropertyValue``
+    raises and the broad handler returns ``""``, discarding the whole
+    selection. Skip the missing style (the scratch default stays) and
+    keep copying. One style miss must not discard the range.
+    """
+    if not style:
+        return
+    try:
+        families = temp_doc.getStyleFamilies()
+        para_styles = families.getByName("ParagraphStyles")
+        if not para_styles.hasByName(style):
+            log.debug(
+                "range export: paragraph style %r is not in the scratch document; keeping the default",
+                style,
+            )
+            return
+        temp_cursor.setPropertyValue("ParaStyleName", style)
+    except Exception:
+        log.debug(
+            "range export: skipped paragraph style %r on the scratch document",
+            style,
+            exc_info=True,
+        )
+
 
 def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
     para: Any,

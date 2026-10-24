@@ -76,7 +76,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
-        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
             side_effect=lambda xhtml, parents, overrides: xhtml,
@@ -574,7 +574,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
-        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
             side_effect=lambda xhtml, parents, overrides: xhtml,
@@ -607,7 +607,7 @@ def test_document_to_content_max_chars_does_not_split_a_tag():
     with (
         patch.object(html_export, "_export_xhtml", return_value=long_html),
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
-        patch.object(html_export, "_inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch.object(html_export, "inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch.object(html_ruby, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
@@ -733,8 +733,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_substitute_math_placeholders_entities_and_fallback():
-    from plugin.writer.html_export import _substitute_math_placeholders
-    from plugin.writer.math.math_mml_export import MathExportResult
+    from plugin.writer.math.math_mml_export import MathExportResult, substitute_math_placeholders
 
     p1 = chr(0xE000)
     p2 = chr(0xE001)
@@ -755,7 +754,7 @@ def test_substitute_math_placeholders_entities_and_fallback():
         return MathExportResult(False, None, None, "error")
 
     with patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", side_effect=fake_convert):
-        out = _substitute_math_placeholders(html, records, object())
+        out = substitute_math_placeholders(html, records, object())
 
     assert "$a + b$" in out
     assert "$$x$$" in out
@@ -793,7 +792,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
-        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
         _range_to_content_via_temp_doc(
@@ -817,7 +816,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
         patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
-        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
         _range_to_content_via_temp_doc(
