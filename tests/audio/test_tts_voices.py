@@ -9,6 +9,7 @@ from unittest.mock import patch
 from plugin.audio.tts_voices import (
     TTS_TEST_SAMPLE,
     _preferred_harvested_voice,
+    catalog_voice_display_label,
     clean_provider_name,
     clean_voice_name,
     get_default_voice_for_locale,
@@ -27,7 +28,6 @@ from plugin.audio.voice_catalog import (
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
-    catalog_voice_display_label,
     voice_short_name,
 )
 from plugin.framework.client import model_fetcher as cfg

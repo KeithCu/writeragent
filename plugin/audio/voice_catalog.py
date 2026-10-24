@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any
 
 # onnx relative path, config relative path, lang code, display label.
@@ -82,7 +81,7 @@ PIPER_VOICE_MODELS: dict[str, PiperModel] = {
 }
 
 # Catalog strings keep the id prefix. The Voice combo shows only the
-# parenthetical; see catalog_voice_display_label.
+# parenthetical; see plugin.audio.tts_voices.catalog_voice_display_label.
 KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
     {"value": item["id"], "label": item["label"], "lang": item.get("lang", "en")}
     for item in _KOKORO_ROWS
@@ -118,21 +117,6 @@ for _row in _PIPER_ROWS + _KOKORO_ROWS:
     if short:
         _SHORT_NAMES[_row["id"]] = short
 
-_TRAILING_PARENS = re.compile(r"^(.*?)\s+\(([^()]+)\)$")
-
-
-def split_display_label(text: str) -> tuple[str, str | None]:
-    """Split a trailing parenthetical from a display label or combo string.
-
-    Returns (head, inside) when text ends with ' (no-nested-parens)',
-    otherwise (stripped_text, None).
-    """
-    clean = (text or "").strip()
-    m = _TRAILING_PARENS.match(clean)
-    if m:
-        return m.group(1).strip(), m.group(2).strip()
-    return clean, None
-
 
 def voice_short_name(voice_id: str) -> str:
     """Human name from the catalog, e.g. Thorsten for ``de_DE-thorsten-medium``."""
@@ -142,23 +126,3 @@ def voice_short_name(voice_id: str) -> str:
     if named:
         return named
     return clean or voice_id
-
-
-def catalog_voice_display_label(label: str) -> str:
-    """Listbox text for one Piper or Kokoro catalog label.
-
-    The provider control already names the engine, so the Voice combo shows
-    only the words inside the parentheses. A leading ``Kokoro `` on that
-    phrase is dropped too. ``en_US-lessac-medium (US English Female - Lessac)``
-    becomes ``US English Female - Lessac``. ``af_heart (Kokoro US Female - Heart)``
-    becomes ``US Female - Heart``. A string with no parentheses is an id
-    (harvested voices) and is returned unchanged. The stored selection stays
-    the voice id; this does not rewrite it.
-    """
-    head, inside = split_display_label(label)
-    if inside is None:
-        return head
-    human = inside
-    if human.casefold().startswith("kokoro "):
-        human = human[len("kokoro "):].strip()
-    return human or head

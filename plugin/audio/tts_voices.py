@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from plugin.audio.kokoro_g2p import KOKORO_VOICE_PREFIX_TO_LANG
@@ -20,8 +21,6 @@ from plugin.audio.voice_catalog import (
     PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
-    catalog_voice_display_label as _catalog_voice_display_label,
-    split_display_label,
 )
 from plugin.framework import config, i18n
 from plugin.framework.i18n import _
@@ -29,6 +28,7 @@ from plugin.framework.i18n import _
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "catalog_voice_display_label",
     "clean_provider_name",
     "clean_voice_name",
     "endpoint_is_together",
@@ -40,6 +40,7 @@ __all__ = [
     "parse_tts_speed",
     "set_scoped_tts_voice",
     "settings_voice_options",
+    "split_display_label",
     "tts_test_sample",
     "voice_choice_to_id",
     "voice_options_for_provider",
@@ -121,6 +122,42 @@ def _first_matching(
     return any_voice or fallback
 
 
+_TRAILING_PARENS = re.compile(r"^(.*?)\s+\(([^()]+)\)$")
+
+
+def split_display_label(text: str) -> tuple[str, str | None]:
+    """Split a trailing parenthetical from a display label or combo string.
+
+    Returns (head, inside) when text ends with ' (no-nested-parens)',
+    otherwise (stripped_text, None).
+    """
+    clean = (text or "").strip()
+    m = _TRAILING_PARENS.match(clean)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return clean, None
+
+
+def catalog_voice_display_label(label: str) -> str:
+    """Listbox text for one Piper or Kokoro catalog label.
+
+    The provider control already names the engine, so the Voice combo shows
+    only the words inside the parentheses. A leading ``Kokoro `` on that
+    phrase is dropped too. ``en_US-lessac-medium (US English Female - Lessac)``
+    becomes ``US English Female - Lessac``. ``af_heart (Kokoro US Female - Heart)``
+    becomes ``US Female - Heart``. A string with no parentheses is an id
+    (harvested voices) and is returned unchanged. The stored selection stays
+    the voice id; this does not rewrite it.
+    """
+    head, inside = split_display_label(label)
+    if inside is None:
+        return head
+    human = inside
+    if human.casefold().startswith("kokoro "):
+        human = human[len("kokoro "):].strip()
+    return human or head
+
+
 def _buckets(
     rows: Any,
     is_locale: Any,
@@ -133,11 +170,11 @@ def _buckets(
     other_voices: list[dict[str, str]] = []
     for row in rows:
         if isinstance(row, dict):
-            item = {"value": row["value"], "label": _catalog_voice_display_label(row["label"])}
+            item = {"value": row["value"], "label": catalog_voice_display_label(row["label"])}
             vid = row["value"]
         else:
             vid, model = row
-            item = {"value": vid, "label": _catalog_voice_display_label(model[3])}
+            item = {"value": vid, "label": catalog_voice_display_label(model[3])}
         if is_locale(row):
             if preferred_id and vid == preferred_id:
                 locale_voices.insert(0, item)
