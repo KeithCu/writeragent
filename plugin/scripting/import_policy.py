@@ -39,9 +39,16 @@ def venv_blocked_modules() -> tuple[str, ...]:
     return tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
 
 
+_PROCESS_MODULES = ("subprocess", "multiprocessing", "_multiprocessing", "pty")
+
+
 def _host_escape_blocked_list() -> str:
-    escapes = [m for m in DANGEROUS_MODULES if m not in ("plugin", "writeragent.framework")]
+    escapes = [m for m in DANGEROUS_MODULES if m not in ("plugin", "writeragent.framework") and m not in _PROCESS_MODULES]
     return ", ".join(escapes) + "; plugin internals"
+
+
+def _process_blocked_list() -> str:
+    return ", ".join(m for m in DANGEROUS_MODULES if m in _PROCESS_MODULES)
 
 
 # _DEAL_ALIAS_MOD and _DEAL_ALIAS_STMT constrain string lengths of module names
@@ -95,6 +102,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
     )
     host_escape = _host_escape_blocked_list()
+    processes = _process_blocked_list()
     networking = ", ".join(NETWORK_BLOCKED_MODULES)
     file_writes = ", ".join(FILE_BLOCKED_MODULES)
 
@@ -103,12 +111,14 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     if compact:
         parts.append(
             f"Blocked in this sandbox: host escape ({host_escape}); "
+            f"running programs ({processes}, raw os) unless Allow OS access; "
             f"networking ({networking}); "
             f"file writes ({file_writes}, plus the open() builtin). "
             "All other imports are allowed. Extra modules in Settings override this list; each also allows name.*."
         )
     else:
-        parts.append(f"Blocked host escape (unless Allow OS access): {host_escape}.")
+        parts.append(f"Blocked host escape (always): {host_escape}.")
+        parts.append(f"Blocked running programs (unless Allow OS access): {processes}, raw os.")
         parts.append(f"Blocked networking (unless Allow network access): {networking}.")
         parts.append(f"Blocked file writes (unless Allow file access): {file_writes} (plus the open() builtin).")
         parts.append("All other imports are allowed. Extra modules in Settings override this list; each also allows name.*.")
