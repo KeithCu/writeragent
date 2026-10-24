@@ -14,6 +14,8 @@ import logging
 import re
 from typing import Any
 
+from com.sun.star.awt import Point
+
 from plugin.doc.doc_type import (
     DOCUMENT_SERVICES,
     WEB_DOCUMENT_SERVICE,
@@ -576,6 +578,36 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
 
     page = uno_read(first_page, _FAILED)
     return _writer_draw_page() if page is _FAILED else page
+
+
+# Bugfix: Calc ignored page_index entirely and always returned the active sheet's
+# draw page, because getDrawPages() is Draw/Impress-specific and Calc sheets each
+# have their own draw page accessed via sheet.getDrawPage().
+def draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
+    if inside in ("draw", "impress") and page_index is not None:
+        pages = model.getDrawPages()
+        count = pages.getCount()
+        if page_index < 0 or page_index >= count:
+            raise IndexError("Page index %s out of range (0..%s)." % (page_index, count - 1))
+        return pages.getByIndex(page_index)
+    if inside == "calc" and page_index is not None:
+        sheets = model.getSheets()
+        count = sheets.getCount()
+        if page_index < 0 or page_index >= count:
+            raise IndexError("Sheet index %s out of range (0..%s)." % (page_index, count - 1))
+        return sheets.getByIndex(page_index).getDrawPage()
+    draw_page = get_active_draw_page(model, inside)
+    if draw_page is None:
+        raise RuntimeError(f"Could not resolve draw page for {inside}")
+    return draw_page
+
+
+def position_on_draw_page(draw_page: Any, width: int, height: int, x_mm: int | float | None, y_mm: int | float | None) -> Any:
+    if x_mm is not None or y_mm is not None:
+        x = mm_to_unit(x_mm) if x_mm is not None else 0
+        y = mm_to_unit(y_mm) if y_mm is not None else 0
+        return Point(x, y)
+    return Point((draw_page.Width - width) // 2, (draw_page.Height - height) // 2)
 
 
 class GraphicEntry(tuple[str, Any]):

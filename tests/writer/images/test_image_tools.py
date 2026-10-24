@@ -20,6 +20,7 @@ if isinstance(_uno, MagicMock):
     _uno.systemPathToFileUrl.side_effect = lambda p: f"file:///{p}"
 
 from plugin.writer.images import image_tools  # noqa: E402
+from plugin.doc import visual_helpers  # noqa: E402
 
 
 class TestInsertImageIntoHeaderFooter:
@@ -566,7 +567,7 @@ class TestWriterImageCursorConversion:
         image.setPosition.side_effect = lambda pos: call_order.append("setPosition")
 
         with (
-            patch.object(image_tools, "_draw_page_for_insert", return_value=draw_page),
+            patch.object(visual_helpers, "draw_page_for_insert", return_value=draw_page),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools, "_create_embedded_graphic", return_value=image) as create_embed,
             patch.object(image_tools, "_apply_graphic_properties"),
@@ -584,7 +585,7 @@ class TestWriterImageCursorConversion:
         calc_image = MagicMock()
         calc_draw_page = MagicMock()
         with (
-            patch.object(image_tools, "_draw_page_for_insert", return_value=calc_draw_page),
+            patch.object(visual_helpers, "draw_page_for_insert", return_value=calc_draw_page),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools, "_create_embedded_graphic", return_value=calc_image),
             patch.object(image_tools, "_apply_graphic_properties"),
@@ -631,11 +632,11 @@ class TestWriterImageCursorConversion:
         sheets.getByIndex.side_effect = lambda idx: [sheet0, sheet1][idx]
         model.getSheets.return_value = sheets
 
-        dp = image_tools._draw_page_for_insert(model, "calc", page_index=1)
+        dp = visual_helpers.draw_page_for_insert(model, "calc", page_index=1)
         assert dp is sheet1_draw_page
 
         with pytest.raises(IndexError, match="Sheet index 5 out of range"):
-            image_tools._draw_page_for_insert(model, "calc", page_index=5)
+            visual_helpers.draw_page_for_insert(model, "calc", page_index=5)
 
     def test_insert_image_at_locator_returns_draw_helper_graphic(self):
         ctx = MagicMock()
@@ -854,7 +855,7 @@ class TestDrawPageInsertPosition:
         page = MagicMock()
         page.Width = 28000
         page.Height = 15750
-        pos = image_tools._position_on_draw_page(page, 8000, 4000, None, None)
+        pos = visual_helpers.position_on_draw_page(page, 8000, 4000, None, None)
         assert (pos.X) == ((28000 - 8000) // 2)
         assert (pos.Y) == ((15750 - 4000) // 2)
 
@@ -862,7 +863,7 @@ class TestDrawPageInsertPosition:
         page = MagicMock()
         page.Width = 28000
         page.Height = 15750
-        pos = image_tools._position_on_draw_page(page, 8000, 4000, 30, 40)
+        pos = visual_helpers.position_on_draw_page(page, 8000, 4000, 30, 40)
         assert (pos.X) == (3000)
         assert (pos.Y) == (4000)
 

@@ -24,7 +24,7 @@ import shutil
 import tempfile
 from typing import Any
 import uno
-from com.sun.star.awt import Point, Size
+from com.sun.star.awt import Size
 from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from plugin.doc import visual_helpers
@@ -533,36 +533,6 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
         frame_text.insertString(end, "\n" + title, False)
 
 
-# Bugfix: Calc ignored page_index entirely and always returned the active sheet's
-# draw page, because getDrawPages() is Draw/Impress-specific and Calc sheets each
-# have their own draw page accessed via sheet.getDrawPage().
-def _draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
-    if inside in ("draw", "impress") and page_index is not None:
-        pages = model.getDrawPages()
-        count = pages.getCount()
-        if page_index < 0 or page_index >= count:
-            raise IndexError("Page index %s out of range (0..%s)." % (page_index, count - 1))
-        return pages.getByIndex(page_index)
-    if inside == "calc" and page_index is not None:
-        sheets = model.getSheets()
-        count = sheets.getCount()
-        if page_index < 0 or page_index >= count:
-            raise IndexError("Sheet index %s out of range (0..%s)." % (page_index, count - 1))
-        return sheets.getByIndex(page_index).getDrawPage()
-    draw_page = visual_helpers.get_active_draw_page(model, inside)
-    if draw_page is None:
-        raise RuntimeError(f"Could not resolve draw page for {inside}")
-    return draw_page
-
-
-def _position_on_draw_page(draw_page: Any, width: int, height: int, x_mm: int | float | None, y_mm: int | float | None) -> Any:
-    if x_mm is not None or y_mm is not None:
-        x = visual_helpers.mm_to_unit(x_mm) if x_mm is not None else 0
-        y = visual_helpers.mm_to_unit(y_mm) if y_mm is not None else 0
-        return Point(x, y)
-    return Point((draw_page.Width - width) // 2, (draw_page.Height - height) // 2)
-
-
 def _insert_image_to_drawpage(
     ctx: Any,
     model: Any,
@@ -576,7 +546,7 @@ def _insert_image_to_drawpage(
     x_mm: int | float | None = None,
     y_mm: int | float | None = None,
 ) -> Any:
-    draw_page = _draw_page_for_insert(model, inside, page_index)
+    draw_page = visual_helpers.draw_page_for_insert(model, inside, page_index)
 
     # When page_index is specified, do not dispatch .uno:InsertGraphic because
     # dispatch inserts on the currently active view page, then setPosition would
@@ -587,7 +557,7 @@ def _insert_image_to_drawpage(
         if graphic is not None:
             _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside=inside)
             if inside != "calc":
-                pos = _position_on_draw_page(draw_page, width, height, x_mm, y_mm)
+                pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
                 if not _safe_try_method(graphic, "setPosition", pos):
                     log.debug("_insert_image_to_drawpage: setPosition failed on linked graphic")
             return graphic
@@ -597,7 +567,7 @@ def _insert_image_to_drawpage(
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside=inside)
     draw_page.add(image)
     if inside != "calc":
-        pos = _position_on_draw_page(draw_page, width, height, x_mm, y_mm)
+        pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
         if not _safe_try_method(image, "setPosition", pos):
             log.debug("_insert_image_to_drawpage: setPosition failed on embedded graphic")
     return image

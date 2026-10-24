@@ -688,3 +688,81 @@ def test_pixel_size_unmeasurable_raises():
     with pytest.raises(ValueError, match="Cannot determine this picture's pixel size"):
         visual_helpers.pixel_size(_graphic(px=(0, 0), hmm=(0, 0)))
 
+
+def test_draw_page_for_insert_draw_impress():
+    from unittest.mock import MagicMock
+
+    model = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+    page0, page1, page2 = MagicMock(), MagicMock(), MagicMock()
+    pages.getByIndex.side_effect = lambda idx: [page0, page1, page2][idx]
+    model.getDrawPages.return_value = pages
+
+    assert visual_helpers.draw_page_for_insert(model, "draw", page_index=1) is page1
+    assert visual_helpers.draw_page_for_insert(model, "impress", page_index=2) is page2
+
+    with pytest.raises(IndexError, match="Page index -1 out of range"):
+        visual_helpers.draw_page_for_insert(model, "draw", page_index=-1)
+
+    with pytest.raises(IndexError, match="Page index 3 out of range"):
+        visual_helpers.draw_page_for_insert(model, "impress", page_index=3)
+
+
+def test_draw_page_for_insert_calc():
+    from unittest.mock import MagicMock
+
+    model = MagicMock()
+    sheets = MagicMock()
+    sheets.getCount.return_value = 2
+    sheet0, sheet1 = MagicMock(), MagicMock()
+    sheet1_dp = MagicMock()
+    sheet1.getDrawPage.return_value = sheet1_dp
+    sheets.getByIndex.side_effect = lambda idx: [sheet0, sheet1][idx]
+    model.getSheets.return_value = sheets
+
+    assert visual_helpers.draw_page_for_insert(model, "calc", page_index=1) is sheet1_dp
+
+    with pytest.raises(IndexError, match="Sheet index -1 out of range"):
+        visual_helpers.draw_page_for_insert(model, "calc", page_index=-1)
+
+    with pytest.raises(IndexError, match="Sheet index 2 out of range"):
+        visual_helpers.draw_page_for_insert(model, "calc", page_index=2)
+
+
+def test_draw_page_for_insert_fallback_and_unresolved():
+    from unittest.mock import MagicMock, patch
+
+    model = MagicMock()
+    sentinel_dp = MagicMock()
+    with patch.object(visual_helpers, "get_active_draw_page", return_value=sentinel_dp):
+        assert visual_helpers.draw_page_for_insert(model, "draw", page_index=None) is sentinel_dp
+
+    with patch.object(visual_helpers, "get_active_draw_page", return_value=None):
+        with pytest.raises(RuntimeError, match="Could not resolve draw page for writer"):
+            visual_helpers.draw_page_for_insert(model, "writer", page_index=None)
+
+
+def test_position_on_draw_page():
+    from unittest.mock import MagicMock
+
+    page = MagicMock()
+    page.Width = 20000
+    page.Height = 10000
+
+    # Centered when x_mm and y_mm are None
+    pos = visual_helpers.position_on_draw_page(page, width=4000, height=2000, x_mm=None, y_mm=None)
+    assert pos.X == 8000
+    assert pos.Y == 4000
+
+    # Explicit mm
+    pos_explicit = visual_helpers.position_on_draw_page(page, width=4000, height=2000, x_mm=15.5, y_mm=25.0)
+    assert pos_explicit.X == visual_helpers.mm_to_unit(15.5)
+    assert pos_explicit.Y == visual_helpers.mm_to_unit(25.0)
+
+    # Partial mm
+    pos_x_only = visual_helpers.position_on_draw_page(page, width=4000, height=2000, x_mm=10, y_mm=None)
+    assert pos_x_only.X == visual_helpers.mm_to_unit(10)
+    assert pos_x_only.Y == 0
+
+
