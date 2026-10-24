@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
+from plugin.framework.uno_listeners import BaseMouseListener
 
 log = logging.getLogger("writeragent.calc")
 
@@ -278,22 +279,12 @@ def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callabl
     ctrl_id = id(control)
     if ctrl_id in _CELL_LINK_LISTENERS:
         return
-    try:
-        import unohelper
-        from com.sun.star.awt import XMouseListener
-    except ImportError:
-        log.debug("cell link listener skipped: PyUNO unavailable")
-        return
-
     _MB_LEFT = 1  # com.sun.star.awt.MouseButton.LEFT
 
-    class _CalcCellLinkMouseListener(unohelper.Base, XMouseListener):  # type: ignore[misc]
+    class _CalcCellLinkMouseListener(BaseMouseListener):
         def disposing(self, Source: Any) -> None:
             _CELL_LINK_LISTENERS.pop(ctrl_id, None)
             cell_link_registry.clear(control)
-
-        def mousePressed(self, e: Any) -> None:
-            pass
 
         def mouseReleased(self, e: Any) -> None:
             try:
@@ -313,12 +304,6 @@ def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callabl
                     log.debug("cell link navigated to %r", addr)
             except Exception:
                 log.exception("cell link click handler failed")
-
-        def mouseEntered(self, e: Any) -> None:
-            pass
-
-        def mouseExited(self, e: Any) -> None:
-            pass
 
     listener = _CalcCellLinkMouseListener()
     control.addMouseListener(listener)

@@ -297,15 +297,10 @@ class FrameSession:
 
         session = self
 
-        from plugin.framework.uno_listeners import _catch_and_log
+        from plugin.framework.uno_listeners import BaseListener
 
-        # Other listeners use Base*Listener, which wraps callbacks in
-        # _catch_and_log. A bare disposing() lets a listener-removal or
-        # thread-violation error into the UNO bridge and aborts teardown
-        # of the remaining listeners.
-        class _FrameClose(unohelper.Base, XEventListener):  # type: ignore[misc]
-            @_catch_and_log
-            def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
+        class _FrameClose(BaseListener):
+            def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
                 session.dispose()
 
         try:

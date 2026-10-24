@@ -9,9 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, NamedTuple, cast
 import uno
-import unohelper
-from com.sun.star.awt import XActionListener
 
+from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.errors import best_effort
@@ -41,17 +40,15 @@ from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_ava
 log = logging.getLogger("writeragent.writer")
 
 
-class _ClickListener(unohelper.Base, XActionListener):
+class _ClickListener(BaseActionListener):
     _callback: Callable[[], None]
 
     def __init__(self, callback: Callable[[], None]) -> None:
+        super().__init__()
         self._callback = callback
 
     def actionPerformed(self, rEvent: Any) -> None:
         self._callback()
-
-    def disposing(self, Source: Any) -> None:
-        pass
 
 
 class _SelectionLatexPrefill(NamedTuple):

@@ -11,15 +11,16 @@ import time
 from plugin.framework.queue_executor import execute_on_main_thread
 from typing import Any
 
-import unohelper
-from com.sun.star.awt import XActionListener
-
 from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
-from plugin.framework.uno_listeners import BaseKeyListener, BaseTopWindowListener
+from plugin.framework.uno_listeners import (
+    BaseActionListener,
+    BaseKeyListener,
+    BaseTopWindowListener,
+)
 from plugin.framework.worker_pool import run_in_background
 import plugin.embeddings.embeddings_service as embeddings_service
 
@@ -159,26 +160,17 @@ class SearchDialog:
     def _wire_listeners(self, dlg: Any) -> None:
         owner = self
 
-        class _SearchListener(unohelper.Base, XActionListener):
+        class _SearchListener(BaseActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 owner._run_search(dlg)
 
-            def disposing(self, Source: Any) -> None:
-                pass
-
-        class _RebuildListener(unohelper.Base, XActionListener):
+        class _RebuildListener(BaseActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 owner._run_rebuild(dlg)
 
-            def disposing(self, Source: Any) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
+        class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 owner.close()
-
-            def disposing(self, Source: Any) -> None:
-                pass
 
         dlg.getControl("BtnSearch").addActionListener(_SearchListener())
         dlg.getControl("BtnRebuild").addActionListener(_RebuildListener())

@@ -21,12 +21,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import unohelper
-from com.sun.star.awt import XActionListener, XItemListener, XTextListener
-
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
-    from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -38,7 +34,12 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
-from plugin.framework.uno_listeners import BaseTopWindowListener
+from plugin.framework.uno_listeners import (
+    BaseActionListener,
+    BaseItemListener,
+    BaseTextListener,
+    BaseTopWindowListener,
+)
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -236,7 +237,7 @@ class NativePythonCellEditorDialog:
     def _wire_listeners(self, dlg: Any) -> None:
         owner = self
 
-        class _SaveListener(unohelper.Base, XActionListener):
+        class _SaveListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 try:
                     owner._save()
@@ -244,31 +245,19 @@ class NativePythonCellEditorDialog:
                     log.exception("Native Python cell editor Save failed")
                     owner._set_status(_("Error"))
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
+        class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 log.debug("native cell editor: BtnCancel")
                 owner.close()
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _PlainListener(unohelper.Base, XItemListener):
+        class _PlainListener(BaseItemListener):
             def itemStateChanged(self, rEvent: ItemEvent) -> None:
                 owner._sync_data_enabled()
                 owner._mark_dirty()
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _DirtyTextListener(unohelper.Base, XTextListener):
+        class _DirtyTextListener(BaseTextListener):
             def textChanged(self, rEvent: TextEvent) -> None:
                 owner._mark_dirty()
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
 
         dlg.getControl("BtnSave").addActionListener(_SaveListener())
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())

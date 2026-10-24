@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-import unohelper
-from com.sun.star.awt import XActionListener
 
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, run_dialog_with_listeners
 from plugin.calc.address_utils import parse_range_string, parse_address
 from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
@@ -148,7 +147,7 @@ def show_import_dialog(ctx: Any) -> None:
 
         _outcome: dict[str, Any] | None = None
 
-        class _OkListener(unohelper.Base, XActionListener):
+        class _OkListener(BaseActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 nonlocal _outcome
                 try:
@@ -165,15 +164,9 @@ def show_import_dialog(ctx: Any) -> None:
                     msgbox(ctx, "Error", f"Conversion failed: {e}")
                     dlg.endDialog(0)
 
-            def disposing(self, Source: Any) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
+        class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 dlg.endDialog(0)
-
-            def disposing(self, Source: Any) -> None:
-                pass
 
         run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
 
