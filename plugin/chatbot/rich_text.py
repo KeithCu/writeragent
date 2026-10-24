@@ -94,6 +94,24 @@ def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
         _safe_set_prop(target, "CharBackColor", bg_color)
 
 
+_SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
+
+
+def _normalize_portion_font(portion: Any) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
+    font = getattr(portion, "CharFontName", "") or ""
+    if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):
+        portion.CharFontName = CHAT_FONT_NAME
+        portion.CharFontNameAsian = CHAT_FONT_NAME
+        portion.CharFontNameComplex = CHAT_FONT_NAME
+    height = getattr(portion, "CharHeight", 0.0) or 0.0
+    if height <= 0 or height > CHAT_FONT_HEIGHT + 1.0:
+        portion.CharHeight = CHAT_FONT_HEIGHT
+    weight = getattr(portion, "CharWeight", 0.0) or 0.0
+    if weight <= 0:
+        portion.CharWeight = CHAT_FONT_WEIGHT
+
+
 def apply_rich_control_para_margins(cursor: Any) -> None:
     """Keep chat text off the RichTextControl edges (EditEngine has no CSS padding)."""
     for name, val in (

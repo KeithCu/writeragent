@@ -575,7 +575,7 @@ class TestRichTextChatWidget:
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
              patch("plugin.chatbot.rich_text_control.clear_control") as clear, \
              patch("plugin.chatbot.rich_text_paste._plain_fallback_text", side_effect=lambda t: t), \
-             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as rollback, \
+             patch("plugin.chatbot.rich_text_control._rollback_rich_insert") as rollback, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain:
             widget.stream_session(session)
         paint.assert_not_called()
@@ -695,10 +695,10 @@ class TestRichTextChatWidget:
         session = MagicMock()
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
         calls = []
-        with patch("plugin.chatbot.rich_text_paste._rollback_rich_insert"), \
+        with patch("plugin.chatbot.rich_text_control._rollback_rich_insert"), \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
              patch("plugin.chatbot.rich_text_paste.append_formatted_rows"), \
-             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
+             patch("plugin.chatbot.rich_text_control._force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=20):
             assert widget.rerender_last_assistant_if_html(session, None) is True
@@ -710,10 +710,10 @@ class TestRichTextChatWidget:
         session = MagicMock()
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<b>Hello</b>"}]
         with patch.object(widget, "paint_session") as full, \
-             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as rollback, \
+             patch("plugin.chatbot.rich_text_control._rollback_rich_insert") as rollback, \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
              patch("plugin.chatbot.rich_text_paste.append_formatted_rows") as rich, \
-             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"), \
+             patch("plugin.chatbot.rich_text_control._force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
             assert widget.rerender_last_assistant_if_html(session, None) is True

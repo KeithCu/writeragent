@@ -38,33 +38,33 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
-    CHAT_FONT_NAME,
-    CHAT_FONT_WEIGHT,
     ChatTheme,
-    configure_hidden_writer_for_chat,
+    _normalize_portion_font,
     _role_prefix,
     _span_matches_message,
     append_rich_text,
+    configure_hidden_writer_for_chat,
     contains_html_tag,
     render_messages_to_hidden_doc,
     strip_legacy_ai_label,
 )
 from plugin.chatbot.rich_text_control import (
     _apply_sidebar_para_margins,
+    _force_rich_full_reformat,
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
+    _rollback_rich_insert,
+    _scroll_rich_to_tail,
     clear_control,
     get_control_text_length,
-    truncate_control_from,
-    _scroll_rich_to_tail,
     log_rich_scroll,
 )
 from plugin.calc.navigation import (
-    drop_cell_link_spans_from,
+    _cell_links_for_rows,
     extract_cell_links_from_html,
     normalize_cell_address,
     portion_cell_href,
@@ -80,16 +80,6 @@ log = logging.getLogger(__name__)
 
 # Rich-sidebar formatted-insert fallback diagnostics use WARNING so release builds
 # (default log_level=WARN) capture direct-copy failures and clipboard fallbacks.
-
-_SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
-
-
-def _cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
-    links: list[tuple[str, str]] = []
-    for _role, content in rows:
-        rendered = render_calc_cell_refs(content) if content else content
-        links.extend(extract_cell_links_from_html(rendered or ""))
-    return links
 
 
 def create_hidden_html_writer(ctx: Any) -> Any | None:
@@ -261,23 +251,6 @@ def _resolve_portion_char_color(src_portion: Any, txt: str, user_color: int, ass
     if isinstance(raw, int) and not _is_automatic_char_color(raw):
         return raw
     return _role_color_for_text(txt, user_color, assistant_color, default_role)
-
-
-def _normalize_portion_font(portion: Any) -> None:
-    """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
-    font = getattr(portion, "CharFontName", "") or ""
-    if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):
-        portion.CharFontName = CHAT_FONT_NAME
-        portion.CharFontNameAsian = CHAT_FONT_NAME
-        portion.CharFontNameComplex = CHAT_FONT_NAME
-    height = getattr(portion, "CharHeight", 0.0) or 0.0
-    if height <= 0 or height > CHAT_FONT_HEIGHT + 1.0:
-        portion.CharHeight = CHAT_FONT_HEIGHT
-    weight = getattr(portion, "CharWeight", 0.0) or 0.0
-    if weight <= 0:
-        portion.CharWeight = CHAT_FONT_WEIGHT
-
-
 
 
 def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
@@ -526,27 +499,6 @@ def _replace_control_with_plain(
 def rows_need_hidden_writer(rows: Any) -> bool:
     """True when any message content has real HTML tags needing hidden Writer import."""
     return any(contains_html_tag(content or "") for _role, content in (rows or []))
-
-
-def _force_rich_full_reformat(control: Any) -> None:
-    """Make the RichTextControl EditEngine lay out the whole control again.
-
-    After clear_control and a bulk refill, the EditEngine draws a layout
-    that disagrees with its own text height. Lines go missing and a gap
-    below the last line grows with the transcript, until the sidebar goes
-    blank in long sessions. invalidate() and hide/show do not fix it. A
-    paper-width change does: resizing the peer reaches
-    EditEngine::SetPaperSize (editeng/source/editeng/editeng.cxx), which
-    reformats the whole document when the width changes. Narrow by 1px,
-    then restore.
-    """
-    ps = control.getPosSize()
-    if ps.Width <= 2:
-        return
-    try:
-        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
-    finally:
-        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
 
 
 def paint_message_items(
@@ -874,22 +826,6 @@ def _plain_fallback_text(text: str) -> str:
     from plugin.framework.html_stripper import strip_html_tags
 
     return strip_html_tags(text or "")
-
-
-def _rollback_rich_insert(control: Any, before: int | None) -> None:
-    """Undo a separator or partial copy that did not finish as a full insert.
-
-    The separator (and any partial copy) must not stay in the control
-    when the formatted insert returns false, and cell-link spans recorded
-    for that tail must not resolve clicks into deleted text.
-    A length of None means the control length could not be read. Truncate
-    treats 0 as "delete from the start", so an unknown length must not roll
-    back.
-    """
-    if before is None:
-        return
-    truncate_control_from(control, before)
-    drop_cell_link_spans_from(control, before)
 
 
 def _plain_role_prefix(role: str) -> str:

@@ -594,7 +594,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
-             patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
+             patch("plugin.chatbot.rich_text_control.truncate_control_from") as mock_trunc:
             append_formatted_rows(ctx, control, items)
 
         mock_trunc.assert_called_once_with(control, 5)
@@ -612,7 +612,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=None), \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain, \
-             patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
+             patch("plugin.chatbot.rich_text_control.truncate_control_from") as mock_trunc:
             append_formatted_rows(ctx, control, items)
 
         mock_create.assert_not_called()

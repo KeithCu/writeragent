@@ -44,10 +44,10 @@ from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, Sta
 from plugin.chatbot.tool_loop import _PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
+    _turn_session_or_stop,
     abort_turn,
     current_turn,
     persist_assistant_on_turn,
-    running_turn,
 )
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
@@ -110,23 +110,6 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, _SendWorkerQueue]:
         turn.queue = raw
         turn.batcher = None
     return raw, _SendWorkerQueue(turn, raw)
-
-
-def _turn_session_or_stop(host: Any) -> Any:
-    """The session for this send. None when the turn is already over.
-
-    ``_do_send`` starts the turn before this runs. A direct call with no
-    turn yet starts one. An aborted turn is not replaced: that rebind wrote
-    the reply onto a session the turn did not start with.
-    """
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
-
-    if current_turn(host) is None:
-        begin_send_turn(host, "")
-    turn = running_turn(host)
-    if turn is None:
-        return None
-    return turn.session
 
 
 def _specialized_tool_error_payload(note: str) -> dict[str, str]:

@@ -552,6 +552,21 @@ def session_for_turn(host: Any) -> Any:
     return None
 
 
+def _turn_session_or_stop(host: Any) -> Any:  # pyright: ignore[reportUnusedFunction]
+    """The session for this send. None when the turn is already over.
+
+    ``_do_send`` starts the turn before this runs. A direct call with no
+    turn yet starts one. An aborted turn is not replaced: that rebind wrote
+    the reply onto a session the turn did not start with.
+    """
+    if current_turn(host) is None:
+        begin_send_turn(host, "")
+    turn = running_turn(host)
+    if turn is None:
+        return None
+    return turn.session
+
+
 def spawn_queue(turn: TurnController) -> Any:
     """The queue the drain attached. The batcher wraps it when batching is on."""
     return turn.batcher or turn.queue

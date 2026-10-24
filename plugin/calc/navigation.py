@@ -10,7 +10,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from html import unescape
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 
 from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
@@ -129,6 +129,14 @@ def render_calc_cell_refs(text: str) -> str:
         return f"{prefix}{quote}{WRITERAGENT_CELL_URL_PREFIX}{addr}{quote}"
 
     return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
+
+
+def _cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:  # pyright: ignore[reportUnusedFunction]
+    links: list[tuple[str, str]] = []
+    for _role, content in rows:
+        rendered = render_calc_cell_refs(content) if content else content
+        links.extend(extract_cell_links_from_html(rendered or ""))
+    return links
 
 
 def portion_cell_href(portion: Any) -> str | None:

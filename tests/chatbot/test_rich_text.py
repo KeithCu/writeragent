@@ -700,6 +700,25 @@ class TestChatTypography:
         target.CharWeight = CHAT_FONT_WEIGHT
         target.CharBackColor = 0xABCDEF
 
+    def test_normalize_portion_font(self):
+        from plugin.chatbot.rich_text import (
+            CHAT_FONT_HEIGHT,
+            CHAT_FONT_NAME,
+            CHAT_FONT_WEIGHT,
+            _normalize_portion_font,
+        )
+
+        portion = MagicMock()
+        portion.CharFontName = "Times New Roman"
+        portion.CharHeight = 18.0
+        portion.CharWeight = 0.0
+        _normalize_portion_font(portion)
+        assert portion.CharFontName == CHAT_FONT_NAME
+        assert portion.CharFontNameAsian == CHAT_FONT_NAME
+        assert portion.CharFontNameComplex == CHAT_FONT_NAME
+        assert portion.CharHeight == CHAT_FONT_HEIGHT
+        assert portion.CharWeight == CHAT_FONT_WEIGHT
+
     def test_apply_rich_control_para_margins(self):
         from plugin.chatbot.rich_text import CHAT_PARA_SIDE_MARGIN, apply_rich_control_para_margins
 

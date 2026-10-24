@@ -1780,3 +1780,18 @@ def test_interpreter_handles_tool_running_and_result_effects():
     last_msg = host.session.assistant_messages[-1]
     assert "No text from model" in last_msg["content"]
     assert "finish_reason='stop'" in last_msg["content"]
+
+
+def test_turn_session_or_stop():
+    from plugin.chatbot.tool_loop_actions import _turn_session_or_stop, abort_turn
+
+    class Host:
+        def __init__(self):
+            self.session = MagicMock()
+
+    host = Host()
+    session = _turn_session_or_stop(host)
+    assert session is host.session
+
+    abort_turn(host)
+    assert _turn_session_or_stop(host) is None

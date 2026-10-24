@@ -321,7 +321,6 @@ class RichTextChatWidget:
         from plugin.chatbot.rich_text_paste import (
             OPEN_TRANSCRIPT,
             _plain_append_messages,
-            _rollback_rich_insert,
             append_formatted_row,
             session_history_items,
         )
@@ -455,8 +454,6 @@ class RichTextChatWidget:
         """
         from plugin.chatbot.rich_text_paste import (
             _ensure_message_separator,
-            _force_rich_full_reformat,
-            _rollback_rich_insert,
             append_formatted_rows,
             session_history_items,
         )
@@ -666,6 +663,27 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
     if peer is not None and hasattr(peer, "invalidate"):
         peer.invalidate(0)
+
+
+def _force_rich_full_reformat(control: Any) -> None:
+    """Make the RichTextControl EditEngine lay out the whole control again.
+
+    After clear_control and a bulk refill, the EditEngine draws a layout
+    that disagrees with its own text height. Lines go missing and a gap
+    below the last line grows with the transcript, until the sidebar goes
+    blank in long sessions. invalidate() and hide/show do not fix it. A
+    paper-width change does: resizing the peer reaches
+    EditEngine::SetPaperSize (editeng/source/editeng/editeng.cxx), which
+    reformats the whole document when the width changes. Narrow by 1px,
+    then restore.
+    """
+    ps = control.getPosSize()
+    if ps.Width <= 2:
+        return
+    try:
+        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
+    finally:
+        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
 
 
 def _apply_sidebar_para_margins(cursor: Any) -> None:
@@ -1446,6 +1464,24 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
         log.debug("truncate_control_from: removed tail from offset %d (len now %d)", start_len, len(model.Text or ""))
     except Exception:
         log.exception("truncate_control_from failed")
+
+
+def _rollback_rich_insert(control: Any, before: int | None) -> None:
+    """Undo a separator or partial copy that did not finish as a full insert.
+
+    The separator (and any partial copy) must not stay in the control
+    when the formatted insert returns false, and cell-link spans recorded
+    for that tail must not resolve clicks into deleted text.
+    A length of None means the control length could not be read. Truncate
+    treats 0 as "delete from the start", so an unknown length must not roll
+    back.
+    """
+    if before is None:
+        return
+    from plugin.calc.navigation import drop_cell_link_spans_from
+
+    truncate_control_from(control, before)
+    drop_cell_link_spans_from(control, before)
 
 
 def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
