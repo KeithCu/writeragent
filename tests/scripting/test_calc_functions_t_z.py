@@ -11,7 +11,6 @@ value are omitted — those are not errors.
 
 Skipped because the four kinds are already tested, or they do not produce an
 error: ``t``, ``text``, ``textjoin``, ``type``, ``unicode``, ``unique``, ``xor``.
-``textafter`` lives in ``calc_functions_n_s`` but its name starts with T.
 """
 
 from __future__ import annotations

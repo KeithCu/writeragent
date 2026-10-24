@@ -27,7 +27,6 @@ from .calc_functions_util import (
     _criteria_numbers,
     _days_between,
     _extract_numeric_array,
-    _find_text_cut,
     _multi_criteria_mask,
     _npf_result,
     _parse_weekend,
@@ -72,7 +71,6 @@ __all__ = [
     "sech",
     "seriessum",
     "skew",
-    "slope",
     "small",
     "sort",
     "sortby",
@@ -86,7 +84,6 @@ __all__ = [
     "sumifs",
     "sumproduct",
     "sumsq",
-    "textafter",
 ]
 
 
@@ -847,19 +844,6 @@ def skew(*args: Any) -> float:
     return float(res) if math.isfinite(res) else float("nan")
 
 
-def slope(data_y: Any, data_x: Any) -> float:
-    cleaned = _clean_paired_arrays(data_y, data_x)
-    if cleaned is None:
-        return float("nan")
-    y, x = cleaned
-    if len(y) < 2:
-        return float("nan")
-    mx, my = np.mean(x), np.mean(y)
-    ss_xy = np.sum((x - mx) * (y - my))
-    ss_xx = np.sum((x - mx) ** 2)
-    return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
-
-
 def small(r: Any, k: Any) -> float:
     # Numbers only. Text, bools, and NaN are not part of the ranking.
     try:
@@ -1324,30 +1308,4 @@ def py_str(val: Any) -> str:
     """Stringify for inline ``=PY()`` code without emitting the ``str(`` token."""
     return str(val)
 
-
-def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
-    try:
-        # bool("0") is true, so a zero flag invented a virtual delimiter.
-        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-        use_end = _as_nonzero(match_end)
-        s, _delim, inst, idx, match_end_miss = _find_text_cut(
-            text, delimiter, instance_num, match_mode, after=True
-        )
-        if idx is not None:
-            # The cut is already the end of the delimiter, including a
-            # negative instance. Adding len(delim) again skipped a second
-            # copy when the matched span was longer than the delimiter.
-            return s[idx:]
-        if use_end and match_end_miss:
-            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
-            # when the instance is negative. Text after that is the whole
-            # string. A positive instance's virtual delimiter is the end,
-            # so the remainder is empty. Both signs used to return "".
-            return s if inst < 0 else ""
-        return if_not_found
-    except (ValueError, TypeError, OverflowError):
-        # _find_text_cut does int(float(instance_num)). An infinite instance
-        # raises OverflowError, which this handler did not catch, so TEXTAFTER
-        # raised instead of the NaN used for any other invalid instance.
-        return float("nan")
 

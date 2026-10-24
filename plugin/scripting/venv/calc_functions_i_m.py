@@ -103,6 +103,7 @@ __all__ = [
     "multinomial",
     "munit",
     "n",
+    "slope",
 ]
 
 
@@ -343,11 +344,6 @@ def imtanh(c: complex) -> complex:
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
-    # steyx imports intercept, so this import stays inside the function.
-    # A module-level import of n_s would cycle. The absolute import failed
-    # when the worker's package root was not the repo root.
-    from .calc_functions_n_s import slope
-
     # slope drops text pairs. Re-parsing the original arrays with
     # dtype=float raised ValueError once slope had already accepted the
     # numeric pairs (intercept([1, "text", 3], [1, 2, 3])).
@@ -1038,3 +1034,16 @@ def n(val: Any) -> float:
     if isinstance(val, (bool, np.bool_)):
         return 1.0 if val else 0.0
     return 0.0
+
+
+def slope(data_y: Any, data_x: Any) -> float:
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
+        return float("nan")
+    y, x = cleaned
+    if len(y) < 2:
+        return float("nan")
+    mx, my = np.mean(x), np.mean(y)
+    ss_xy = np.sum((x - mx) * (y - my))
+    ss_xx = np.sum((x - mx) ** 2)
+    return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")

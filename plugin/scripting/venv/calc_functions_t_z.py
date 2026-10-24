@@ -42,6 +42,7 @@ __all__ = [
     "t",
     "tdist",
     "text",
+    "textafter",
     "textbefore",
     "textjoin",
     "textsplit",
@@ -220,6 +221,33 @@ def text(val: Any, fmt: Any) -> str | float:
 # facade star-imports this module, so an unlisted alias never became an attribute
 # and ``=TEXT(...)`` recalc raised AttributeError (no attribute ``fmt``).
 fmt = text
+
+
+def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+    try:
+        # bool("0") is true, so a zero flag invented a virtual delimiter.
+        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
+        use_end = _as_nonzero(match_end)
+        s, _delim, inst, idx, match_end_miss = _find_text_cut(
+            text, delimiter, instance_num, match_mode, after=True
+        )
+        if idx is not None:
+            # The cut is already the end of the delimiter, including a
+            # negative instance. Adding len(delim) again skipped a second
+            # copy when the matched span was longer than the delimiter.
+            return s[idx:]
+        if use_end and match_end_miss:
+            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
+            # when the instance is negative. Text after that is the whole
+            # string. A positive instance's virtual delimiter is the end,
+            # so the remainder is empty. Both signs used to return "".
+            return s if inst < 0 else ""
+        return if_not_found
+    except (ValueError, TypeError, OverflowError):
+        # _find_text_cut does int(float(instance_num)). An infinite instance
+        # raises OverflowError, which this handler did not catch, so TEXTAFTER
+        # raised instead of the NaN used for any other invalid instance.
+        return float("nan")
 
 
 def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
