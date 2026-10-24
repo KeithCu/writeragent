@@ -909,6 +909,28 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     assert res["status"] == "error"
     assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
 
+    # 5. multiprocessing: blocked at import (bare, from, submodule)
+    res = run_sandboxed_code("import multiprocessing", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+    res = run_sandboxed_code("from multiprocessing import Process, Pool", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+    res = run_sandboxed_code("import multiprocessing.pool", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+    # 6. pty: blocked at import
+    res = run_sandboxed_code("import pty", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+    res = run_sandboxed_code("from pty import openpty", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
 
 def test_sandbox_policy_process_spawning_allowed_with_os_flag():
     """Verify that starting another process works across all mechanisms when python_allow_os is ON."""
@@ -961,6 +983,47 @@ with ProcessPoolExecutor(max_workers=1) as executor:
     res = run_sandboxed_code(code_pool, sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] == 5.0
+
+    # 5. multiprocessing.Pool: works
+    code_mp_pool = """
+from multiprocessing import Pool
+import math
+
+with Pool(1) as pool:
+    result = pool.apply(math.sqrt, [49.0])
+    pool.close()
+    pool.join()
+"""
+    res = run_sandboxed_code(code_mp_pool, sandbox_policy=policy)
+    assert res["status"] == "ok", res
+    assert res["result"] == 7.0
+
+    # 6. multiprocessing.Process: works
+    code_mp_proc = """
+from multiprocessing import Process
+import time
+
+p = Process(target=time.sleep, args=(0.01,))
+p.start()
+p.join()
+result = (p.exitcode == 0)
+"""
+    res = run_sandboxed_code(code_mp_proc, sandbox_policy=policy)
+    assert res["status"] == "ok", res
+    assert res["result"] is True
+
+    # 7. pty: works
+    code_pty = """
+import os
+import pty
+master, slave = pty.openpty()
+os.close(master)
+os.close(slave)
+result = (master > 0 and slave > 0)
+"""
+    res = run_sandboxed_code(code_pty, sandbox_policy=policy)
+    assert res["status"] == "ok", res
+    assert res["result"] is True
 
 
 def test_sandbox_policy_os_harmless_reads_allowed_by_default():
@@ -1042,7 +1105,7 @@ def test_extra_modules_override_blocklist() -> None:
 
 @pytest.mark.parametrize(
     "mod",
-    ["importlib", "builtins", "pickle", "subprocess", "pty", "marshal"],
+    ["importlib", "builtins", "pickle", "subprocess", "pty", "multiprocessing", "marshal"],
 )
 def test_sandbox_runtime_default_blocks_host_escape(mod: str) -> None:
     res = run_sandboxed_code(f"import {mod}", sandbox_policy=None)

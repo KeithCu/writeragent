@@ -878,6 +878,8 @@ def test_sandbox_policy_defaults() -> None:
     assert policy_allowlist(p) == []
     blocked = policy_blocked_imports(p)
     assert "subprocess" in blocked
+    assert "multiprocessing" in blocked
+    assert "pty" in blocked
     assert "socket" in blocked
     assert "importlib" in blocked
     assert "pickle" in blocked
@@ -946,9 +948,21 @@ def test_sandbox_policy_os() -> None:
     assert import_authorized("os.path", allowed) is True
     assert import_authorized("subprocess", allowed) is True
     assert import_authorized("subprocess.run", allowed) is True
-    assert import_authorized("multiprocessing", allowed) is False
-    assert import_authorized("pty", allowed) is False
-    assert policy_relaxed_roots(p) == frozenset({"shutil", "pathlib", "io", "os", "posix", "nt", "subprocess"})
+    assert import_authorized("multiprocessing", allowed) is True
+    assert import_authorized("multiprocessing.pool", allowed) is True
+    assert import_authorized("pty", allowed) is True
+    assert policy_relaxed_roots(p) == frozenset({
+        "shutil",
+        "pathlib",
+        "io",
+        "os",
+        "posix",
+        "nt",
+        "subprocess",
+        "multiprocessing",
+        "_multiprocessing",
+        "pty",
+    })
 
 
 def test_sandbox_policy_extra_modules() -> None:

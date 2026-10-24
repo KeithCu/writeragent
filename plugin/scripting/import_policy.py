@@ -108,7 +108,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
             "All other imports are allowed. Extra modules in Settings override this list; each also allows name.*."
         )
     else:
-        parts.append(f"Blocked host escape (always): {host_escape}.")
+        parts.append(f"Blocked host escape (unless Allow OS access): {host_escape}.")
         parts.append(f"Blocked networking (unless Allow network access): {networking}.")
         parts.append(f"Blocked file writes (unless Allow file access): {file_writes} (plus the open() builtin).")
         parts.append("All other imports are allowed. Extra modules in Settings override this list; each also allows name.*.")

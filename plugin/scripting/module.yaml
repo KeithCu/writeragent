@@ -135,7 +135,7 @@ config:
     default: false
     widget: checkbox
     label: Allow OS access
-    helper: Allows raw os and subprocess (run other programs); includes file access.
+    helper: Allows raw os, subprocess, multiprocessing, and pty (run other programs and processes); includes file access.
     public: true
     x: 256
     width: 120

@@ -558,7 +558,13 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
                 if "sys" not in extras_roots:
                     raise InterpreterError(f"Forbidden access to function: {fn_name}")
 
-            os_allowed = ("os" in relaxed_roots) or ("os" in extras_roots) or ("subprocess" in extras_roots)
+            os_allowed = (
+                ("os" in relaxed_roots)
+                or ("os" in extras_roots)
+                or ("subprocess" in extras_roots)
+                or ("multiprocessing" in extras_roots)
+                or ("pty" in extras_roots)
+            )
             if not os_allowed:
                 if fn_name in _PROCESS_CALLABLE_NAMES or mod.startswith("concurrent.futures.process"):
                     raise InterpreterError(f"Forbidden access to function: {fn_name}")

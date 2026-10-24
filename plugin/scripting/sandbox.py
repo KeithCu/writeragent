@@ -528,7 +528,12 @@ def policy_allowlist(policy: SandboxPolicy) -> list[str]:
     if policy.files:
         result.extend(FILE_BLOCKED_MODULES)
     if policy.os:
-        result.extend(("subprocess",))
+        # Bugfix: multiprocessing and pty remained blocked even when "Allow OS access"
+        # was on because policy_allowlist only added subprocess. Extending with
+        # multiprocessing, _multiprocessing, and pty allows process spawning and
+        # pseudo-terminal operations under the process flag while keeping them blocked
+        # when policy.os is False.
+        result.extend(("subprocess", "multiprocessing", "_multiprocessing", "pty"))
     result.extend(policy.extra)
     seen: set[str] = set()
     deduped: list[str] = []
@@ -556,7 +561,10 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
     if policy.files or policy.os:
         roots.update({"shutil", "pathlib", "io"})
     if policy.os:
-        roots.update({"os", "posix", "nt", "subprocess"})
+        # Bugfix: multiprocessing and pty callables were blocked by the callable gate
+        # under policy.os because their module roots were missing from relaxed_roots.
+        # Adding them allows multiprocessing.Process, Pool, and pty operations to execute.
+        roots.update({"os", "posix", "nt", "subprocess", "multiprocessing", "_multiprocessing", "pty"})
     for name in policy.extra:
         root = name.split(".", 1)[0]
         roots.add(root)

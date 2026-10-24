@@ -164,7 +164,7 @@ flowchart TB
 | `scripting.python_auto_spill` | Auto-spill list/DataFrame returns from single-cell `=PY()` |
 | `scripting.python_allow_network` | Allow network access (`socket`, `http`, `urllib`, `ssl`) |
 | `scripting.python_allow_files` | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, `os` file proxy) |
-| `scripting.python_allow_os` | Allow OS access (real `os`, `subprocess`; implies file access) |
+| `scripting.python_allow_os` | Allow OS access (real `os`, `subprocess`, `multiprocessing`, `pty`; implies file access) |
 | `scripting.python_extra_modules` | Comma-separated extra allowed module names |
 
 Stored in **`writeragent.json`** today ([`plugin/framework/config.py`](../../plugin/framework/config.py)). A core extension would choose whether to reuse that file, use a dedicated JSON name, or bind LO Tools → Options.

@@ -2473,15 +2473,21 @@ def test_local_python_executor_os_relax():
         SANDBOX_POLICY_CONTEXT,
         get_file_os_proxy,
     )
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
 
     _, file_os_ids = get_file_os_proxy()
+    policy = build_sandbox_policy(os_=True)
     token = SANDBOX_POLICY_CONTEXT.set((
-        frozenset({"shutil", "pathlib", "io", "os", "posix", "nt", "subprocess"}),
+        policy_relaxed_roots(policy),
         file_os_ids,
     ))
     try:
         executor = LocalPythonExecutor(
-            additional_authorized_imports=[
+            additional_authorized_imports=policy_allowlist(policy) + [
                 "os",
                 "os.*",
                 "posixpath",
@@ -2489,12 +2495,10 @@ def test_local_python_executor_os_relax():
                 "genericpath",
                 "pathlib",
                 "pathlib.*",
-                "shutil",
-                "io",
-                "tempfile",
                 "glob",
-                "subprocess",
                 "subprocess.*",
+                "multiprocessing.*",
+                "pty.*",
             ],
             additional_functions={"open": open},
         )
@@ -2510,13 +2514,12 @@ sys_res = os.system("echo ok > /dev/null")
         executor(code)
         assert isinstance(executor.state["pid"], int)
 
-        with pytest.raises(InterpreterError) as exc_mp:
-            executor("import multiprocessing")
-        assert "Import of multiprocessing is not allowed" in str(exc_mp.value)
+        # multiprocessing and pty are allowed when OS flag is ON
+        executor("import multiprocessing\np = multiprocessing.Process\nres_mp = callable(p)")
+        assert executor.state["res_mp"] is True
 
-        with pytest.raises(InterpreterError) as exc_pty:
-            executor("import pty")
-        assert "Import of pty is not allowed" in str(exc_pty.value)
+        executor("import pty\nres_pty = callable(pty.openpty)")
+        assert executor.state["res_pty"] is True
     finally:
         SANDBOX_POLICY_CONTEXT.reset(token)
 
@@ -2536,6 +2539,7 @@ sys_res = os.system("echo ok > /dev/null")
         "zipimport",
         "subprocess",
         "pty",
+        "multiprocessing",
         "plugin.framework.config",
         "writeragent.framework.config",
     ],
@@ -2601,13 +2605,27 @@ def test_process_callables_blocked_when_os_false():
         executor("import multiprocessing.pool\np = multiprocessing.pool.Pool")
     assert "Import of multiprocessing.pool is not allowed" in str(exc.value)
 
+    with pytest.raises(InterpreterError) as exc_bare_mp:
+        executor("import multiprocessing")
+    assert "Import of multiprocessing is not allowed" in str(exc_bare_mp.value)
+
+    with pytest.raises(InterpreterError) as exc_pty:
+        executor("import pty")
+    assert "Import of pty is not allowed" in str(exc_pty.value)
+
 
 def test_process_callables_allowed_when_os_true():
     from plugin.contrib.smolagents.local_python_executor import SANDBOX_POLICY_CONTEXT
+    from plugin.scripting.sandbox import (
+        build_sandbox_policy,
+        policy_allowlist,
+        policy_relaxed_roots,
+    )
 
-    token = SANDBOX_POLICY_CONTEXT.set((frozenset({"os"}), frozenset()))
+    policy = build_sandbox_policy(os_=True)
+    token = SANDBOX_POLICY_CONTEXT.set((policy_relaxed_roots(policy), frozenset()))
     try:
-        executor = LocalPythonExecutor(additional_authorized_imports=[])
+        executor = LocalPythonExecutor(additional_authorized_imports=policy_allowlist(policy))
         executor.send_tools({})
 
         executor("import asyncio\nfn = asyncio.create_subprocess_exec\nres = callable(fn)")
@@ -2619,10 +2637,15 @@ def test_process_callables_allowed_when_os_true():
         executor("import concurrent.futures\np = concurrent.futures.ProcessPoolExecutor\nres = callable(p)")
         assert executor.state["res"] is True
 
-        # multiprocessing stays blocked even with os=True
-        with pytest.raises(InterpreterError) as exc:
-            executor("import multiprocessing.pool\np = multiprocessing.pool.Pool")
-        assert "not allowed" in str(exc.value).lower()
+        # multiprocessing and pty are allowed when os=True
+        executor("import multiprocessing.pool\np = multiprocessing.pool.Pool\nres = callable(p)")
+        assert executor.state["res"] is True
+
+        executor("import multiprocessing\np = multiprocessing.Process\nres = callable(p)")
+        assert executor.state["res"] is True
+
+        executor("import pty\nres = callable(pty.openpty)")
+        assert executor.state["res"] is True
     finally:
         SANDBOX_POLICY_CONTEXT.reset(token)
 
