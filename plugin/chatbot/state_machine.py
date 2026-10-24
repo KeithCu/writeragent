@@ -4,7 +4,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import List, Any, Optional, NamedTuple, Literal
 
-from plugin.framework.client.errors import format_error_for_display
+from plugin.framework.errors import format_error_for_display
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.service import BaseState, FsmTransition
 

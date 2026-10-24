@@ -17,7 +17,8 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-from .errors import format_error_for_display, is_audio_unsupported_error, is_image_unsupported_error
+from plugin.framework.errors import format_error_for_display
+from .errors import is_audio_unsupported_error, is_image_unsupported_error
 from .provider_detection import get_provider_from_endpoint, is_local_host, is_openrouter_endpoint, is_openwebui_endpoint
 from .requests import sync_request
 

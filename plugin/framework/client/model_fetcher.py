@@ -36,7 +36,7 @@ import re
 from typing import Any
 
 from plugin.framework.constants import ModelCapability
-from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
+from plugin.framework.default_models import get_model_capability, get_provider_defaults
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError
@@ -1046,23 +1046,6 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
 
 
 # --- Model capability and audio support ---
-
-
-def get_model_capability(model_id: Any, endpoint: Any) -> int:
-    """Check the model catalog for capabilities bitmask."""
-    provider = get_provider_from_endpoint(endpoint)
-    model_id = str(model_id or "").strip()
-    # Check DEFAULT_MODELS for this ID/provider
-    for m in DEFAULT_MODELS:
-        effective_id = resolve_model_id(m, provider)
-        if not effective_id:
-            continue
-        if provider == "openrouter":
-            if openrouter_model_ids_equivalent(effective_id, model_id):
-                return m.get("capability", ModelCapability.CHAT)
-        elif effective_id == model_id:
-            return m.get("capability", ModelCapability.CHAT)
-    return ModelCapability.NONE
 
 
 def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:

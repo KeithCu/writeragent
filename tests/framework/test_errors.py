@@ -3,9 +3,8 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, safe_json_loads
 from plugin.framework.tool import ToolBase
-from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import run_stream_drain_loop
 from unittest.mock import MagicMock
@@ -1183,7 +1182,7 @@ def test_reraise_if_disposed_preserves_instance():
 
 
 def test_format_error_for_display_connection_refused():
-    from plugin.framework.client.errors import format_error_for_display
+    from plugin.framework.errors import format_error_for_display
 
     exc = ConnectionRefusedError(111, "Connection refused")
     display = format_error_for_display(exc)

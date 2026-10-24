@@ -10,7 +10,7 @@ import logging
 from typing import Any, Mapping
 
 from plugin.framework.blocking_wait import run_blocking_in_thread
-from plugin.framework.client.errors import format_error_for_display
+from plugin.framework.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import get_api_config, get_config_int, get_config_str
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch

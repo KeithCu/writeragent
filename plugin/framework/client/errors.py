@@ -4,8 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Client / LLM-wire specific error helpers.
 
-Wire-specific formatting (HTTP response bodies, audio modality heuristics) and
-``format_error_for_display`` live here. The cross-cutting i18n mapper is
+Wire-specific formatting (HTTP response bodies, audio modality heuristics)
+lives here. The cross-cutting i18n mapper is
 :func:`plugin.framework.errors.format_error_message` — import it from there.
 """
 
@@ -18,7 +18,7 @@ from typing import Any
 import urllib.parse
 
 from plugin.framework.i18n import _
-from plugin.framework.errors import NetworkError, format_error_message, http_status_message
+from plugin.framework.errors import NetworkError, http_status_message
 from plugin.framework.client.http_security import redact_secrets
 
 log = logging.getLogger(__name__)
@@ -128,24 +128,6 @@ def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provid
     if request_model:
         return message + hint + _(" Request model was: {0}.").format(repr(request_model))
     return message + hint
-
-
-def format_error_for_display(e: Any) -> str:
-    """Return user-friendly error string for display in cells or dialogs."""
-    from plugin.framework.errors import WriterAgentException, resolve_exception_message
-
-    # Drain loop ERROR items are format_error_payload dicts, not Exception.
-    # format_error_payload(dict) would wrap the whole mapping as INTERNAL_ERROR.
-    if isinstance(e, dict):
-        msg = e.get("message") or e.get("code") or str(e)
-        return _("Error: {0}").format(msg)
-    if isinstance(e, WriterAgentException):
-        message = e.message
-    elif isinstance(e, BaseException):
-        message = format_error_message(e)
-    else:
-        message = resolve_exception_message(e)
-    return _("Error: {0}").format(message)
 
 
 def is_audio_unsupported_error(e: Any) -> bool:

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 from plugin.framework.constants import ModelCapability
+from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
@@ -99,6 +101,23 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
                     defaults["tts_model"] = effective_id
 
     return defaults
+
+
+def get_model_capability(model_id: Any, endpoint: Any) -> int:
+    """Check the model catalog for capabilities bitmask."""
+    provider = get_provider_from_endpoint(endpoint)
+    model_id = str(model_id or "").strip()
+    # Check DEFAULT_MODELS for this ID/provider
+    for m in DEFAULT_MODELS:
+        effective_id = resolve_model_id(m, provider)
+        if not effective_id:
+            continue
+        if provider == "openrouter":
+            if openrouter_model_ids_equivalent(effective_id, model_id):
+                return m.get("capability", ModelCapability.CHAT)
+        elif effective_id == model_id:
+            return m.get("capability", ModelCapability.CHAT)
+    return ModelCapability.NONE
 
 
 # Together serverless audio families. GET /v1/models has no audio type, so a row

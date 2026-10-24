@@ -185,4 +185,13 @@ class TestGetProviderDefaults:
         assert (bool(caps & ModelCapability.CHAT))
         assert (bool(caps & ModelCapability.TOOLS))
 
+    def test_get_model_capability(self):
+        from plugin.framework.default_models import get_model_capability
+        from plugin.framework.constants import ModelCapability
+
+        caps = get_model_capability("openai/gpt-oss-120b:nitro", "https://openrouter.ai/api")
+        assert isinstance(caps, int) and (caps & ModelCapability.TOOLS)
+        assert get_model_capability("deepseek-chat", "https://api.deepseek.com") & ModelCapability.CHAT
+        assert get_model_capability("nonexistent-model", "https://openrouter.ai/api") == ModelCapability.NONE
+
 

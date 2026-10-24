@@ -224,7 +224,7 @@ class TestTextModelPlaceholderGuards:
 
 class TestGetModelCapabilityOpenRouter:
     def test_nitro_suffix_matches_curated_default(self):
-        from plugin.framework.client.model_fetcher import get_model_capability
+        from plugin.framework.default_models import get_model_capability
         from plugin.framework.constants import ModelCapability
 
         caps = get_model_capability('openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')

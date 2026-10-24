@@ -413,8 +413,8 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
 # string used in logs, error messages, and as a fallback in display helpers.
 #
 # Wire-specific formatting (full HTTP response bodies, audio modality heuristics)
-# remains in client/errors.py. Import format_error_message from this module
-# (not from client.errors).
+# remains in client/errors.py. Generic display formatting (format_error_for_display)
+# and the i18n mapper (format_error_message) live in this module.
 
 
 def _is_connection_refused(exc: BaseException, reason: str) -> bool:
@@ -568,6 +568,22 @@ def format_error_message(e: BaseException) -> str:
         return _("The AI provider reported an error. Try again.")
 
     return msg
+
+
+def format_error_for_display(e: Any) -> str:
+    """Return user-friendly error string for display in cells or dialogs."""
+    # Drain loop ERROR items are format_error_payload dicts, not Exception.
+    # format_error_payload(dict) would wrap the whole mapping as INTERNAL_ERROR.
+    if isinstance(e, dict):
+        msg = e.get("message") or e.get("code") or str(e)
+        return _("Error: {0}").format(msg)
+    if isinstance(e, WriterAgentException):
+        message = e.message
+    elif isinstance(e, BaseException):
+        message = format_error_message(e)
+    else:
+        message = resolve_exception_message(e)
+    return _("Error: {0}").format(message)
 
 
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
@@ -855,6 +871,7 @@ __all__ = [
     "best_effort",
     "check_disposed",
     "check_not_none",
+    "format_error_for_display",
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
     "format_error_payload",
     "http_status_message",
