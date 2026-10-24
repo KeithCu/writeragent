@@ -9,6 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
+import builtins
 import cmath
 import math
 import statistics
@@ -26,9 +27,7 @@ from .calc_functions_util import (
     _from_complex,
     _is_calc_error,
     _npf_result,
-    _parse_complex,
     _serial_to_date,
-    _to_complex,
     is_number,
     match_criteria,
 )
@@ -143,6 +142,37 @@ def is_na_value(value: Any) -> bool:
     except ImportError:
         pass
     return False
+
+
+def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
+    """Parse a Calc complex into ``(number, suffix)``.
+
+    ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
+    unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
+    non-empty unit: a real number stores ``c == '\\0'`` and does not override
+    a later ``j``. Rewriting every ``i`` to ``j`` before parsing used to drop
+    that unit, so ``IMSUM("1+2j","3+j")`` came back as ``"4+3i"``.
+
+    A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
+    a complex literal.
+    """
+    if isinstance(val, (bool, np.bool_)):
+        return builtins.complex(float(val)), ""
+    if isinstance(val, (int, float, builtins.complex)):
+        return builtins.complex(val), ""
+    text = str(val).replace(" ", "")
+    suffix = ""
+    if text and text[-1] in "ijIJ":
+        suffix = "j" if text[-1] in "jJ" else "i"
+    py_text = text.replace("i", "j").replace("I", "j").replace("J", "j")
+    # invalid text raises ValueError; callers map that to "#VALUE!"
+    return builtins.complex(py_text), suffix
+
+
+def _to_complex(val: Any) -> builtins.complex:
+    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
+    number, _suffix = _parse_complex(val)
+    return number
 
 
 def _im_suffix(first: str, second: str = "") -> str:

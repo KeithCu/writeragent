@@ -21,12 +21,12 @@ import numpy as np
 from .calc_functions_util import (
     _as_nonzero,
     _build_holiday_set,
-    _calc_sort_key,
     _clean_paired_arrays,
     _collect_a_values,
     _criteria_numbers,
     _days_between,
     _extract_numeric_array,
+    _is_calc_error,
     _multi_criteria_mask,
     _npf_result,
     _parse_weekend,
@@ -867,6 +867,23 @@ def small(r: Any, k: Any) -> float:
         return float("nan")
     arr_sorted = np.sort(arr)
     return float(arr_sorted[ki - 1])
+
+
+def _calc_sort_key(val: Any) -> tuple[int, Any]:
+    """Sort key matching Calc/Excel ordering: numbers < text (case-insensitive) < bools < blanks/errors."""
+    if val is None or val == "" or _is_calc_error(val):
+        return (3, "")
+    if isinstance(val, (bool, np.bool_)):
+        return (2, int(val))
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        try:
+            fval = float(val)
+            if math.isnan(fval):
+                return (3, "")
+            return (0, fval)
+        except (ValueError, TypeError, OverflowError):
+            return (3, "")
+    return (1, str(val).casefold())
 
 
 def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any] | float:

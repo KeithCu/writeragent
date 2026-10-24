@@ -26,12 +26,12 @@ from .calc_functions_util import (
     _collect_a_values,
     _date_to_serial,
     _extract_numeric_array,
-    _find_match_index,
     _find_text_cut,
     _is_calc_error,
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
+    _wildcard_fullmatch,
     yearfrac,
 )
 from .coerce import _LO_ERROR_TOKENS, is_blank_value
@@ -928,6 +928,65 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
+
+
+def _find_match_index(
+    lookup_val: Any,
+    lookup_arr: Any,
+    match_mode: int | float = 0,
+    search_mode: int | float = 1,
+) -> int | None:
+    """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
+    # dtype=object keeps numbers as numbers. Text matches case-insensitively.
+    # bad match_mode or search_mode is left to the worker exception path, which returns #VALUE!
+    l_flat = np.asarray(lookup_arr, dtype=object).ravel()
+    indices = list(range(len(l_flat)))
+    if int(float(search_mode)) == -1:
+        indices.reverse()
+    mm = int(float(match_mode))
+
+    def _is_exact(cell: Any, target: Any) -> bool:
+        if isinstance(cell, str) and isinstance(target, str):
+            return cell.casefold() == target.casefold()
+        if isinstance(cell, (bool, np.bool_)) or isinstance(target, (bool, np.bool_)):
+            return bool(cell) is bool(target) if (isinstance(cell, (bool, np.bool_)) and isinstance(target, (bool, np.bool_))) else False
+        try:
+            return float(cell) == float(target)
+        except (ValueError, TypeError, OverflowError):
+            return cell == target
+
+    if mm == 0:
+        for idx in indices:
+            if _is_exact(l_flat[idx], lookup_val):
+                return idx
+    elif mm in (-1, 1):
+        for idx in indices:
+            if _is_exact(l_flat[idx], lookup_val):
+                return idx
+        best_idx = None
+        for idx in indices:
+            try:
+                diff = float(l_flat[idx]) - float(lookup_val)
+                if mm == -1 and diff < 0:
+                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
+                        best_idx = idx
+                elif mm == 1 and diff > 0:
+                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
+                        best_idx = idx
+            except (ValueError, TypeError, OverflowError):
+                pass
+        return best_idx
+    elif mm == 2:
+        if isinstance(lookup_val, str):
+            for idx in indices:
+                cell = l_flat[idx]
+                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
+                    return idx
+        else:
+            for idx in indices:
+                if _is_exact(l_flat[idx], lookup_val):
+                    return idx
+    return None
 
 
 def _scalar_if_singleton(values: list[Any]) -> Any:

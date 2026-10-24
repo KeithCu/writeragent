@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import builtins
 import calendar
 import datetime as dt
 from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
@@ -17,7 +16,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from .coerce import _LO_ERROR_TOKENS, header_label, is_missing_value
+from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 _SERIAL_OFFSET: int = 693594
 
@@ -256,23 +255,6 @@ def is_number(val: Any) -> bool:
     return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
-def _calc_sort_key(val: Any) -> tuple[int, Any]:
-    """Sort key matching Calc/Excel ordering: numbers < text (case-insensitive) < bools < blanks/errors."""
-    if val is None or val == "" or _is_calc_error(val):
-        return (3, "")
-    if isinstance(val, (bool, np.bool_)):
-        return (2, int(val))
-    if isinstance(val, (int, float, np.integer, np.floating)):
-        try:
-            fval = float(val)
-            if math.isnan(fval):
-                return (3, "")
-            return (0, fval)
-        except (ValueError, TypeError, OverflowError):
-            return (3, "")
-    return (1, str(val).casefold())
-
-
 def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
     """Extract 1D float arrays of matching length, keeping only pairs where both cells are finite numbers."""
     # conversion failures are left to the worker exception path, which returns #VALUE!
@@ -509,65 +491,6 @@ def match_criteria(val: Any, crit: Any) -> bool:
     return False
 
 
-def _find_match_index(
-    lookup_val: Any,
-    lookup_arr: Any,
-    match_mode: int | float = 0,
-    search_mode: int | float = 1,
-) -> int | None:
-    """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
-    # dtype=object keeps numbers as numbers. Text matches case-insensitively.
-    # bad match_mode or search_mode is left to the worker exception path, which returns #VALUE!
-    l_flat = np.asarray(lookup_arr, dtype=object).ravel()
-    indices = list(range(len(l_flat)))
-    if int(float(search_mode)) == -1:
-        indices.reverse()
-    mm = int(float(match_mode))
-
-    def _is_exact(cell: Any, target: Any) -> bool:
-        if isinstance(cell, str) and isinstance(target, str):
-            return cell.casefold() == target.casefold()
-        if isinstance(cell, (bool, np.bool_)) or isinstance(target, (bool, np.bool_)):
-            return bool(cell) is bool(target) if (isinstance(cell, (bool, np.bool_)) and isinstance(target, (bool, np.bool_))) else False
-        try:
-            return float(cell) == float(target)
-        except (ValueError, TypeError, OverflowError):
-            return cell == target
-
-    if mm == 0:
-        for idx in indices:
-            if _is_exact(l_flat[idx], lookup_val):
-                return idx
-    elif mm in (-1, 1):
-        for idx in indices:
-            if _is_exact(l_flat[idx], lookup_val):
-                return idx
-        best_idx = None
-        for idx in indices:
-            try:
-                diff = float(l_flat[idx]) - float(lookup_val)
-                if mm == -1 and diff < 0:
-                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-                elif mm == 1 and diff > 0:
-                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-            except (ValueError, TypeError, OverflowError):
-                pass
-        return best_idx
-    elif mm == 2:
-        if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    return idx
-        else:
-            for idx in indices:
-                if _is_exact(l_flat[idx], lookup_val):
-                    return idx
-    return None
-
-
 def _extract_numeric_array(
     *args: Any,
     ignore_text: bool = True,
@@ -656,71 +579,6 @@ def _find_text_cut(
     return s, delim, inst, idx, False
 
 
-_MAX_BIT_VALUE: int = (1 << 48) - 1
-
-
-def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
-    """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
-    # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
-    # type errors are left to the worker exception path, which returns #VALUE!
-    try:
-        v1 = int(float(n1))
-        v2 = int(float(n2))
-    except OverflowError:
-        return float("nan")
-    if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
-        return float("nan")
-    return float(op(v1, v2))
-
-
-def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
-    """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
-    # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
-    # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
-    # type errors are left to the worker exception path, which returns #VALUE!
-    try:
-        n = int(float(number))
-        s = int(float(shift))
-    except OverflowError:
-        return float("nan")
-    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
-        return float("nan")
-    try:
-        if s < 0:
-            return float(n >> abs(s)) if left else float(n << abs(s))
-        return float(n << s) if left else float(n >> s)
-    except MemoryError:
-        return float("nan")
-
-
-def _bessel_iv_jv(scipy_fn: Any, x: Any, n: Any) -> float:
-    """Evaluate modified/regular Bessel function of the first kind (iv or jv)."""
-    # type and scipy errors propagate to _bessel_call, which returns NaN
-    v1 = float(x)
-    v2 = int(float(n))
-    if v2 < 0:
-        return float("nan")
-    return float(scipy_fn(v2, v1))
-
-
-def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
-    """Evaluate modified/regular Bessel function of the second kind (kn or yn)."""
-    # type and scipy errors propagate to _bessel_call, which returns NaN
-    xv = float(x)
-    nv = int(float(n))
-    # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
-    # returned a finite value. Both are illegal orders.
-    # How it happened: _bessel_iv_jv rejects nv < 0, but this helper only
-    # rejected xv <= 0. scipy.special.kn(-n, x) equals kn(n, x), so the
-    # missing check looked like a successful order-1 call.
-    # Why this change fixes it: AnalysisAddIn::getBesselk and getBessely
-    # throw IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is
-    # that error in this runtime.
-    if nv < 0 or xv <= 0:
-        return float("nan")
-    return float(scipy_fn(nv, xv))
-
-
 def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
     """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
     # dtype=object keeps cell types. A huge int raises OverflowError, which is
@@ -744,39 +602,6 @@ def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[f
     return vals
 
 
-def _fractional_dollar_digits(fraction: int) -> int:
-    """Digits Excel/Calc use when reading a fractional dollar price."""
-    if fraction <= 1:
-        return 0
-    return math.ceil(math.log10(fraction))
-
-
-def _dollar_fraction_terms(
-    amount: Any, fraction: Any
-) -> tuple[float, float, float, int, int] | None:
-    """Parse and compute terms for dollarde and dollarfr: (sign, i_part, f_part, f, scale)."""
-    try:
-        amt = float(amount)
-        frac = float(fraction)
-        if not math.isfinite(amt) or not math.isfinite(frac):
-            return None
-        f = int(frac)
-    # int(inf) and float(10**400) raise OverflowError, not ValueError.
-    # math.floor(inf) used to sit outside this try, so dollarde(1.02, inf)
-    # crashed. Overflow stays None so the caller returns NaN (#NUM!).
-    # type errors are left to the worker exception path, which returns #VALUE!
-    except OverflowError:
-        return None
-    if f <= 0 or not math.isfinite(amt) or not math.isfinite(frac):
-        return None
-    sign = -1.0 if amt < 0 else 1.0
-    amt = abs(amt)
-    i_part = math.floor(amt)
-    f_part = amt - i_part
-    scale = 10 ** _fractional_dollar_digits(f)
-    return sign, float(i_part), f_part, f, scale
-
-
 def _complex_coeff(n: float) -> str:
     """Format complex coefficient without trailing .0 on integers."""
     if math.isfinite(n) and n.is_integer():
@@ -784,7 +609,7 @@ def _complex_coeff(n: float) -> str:
     return str(n)
 
 
-def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
+def _from_complex(c: complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string.
 
     ``Complex::GetString`` (``analysishelper.cxx``) calls ``finiteOrThrow``
@@ -815,131 +640,6 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     else:
         res += _complex_coeff(imag) + suffix
     return res
-
-
-def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
-    """Parse a Calc complex into ``(number, suffix)``.
-
-    ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
-    unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
-    non-empty unit: a real number stores ``c == '\\0'`` and does not override
-    a later ``j``. Rewriting every ``i`` to ``j`` before parsing used to drop
-    that unit, so ``IMSUM("1+2j","3+j")`` came back as ``"4+3i"``.
-
-    A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
-    a complex literal.
-    """
-    if isinstance(val, (bool, np.bool_)):
-        return builtins.complex(float(val)), ""
-    if isinstance(val, (int, float, builtins.complex)):
-        return builtins.complex(val), ""
-    text = str(val).replace(" ", "")
-    suffix = ""
-    if text and text[-1] in "ijIJ":
-        suffix = "j" if text[-1] in "jJ" else "i"
-    py_text = text.replace("i", "j").replace("I", "j").replace("J", "j")
-    # invalid text raises ValueError; callers map that to "#VALUE!"
-    return builtins.complex(py_text), suffix
-
-
-def _to_complex(val: Any) -> builtins.complex:
-    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
-    number, _suffix = _parse_complex(val)
-    return number
-
-
-def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any] | None:
-    """Shared helper for D* functions (DSUM, DAVERAGE, DMAX, DMIN, etc.)."""
-    db_arr = np.asarray(db, dtype=object)
-    if db_arr.ndim != 2:
-        return None
-    headers = [header_label(h).upper() for h in db_arr[0]]
-    # First duplicate header wins, same as findFieldColumn (doubleref.cxx)
-    # walking the header row left to right.
-    header_index: dict[str, int] = {}
-    for idx, name in enumerate(headers):
-        header_index.setdefault(name, idx)
-
-    f_idx = -1
-    if isinstance(field, str) or isinstance(field, bool):
-        # bool is an int subclass. int(True) - 1 would select column 0 when
-        # the label "TRUE" is missing. A bool field is the header text.
-        f_name = header_label(field).upper()
-        if f_name in header_index:
-            f_idx = header_index[f_name]
-    elif isinstance(field, (int, float)):
-        try:
-            f_idx = int(field) - 1
-        except (ValueError, TypeError, OverflowError):
-            f_idx = -1
-    elif field is not None and field != "":
-        f_name = header_label(field).upper()
-        if f_name in header_index:
-            f_idx = header_index[f_name]
-        else:
-            try:
-                f_idx = int(float(field)) - 1
-            except (ValueError, TypeError, OverflowError):
-                f_idx = -1
-
-    if f_idx < 0 or f_idx >= db_arr.shape[1]:
-        return None
-
-    crit_arr = np.asarray(criteria, dtype=object)
-    if crit_arr.ndim != 2:
-        return None
-    crit_headers = [header_label(h).upper() for h in crit_arr[0]]
-
-    # lcl_createExcelQuery (doubleref.cxx) requires every criteria header
-    # to name a database column. A miss makes createQueryParam return
-    # nullptr, and DBIterator sets IllegalParameter. Skipping the column
-    # used to match every row.
-    crit_cols: list[int] = []
-    for c_header in crit_headers:
-        col = header_index.get(c_header)
-        if col is None:
-            return None
-        crit_cols.append(col)
-
-    matching_vals: list[Any] = []
-    for r_idx in range(1, db_arr.shape[0]):
-        row = db_arr[r_idx]
-        match_any_row = False
-        for c_row_idx in range(1, crit_arr.shape[0]):
-            match_all_cols = True
-            for c_col_idx in range(crit_arr.shape[1]):
-                c_val = crit_arr[c_row_idx, c_col_idx]
-                if is_missing_value(c_val):
-                    continue
-                if not match_criteria(row[crit_cols[c_col_idx]], c_val):
-                    match_all_cols = False
-                    break
-            if match_all_cols:
-                match_any_row = True
-                break
-
-        if match_any_row:
-            val = row[f_idx]
-            if as_float:
-                # Strings are not numbers. ScDBQueryParamBase starts with
-                # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
-                # DCOUNTA sets the flag false and calls this with
-                # as_float=False, so text still counts there. float("5") used
-                # to add the text. A bool stays: Calc stores TRUE as a numeric
-                # cell, so float(True) is 1. NaN is missing (is_missing_value)
-                # and must not poison the aggregate.
-                if isinstance(val, str):
-                    continue
-                try:
-                    num = float(val)
-                except (ValueError, TypeError, OverflowError):
-                    continue
-                if math.isnan(num):
-                    continue
-                matching_vals.append(num)
-            else:
-                matching_vals.append(val)
-    return matching_vals
 
 
 def _multi_criteria_mask(
@@ -983,55 +683,5 @@ def _multi_criteria_mask(
                 mask[idx] = False
 
     return mask
-
-
-def _get_coupon_dates(
-    settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
-) -> tuple[float, float, float, float]:
-    """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
-
-    Returns (prev_serial, curr_serial, days_in_period, num_coupons).
-    """
-    # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
-    # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
-    # and a fixed day step (180, 182.5) drifts off the coupon date.
-    freq = int(float(frequency))
-    b = int(float(basis))
-    if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
-        raise ValueError("Invalid coupon frequency or basis")
-    s_date = _serial_to_date(settlement)
-    m_date = _serial_to_date(maturity)
-    if s_date is None or m_date is None or s_date >= m_date:
-        raise ValueError("Invalid settlement or maturity date")
-
-    m_step = 12 // freq
-    d_mat = m_date.day
-    mat_is_eom = d_mat == calendar.monthrange(m_date.year, m_date.month)[1]
-    mat_month_idx = m_date.year * 12 + m_date.month - 1
-    k = 0
-    curr = m_date
-    prev = m_date
-    while curr > s_date:
-        k += 1
-        m_idx = mat_month_idx - k * m_step
-        y = m_idx // 12
-        m = (m_idx % 12) + 1
-        dim = calendar.monthrange(y, m)[1]
-        d = dim if (mat_is_eom or d_mat > dim) else d_mat
-        prev = dt.date(y, m, d)
-        if prev <= s_date:
-            break
-        curr = prev
-
-    p_ser = _date_to_serial(prev)
-    c_ser = _date_to_serial(curr)
-    if b in (0, 2, 4):
-        days_in_per = 360.0 / freq
-    elif b == 3:
-        days_in_per = 365.0 / freq
-    else:
-        days_in_per = float((curr - prev).days)
-
-    return p_ser, c_ser, days_in_per, float(k)
 
 

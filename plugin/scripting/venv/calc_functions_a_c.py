@@ -10,6 +10,8 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import builtins
+import calendar
+import datetime as dt
 import math
 import operator
 import sys
@@ -18,17 +20,12 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
-    _bessel_iv_jv,
-    _bessel_kn_yn,
     _collect_a_values,
     _criteria_numbers,
     _date_to_serial,
     _days_between,
     _extract_numeric_array,
     _from_complex,
-    _get_coupon_dates,
-    _int_bitwise,
-    _int_shift,
     _multi_criteria_mask,
     _npf_result,
     _round_half_up,
@@ -599,6 +596,34 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         return "#NUM!"
 
 
+def _bessel_iv_jv(scipy_fn: Any, x: Any, n: Any) -> float:
+    """Evaluate modified/regular Bessel function of the first kind (iv or jv)."""
+    # type and scipy errors propagate to _bessel_call, which returns NaN
+    v1 = float(x)
+    v2 = int(float(n))
+    if v2 < 0:
+        return float("nan")
+    return float(scipy_fn(v2, v1))
+
+
+def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
+    """Evaluate modified/regular Bessel function of the second kind (kn or yn)."""
+    # type and scipy errors propagate to _bessel_call, which returns NaN
+    xv = float(x)
+    nv = int(float(n))
+    # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
+    # returned a finite value. Both are illegal orders.
+    # How it happened: _bessel_iv_jv rejects nv < 0, but this helper only
+    # rejected xv <= 0. scipy.special.kn(-n, x) equals kn(n, x), so the
+    # missing check looked like a successful order-1 call.
+    # Why this change fixes it: AnalysisAddIn::getBesselk and getBessely
+    # throw IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is
+    # that error in this runtime.
+    if nv < 0 or xv <= 0:
+        return float("nan")
+    return float(scipy_fn(nv, xv))
+
+
 def _bessel_call(name: str, impl: Any, x: Any, n: Any) -> float:
     """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
 
@@ -683,6 +708,43 @@ def binomdist(*args: Any) -> float:
         return float(stats.binom.cdf(k, n, p))
     else:
         return float(stats.binom.pmf(k, n, p))
+
+
+_MAX_BIT_VALUE: int = (1 << 48) - 1
+
+
+def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
+    """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
+    # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
+    # type errors are left to the worker exception path, which returns #VALUE!
+    try:
+        v1 = int(float(n1))
+        v2 = int(float(n2))
+    except OverflowError:
+        return float("nan")
+    if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
+        return float("nan")
+    return float(op(v1, v2))
+
+
+def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
+    """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
+    # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
+    # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
+    # type errors are left to the worker exception path, which returns #VALUE!
+    try:
+        n = int(float(number))
+        s = int(float(shift))
+    except OverflowError:
+        return float("nan")
+    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
+        return float("nan")
+    try:
+        if s < 0:
+            return float(n >> abs(s)) if left else float(n << abs(s))
+        return float(n << s) if left else float(n >> s)
+    except MemoryError:
+        return float("nan")
 
 
 def bitand(n1: Any, n2: Any) -> float:
@@ -879,6 +941,56 @@ def countifs(*args: Any) -> float | str:
     if mask is None:
         return "#VALUE!"
     return float(np.sum(mask))
+
+
+def _get_coupon_dates(
+    settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
+) -> tuple[float, float, float, float]:
+    """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
+
+    Returns (prev_serial, curr_serial, days_in_period, num_coupons).
+    """
+    # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
+    # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
+    # and a fixed day step (180, 182.5) drifts off the coupon date.
+    freq = int(float(frequency))
+    b = int(float(basis))
+    if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
+        raise ValueError("Invalid coupon frequency or basis")
+    s_date = _serial_to_date(settlement)
+    m_date = _serial_to_date(maturity)
+    if s_date is None or m_date is None or s_date >= m_date:
+        raise ValueError("Invalid settlement or maturity date")
+
+    m_step = 12 // freq
+    d_mat = m_date.day
+    mat_is_eom = d_mat == calendar.monthrange(m_date.year, m_date.month)[1]
+    mat_month_idx = m_date.year * 12 + m_date.month - 1
+    k = 0
+    curr = m_date
+    prev = m_date
+    while curr > s_date:
+        k += 1
+        m_idx = mat_month_idx - k * m_step
+        y = m_idx // 12
+        m = (m_idx % 12) + 1
+        dim = calendar.monthrange(y, m)[1]
+        d = dim if (mat_is_eom or d_mat > dim) else d_mat
+        prev = dt.date(y, m, d)
+        if prev <= s_date:
+            break
+        curr = prev
+
+    p_ser = _date_to_serial(prev)
+    c_ser = _date_to_serial(curr)
+    if b in (0, 2, 4):
+        days_in_per = 360.0 / freq
+    elif b == 3:
+        days_in_per = 365.0 / freq
+    else:
+        days_in_per = float((curr - prev).days)
+
+    return p_ser, c_ser, days_in_per, float(k)
 
 
 def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:

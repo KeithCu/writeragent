@@ -12,19 +12,23 @@ import math
 import numpy as np
 import pytest
 
-from plugin.scripting.venv.calc_functions_util import (
+from plugin.scripting.venv.calc_functions_a_c import (
     _bessel_iv_jv,
     _bessel_kn_yn,
+    _int_bitwise,
+    _int_shift,
+)
+from plugin.scripting.venv.calc_functions_d_h import (
+    _dollar_fraction_terms,
+    _fractional_dollar_digits,
+)
+from plugin.scripting.venv.calc_functions_t_z import _find_match_index
+from plugin.scripting.venv.calc_functions_util import (
     _build_holiday_set,
     _collect_a_values,
     _criteria_numbers,
-    _dollar_fraction_terms,
     _extract_numeric_array,
-    _find_match_index,
     _find_text_cut,
-    _fractional_dollar_digits,
-    _int_bitwise,
-    _int_shift,
     _npf_result,
     _parse_weekend,
     _serial_to_date,
@@ -414,7 +418,7 @@ def test_is_calc_error_helper():
 
 
 def test_calc_sort_key():
-    from plugin.scripting.venv.calc_functions_util import _calc_sort_key
+    from plugin.scripting.venv.calc_functions_n_s import _calc_sort_key
 
     # Order: numbers < text (case-insensitive) < bools < blanks/errors
     k_num = _calc_sort_key(10)
@@ -455,7 +459,7 @@ def test_clean_paired_arrays():
 
 def test_int_shift_and_bitwise_limits():
     import operator
-    from plugin.scripting.venv.calc_functions_util import _int_bitwise, _int_shift
+    from plugin.scripting.venv.calc_functions_a_c import _int_bitwise, _int_shift
 
     # Shift cap |shift| <= 53
     assert not math.isnan(_int_shift(1, 53, left=True))
@@ -487,7 +491,7 @@ def test_round_half_up():
 
 
 def test_eval_d_criteria():
-    from plugin.scripting.venv.calc_functions_util import _eval_d_criteria
+    from plugin.scripting.venv.calc_functions_d_h import _eval_d_criteria
 
     db = [["Tree", "Height"], ["Apple", 10], ["Pear", 15]]
     # Match Pear
@@ -543,7 +547,7 @@ def test_multi_criteria_mask():
 
 
 def test_get_coupon_dates_calendar_stepping():
-    from plugin.scripting.venv.calc_functions_util import _get_coupon_dates
+    from plugin.scripting.venv.calc_functions_a_c import _get_coupon_dates
 
     # 2020-01-01 to 2020-06-01, freq=2, basis=0
     p_ser, c_ser, days_in_per, k = _get_coupon_dates(43831, 43983, 2, 0)
