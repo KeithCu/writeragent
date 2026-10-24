@@ -362,7 +362,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
 
 
 def test_format_delegate_result_includes_research_cache():
-    from plugin.chatbot.tool_loop_state import format_delegate_result_chat_line
+    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
 
     line = format_delegate_result_chat_line(
         {"domain": "web_research", "task": "pizza"},

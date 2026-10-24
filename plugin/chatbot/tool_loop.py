@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.chat_session import ChatSession
 
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
@@ -71,6 +72,7 @@ from plugin.chatbot.tool_loop_state import (
     ToolLoopEvent,
     EventKind,
     next_state,
+    object_dict_or_empty,
 )
 from plugin.chatbot.compaction import (
     MAX_OVERFLOW_COMPACTION_ATTEMPTS,
@@ -775,7 +777,22 @@ class ToolCallingMixin:
         data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
         if kind == StreamQueueKind.STREAM_DONE:
-            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={"response": data, "has_audio": bool(self._panel.audio_wav_path)})
+            response = data
+            if isinstance(response, dict):
+                tool_calls = response.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            func = tc.get("function")
+                            if isinstance(func, dict):
+                                raw_args = func.get("arguments")
+                                if isinstance(raw_args, str):
+                                    func["parsed_args"] = object_dict_or_empty(safe_json_loads(raw_args))
+                                elif isinstance(raw_args, dict):
+                                    func["parsed_args"] = raw_args
+                                else:
+                                    func["parsed_args"] = {}
+            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={"response": response, "has_audio": bool(self._panel.audio_wav_path)})
         elif kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:
@@ -795,13 +812,17 @@ class ToolCallingMixin:
             func_name = s[2] if isinstance(s[2], str) and s[2].strip() else "unknown"
             func_args_str = s[3] if isinstance(s[3], str) else "{}"
             result = s[4] if isinstance(s[4], str) else ("" if s[4] is None else str(s[4]))
+            func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
+            result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,
                 data={
                     "call_id": call_id,
                     "func_name": func_name,
                     "func_args_str": func_args_str,
+                    "func_args": func_args,
                     "result": result,
+                    "result_data": result_data,
                     "mutates_document": mutates,
                 },
             )

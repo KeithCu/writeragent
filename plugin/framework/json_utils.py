@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, _profile, deal
+from plugin.framework.deal_shim import deal
 
 log = logging.getLogger(__name__)
 
@@ -182,9 +182,7 @@ _SILENT_CORRUPTIONS = {
 
 def _repair_latex_clashes(text: str) -> str:
     """Escape backslashes for LaTeX commands that conflict with JSON escapes."""
-    # CrossHair: regex + large clash tables explode the SMT heap; identity is enough for contracts.
-    if UNDER_CROSSHAIR:
-        return text
+    # crosshair: off
     # 1. Double a single backslash on a LaTeX clash word (`\nabla` -> `\\nabla`)
     # so json.loads keeps the command. `\ne.g.` stays a newline.
     text = _LATEX_CLASH_RE.sub(_double_latex_clash, text)
@@ -203,6 +201,7 @@ def _repair_latex_clashes(text: str) -> str:
 
 def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
     """Replace *corrupted* only when it is not the prefix of a longer word."""
+    # crosshair: off
     pieces: list[str] = []
     start = 0
     while True:
@@ -228,18 +227,6 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
         start = end
 
 
-# Identity repair under CrossHair: charset only needs to distinguish strip/empty vs body.
-_JSON_CHARS = frozenset("{}\n ") if UNDER_CROSSHAIR else frozenset('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}[],": \t\n\r')
-
-
-def _deal_json_text_ok_crosshair(text: object) -> bool:
-    return isinstance(text, str) and len(text) <= 1 and all(c in _JSON_CHARS for c in text)
-
-
-# DEAL_MAX_SOURCE (8192) raised PreContractError on external LLM JSON, so pytest uses True.
-_deal_json_text_ok = _profile(_deal_json_text_ok_crosshair)
-
-
 def _debug_json_stage(stage: str) -> None:
     """Log which fallback accepted the text.
 
@@ -251,13 +238,12 @@ def _debug_json_stage(stage: str) -> None:
 
 
 def _json_repair_call(text: str, *, return_objects: bool) -> Any:
+    # crosshair: off
     if not isinstance(text, str):
         return text
     stripped = text.strip()
     if not stripped:
         return stripped
-    if UNDER_CROSSHAIR:
-        return {} if return_objects else stripped
     try:
         import json_repair
     except ImportError:
@@ -269,7 +255,6 @@ def _json_repair_call(text: str, *, return_objects: bool) -> Any:
     return repaired if return_objects else str(repaired)
 
 
-@deal.pre(lambda text: _deal_json_text_ok(text))
 def repair_json(text: str) -> str:
     """Attempt to repair common JSON syntax errors from LLMs using json-repair.
 
@@ -287,7 +272,6 @@ def repair_json(text: str) -> str:
     return str(_json_repair_call(text, return_objects=False))
 
 
-@deal.pre(lambda text, *_unused, **__: _deal_json_text_ok(text))
 def _repair_json_object_bounded(text: str) -> Any:
     """Deal-bounded body of ``repair_json_object``. Callers catch ``PreContractError``."""
     # crosshair: off
@@ -363,11 +347,6 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     stripped = _repair_latex_clashes(stripped)
 
     # 1. Standard attempt
-    if UNDER_CROSSHAIR:
-        if stripped.startswith("{") and stripped.endswith("}"):
-            return {}
-        return default
-
     try:
         parsed = json.loads(stripped)
         return parsed

@@ -142,7 +142,7 @@ def test_tool_loop_stop_emits_exit_loop() -> None:
 
 
 def test_tool_loop_formatting_helpers() -> None:
-    from plugin.chatbot.tool_loop_state import (
+    from plugin.chatbot.tool_loop_actions import (
         format_delegate_running_chat_line,
         format_empty_model_response_debug,
     )

@@ -12,25 +12,28 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
 
+from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.chatbot.tool_loop_state import (
-    DELEGATE_GATEWAY_TOOL_NAMES,
     AddMessageEffect,
     CleanupAudioEffect,
     ExitLoopEffect,
     LogAgentEffect,
+    MessageRole,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
     ToolLoopUIEffect,
     TriggerNextToolEffect,
+    UIEffectKind,
     UpdateActivityStateEffect,
     UpdateDocumentContextEffect,
 )
+from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
@@ -51,6 +54,189 @@ from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
+
+# Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
+DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
+    {
+        "delegate_to_specialized_writer_toolset",
+        "delegate_to_specialized_calc_toolset",
+        "delegate_to_specialized_draw_toolset",
+    }
+)
+DELEGATE_TASK_CHAT_MAX = 120
+_EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
+
+
+def _describe_empty_response_content(content: Any) -> str:
+    # crosshair: off
+    if content is None:
+        return "None"
+    if content == "":
+        return "empty"
+    if not isinstance(content, str):
+        content = str(content)
+    if len(content) <= _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX:
+        return f"{len(content)} chars: {content!r}"
+    preview = content[: _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX - 3]
+    return f"{len(content)} chars: {preview!r}..."
+
+
+def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
+    # crosshair: off
+    if tool_calls is None:
+        return "none"
+    if isinstance(tool_calls, list):
+        return str(len(tool_calls))
+    return "present"
+
+
+def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
+    """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
+    # crosshair: off
+    calls_note = _describe_empty_response_tool_calls(response.get("tool_calls"))
+    parts = [
+        f"round={round_num}",
+        f"finish_reason={response.get('finish_reason')!r}",
+        f"content={_describe_empty_response_content(response.get('content'))}",
+        f"tool_calls={calls_note}",
+    ]
+    usage = response.get("usage")
+    if isinstance(usage, dict) and usage:
+        try:
+            parts.append(f"usage={json.dumps(usage, separators=(',', ':'))}")
+        except Exception:
+            parts.append(f"usage={len(usage)} entries")
+    images = response.get("images")
+    if isinstance(images, list) and images:
+        parts.append(f"images={len(images)}")
+    return ", ".join(parts)
+
+
+def is_delegate_gateway(func_name: str) -> bool:
+    return func_name in DELEGATE_GATEWAY_TOOL_NAMES
+
+
+def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
+    # crosshair: off
+    domain = func_args.get("domain")
+    if isinstance(domain, str) and domain.strip():
+        return domain.strip()
+    return "?"
+
+
+def delegate_status_label(func_args: Mapping[str, Any]) -> str:
+    # crosshair: off
+    return f"delegate ({domain_from_delegate_args(func_args)})"
+
+
+def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
+    # crosshair: off
+    # Display-only helper. Chat may show 120 chars; specialize still gets
+    # kwargs["task"] intact (specialized_base.execute).
+    one_line = task.replace("\n", " ").replace("\r", " ").strip()
+    if len(one_line) <= max_len:
+        return one_line
+    return one_line[: max_len - 3] + "..."
+
+
+def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
+    """One-line chat preview when a delegate gateway tool starts."""
+    # crosshair: off
+    domain = domain_from_delegate_args(func_args)
+    raw_task = func_args.get("task")
+    if raw_task is None:
+        task_preview = ""
+    elif isinstance(raw_task, str):
+        task_preview = _truncate_delegate_task(raw_task)
+    else:
+        task_preview = _truncate_delegate_task(str(raw_task))
+    if task_preview:
+        return f"[Running delegate ({domain}): {task_preview}]\n"
+    return f"[Running delegate ({domain})...]\n"
+
+
+def _result_note(result_data: Mapping[str, Any]) -> str:
+    """Chat label for a tool result.
+
+    One label. ``dict.get("message", fallback)`` returns None when the
+    key is present and null. A null or empty message falls through to
+    Unknown error, status, or done.
+    """
+    # crosshair: off
+    if result_data.get("status") == "error":
+        return result_data.get("message") or "Unknown error"
+    return result_data.get("message") or result_data.get("status") or "done"
+
+
+def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
+    # crosshair: off
+    """Completion line for delegate gateway tools (domain shown; success is short)."""
+    domain = domain_from_delegate_args(func_args)
+    if result_data.get("status") == "error":
+        return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
+    if result_data.get("status") == "incomplete":
+        return f"[delegate ({domain}) incomplete: {_result_note(result_data)}]\n"
+    cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
+    return cache_block + f"[delegate ({domain}): done]\n"
+
+
+def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
+    """Status bar text and chat run-line when a tool starts executing."""
+    # crosshair: off
+    if is_delegate_gateway(func_name):
+        return f"Running: {delegate_status_label(func_args)}", format_delegate_running_chat_line(func_args)
+    if func_name == "upsert_memory":
+        return f"Running: {func_name}", format_upsert_memory_chat_line(func_args)
+    return f"Running: {func_name}", f"[Running tool: {func_name}...]\n"
+
+
+def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
+    """Chat append body for a tool result (error or success); does not mutate *result_data*."""
+    # crosshair: off
+    note = _result_note(result_data)
+    if result_data.get("status") == "error":
+        if is_delegate_gateway(func_name):
+            detailed_text = format_delegate_result_chat_line(func_args, result_data)
+        else:
+            detailed_text = f"[{func_name} failed: {note}]\n"
+        raw_details = result_data.get("details", {})
+        # Copy before popping traceback so callers' result_data is not mutated.
+        details = dict(raw_details) if isinstance(raw_details, dict) else {}
+        if details:
+            tb = details.pop("traceback", None)
+            if details:
+                detailed_text += f"Details: {json.dumps(details, indent=2)}\n"
+            if isinstance(tb, str) and tb.strip() and tb.strip() != "NoneType: None":
+                detailed_text += f"Traceback:\n{tb}\n"
+        return detailed_text
+
+    if is_delegate_gateway(func_name):
+        return format_delegate_result_chat_line(func_args, result_data)
+    if func_name == "web_research":
+        cache_block = format_research_cache_result_chat(result_data)
+        return cache_block + f"[{func_name}: {note}]\n"
+    return f"[{func_name}: {note}]\n"
+
+
+def format_replaced_zero_debug_line(func_args_str: str) -> str:
+    """Preview parameters when apply_document_content finds 0 occurrences."""
+    # crosshair: off
+    params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
+    return f"[Debug: params {params_display}]\n"
+
+
+def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
+    """True when apply_document_content reported zero replacements (structured or legacy message)."""
+    # crosshair: off
+    # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
+    # Only a real int zero counts. ``replaced_count == 0`` is also true
+    # for False, which would append the debug params line.
+    if type(result_data) is not dict:
+        return False
+    count = result_data.get("replaced_count")
+    if type(count) is int and count == 0:
+        return True
+    return False
 
 # Direct execute_fn callers omit the spawn capture. Workers always pass the scope.
 _SEND_SCOPE_UNSET = object()
@@ -746,29 +932,50 @@ class ToolLoopEffectInterpreter:
 
     def _execute_ui_effect(self, effect: ToolLoopUIEffect) -> None:
         host = self.host
-        if effect.kind == "append":
+        if effect.kind == UIEffectKind.APPEND:
             host._append_response(effect.text)
             if effect.is_empty_model_debug:
                 log.warning("Tool loop: no assistant text from model: %s", effect.text.strip())
-        elif effect.kind == "status":
+        elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
             if effect.text in ("Stopped", "Ready", "Error"):
                 host._terminal_status = effect.text
-        elif effect.kind == "debug":
+        elif effect.kind == UIEffectKind.TOOL_RUNNING:
+            status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
+            host._set_status(status_text)
+            host._append_response(run_line)
+        elif effect.kind == UIEffectKind.TOOL_RESULT:
+            func_args = effect.func_args or {}
+            result_data = effect.result_data or {}
+            chat_text = format_tool_result_chat_text(effect.func_name, func_args, result_data)
+            host._append_response(chat_text)
+            if effect.func_name == "apply_document_content" and is_replaced_zero_result(result_data):
+                host._append_response(format_replaced_zero_debug_line(effect.func_args_str))
+        elif effect.kind == UIEffectKind.EMPTY_MODEL_DEBUG:
+            debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response or {})
+            host._append_response("\n" + debug + "\n")
+            log.warning("Tool loop: no assistant text from model: %s", debug.strip())
+        elif effect.kind == UIEffectKind.DEBUG:
             log.debug(effect.text)
-        elif effect.kind == "info":
+        elif effect.kind == UIEffectKind.INFO:
             log.info(effect.text)
 
     def _add_message(self, effect: AddMessageEffect) -> None:
-        if effect.role == "assistant":
+        content = effect.content
+        if effect.role == MessageRole.ASSISTANT and content is None and effect.response is not None:
+            banner = "[No text from model; any tool changes were still applied.]"
+            debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response)
+            content = banner + "\n" + debug
+
+        if effect.role == MessageRole.ASSISTANT:
             persist_assistant_on_turn(
                 self.host,
-                content=effect.content,
+                content=content,
                 tool_calls=effect.tool_calls,
                 reasoning_replay=effect.reasoning_replay,
             )
-        elif effect.role == "tool":
-            persist_tool_on_turn(self.host, effect.call_id, effect.content)
+        elif effect.role == MessageRole.TOOL:
+            persist_tool_on_turn(self.host, effect.call_id, content)
 
     def _update_activity_state(self, effect: UpdateActivityStateEffect) -> None:
         if effect.action == "tool_execute":
