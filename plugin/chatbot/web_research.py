@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, safe_json_loads
 from plugin.contrib.smolagents.agents import ToolCallingAgent
-from plugin.chatbot.web_research_cache import _ordered_unique_query_words
+from plugin.chatbot.web_research_cache import ordered_unique_query_words
 
 log = logging.getLogger("writeragent.web_research")
 
@@ -127,12 +127,12 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
 
 def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
     """Normalize query, filter locale-aware fluff, sort unique words and return space-separated key."""
-    return " ".join(sorted(_ordered_unique_query_words(query, snowball_lang=snowball_lang)))
+    return " ".join(sorted(ordered_unique_query_words(query, snowball_lang=snowball_lang)))
 
 
 def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> str:
     """Normalize query terms for embeddings while preserving original word order."""
-    return " ".join(_ordered_unique_query_words(query, snowball_lang=snowball_lang))
+    return " ".join(ordered_unique_query_words(query, snowball_lang=snowball_lang))
 
 
 def _research_cache_result_fields(

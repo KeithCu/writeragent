@@ -189,7 +189,7 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     return result
 
 
-def _ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]:  # pyright: ignore[reportUnusedFunction]  # imported by web_research.py
+def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]:  # imported by web_research.py
     """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
     if not query:
         return []
