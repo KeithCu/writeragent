@@ -2570,7 +2570,7 @@ def test_stream_overloaded_before_tokens_retries(client, _fast_retry_waits):
 
 
 def test_adjust_image_body_for_rejection_matches_and_updates():
-    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+    from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
     body = json.dumps({"prompt": "cat", "resolution": "512", "aspect_ratio": "1:1"}).encode("utf-8")
     error_text = "No provider supports the requested parameter(s). Provider rejections: Google: resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
@@ -2583,7 +2583,7 @@ def test_adjust_image_body_for_rejection_matches_and_updates():
 
 
 def test_adjust_image_body_for_rejection_conflicting_accepted_removes_param():
-    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+    from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
     body = json.dumps({"prompt": "cat", "aspect_ratio": "16:9"}).encode("utf-8")
     # Simulating a case where two providers reject, but agree on nothing
@@ -2596,7 +2596,7 @@ def test_adjust_image_body_for_rejection_conflicting_accepted_removes_param():
 
 
 def test_adjust_image_body_for_rejection_no_match_returns_none():
-    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+    from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
     body = json.dumps({"prompt": "cat", "resolution": "512"}).encode("utf-8")
     error_text = "Bad request: invalid prompt"

@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from plugin.framework.client.base_provider_shim import BaseProviderShim, adjust_image_body_for_rejection, coerce_image_data_url, coerce_raw_b64
+from plugin.framework.client.base_provider_shim import BaseProviderShim, coerce_image_data_url, coerce_raw_b64
+from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
 def test_adjust_image_body_for_rejection():
     # Test that regex trailing JSON junk is not captured

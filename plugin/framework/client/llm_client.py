@@ -42,6 +42,7 @@ from __future__ import annotations
 import collections
 import json
 import logging
+import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
@@ -107,6 +108,61 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     if isinstance(choices, list) and choices:
         return True
     return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
+
+
+def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+    """
+    Parse provider errors (like OpenRouter 'not supported. Accepted: <v1>') and adjust the requested params.
+    Returns the new body bytes, or None if no changes were made.
+    """
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+
+    changed = False
+    # Example text: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
+    # or "aspect_ratio: not supported."
+    for param in ("resolution", "aspect_ratio", "size", "output_format"):
+        if param not in data:
+            continue
+
+        pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
+        matches = list(re.finditer(pattern, error_text))
+        if matches:
+            # all providers rejecting this param must agree on the accepted values
+            accepted_sets = []
+            for m in matches:
+                accepted_str = m.group(1)
+                if accepted_str:
+                    accepted_sets.append([x.strip() for x in accepted_str.split(",")])
+                else:
+                    accepted_sets.append([])
+
+            # Intersect the non-empty Accepted lists. A line with no list is
+            # ignored when another line names a value, so the retry uses that
+            # value. Delete the param only when those lists do not overlap,
+            # or when nobody named a value.
+            valid_accepted = [s for s in accepted_sets if s]
+            if valid_accepted:
+                common = set(valid_accepted[0])
+                for s in valid_accepted[1:]:
+                    common.intersection_update(s)
+                if common:
+                    # Just take the first one from the first set that is in common to preserve order preference
+                    new_val = next(x for x in valid_accepted[0] if x in common)
+                    data[param] = new_val
+                    changed = True
+                else:
+                    del data[param]
+                    changed = True
+            else:
+                del data[param]
+                changed = True
+
+    if changed:
+        return json.dumps(data).encode("utf-8")
+    return None
 
 
 from .openai_shim import get_provider_shim_class
@@ -463,7 +519,6 @@ class LlmClient:
             res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
         except NetworkError as e:
             if "not supported" in str(e):
-                from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
                 new_body = adjust_image_body_for_rejection(body, str(e))
                 if new_body and (stop_checker is None or not stop_checker()):
                     # The adjusted body is multi-MB base64. Log a 500-character
