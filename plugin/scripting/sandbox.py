@@ -386,6 +386,7 @@ FILE_OS_READ_NAMES: tuple[str, ...] = (
     "DirEntry",
     "stat_result",
     # Constants
+    "name",
     "sep",
     "altsep",
     "extsep",

@@ -621,7 +621,7 @@ class TestComputeHttp:
         assert body.get("id") == "test-req-1"
 
     def test_id_echo_on_execution_error(self, compute_url: str) -> None:
-        body = _post_execute(compute_url, {"id": "test-req-err", "code": "import os\nresult = os.name"})
+        body = _post_execute(compute_url, {"id": "test-req-err", "code": "import subprocess\nresult = 1"})
         assert body["status"] == "error"
         assert body.get("id") == "test-req-err"
 
@@ -648,9 +648,14 @@ class TestComputeHttp:
         assert body["result"] == 25.0
 
     def test_error_field_not_only_message(self, compute_url: str) -> None:
-        body = _post_execute(compute_url, {"code": "import os\nresult = os.name"})
+        body = _post_execute(compute_url, {"code": "import subprocess\nresult = 1"})
         assert body["status"] == "error"
         assert "not allowed" in body.get("error", "")
+
+    def test_harmless_os_read_allowed(self, compute_url: str) -> None:
+        body = _post_execute(compute_url, {"code": "import os\nresult = os.name"})
+        assert body["status"] == "ok"
+        assert isinstance(body["result"], str)
 
     def test_ndarray_matrix_over_http(self, compute_url: str) -> None:
         body = _post_execute(

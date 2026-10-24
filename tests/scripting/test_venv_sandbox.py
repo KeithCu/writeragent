@@ -863,6 +863,118 @@ result = res.stdout.strip()
     assert res["result"] == "1"
 
 
+def test_sandbox_policy_process_spawning_blocked_by_default():
+    """Verify that starting another process is blocked across all mechanisms when python_allow_os is OFF.
+
+    With default policy (os=False), subprocess module import is blocked, os.system is missing from
+    the restricted os proxy, and asyncio subprocess callables and ProcessPoolExecutor are blocked
+    at the callable gate.
+    """
+    # 1. subprocess.run: blocked at import
+    res = run_sandboxed_code("import subprocess\nsubprocess.run(['echo'])", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+    # 2. os.system: not present on _FileOsProxy
+    res = run_sandboxed_code("import os\nresult = os.system('true')", sandbox_policy=None)
+    assert res["status"] == "error"
+
+    # 3. asyncio subprocess: create_subprocess_exec and create_subprocess_shell blocked
+    res = run_sandboxed_code(
+        "import asyncio\nproc = asyncio.run(asyncio.create_subprocess_exec('echo', 'hi'))",
+        sandbox_policy=None,
+    )
+    assert res["status"] == "error"
+    assert "Forbidden access to function: create_subprocess_exec" in res.get("message", "")
+
+    res = run_sandboxed_code(
+        "import asyncio\nproc = asyncio.run(asyncio.create_subprocess_shell('echo hi'))",
+        sandbox_policy=None,
+    )
+    assert res["status"] == "error"
+    assert "Forbidden access to function: create_subprocess_shell" in res.get("message", "")
+
+    # 4. ProcessPoolExecutor: blocked via from import and direct attribute access
+    res = run_sandboxed_code(
+        "from concurrent.futures import ProcessPoolExecutor\np = ProcessPoolExecutor(max_workers=1)",
+        sandbox_policy=None,
+    )
+    assert res["status"] == "error"
+    assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
+
+    res = run_sandboxed_code(
+        "import concurrent.futures\np = concurrent.futures.ProcessPoolExecutor(max_workers=1)",
+        sandbox_policy=None,
+    )
+    assert res["status"] == "error"
+    assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
+
+
+def test_sandbox_policy_process_spawning_allowed_with_os_flag():
+    """Verify that starting another process works across all mechanisms when python_allow_os is ON."""
+    policy = {"os": True}
+
+    # 1. subprocess.run: works
+    code_sub = "import subprocess\nres = subprocess.run(['echo', 'hello'], capture_output=True, text=True)\nresult = res.stdout.strip()"
+    res = run_sandboxed_code(code_sub, sandbox_policy=policy)
+    assert res["status"] == "ok"
+    assert res["result"] == "hello"
+
+    # 2. os.system: works
+    res = run_sandboxed_code("import os\nresult = os.system('true')", sandbox_policy=policy)
+    assert res["status"] == "ok"
+    assert res["result"] == 0
+
+    # 3. asyncio subprocess: create_subprocess_exec and create_subprocess_shell work
+    code_aio_exec = """
+import asyncio
+loop = asyncio.new_event_loop()
+proc = loop.run_until_complete(asyncio.create_subprocess_exec('echo', 'hi'))
+loop.run_until_complete(proc.wait())
+loop.close()
+result = proc.pid > 0
+"""
+    res = run_sandboxed_code(code_aio_exec, sandbox_policy=policy)
+    assert res["status"] == "ok"
+    assert res["result"] is True
+
+    code_aio_shell = """
+import asyncio
+loop = asyncio.new_event_loop()
+proc = loop.run_until_complete(asyncio.create_subprocess_shell('echo shell_hi'))
+loop.run_until_complete(proc.wait())
+loop.close()
+result = proc.pid > 0
+"""
+    res = run_sandboxed_code(code_aio_shell, sandbox_policy=policy)
+    assert res["status"] == "ok"
+    assert res["result"] is True
+
+    # 4. ProcessPoolExecutor: works
+    code_pool = """
+from concurrent.futures import ProcessPoolExecutor
+import math
+with ProcessPoolExecutor(max_workers=1) as executor:
+    fut = executor.submit(math.sqrt, 25.0)
+    result = fut.result()
+"""
+    res = run_sandboxed_code(code_pool, sandbox_policy=policy)
+    assert res["status"] == "ok"
+    assert res["result"] == 5.0
+
+
+def test_sandbox_policy_os_harmless_reads_allowed_by_default():
+    """Verify that harmless os reads (os.name, os.sep, os.linesep, os.path.join/basename) work by default."""
+    import os
+    code = """
+import os
+result = (os.name, os.sep, os.linesep, os.path.join('a', 'b'), os.path.basename('/x/y'))
+"""
+    res = run_sandboxed_code(code, sandbox_policy=None)
+    assert res["status"] == "ok"
+    assert res["result"] == [os.name, os.sep, os.linesep, os.path.join('a', 'b'), 'y']
+
+
 def test_sandbox_policy_shared_session_rebuild():
     sid = "calc:test_policy_rebuild"
     try:

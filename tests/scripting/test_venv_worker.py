@@ -182,7 +182,7 @@ def test_run_code_in_user_venv_passes_stop_checker():
 
 
 def test_blocked_import_os():
-    r = run_sandboxed_code("import os\nresult = 1", None)
+    r = run_sandboxed_code("import subprocess\nresult = 1", None)
     assert r["status"] == "error"
     assert "not allowed" in r.get("message", "").lower() or "Import" in r.get("message", "")
 

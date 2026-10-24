@@ -28,7 +28,7 @@ def test_validate_sandbox_ast_safe_code() -> None:
     "value, value_2",
     [
         pytest.param("x = obj.__code__", "Forbidden access to dunder attribute", id="test_validate_sandbox_ast_forbidden_dunder"),
-        pytest.param("import os", "Import of os is not allowed", id="test_validate_sandbox_ast_unauthorized_import"),
+        pytest.param("import subprocess", "Import of subprocess is not allowed", id="test_validate_sandbox_ast_unauthorized_import"),
     ],
 )
 def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
