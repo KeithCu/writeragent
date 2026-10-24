@@ -16,11 +16,11 @@ from plugin.scripting.domain_registry import (
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
     FormatOkKind,
-    _RUN_DATA_BINDING_CALLS,
     get_picker_domains,
     get_post_venv_domains,
     get_rps_domains,
 )
+from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
 
 
 def test_registry_module_attr_targets_resolve():
@@ -89,40 +89,6 @@ def test_wiring_and_post_venv_and_run_import_binding_agree():
         assert run_name.startswith("run_")
         domain_id = run_name[len("run_") :]
         assert domain_id in wiring_ids
-
-
-def test_script_header_needs_data_binding_on_calc_domains():
-    from plugin.scripting.domain_registry import script_header_needs_data_binding
-
-    calc_doc = object()
-    with patch("plugin.scripting.domain_registry.is_calc", return_value=True):
-        assert script_header_needs_data_binding(
-            "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding(
-            'from writeragent.scripting.forecast import run_forecast\nresult = run_forecast({"helper": "forecast_time_series", "params": {}}, data, {})\n',
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
-        assert script_header_needs_data_binding('print("hi")\n', doc=calc_doc) is False
-
-
-def test_script_header_needs_data_binding_for_direct_helper_templates():
-    from plugin.scripting.analysis import get_analysis_script_templates
-    from plugin.scripting.domain_registry import script_header_needs_data_binding
-    from plugin.scripting.duckdb_sql import get_sql_script_templates
-
-    calc_doc = object()
-    with patch("plugin.scripting.domain_registry.is_calc", return_value=True):
-        assert script_header_needs_data_binding(
-            get_analysis_script_templates()["describe_data"],
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding(
-            get_sql_script_templates()["query_sheet_sql"],
-            doc=calc_doc,
-        ) is True
 
 
 def test_picker_domains_are_cached():
@@ -301,49 +267,6 @@ def test_quant_picker_is_calc_only():
         assert quant_spec.supports(calc_doc) is True
         assert quant_spec.supports(writer_doc) is False
         assert quant_spec.supports(None) is False
-
-
-def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
-    from plugin.scripting.domain_registry import script_header_needs_data_binding
-
-    calc_doc = object()
-    non_calc_doc = object()
-
-    def is_calc_mock(doc: object) -> bool:
-        return doc is calc_doc
-
-    viz_code = "from writeragent.scripting.viz import quick_plot\nresult = quick_plot()\n"
-
-    with patch("plugin.scripting.domain_registry.is_calc", side_effect=is_calc_mock):
-        assert script_header_needs_data_binding("# run_analysis(foo)\n", doc=calc_doc) is False
-        assert script_header_needs_data_binding('x = "run_analysis("\n', doc=calc_doc) is False
-        assert script_header_needs_data_binding("run_analysis()\n", doc=calc_doc) is True
-        assert (
-            script_header_needs_data_binding(
-                "result = writeragent.scripting.analysis.run_analysis()\n",
-                doc=calc_doc,
-            )
-            is True
-        )
-        assert script_header_needs_data_binding("query_folder_sql()\n", doc=calc_doc) is True
-        assert (
-            script_header_needs_data_binding(
-                "import writeragent.scripting.analysis as analysis\nresult = analysis.describe_data()\n",
-                doc=calc_doc,
-            )
-            is True
-        )
-        assert (
-            script_header_needs_data_binding(
-                "import writeragent.scripting.analysis\nresult = writeragent.scripting.analysis.describe_data()\n",
-                doc=calc_doc,
-            )
-            is False
-        )
-        assert script_header_needs_data_binding("run_analysis(\n", doc=calc_doc) is True
-        assert script_header_needs_data_binding("run_viz()\n", doc=non_calc_doc) is False
-        assert script_header_needs_data_binding(viz_code, doc=non_calc_doc) is False
-        assert script_header_needs_data_binding(viz_code, doc=calc_doc) is True
 
 
 def test_units_format_ok_joins_formatted_list():

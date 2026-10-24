@@ -15,10 +15,13 @@ Concurrency: _monaco_run_in_flight is a process-wide set of document keys.
 Monaco on_save checks and updates it on the UI thread only. It is not locked.
 """
 
+import ast
 import html as html_mod
+import json
 import logging
+import re
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config_str
@@ -32,7 +35,18 @@ from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
-from plugin.scripting.helper_domain import format_elapsed_time, plot_insert_ok_outcome, rps_error_outcome, rps_insert_failed_outcome, rps_ok_outcome
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    format_elapsed_time,
+    plot_insert_ok_outcome,
+    rps_error_outcome,
+    rps_insert_failed_outcome,
+    rps_ok_outcome,
+    script_header_needs_data_binding,
+)
+
+if TYPE_CHECKING:
+    from plugin.scripting.domain_registry import RpsDomainSpec
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -265,9 +279,176 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     return "last_python_script_name_writer"
 
 
+def _find_binding_insertion_line(code: str) -> int:
+    """Line index (0-based) where injected bindings should be inserted.
+
+    When *code* parses, bindings go after a leading module docstring and any
+    ``from __future__ import`` that follows it. A shebang or coding cookie above
+    those statements stays in the prefix because those lines are before
+    ``end_lineno``. When parsing fails, or the body has neither, the fallback
+    skips a shebang, a coding cookie, and a textual future import only.
+    """
+    lines = code.splitlines(keepends=True)
+    if not lines:
+        return 0
+
+    insert_after = 0
+    try:
+        tree = ast.parse(code)
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                end_line = getattr(node, "end_lineno", node.lineno)
+                if end_line > insert_after:
+                    insert_after = end_line
+            elif (
+                insert_after == 0
+                and isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                # First statement only. A string later in the body is not __doc__.
+                # What was wrong: this branch continued and left insert_after at 0
+                # when the module had a docstring and no future import, so the
+                # manual scan returned 0 and the assignments landed above __doc__.
+                # How it happened: only a __future__ end line was stored.
+                # Why this change: the docstring end line is the insertion point
+                # when nothing later (__future__) extends it.
+                insert_after = getattr(node, "end_lineno", node.lineno)
+            else:
+                break
+    except (SyntaxError, TypeError, ValueError):
+        insert_after = 0
+
+    if insert_after > 0:
+        return min(insert_after, len(lines))
+
+    # The manual scan runs when parse failed or the AST walk found neither a
+    # docstring nor a future import; it skips a shebang, a coding cookie, and
+    # a textual future import, and it does not try to find the end of a docstring.
+
+    idx = 0
+    in_future = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if i == 0 and line.startswith("#!"):
+            idx = i + 1
+            continue
+        if i < 2 and re.match(r"^#.*coding[:=]", stripped):
+            idx = i + 1
+            continue
+        if stripped.startswith("from __future__ import"):
+            in_future = True
+            idx = i + 1
+            if ")" in stripped or not ("(" in stripped or stripped.endswith("\\")):
+                in_future = False
+            continue
+        if in_future:
+            idx = i + 1
+            if ")" in stripped:
+                in_future = False
+            continue
+        break
+    return idx
+
+
+def _binding_literal(val: Any) -> str:
+    """Format an injected document binding as Python code.
+
+    json.dumps emits null, true, and false, which are NameErrors in Python.
+    Strings stay JSON (double-quoted). True, False, and None are Python keywords.
+    """
+    if val is None:
+        return "None"
+    if val is True:
+        return "True"
+    if val is False:
+        return "False"
+    if isinstance(val, str):
+        return json.dumps(val)
+    if isinstance(val, (int, float)):
+        return repr(val)
+    if isinstance(val, (list, tuple)):
+        items = ", ".join(_binding_literal(item) for item in val)
+        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
+    if isinstance(val, dict):
+        parts = [f"{_binding_literal(k)}: {_binding_literal(v)}" for k, v in val.items()]
+        return "{" + ", ".join(parts) + "}"
+    return repr(val)
+
+
+def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
+    """Prepend literal variable assignments for host-injected Writer document inputs."""
+    if not bindings:
+        return code
+    lines = ["# Document inputs injected below — edit the run_*() call only."]
+    for name, value in bindings.items():
+        # _binding_literal emits Python (None, True, False, JSON strings).
+        # json.dumps emits null/true/false, which are NameErrors here.
+        lines.append(f"{name} = {_binding_literal(value)}")
+    lines.append("")
+    injection = "\n".join(lines) + "\n"
+
+    split_idx = _find_binding_insertion_line(code)
+    code_lines = code.splitlines(keepends=True)
+    if split_idx == 0:
+        return injection + code
+    prefix = "".join(code_lines[:split_idx])
+    suffix = "".join(code_lines[split_idx:])
+    if not prefix.endswith("\n"):
+        prefix += "\n"
+    return prefix + injection + suffix
+
+
+def script_uses_run_import(code: str, *, run_name: str) -> bool:
+    """True when *code* contains a call to *run_name*.
+
+    The substring fallback runs only when ast.parse raises. Using it on valid
+    source matched comments such as ``# run_vision(`` and sent the script into
+    that domain.
+    """
+    if not code or not run_name:
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return f"{run_name}(" in code
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == run_name:
+            return True
+    return False
+
+
+def script_imports_module(code: str, module_name: str) -> bool:
+    """True when *code* imports *module_name* (import or from-import).
+
+    A raw substring search matches comments and docstrings. Walk the AST for
+    a real import, and fall back to the substring only when ast.parse raises.
+    """
+    if not code or not module_name:
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return module_name in code
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == module_name or alias.name.startswith(module_name + "."):
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == module_name:
+                return True
+            if node.module and module_name.startswith(node.module + "."):
+                sub = module_name[len(node.module) + 1 :]
+                for alias in node.names:
+                    if alias.name == sub:
+                        return True
+    return False
+
+
 def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] | None:
     """Return prepared vision execution dict, early error dict, or None if not a vision script."""
-    from plugin.scripting.helper_domain import parse_run_import_call_spec, script_uses_run_import
+    from plugin.scripting.helper_domain import parse_run_import_call_spec
 
     if "run_vision" not in code or not script_uses_run_import(code, run_name="run_vision"):
         return None
@@ -342,11 +523,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
                 return _early({"ok": False, "message": err})
 
     exec_code = code
-    from plugin.scripting.helper_domain import (
-        parse_run_import_call_spec,
-        script_imports_module,
-        script_uses_run_import,
-    )
+    from plugin.scripting.helper_domain import parse_run_import_call_spec
 
     # A substring search matches comments and docstrings. Check the import
     # with script_imports_module (AST), or document bindings get prepended
@@ -355,7 +532,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         script_uses_run_import(code, run_name="run_text_analytics")
         or script_imports_module(code, "writeragent.scripting.text_analytics")
     ):
-        from plugin.scripting.helper_domain import prepend_run_import_document_bindings
         from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
 
         call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
@@ -457,9 +633,40 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
     return rps_ok_outcome(status_ok, result=result, stdout=None)
 
 
+def try_rps_post_venv(
+    spec: "RpsDomainSpec",
+    *,
+    ctx: Any,
+    doc: Any,
+    result_data: Any,
+    t0: float,
+    stdout: str | None,
+    code: str | None = None,
+) -> dict[str, Any] | None:
+    """Route a generic venv result through domain is_result + insert, or None."""
+    if spec.post_venv_calc_only and not is_calc(doc):
+        return None
+    if not spec.is_result(result_data):
+        return None
+    insert_kwargs: dict[str, Any] = {}
+    if spec.insert_kwargs_fn is not None and code:
+        insert_kwargs = spec.insert_kwargs_fn(ctx, code)
+    try:
+        row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
+    except Exception as e:
+        return rps_insert_failed_outcome(e, t0=t0)
+
+    # Synthetic meta for format_ok when no header was used.
+    helper = ""
+    if isinstance(result_data, dict):
+        helper = str(result_data.get("helper") or "")
+    meta = HelperScriptMeta(helper=helper, params={})
+    return spec.format_ok(meta=meta, result=result_data, t0=t0, row_count=row_count, stdout=stdout)
+
+
 def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for general Python scripts."""
-    from plugin.scripting.domain_registry import get_post_venv_domains, try_rps_post_venv
+    from plugin.scripting.domain_registry import get_post_venv_domains
     from plugin.scripting.viz import try_insert_plot_result
 
     ctx = prepared["ctx"]
@@ -592,8 +799,6 @@ def _picker_template_name(name: str) -> bool:
 
 def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script_name: str, exe: str) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
-    from plugin.scripting.domain_registry import script_header_needs_data_binding
-
     run_ok_text = _("Script executed successfully.")
     save_ok_text = _("Script saved.")
     initial_binding = ""

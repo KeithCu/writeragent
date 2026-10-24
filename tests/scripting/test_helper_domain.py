@@ -15,10 +15,13 @@ from plugin.scripting.helper_domain import (
     parse_helper_script_header,
     parse_run_import_call_params,
     parse_run_import_call_spec,
-    prepend_run_import_document_bindings,
     rps_insert_failed_outcome,
-    script_uses_run_import,
+    script_header_needs_data_binding,
     supports_calc_or_writer_manual,
+)
+from plugin.scripting.python_runner import (
+    prepend_run_import_document_bindings,
+    script_uses_run_import,
 )
 import pytest
 
@@ -480,5 +483,80 @@ def test_supports_calc_or_writer_manual():
     doc_other = MagicMock()
     doc_other.supportsService.return_value = False
     assert supports_calc_or_writer_manual(doc_other) is False
+
+
+def test_script_header_needs_data_binding_on_calc_domains():
+
+    calc_doc = object()
+    with patch("plugin.scripting.helper_domain.is_calc", return_value=True):
+        assert script_header_needs_data_binding(
+            "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
+            doc=calc_doc,
+        ) is True
+        assert script_header_needs_data_binding(
+            'from writeragent.scripting.forecast import run_forecast\nresult = run_forecast({"helper": "forecast_time_series", "params": {}}, data, {})\n',
+            doc=calc_doc,
+        ) is True
+        assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
+        assert script_header_needs_data_binding('print("hi")\n', doc=calc_doc) is False
+
+
+def test_script_header_needs_data_binding_for_direct_helper_templates():
+    from plugin.scripting.analysis import get_analysis_script_templates
+    from plugin.scripting.duckdb_sql import get_sql_script_templates
+
+    calc_doc = object()
+    with patch("plugin.scripting.helper_domain.is_calc", return_value=True):
+        assert script_header_needs_data_binding(
+            get_analysis_script_templates()["describe_data"],
+            doc=calc_doc,
+        ) is True
+        assert script_header_needs_data_binding(
+            get_sql_script_templates()["query_sheet_sql"],
+            doc=calc_doc,
+        ) is True
+
+
+def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
+
+    calc_doc = object()
+    non_calc_doc = object()
+
+    def is_calc_mock(doc: object) -> bool:
+        return doc is calc_doc
+
+    viz_code = "from writeragent.scripting.viz import quick_plot\nresult = quick_plot()\n"
+
+    with patch("plugin.scripting.helper_domain.is_calc", side_effect=is_calc_mock):
+        assert script_header_needs_data_binding("# run_analysis(foo)\n", doc=calc_doc) is False
+        assert script_header_needs_data_binding('x = "run_analysis("\n', doc=calc_doc) is False
+        assert script_header_needs_data_binding("run_analysis()\n", doc=calc_doc) is True
+        assert (
+            script_header_needs_data_binding(
+                "result = writeragent.scripting.analysis.run_analysis()\n",
+                doc=calc_doc,
+            )
+            is True
+        )
+        assert script_header_needs_data_binding("query_folder_sql()\n", doc=calc_doc) is True
+        assert (
+            script_header_needs_data_binding(
+                "import writeragent.scripting.analysis as analysis\nresult = analysis.describe_data()\n",
+                doc=calc_doc,
+            )
+            is True
+        )
+        assert (
+            script_header_needs_data_binding(
+                "import writeragent.scripting.analysis\nresult = writeragent.scripting.analysis.describe_data()\n",
+                doc=calc_doc,
+            )
+            is False
+        )
+        assert script_header_needs_data_binding("run_analysis(\n", doc=calc_doc) is True
+        assert script_header_needs_data_binding("run_viz()\n", doc=non_calc_doc) is False
+        assert script_header_needs_data_binding(viz_code, doc=non_calc_doc) is False
+        assert script_header_needs_data_binding(viz_code, doc=calc_doc) is True
+
 
 

@@ -20,7 +20,6 @@ def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
 
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=False),
-        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):
         mock_venv.return_value = {
@@ -50,10 +49,7 @@ def test_execute_and_insert_detects_forecast_result_from_venv(mock_venv, mock_in
     ctx = MagicMock()
     doc = MagicMock()
 
-    with (
-        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
-        patch("plugin.scripting.python_runner.is_calc", return_value=True),
-    ):
+    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
         mock_venv.return_value = {
             "status": "ok",
             "result": {

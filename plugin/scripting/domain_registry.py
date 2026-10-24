@@ -12,7 +12,6 @@ Writer/Draw inserters are ``(ctx, doc, result)``. ``build_rps_spec`` keeps that 
 
 from __future__ import annotations
 
-import ast
 import functools
 import logging
 import re
@@ -24,10 +23,8 @@ from typing import Any, Literal
 from plugin.doc.doc_type import is_calc
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
-    HelperScriptMeta,
     format_elapsed_time,
     plot_insert_ok_outcome,
-    rps_insert_failed_outcome,
     rps_ok_outcome,
     symbolic_insert_ok_outcome,
     units_insert_ok_outcome,
@@ -88,37 +85,6 @@ class RpsDomainSpec:
     is_result: Callable[[Any], bool]
     post_venv_calc_only: bool = False
     insert_kwargs_fn: Callable[[Any, str], dict[str, Any]] | None = None
-
-
-def try_rps_post_venv(
-    spec: RpsDomainSpec,
-    *,
-    ctx: Any,
-    doc: Any,
-    result_data: Any,
-    t0: float,
-    stdout: str | None,
-    code: str | None = None,
-) -> dict[str, Any] | None:
-    """Route a generic venv result through domain is_result + insert, or None."""
-    if spec.post_venv_calc_only and not is_calc(doc):
-        return None
-    if not spec.is_result(result_data):
-        return None
-    insert_kwargs: dict[str, Any] = {}
-    if spec.insert_kwargs_fn is not None and code:
-        insert_kwargs = spec.insert_kwargs_fn(ctx, code)
-    try:
-        row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
-    except Exception as e:
-        return rps_insert_failed_outcome(e, t0=t0)
-
-    # Synthetic meta for format_ok when no header was used.
-    helper = ""
-    if isinstance(result_data, dict):
-        helper = str(result_data.get("helper") or "")
-    meta = HelperScriptMeta(helper=helper, params={})
-    return spec.format_ok(meta=meta, result=result_data, t0=t0, row_count=row_count, stdout=stdout)
 
 
 # --- Domain adapters (lazy imports) ---
@@ -392,111 +358,6 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
         if spec is not None:
             out.append(spec)
     return out
-
-
-_RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
-    "run_analysis",
-    "run_viz",
-    "run_quant",
-    "run_optimize",
-    "run_forecast",
-})
-
-# Both SQL templates call query_folder_sql. The sheet template passes
-# {"data": data}. The folder template does not, and still shows the toolbar.
-_SHEET_SQL_CALL = "query_folder_sql"
-
-_IMPORT_DATA_BINDING: frozenset[str] = frozenset({
-    "writeragent.scripting.analysis",
-    "writeragent.scripting.viz",
-    "writeragent.scripting.quant",
-    "writeragent.scripting.optimize",
-    "writeragent.scripting.forecast",
-    "writeragent.scripting.duckdb_sql",
-})
-
-
-def _call_tail(func: ast.AST) -> str | None:
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return None
-
-
-def _ast_calls_binding_name(tree: ast.AST) -> bool:
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _call_tail(node.func)
-        if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
-            return True
-    return False
-
-
-def _ast_imports_and_calls(tree: ast.AST) -> bool:
-    imported_names: set[str] = set()
-    alias_modules: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            for module in _IMPORT_DATA_BINDING:
-                if mod == module:
-                    for alias in node.names:
-                        bound = alias.asname or alias.name
-                        if bound and bound != "*":
-                            imported_names.add(bound)
-                elif mod == "writeragent.scripting":
-                    sub = module.split(".")[-1]
-                    for alias in node.names:
-                        if alias.name == sub:
-                            bound = alias.asname or alias.name
-                            alias_modules.add(bound)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                for module in _IMPORT_DATA_BINDING:
-                    if alias.name == module:
-                        bound = alias.asname or alias.name
-                        alias_modules.add(bound)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name) and node.func.id in imported_names:
-            return True
-        if isinstance(node.func, ast.Attribute):
-            target = node.func.value
-            if isinstance(target, ast.Name) and target.id in alias_modules:
-                return True
-    return False
-
-
-def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data.
-
-    What was wrong: regex matched comments like ``# run_analysis(`` and string
-    literals like ``"run_analysis("``, and run_viz's old calc_only=False returned
-    true on Writer documents.
-    How: a raw-source pre-pass ran before the AST walk.
-    Why: AST call tails skip comments and strings; the toolbar binds a Calc sheet,
-    so a non-Calc doc returns false even though viz still inserts on Writer;
-    substring search runs only when ast.parse raises, same policy as
-    script_uses_run_import.
-    """
-    # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
-    # because plots insert on Writer, and that must not enable this toolbar.
-    if not code or not is_calc(doc):
-        return False
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
-            if re.search(rf"\b{re.escape(name)}\s*\(", code):
-                return True
-        return any(module in code for module in _IMPORT_DATA_BINDING)
-
-    if _ast_calls_binding_name(tree):
-        return True
-    return _ast_imports_and_calls(tree)
 
 
 # --- Picker domains (order in build_xdl_script_picker_state) ---

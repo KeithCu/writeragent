@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared host glue for trusted helper domains (headers, templates, RPS outcomes).
+"""Shared host glue for trusted helper domains (headers, templates, RPS outcomes, data binding).
 
 Domain modules keep public parse/template wrappers; compute and egress stay domain-specific.
 No imports of domain modules here (avoids cycles).
@@ -36,6 +36,13 @@ _deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
+
+
+def is_calc(doc: Any) -> bool:
+    """Lazy import of is_calc to keep helper_domain importable without loading thread_guard."""
+    from plugin.doc.doc_type import is_calc as _is_calc
+
+    return _is_calc(doc)
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -259,171 +266,109 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
     return direct_spec
 
 
-def _find_binding_insertion_line(code: str) -> int:
-    """Line index (0-based) where injected bindings should be inserted.
+_RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
+    "run_analysis",
+    "run_viz",
+    "run_quant",
+    "run_optimize",
+    "run_forecast",
+})
 
-    When *code* parses, bindings go after a leading module docstring and any
-    ``from __future__ import`` that follows it. A shebang or coding cookie above
-    those statements stays in the prefix because those lines are before
-    ``end_lineno``. When parsing fails, or the body has neither, the fallback
-    skips a shebang, a coding cookie, and a textual future import only.
-    """
-    lines = code.splitlines(keepends=True)
-    if not lines:
-        return 0
+# Both SQL templates call query_folder_sql. The sheet template passes
+# {"data": data}. The folder template does not, and still shows the toolbar.
+_SHEET_SQL_CALL = "query_folder_sql"
 
-    insert_after = 0
-    try:
-        tree = ast.parse(code)
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom) and node.module == "__future__":
-                end_line = getattr(node, "end_lineno", node.lineno)
-                if end_line > insert_after:
-                    insert_after = end_line
-            elif (
-                insert_after == 0
-                and isinstance(node, ast.Expr)
-                and isinstance(node.value, ast.Constant)
-                and isinstance(node.value.value, str)
-            ):
-                # First statement only. A string later in the body is not __doc__.
-                # What was wrong: this branch continued and left insert_after at 0
-                # when the module had a docstring and no future import, so the
-                # manual scan returned 0 and the assignments landed above __doc__.
-                # How it happened: only a __future__ end line was stored.
-                # Why this change: the docstring end line is the insertion point
-                # when nothing later (__future__) extends it.
-                insert_after = getattr(node, "end_lineno", node.lineno)
-            else:
-                break
-    except (SyntaxError, TypeError, ValueError):
-        insert_after = 0
-
-    if insert_after > 0:
-        return min(insert_after, len(lines))
-
-    # The manual scan runs when parse failed or the AST walk found neither a
-    # docstring nor a future import; it skips a shebang, a coding cookie, and
-    # a textual future import, and it does not try to find the end of a docstring.
-
-    idx = 0
-    in_future = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if i == 0 and line.startswith("#!"):
-            idx = i + 1
-            continue
-        if i < 2 and re.match(r"^#.*coding[:=]", stripped):
-            idx = i + 1
-            continue
-        if stripped.startswith("from __future__ import"):
-            in_future = True
-            idx = i + 1
-            if ")" in stripped or not ("(" in stripped or stripped.endswith("\\")):
-                in_future = False
-            continue
-        if in_future:
-            idx = i + 1
-            if ")" in stripped:
-                in_future = False
-            continue
-        break
-    return idx
+_IMPORT_DATA_BINDING: frozenset[str] = frozenset({
+    "writeragent.scripting.analysis",
+    "writeragent.scripting.viz",
+    "writeragent.scripting.quant",
+    "writeragent.scripting.optimize",
+    "writeragent.scripting.forecast",
+    "writeragent.scripting.duckdb_sql",
+})
 
 
-def _binding_literal(val: Any) -> str:
-    """Format an injected document binding as Python code.
-
-    json.dumps emits null, true, and false, which are NameErrors in Python.
-    Strings stay JSON (double-quoted). True, False, and None are Python keywords.
-    """
-    if val is None:
-        return "None"
-    if val is True:
-        return "True"
-    if val is False:
-        return "False"
-    if isinstance(val, str):
-        return json.dumps(val)
-    if isinstance(val, (int, float)):
-        return repr(val)
-    if isinstance(val, (list, tuple)):
-        items = ", ".join(_binding_literal(item) for item in val)
-        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
-    if isinstance(val, dict):
-        parts = [f"{_binding_literal(k)}: {_binding_literal(v)}" for k, v in val.items()]
-        return "{" + ", ".join(parts) + "}"
-    return repr(val)
+def _call_tail(func: ast.AST) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
 
-def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
-    """Prepend literal variable assignments for host-injected Writer document inputs."""
-    if not bindings:
-        return code
-    lines = ["# Document inputs injected below — edit the run_*() call only."]
-    for name, value in bindings.items():
-        # _binding_literal emits Python (None, True, False, JSON strings).
-        # json.dumps emits null/true/false, which are NameErrors here.
-        lines.append(f"{name} = {_binding_literal(value)}")
-    lines.append("")
-    injection = "\n".join(lines) + "\n"
-
-    split_idx = _find_binding_insertion_line(code)
-    code_lines = code.splitlines(keepends=True)
-    if split_idx == 0:
-        return injection + code
-    prefix = "".join(code_lines[:split_idx])
-    suffix = "".join(code_lines[split_idx:])
-    if not prefix.endswith("\n"):
-        prefix += "\n"
-    return prefix + injection + suffix
-
-
-def script_uses_run_import(code: str, *, run_name: str) -> bool:
-    """True when *code* contains a call to *run_name*.
-
-    The substring fallback runs only when ast.parse raises. Using it on valid
-    source matched comments such as ``# run_vision(`` and sent the script into
-    that domain.
-    """
-    if not code or not run_name:
-        return False
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        return f"{run_name}(" in code
+def _ast_calls_binding_name(tree: ast.AST) -> bool:
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == run_name:
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_tail(node.func)
+        if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
             return True
     return False
 
 
-def script_imports_module(code: str, module_name: str) -> bool:
-    """True when *code* imports *module_name* (import or from-import).
+def _ast_imports_and_calls(tree: ast.AST) -> bool:
+    imported_names: set[str] = set()
+    alias_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for module in _IMPORT_DATA_BINDING:
+                if mod == module:
+                    for alias in node.names:
+                        bound = alias.asname or alias.name
+                        if bound and bound != "*":
+                            imported_names.add(bound)
+                elif mod == "writeragent.scripting":
+                    sub = module.split(".")[-1]
+                    for alias in node.names:
+                        if alias.name == sub:
+                            bound = alias.asname or alias.name
+                            alias_modules.add(bound)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                for module in _IMPORT_DATA_BINDING:
+                    if alias.name == module:
+                        bound = alias.asname or alias.name
+                        alias_modules.add(bound)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id in imported_names:
+            return True
+        if isinstance(node.func, ast.Attribute):
+            target = node.func.value
+            if isinstance(target, ast.Name) and target.id in alias_modules:
+                return True
+    return False
 
-    A raw substring search matches comments and docstrings. Walk the AST for
-    a real import, and fall back to the substring only when ast.parse raises.
+
+def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
+    """True when *code* uses a trusted helper that may bind Calc sheet data.
+
+    What was wrong: regex matched comments like ``# run_analysis(`` and string
+    literals like ``"run_analysis("``, and run_viz's old calc_only=False returned
+    true on Writer documents.
+    How: a raw-source pre-pass ran before the AST walk.
+    Why: AST call tails skip comments and strings; the toolbar binds a Calc sheet,
+    so a non-Calc doc returns false even though viz still inserts on Writer;
+    substring search runs only when ast.parse raises, same policy as
+    python_runner.script_uses_run_import.
     """
-    if not code or not module_name:
+    # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
+    # because plots insert on Writer, and that must not enable this toolbar.
+    if not code or not is_calc(doc):
         return False
     try:
         tree = ast.parse(code)
     except (SyntaxError, TypeError, ValueError):
-        return module_name in code
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == module_name or alias.name.startswith(module_name + "."):
-                    return True
-        elif isinstance(node, ast.ImportFrom):
-            if node.module == module_name:
+        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
+            if re.search(rf"\b{re.escape(name)}\s*\(", code):
                 return True
-            if node.module and module_name.startswith(node.module + "."):
-                sub = module_name[len(node.module) + 1 :]
-                for alias in node.names:
-                    if alias.name == sub:
-                        return True
-    return False
+        return any(module in code for module in _IMPORT_DATA_BINDING)
+
+    if _ast_calls_binding_name(tree):
+        return True
+    return _ast_imports_and_calls(tree)
 
 
 

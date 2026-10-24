@@ -23,7 +23,6 @@ def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_i
 
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=False),
-        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):
         mock_venv.return_value = {
@@ -48,10 +47,7 @@ def test_execute_and_insert_detects_analysis_result_from_venv(mock_insert, mock_
     ctx = MagicMock()
     doc = MagicMock()
 
-    with (
-        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
-        patch("plugin.scripting.python_runner.is_calc", return_value=True),
-    ):
+    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
         mock_venv.return_value = {
             "status": "ok",
             "result": {"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}},
