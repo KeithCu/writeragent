@@ -283,6 +283,38 @@ def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
+def test_stream_done_persisted_assistant_tool_calls_contain_no_parsed_args(mock_get_config, mock_get_config_int, mock_drain_loop):
+    panel, session = setup_mock_panel()
+    tool_calls = [
+        {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": '{"location": "Paris"}'}}
+    ]
+
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "Checking weather", "tool_calls": tool_calls}))
+
+    mock_drain_loop.side_effect = mock_drain_impl
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+
+    assert len(session.messages) == 1
+    persisted_msg = session.messages[0]
+    assert persisted_msg["role"] == "assistant"
+    persisted_tool_calls = persisted_msg.get("tool_calls")
+    assert persisted_tool_calls is not None
+    assert len(persisted_tool_calls) == 1
+    # Persisted assistant tool_calls must contain no parsed_args key
+    for tc in persisted_tool_calls:
+        assert "parsed_args" not in tc
+        func = tc.get("function", {})
+        assert "parsed_args" not in func
+    # The original tool_calls dict must not be mutated
+    assert "parsed_args" not in tool_calls[0]
+    assert "parsed_args" not in tool_calls[0]["function"]
+
+
+@patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
+@patch('plugin.chatbot.tool_loop.get_config')
 def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_drain_loop):
     panel, session = setup_mock_panel()
 

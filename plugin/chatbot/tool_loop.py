@@ -778,6 +778,7 @@ class ToolCallingMixin:
 
         if kind == StreamQueueKind.STREAM_DONE:
             response = data
+            parsed_tool_args: list[dict[str, Any]] = []
             if isinstance(response, dict):
                 tool_calls = response.get("tool_calls")
                 if isinstance(tool_calls, list):
@@ -787,12 +788,23 @@ class ToolCallingMixin:
                             if isinstance(func, dict):
                                 raw_args = func.get("arguments")
                                 if isinstance(raw_args, str):
-                                    func["parsed_args"] = object_dict_or_empty(safe_json_loads(raw_args))
+                                    parsed_tool_args.append(object_dict_or_empty(safe_json_loads(raw_args)))
                                 elif isinstance(raw_args, dict):
-                                    func["parsed_args"] = raw_args
+                                    parsed_tool_args.append(raw_args)
                                 else:
-                                    func["parsed_args"] = {}
-            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={"response": response, "has_audio": bool(self._panel.audio_wav_path)})
+                                    parsed_tool_args.append({})
+                            else:
+                                parsed_tool_args.append({})
+                        else:
+                            parsed_tool_args.append({})
+            return ToolLoopEvent(
+                kind=EventKind.STREAM_DONE,
+                data={
+                    "response": response,
+                    "parsed_tool_args": parsed_tool_args,
+                    "has_audio": bool(self._panel.audio_wav_path),
+                },
+            )
         elif kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:

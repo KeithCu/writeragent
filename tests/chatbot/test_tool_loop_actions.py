@@ -11,10 +11,12 @@ from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_to
 from plugin.chatbot.tool_loop_state import (  # noqa: E402
     AddMessageEffect,
     ExitLoopEffect,
+    MessageRole,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
     ToolLoopUIEffect,
     TriggerNextToolEffect,
+    UIEffectKind,
     UpdateDocumentContextEffect,
 )
 from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
@@ -234,15 +236,15 @@ def test_interpreter_handles_session_ui_queue_and_exit_effects():
     interpreter = ToolLoopEffectInterpreter(host)
 
     assert interpreter.execute(ExitLoopEffect()) is True
-    assert interpreter.execute(ToolLoopUIEffect(kind="status", text="Ready")) is False
+    assert interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready")) is False
     assert host.statuses == ["Ready"]
     assert host._terminal_status == "Ready"
 
-    interpreter.execute(ToolLoopUIEffect(kind="append", text="hello"))
+    interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="hello"))
     assert host.appended == [("hello", False, "assistant")]
 
-    interpreter.execute(AddMessageEffect(role="assistant", content="answer"))
-    interpreter.execute(AddMessageEffect(role="tool", call_id="call_1", content='{"ok": true}'))
+    interpreter.execute(AddMessageEffect(role=MessageRole.ASSISTANT, content="answer"))
+    interpreter.execute(AddMessageEffect(role=MessageRole.TOOL, call_id="call_1", content='{"ok": true}'))
     assert host.session.assistant_messages[0]["content"] == "answer"
     assert host.session.tool_results == [("call_1", '{"ok": true}')]
 

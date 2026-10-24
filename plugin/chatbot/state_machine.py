@@ -14,9 +14,6 @@ SendHandlerFsmStatus = Literal["ready", "starting", "running", "done", "error", 
 # CompleteJobEffect.terminal_status (UI / job completion; capitalized)
 SendHandlerCompleteStatus = Literal["Error", "Stopped", "Ready"]
 
-# Tool-loop and send-handler UI channel effects (see ToolLoopUIEffect, SendHandlerUIEffect)
-UIEffectKind = Literal["append", "status", "debug", "info"]
-
 # 1. Define State (frozen dataclass)
 
 
@@ -91,7 +88,7 @@ class SpawnWebWorkerEffect(NamedTuple):
 
 
 class SendHandlerUIEffect(NamedTuple):
-    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
+    kind: str  # UI channel kind ("append", "status", "debug", "info") — str for CrossHair cover
     text: str
     is_thinking: bool = False
     role: str = "assistant"

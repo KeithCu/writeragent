@@ -1,4 +1,6 @@
 
+import json
+
 from plugin.chatbot.tool_loop_actions import (
     _describe_empty_response_tool_calls,
     format_empty_model_response_debug,
@@ -40,6 +42,51 @@ def create_base_state(round_num=0, pending_tools=None, max_rounds=5, is_stopped=
     )
 
 def create_event(kind: EventKind, **kwargs):
+    if kind == EventKind.STREAM_DONE:
+        if "parsed_tool_args" not in kwargs:
+            resp = kwargs.get("response")
+            parsed_args = []
+            if isinstance(resp, dict):
+                calls = resp.get("tool_calls")
+                if isinstance(calls, list):
+                    for tc in calls:
+                        if isinstance(tc, dict):
+                            func = tc.get("function")
+                            raw_args = func.get("arguments") if isinstance(func, dict) else None
+                            if isinstance(raw_args, str) and raw_args.strip():
+                                try:
+                                    loaded = json.loads(raw_args)
+                                    parsed_args.append(loaded if isinstance(loaded, dict) else {})
+                                except Exception:
+                                    parsed_args.append({})
+                            elif isinstance(raw_args, dict):
+                                parsed_args.append(raw_args)
+                            else:
+                                parsed_args.append({})
+                        else:
+                            parsed_args.append({})
+            kwargs["parsed_tool_args"] = parsed_args
+    elif kind == EventKind.TOOL_RESULT:
+        if "result_data" not in kwargs:
+            res_str = kwargs.get("result")
+            if isinstance(res_str, str) and res_str.strip():
+                try:
+                    loaded = json.loads(res_str)
+                    kwargs["result_data"] = loaded if isinstance(loaded, dict) else {}
+                except Exception:
+                    kwargs["result_data"] = {}
+            else:
+                kwargs["result_data"] = {}
+        if "func_args" not in kwargs:
+            args_str = kwargs.get("func_args_str")
+            if isinstance(args_str, str) and args_str.strip():
+                try:
+                    loaded_args = json.loads(args_str)
+                    kwargs["func_args"] = loaded_args if isinstance(loaded_args, dict) else {}
+                except Exception:
+                    kwargs["func_args"] = {}
+            else:
+                kwargs["func_args"] = {}
     return ToolLoopEvent(kind=kind, data=kwargs)
 
 # --- Tests ---
@@ -204,8 +251,12 @@ def test_stream_done_with_tool_calls():
     assert len(new_state.pending_tools) == 1
     assert any(isinstance(e, TriggerNextToolEffect) for e in effects)
     msg_eff = next((e for e in effects if isinstance(e, AddMessageEffect)), None)
+    assert msg_eff is not None
     assert msg_eff.content == "Let me test."
     assert msg_eff.tool_calls == tool_calls
+    assert msg_eff.tool_calls is not None
+    assert "parsed_args" not in msg_eff.tool_calls[0]
+    assert "parsed_args" not in msg_eff.tool_calls[0].get("function", {})
 
 
 def test_stream_done_with_tool_calls_preserves_reasoning_replay():
@@ -260,6 +311,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
                 "name": "upsert_memory",
                 "arguments": '{"key": "my_key", "content": "my_val"}',
             },
+            "parsed_args": {"key": "my_key", "content": "my_val"},
         }
     ]
     state = create_base_state(pending_tools=tool_calls)
@@ -276,7 +328,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
 
 
 def test_next_tool_with_pending_tools_and_action_state():
-    tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}}]
+    tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}, "parsed_args": {}}]
     state = create_base_state(pending_tools=tool_calls)
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
@@ -295,7 +347,7 @@ def test_next_tool_with_pending_tools_and_action_state():
 
 def test_next_tool_malformed_arguments_and_missing_func():
     # If we have a pending tool with malformed arguments, it should parse as empty dict
-    tool_calls = [{"id": "call_1", "type": "function", "function": {"arguments": "invalid-json"}}]
+    tool_calls = [{"id": "call_1", "type": "function", "function": {"arguments": "invalid-json"}, "parsed_args": {}}]
     state = create_base_state(pending_tools=tool_calls)
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
@@ -356,6 +408,7 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
                 "name": "delegate_to_specialized_writer_toolset",
                 "arguments": json.dumps({"domain": "styles", "task": task}, ensure_ascii=False),
             },
+            "parsed_args": {"domain": "styles", "task": task},
         }
     ]
     state = create_base_state(pending_tools=tool_calls)
@@ -400,6 +453,7 @@ def test_next_tool_delegate_gateway_shows_domain_and_task():
                 "name": "delegate_to_specialized_writer_toolset",
                 "arguments": '{"domain": "styles", "task": "' + long_task.replace('"', '\\"') + '"}',
             },
+            "parsed_args": {"domain": "styles", "task": long_task},
         }
     ]
     state = create_base_state(pending_tools=tool_calls)

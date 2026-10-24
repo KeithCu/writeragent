@@ -99,6 +99,7 @@ def pending_tool_call() -> st.SearchStrategy[dict]:
     return st.fixed_dictionaries(
         {
             "id": st.sampled_from(("c1", "c2", "c3")),
+            "parsed_args": st.just({}),
             "function": st.fixed_dictionaries(
                 {
                     "name": st.sampled_from(("noop", "web_search")),
@@ -156,7 +157,13 @@ def tool_loop_events(draw):
         return ToolLoopEvent(kind, {"message": draw(st.sampled_from(("err", "")))})
     if kind == ToolEventKind.STREAM_DONE:
         tool_calls = draw(st.one_of(st.just([]), pending_tool_call_list(min_size=1, max_size=2)))
-        return ToolLoopEvent(kind, {"response": {"tool_calls": tool_calls, "content": "", "finish_reason": "stop"}})
+        return ToolLoopEvent(
+            kind,
+            {
+                "response": {"tool_calls": tool_calls, "content": "", "finish_reason": "stop"},
+                "parsed_tool_args": [{} for _ in tool_calls],
+            },
+        )
     if kind == ToolEventKind.TOOL_RESULT:
         return ToolLoopEvent(
             kind,
@@ -164,7 +171,9 @@ def tool_loop_events(draw):
                 "call_id": "c1",
                 "func_name": "noop",
                 "func_args_str": "{}",
+                "func_args": {},
                 "result": '{"status": "ok"}',
+                "result_data": {"status": "ok"},
             },
         )
     return ToolLoopEvent(kind, {})

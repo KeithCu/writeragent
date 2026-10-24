@@ -14,7 +14,6 @@ plugin.chatbot.tool_loop_actions.
 from __future__ import annotations
 
 import dataclasses
-import json
 from enum import Enum, StrEnum, auto
 from typing import Any, Dict, List, Optional, NamedTuple, assert_never, cast
 
@@ -48,27 +47,15 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
 
 
 def pending_tool_call_args(tc: object) -> dict[str, Any]:
-    """Return pre-parsed arguments dict from pending tool call, or fall back to json.loads."""
+    """Return pre-parsed arguments dict from pending tool call."""
     # crosshair: off
     tc_dict = object_dict_or_empty(tc)
-    func_data = object_dict_or_empty(tc_dict.get("function"))
-    parsed = func_data.get("parsed_args")
-    if isinstance(parsed, dict):
-        return parsed
     parsed = tc_dict.get("parsed_args")
-    if isinstance(parsed, dict):
-        return parsed
-    args_val = func_data.get("arguments")
-    if isinstance(args_val, dict):
-        return args_val
-    if isinstance(args_val, str) and args_val.strip():
-        try:
-            val = json.loads(args_val)
-            if isinstance(val, dict):
-                return val
-        except (json.JSONDecodeError, ValueError, TypeError):
-            return {}
-    return {}
+    if parsed is None:
+        func_data = object_dict_or_empty(tc_dict.get("function"))
+        parsed = func_data.get("parsed_args")
+    assert isinstance(parsed, dict), f"Pre-parsed arguments missing from pending tool call: {tc!r}"
+    return parsed
 
 
 def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
@@ -172,7 +159,7 @@ class SpawnToolWorkerEffect:
 
 @dataclasses.dataclass(frozen=True)
 class ToolLoopUIEffect:
-    kind: UIEffectKind | str
+    kind: UIEffectKind
     text: str = ""
     is_empty_model_debug: bool = False
     func_name: str = ""
@@ -192,7 +179,7 @@ class LogAgentEffect:
 
 @dataclasses.dataclass(frozen=True)
 class AddMessageEffect:
-    role: MessageRole | str  # "assistant" or "tool"
+    role: MessageRole
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     call_id: Optional[str] = None
@@ -388,7 +375,16 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 if content:
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"))
 
-                new_pending_tools = list(state.pending_tools) + tool_calls
+                raw_parsed = event_data.get("parsed_tool_args")
+                assert raw_parsed is not None, f"STREAM_DONE event missing parsed_tool_args: {event_data!r}"
+                assert len(raw_parsed) == len(tool_calls), (
+                    f"STREAM_DONE parsed_tool_args length mismatch: {len(raw_parsed)} != {len(tool_calls)}"
+                )
+                parsed_tools: List[Dict[str, Any]] = [
+                    {**tc, "parsed_args": parsed} if isinstance(tc, dict) else {"parsed_args": parsed}
+                    for tc, parsed in zip(tool_calls, raw_parsed)
+                ]
+                new_pending_tools = list(state.pending_tools) + parsed_tools
                 effects.append(TriggerNextToolEffect())
                 return FsmTransition(dataclasses.replace(state, pending_tools=new_pending_tools), effects)
 
@@ -466,24 +462,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             mutates_document = bool(event_data.get("mutates_document", False))
 
             raw_result_data = event_data.get("result_data")
-            if isinstance(raw_result_data, dict):
-                result_data = raw_result_data
-            else:
-                try:
-                    loaded = json.loads(result) if result else {}
-                    result_data = loaded if isinstance(loaded, dict) else {}
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    result_data = {}
+            result_data = raw_result_data if isinstance(raw_result_data, dict) else {}
 
             raw_func_args = event_data.get("func_args")
-            if isinstance(raw_func_args, dict):
-                func_args = raw_func_args
-            else:
-                try:
-                    loaded_args = json.loads(func_args_str) if func_args_str else {}
-                    func_args = loaded_args if isinstance(loaded_args, dict) else {}
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    func_args = {}
+            func_args = raw_func_args if isinstance(raw_func_args, dict) else {}
 
             effects.append(ToolLoopUIEffect(kind=UIEffectKind.DEBUG, text=f"Tool result: {result}"))
             effects.append(
