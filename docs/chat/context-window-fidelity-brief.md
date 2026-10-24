@@ -72,9 +72,9 @@ Audio/image-only rows omit `context_length` (expected). Offline sync helper: `sc
 **Code / docs (repo @ `25320212`)**
 
 - `plugin/framework/default_models.py` — `DEFAULT_MODELS`, `resolve_model_id`  
-- `plugin/chatbot/compaction.py` — `resolve_context_window`, `should_compact`, `compact_session` (`no_window`)  
+- `plugin/chatbot/compaction.py` — `should_compact`, `compact_session` (`no_window`)  
 - `plugin/chatbot/tool_loop.py` — callers with `window=resolve_context_window(client)`  
-- `plugin/framework/client/model_fetcher.py` — `parse_ollama_runtime_num_ctx`, `query_ollama_*`, `_model_context_cache`, `cached_v1_context_tokens`  
+- `plugin/framework/client/model_fetcher.py` — `resolve_context_window`, `parse_ollama_runtime_num_ctx`, `query_ollama_*`, `_model_context_cache`, `cached_v1_context_tokens`  
 - `plugin/framework/openrouter_model_id.py` — `:nitro` / dynamic vs static suffixes  
 - `plugin/framework/client/provider_detection.py` — `ollama` vs `lmstudio` vs `custom`  
 - `docs/chat/compaction-dev-plan.md` §5; `docs/chat/llm-hacks.md` (§ Ollama / #570); `docs/tests/mock-llm-sidebar.md`  

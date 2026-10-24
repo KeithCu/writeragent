@@ -33,11 +33,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.client.model_fetcher import cached_v1_context_tokens, query_ollama_runtime_num_ctx
 from plugin.framework.config import get_config_bool_safe
-from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
-from plugin.framework.errors import best_effort
-from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 
 log = logging.getLogger(__name__)
 
@@ -330,56 +326,6 @@ def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force:
         # Halve the already-clamped value so remainder-bound 4k actually shrinks.
         return max(MIN_TAIL_TOKENS, clamped // 2)
     return clamped
-
-
-def resolve_context_window(client: Any, model_id: str | None = None) -> int | None:
-    """Ollama: live ``num_ctx`` only. Else cached /v1/models, then catalog. None → skip compact."""
-    model_id = str(model_id or (client.config or {}).get("model") or "").strip() or None
-    if not model_id:
-        return None
-    provider = best_effort(lambda: client._get_provider(), "resolve_context_window: provider")
-    endpoint = best_effort(lambda: client._endpoint(), "resolve_context_window: endpoint")
-    if provider == "ollama":
-        # Issue #570: trained context_length is not the runtime window.
-        # Missing num_ctx → None; do not fall back to v1 cache or catalog.
-        if not endpoint:
-            return None
-        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_id)
-        if isinstance(num_ctx, int) and num_ctx > 0:
-            return num_ctx
-        return None
-    if endpoint:
-        # Harvest-only: Settings/sidebar already fetched. Do not GET /v1/models here.
-        typed_key = str((client.config or {}).get("api_key") or "").strip()
-        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key if typed_key else None)
-        if isinstance(live, int) and live > 0:
-            return live
-    for row in DEFAULT_MODELS:
-        rid = resolve_model_id(row, provider)
-        matched = rid == model_id
-        if (
-            not matched
-            and provider == "openrouter"
-            and rid
-            and openrouter_model_ids_equivalent(rid, model_id)
-        ):
-            matched = True
-        if not matched:
-            continue
-        cl = row.get("context_length")
-        if isinstance(cl, int) and cl > 0:
-            return cl
-    # Custom OpenAI-compatible endpoints (including writeragent-mock) are
-    # provider ``custom``, so the provider-keyed walk misses them. Match any
-    # catalog id. Ollama already returned above — never this fallback.
-    for row in DEFAULT_MODELS:
-        ids = row.get("ids")
-        if not isinstance(ids, dict) or model_id not in ids.values():
-            continue
-        cl = row.get("context_length")
-        if isinstance(cl, int) and cl > 0:
-            return cl
-    return None
 
 
 def _is_cut_point(msg: dict[str, Any]) -> bool:

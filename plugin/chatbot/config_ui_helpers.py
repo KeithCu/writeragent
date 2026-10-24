@@ -16,8 +16,11 @@ from plugin.framework.client.model_fetcher import (
     ENDPOINT_PRESETS,
 )
 from plugin.framework.url_utils import normalize_endpoint_url
-from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, together_speech_ids
-from plugin.framework.constants import ModelCapability
+from plugin.framework.default_models import (
+    DEFAULT_MODELS,
+    merge_provider_default_models,
+    together_speech_ids,
+)
 from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
@@ -25,33 +28,6 @@ from plugin.framework.model_lru import (
     lru_config_key,
     next_lru_list,
 )
-
-def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
-    """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
-
-    Catalog entries use :class:`ModelCapability` bitmasks.
-    """
-    try:
-        cap = capability if isinstance(capability, ModelCapability) else ModelCapability(int(capability))
-    except (TypeError, ValueError):
-        return False
-    if req_cap == "text":
-        return bool(cap & ModelCapability.CHAT)
-    if req_cap == "image":
-        return bool(cap & ModelCapability.IMAGE)
-    if req_cap in ("audio", "tts"):
-        return bool(cap & ModelCapability.AUDIO)
-    return False
-
-
-def _has_openrouter_casefold(models: list[str], model_id: str) -> bool:
-    """True when ``models`` already has ``model_id`` ignoring ASCII case.
-
-    OpenRouter's speech list returns ``hexgrad/kokoro-82m``; the catalog id is
-    ``hexgrad/Kokoro-82M``. Suffix variants (``:nitro``) are not the same id.
-    """
-    folded = model_id.casefold()
-    return any(mid.casefold() == folded for mid in models)
 
 
 def _prefer_openrouter_api_id(to_show: list[str], api_id: str) -> None:
@@ -90,7 +66,6 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     if not model_id or not current_provider:
         return False
 
-    from plugin.framework.default_models import DEFAULT_MODELS
 
     # Check if this model ID is mapped to ANY provider in our catalog
     is_known_elsewhere = False
@@ -204,35 +179,6 @@ def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru
     return curr_val_str
 
 
-def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
-    """Append curated default model ids for this provider/capability."""
-    for m in DEFAULT_MODELS:
-        capability = m.get("capability", ModelCapability.CHAT)
-        if not _default_model_row_matches_combo(capability, req_cap):
-            continue
-        effective_id = resolve_model_id(m, provider)
-        if not effective_id:
-            continue
-        is_default = False
-        if req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free"):
-            is_default = True
-        elif req_cap == "image" and m.get("default_image"):
-            is_default = True
-        elif req_cap == "audio" and (m.get("default_audio") or m.get("stt")):
-            # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
-            # AUDIO|CHAT models such as Gemini are not STT entries.
-            is_default = True
-        elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
-            is_default = True
-        if not is_default:
-            continue
-        # Keep the API id when the speech list already supplied a case variant.
-        if provider == "openrouter" and _has_openrouter_casefold(to_show, effective_id):
-            continue
-        if effective_id not in to_show:
-            to_show.append(effective_id)
-
-
 def populate_combobox_with_lru(
     ctx: Any,
     ctrl: Any,
@@ -325,7 +271,7 @@ def populate_combobox_with_lru(
                     to_show.append(mid)
 
         if provider:
-            _merge_provider_default_models(to_show, provider, req_cap)
+            merge_provider_default_models(to_show, provider, req_cap)
 
         if provider == "openrouter" and req_cap == "text" and "openrouter/free" in to_show:
             to_show.remove("openrouter/free")

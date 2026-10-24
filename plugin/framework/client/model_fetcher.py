@@ -36,10 +36,15 @@ import re
 from typing import Any
 
 from plugin.framework.constants import ModelCapability
-from plugin.framework.default_models import get_model_capability, get_provider_defaults
+from plugin.framework.default_models import (
+    DEFAULT_MODELS,
+    get_model_capability,
+    get_provider_defaults,
+    resolve_model_id,
+)
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
-from plugin.framework.errors import NetworkError
+from plugin.framework.errors import NetworkError, best_effort
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config, update_config_mapping
 from plugin.framework.config_schema import as_bool
@@ -1503,6 +1508,56 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
         for cached_id, cached_tokens in lengths.items():
             if isinstance(cached_tokens, int) and cached_tokens > 0 and openrouter_model_ids_equivalent(cached_id, mid):
                 return cached_tokens
+    return None
+
+
+def resolve_context_window(client: Any, model_id: str | None = None) -> int | None:
+    """Ollama: live ``num_ctx`` only. Else cached /v1/models, then catalog. None → skip compact."""
+    model_id = str(model_id or (client.config or {}).get("model") or "").strip() or None
+    if not model_id:
+        return None
+    provider = best_effort(lambda: client._get_provider(), "resolve_context_window: provider")
+    endpoint = best_effort(lambda: client._endpoint(), "resolve_context_window: endpoint")
+    if provider == "ollama":
+        # Issue #570: trained context_length is not the runtime window.
+        # Missing num_ctx → None; do not fall back to v1 cache or catalog.
+        if not endpoint:
+            return None
+        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_id)
+        if isinstance(num_ctx, int) and num_ctx > 0:
+            return num_ctx
+        return None
+    if endpoint:
+        # Harvest-only: Settings/sidebar already fetched. Do not GET /v1/models here.
+        typed_key = str((client.config or {}).get("api_key") or "").strip()
+        live = cached_v1_context_tokens(endpoint, model_id, provider, api_key_override=typed_key if typed_key else None)
+        if isinstance(live, int) and live > 0:
+            return live
+    for row in DEFAULT_MODELS:
+        rid = resolve_model_id(row, provider)
+        matched = rid == model_id
+        if (
+            not matched
+            and provider == "openrouter"
+            and rid
+            and openrouter_model_ids_equivalent(rid, model_id)
+        ):
+            matched = True
+        if not matched:
+            continue
+        cl = row.get("context_length")
+        if isinstance(cl, int) and cl > 0:
+            return cl
+    # Custom OpenAI-compatible endpoints (including writeragent-mock) are
+    # provider ``custom``, so the provider-keyed walk misses them. Match any
+    # catalog id. Ollama already returned above — never this fallback.
+    for row in DEFAULT_MODELS:
+        ids = row.get("ids")
+        if not isinstance(ids, dict) or model_id not in ids.values():
+            continue
+        cl = row.get("context_length")
+        if isinstance(cl, int) and cl > 0:
+            return cl
     return None
 
 

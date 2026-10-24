@@ -42,6 +42,7 @@ from plugin.framework.config import (
 )
 from plugin.framework.client.model_fetcher import (
     get_text_model,
+    resolve_context_window,
     set_image_model,
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -82,7 +83,6 @@ from plugin.chatbot.compaction import (
     is_context_overflow_error,
     is_process_death_error,
     messages_for_llm,
-    resolve_context_window,
     should_retry_overflow,
 )
 

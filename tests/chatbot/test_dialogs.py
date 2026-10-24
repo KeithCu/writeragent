@@ -30,13 +30,13 @@ setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransfer
 from plugin.chatbot.dialogs import (
     _uno_impl_to_control_type,
     _xcc,
-    show_new_script_dialog,
     show_text_input_dialog,
     translate_dialog,
     format_exception_detail,
     _collect_xdl_load_diagnostics,
     _UnoExceptionAdapter,
 )
+from plugin.scripting.script_dialogs import show_new_script_dialog
 
 
 @pytest.fixture(autouse=True)

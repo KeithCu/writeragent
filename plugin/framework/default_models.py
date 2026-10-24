@@ -103,6 +103,63 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
     return defaults
 
 
+def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
+    """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
+
+    Catalog entries use :class:`ModelCapability` bitmasks.
+    """
+    try:
+        cap = capability if isinstance(capability, ModelCapability) else ModelCapability(int(capability))
+    except (TypeError, ValueError):
+        return False
+    if req_cap == "text":
+        return bool(cap & ModelCapability.CHAT)
+    if req_cap == "image":
+        return bool(cap & ModelCapability.IMAGE)
+    if req_cap in ("audio", "tts"):
+        return bool(cap & ModelCapability.AUDIO)
+    return False
+
+
+def _has_openrouter_casefold(models: list[str], model_id: str) -> bool:
+    """True when ``models`` already has ``model_id`` ignoring ASCII case.
+
+    OpenRouter's speech list returns ``hexgrad/kokoro-82m``; the catalog id is
+    ``hexgrad/Kokoro-82M``. Suffix variants (``:nitro``) are not the same id.
+    """
+    folded = model_id.casefold()
+    return any(mid.casefold() == folded for mid in models)
+
+
+def merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
+    """Append curated default model ids for this provider/capability."""
+    for m in DEFAULT_MODELS:
+        capability = m.get("capability", ModelCapability.CHAT)
+        if not _default_model_row_matches_combo(capability, req_cap):
+            continue
+        effective_id = resolve_model_id(m, provider)
+        if not effective_id:
+            continue
+        is_default = False
+        if req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free"):
+            is_default = True
+        elif req_cap == "image" and m.get("default_image"):
+            is_default = True
+        elif req_cap == "audio" and (m.get("default_audio") or m.get("stt")):
+            # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
+            # AUDIO|CHAT models such as Gemini are not STT entries.
+            is_default = True
+        elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
+            is_default = True
+        if not is_default:
+            continue
+        # Keep the API id when the speech list already supplied a case variant.
+        if provider == "openrouter" and _has_openrouter_casefold(to_show, effective_id):
+            continue
+        if effective_id not in to_show:
+            to_show.append(effective_id)
+
+
 def get_model_capability(model_id: Any, endpoint: Any) -> int:
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)

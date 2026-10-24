@@ -52,7 +52,7 @@ flowchart TD
   refresh --> worker["_spawn_llm_worker / _spawn_final_stream<br/>dedicated thread"]
   worker --> lane["with llm_request_lane — one hold"]
   lane --> estimate["prompt_tokens = estimate_tokens(view) + tool_schema_tokens"]
-  estimate --> window["resolve_context_window"]
+  estimate --> window["resolve_context_window (model_fetcher)"]
   window --> gate{"enabled and<br/>tokens >= compaction_ratio(W) * W<br/>or force_compact?"}
   gate -->|no| llm["stream_request_with_tools(messages_for_llm)"]
   gate -->|yes| compact["compact_session inside the same lane"]
@@ -179,7 +179,9 @@ Uses Hermes Agent's rough token estimator adapted with standard library `re` and
 - Images & Audio: Fixed 2000 tokens per block.
 - Tool schemas: Dumped to compact JSON and token-estimated.
 
-### 5. Context Window Resolution (`resolve_context_window`)
+### 5. Context Window Resolution (`resolve_context_window` in `model_fetcher.py`)
+
+`resolve_context_window` (defined in `plugin/framework/client/model_fetcher.py`) is called by `tool_loop` and passed into `compact_session`:
 
 1. **Ollama live `num_ctx`:** When provider is `"ollama"`, queries `/api/show` for runtime `num_ctx` via `query_ollama_runtime_num_ctx`. Missing `num_ctx` returns `None` immediately — no `/v1/models` cache and no catalog (issue #570).
 2. **Cached `/v1/models` length:** For every other provider, `cached_v1_context_tokens` reads the process memo filled when Settings/sidebar already fetched the list (`context_length` or Groq `context_window`). Harvest only — compact does **not** GET `/v1/models`. OpenRouter uses `:nitro` / dynamic-suffix equivalence. Sidebar skips OpenRouter/Together fetches (`massive_providers`); those live lengths appear only after Settings has fetched.

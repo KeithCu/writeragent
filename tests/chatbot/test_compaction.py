@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from plugin.chatbot import compaction as C
+from plugin.framework.client import model_fetcher as MF
 
 
 class DummySession:
@@ -608,31 +609,31 @@ def test_ollama_live_num_ctx_no_catalog_fallback(monkeypatch):
         seen.append((endpoint, model_id))
         return 4096
 
-    monkeypatch.setattr(C, "query_ollama_runtime_num_ctx", _query)
+    monkeypatch.setattr(MF, "query_ollama_runtime_num_ctx", _query)
     client = DummyClient(provider="ollama", endpoint="http://localhost:11434", model="llama3")
-    assert C.resolve_context_window(client) == 4096
+    assert MF.resolve_context_window(client) == 4096
     assert seen == [("http://localhost:11434", "llama3")]
 
-    monkeypatch.setattr(C, "query_ollama_runtime_num_ctx", lambda *a, **k: None)
-    assert C.resolve_context_window(client) is None  # not 256k, not catalog
+    monkeypatch.setattr(MF, "query_ollama_runtime_num_ctx", lambda *a, **k: None)
+    assert MF.resolve_context_window(client) is None  # not 256k, not catalog
 
 
 def test_non_ollama_does_not_query_ollama(monkeypatch):
     monkeypatch.setattr(
-        C,
+        MF,
         "query_ollama_runtime_num_ctx",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("/api/show must not run")),
     )
     client = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
-    assert C.resolve_context_window(client) == 131072
+    assert MF.resolve_context_window(client) == 131072
 
 
 def test_openrouter_nitro_equivalence_not_raw_ids():
     # Catalog stores openai/gpt-oss-120b:nitro; caller has the unsuffixed id.
     client = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
-    assert C.resolve_context_window(client) == 131072
+    assert MF.resolve_context_window(client) == 131072
     unknown = DummyClient(provider="openrouter", model="totally-unknown/model")
-    assert C.resolve_context_window(unknown) is None
+    assert MF.resolve_context_window(unknown) is None
 
 
 @pytest.mark.parametrize(
@@ -645,7 +646,7 @@ def test_openrouter_nitro_equivalence_not_raw_ids():
 )
 def test_resolve_context_window_uses_client_config_model(model, expected):
     client = DummyClient(provider="openrouter", model=model)
-    assert C.resolve_context_window(client) == expected
+    assert MF.resolve_context_window(client) == expected
 
 def test_resolve_context_window_writeragent_mock():
     """Mock soak id is not a hosted provider; catalog + any-id fallback."""
@@ -654,8 +655,8 @@ def test_resolve_context_window_writeragent_mock():
         model="writeragent-mock",
         endpoint="http://127.0.0.1:18766",
     )
-    assert C.resolve_context_window(client) == 32768
-    assert C.resolve_context_window(client) != 256000
+    assert MF.resolve_context_window(client) == 32768
+    assert MF.resolve_context_window(client) != 256000
 
 
 def test_resolve_context_window_slash_lru_unknown_is_none():
@@ -665,7 +666,7 @@ def test_resolve_context_window_slash_lru_unknown_is_none():
         model="mock-bravo",
         endpoint="http://127.0.0.1:18766",
     )
-    assert C.resolve_context_window(client) is None
+    assert MF.resolve_context_window(client) is None
 
 
 def _clear_v1_context_cache_keys(substr):
@@ -693,7 +694,7 @@ def test_resolve_context_window_prefers_cached_live_over_catalog():
             endpoint=endpoint,
             model="MiniMaxAI/MiniMax-M3",
         )
-        assert C.resolve_context_window(client) == 524288
+        assert MF.resolve_context_window(client) == 524288
     finally:
         _clear_v1_context_cache_keys("58921")
 
@@ -714,7 +715,7 @@ def test_resolve_context_window_openrouter_nitro_uses_cached_base():
             endpoint=endpoint,
             model="openai/gpt-oss-120b:nitro",
         )
-        assert C.resolve_context_window(client) == 99999
+        assert MF.resolve_context_window(client) == 99999
     finally:
         _clear_v1_context_cache_keys("58922")
 
@@ -736,7 +737,7 @@ def test_resolve_context_window_uses_client_api_key():
             model="m-owu",
         )
         client.config["api_key"] = "sk-owu"
-        assert C.resolve_context_window(client) == 8192
+        assert MF.resolve_context_window(client) == 8192
     finally:
         _clear_v1_context_cache_keys("openwebui.example")
 
@@ -752,9 +753,9 @@ def test_ollama_ignores_v1_context_cache(monkeypatch):
     try:
         with patch("plugin.framework.client.requests.sync_request", return_value=payload):
             mf.fetch_available_models(endpoint)
-        monkeypatch.setattr(C, "query_ollama_runtime_num_ctx", lambda *a, **k: None)
+        monkeypatch.setattr(MF, "query_ollama_runtime_num_ctx", lambda *a, **k: None)
         client = DummyClient(provider="ollama", endpoint=endpoint, model="llama3")
-        assert C.resolve_context_window(client) is None
+        assert MF.resolve_context_window(client) is None
     finally:
         _clear_v1_context_cache_keys("58924")
 
@@ -768,7 +769,7 @@ def test_resolve_context_window_does_not_fetch_v1_models():
         model="not-in-catalog/model",
     )
     with patch("plugin.framework.client.requests.sync_request") as mock_sync:
-        assert C.resolve_context_window(client) is None
+        assert MF.resolve_context_window(client) is None
         mock_sync.assert_not_called()
 
 
@@ -1231,7 +1232,7 @@ def test_resolve_context_window_provider_exceptions():
             raise RuntimeError("provider unavailable")
 
     # Should not crash on provider exception; falls back to catalog matching
-    assert C.resolve_context_window(ExceptionClient()) == 131072
+    assert MF.resolve_context_window(ExceptionClient()) == 131072
 
     class BadEndpointClient:
         config = {"model": "llama3"}
@@ -1242,7 +1243,7 @@ def test_resolve_context_window_provider_exceptions():
         def _endpoint(self):
             raise RuntimeError("endpoint failed")
 
-    assert C.resolve_context_window(BadEndpointClient()) is None
+    assert MF.resolve_context_window(BadEndpointClient()) is None
 
 
 def test_compaction_cut_on_assistant_omits_ack():

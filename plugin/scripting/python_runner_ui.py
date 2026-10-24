@@ -95,8 +95,8 @@ from plugin.chatbot.dialogs import (
     set_control_enabled,
     set_control_text,
     show_approval_dialog,
-    show_new_script_dialog,
 )
+from plugin.scripting.script_dialogs import show_new_script_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
     DocumentScriptErrorCode,
