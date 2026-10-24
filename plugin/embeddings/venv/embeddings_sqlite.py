@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -230,26 +229,6 @@ def ensure_schema(
                 raise ValueError(f"dim is required when creating vec_chunks table for model {active_model}")
             conn.execute(_vec_table_ddl(tbl_name, dim))
     conn.commit()
-
-
-def _dim_from_meta_path(meta_path: str) -> int | None:  # pyright: ignore[reportUnusedFunction]  # used by ingest_graph / llama_index workers
-    path = Path(str(meta_path or ""))
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    # Non-object JSON (a list or string) has no dim. .get would raise AttributeError,
-    # which the old except clause did not catch.
-    if not isinstance(data, dict):
-        return None
-    try:
-        raw = data.get("dim", "0")
-        dim = int(raw)
-    except (TypeError, ValueError):
-        return None
-    return dim if dim > 0 else None
 
 
 def rebuild_fts_corpus_index(conn: sqlite3.Connection) -> None:

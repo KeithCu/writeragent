@@ -60,7 +60,7 @@ def test_embed_and_upsert_batches_emits_heartbeats():
     # We mock enough to run the batching logic inside embed_and_upsert_batches.
     with patch("plugin.embeddings.venv.embeddings_ingest_graph.connect_corpus_db") as mock_connect, \
          patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"), \
-         patch("plugin.embeddings.venv.embeddings_ingest_graph._dim_from_meta_path", return_value=384), \
+         patch("plugin.embeddings.venv.embeddings_ingest_graph.dim_from_meta_path", return_value=384), \
          patch("plugin.embeddings.venv.embeddings_ingest_graph.ensure_schema"), \
          patch("plugin.embeddings.venv.embeddings_ingest_graph.embed_texts", return_value={"dim": 384, "vectors": [[0.1]*384]*2}), \
          patch("plugin.embeddings.venv.embeddings_ingest_graph.upsert_chunk_with_vector"), \

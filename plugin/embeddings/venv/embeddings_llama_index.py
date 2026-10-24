@@ -543,8 +543,8 @@ def llama_index_ingest(
     import time
     from pathlib import Path
 
+    from plugin.embeddings.embeddings_cache import dim_from_meta_path
     from plugin.embeddings.venv.embeddings_sqlite import (
-        _dim_from_meta_path,
         connect_corpus_db,
         corpus_chunk_count,
         delete_by_chunk_locator,
@@ -554,7 +554,7 @@ def llama_index_ingest(
 
     conn = connect_corpus_db(db_path)
     try:
-        dim = _dim_from_meta_path(meta_path)
+        dim = dim_from_meta_path(meta_path)
         ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=build_vectors and dim is not None)
 
         if delete_keys:

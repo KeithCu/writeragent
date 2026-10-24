@@ -328,6 +328,26 @@ def chunk_count_from_meta(meta_path: Path) -> int:
         return 0
 
 
+def dim_from_meta_path(meta_path: str) -> int | None:
+    path = Path(str(meta_path or ""))
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    # Non-object JSON (a list or string) has no dim. .get would raise AttributeError,
+    # which the old except clause did not catch.
+    if not isinstance(data, dict):
+        return None
+    try:
+        raw = data.get("dim", "0")
+        dim = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return dim if dim > 0 else None
+
+
 def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Path) -> bool:
     """True when a zvec or lancedb folder store has nothing to search.
 

@@ -407,3 +407,12 @@ def test_file_index_state_and_diff(tmp_path):
             "char_end": 4,
         }
     ]
+
+
+def test_dim_from_meta_path_ignores_non_dict(tmp_path):
+    meta = tmp_path / "corpus_meta.json"
+    meta.write_text("[]", encoding="utf-8")
+    assert embeddings_cache.dim_from_meta_path(str(meta)) is None
+    meta.write_text('{"dim": "384"}', encoding="utf-8")
+    assert embeddings_cache.dim_from_meta_path(str(meta)) == 384
+
