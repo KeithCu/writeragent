@@ -411,6 +411,7 @@ class TestGrammarPersistence:
     def test_apply_language_change_paragraph_relative(self) -> None:
         """Language change must update char locale via a paragraph-relative cursor offset."""
         from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_worker import apply_language_change
 
         ctx = MagicMock()
         model = MagicMock()
@@ -433,7 +434,7 @@ class TestGrammarPersistence:
         doc_cursor.getString.return_value = "Hola."
 
         # Test start_pos=5
-        gp.apply_language_change(ctx, "test-doc", "Hola.", "es-ES", start_pos=5)
+        apply_language_change(ctx, "test-doc", "Hola.", "es-ES", start_pos=5)
 
         text_obj.createTextCursorByRange.assert_called_once_with(view_start)
         doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -451,6 +452,7 @@ class TestGrammarPersistence:
     def test_apply_language_change_zero_offset_is_paragraph_start(self) -> None:
         """start_pos 0 is the first sentence, not findNext from the caret."""
         from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_worker import apply_language_change
 
         ctx = MagicMock()
         model = MagicMock()
@@ -471,7 +473,7 @@ class TestGrammarPersistence:
             doc_cursor.goRight = MagicMock(return_value=True)
             doc_cursor.getString.return_value = "Hola."
 
-            gp.apply_language_change(ctx, "test-doc-zero", "Hola.", "es-ES", start_pos=0)
+            apply_language_change(ctx, "test-doc-zero", "Hola.", "es-ES", start_pos=0)
 
             text_obj.createTextCursorByRange.assert_called_once_with(view_start)
             doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -485,6 +487,7 @@ class TestGrammarPersistence:
     def test_apply_language_change_zero_offset_skips_caret_search_on_mismatch(self) -> None:
         """A miss calls neither findFirst nor findNext and writes nothing."""
         from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_worker import apply_language_change
 
         ctx = MagicMock()
         model = MagicMock()
@@ -506,7 +509,7 @@ class TestGrammarPersistence:
             doc_cursor.getString.return_value = "Other."
             model.findAll.return_value = None
 
-            res = gp.apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
+            res = apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
 
             assert res is False
             model.findNext.assert_not_called()
@@ -518,6 +521,7 @@ class TestGrammarPersistence:
     def test_apply_language_change_two_findall_hits_same_paragraph_writes_nothing(self) -> None:
         """Two findAll hits with the same paragraph text write nothing and return False."""
         from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_worker import apply_language_change
 
         ctx = MagicMock()
         model = MagicMock()
@@ -549,7 +553,7 @@ class TestGrammarPersistence:
             para_cursor.getString.return_value = "Target paragraph."
             text_obj.createTextCursorByRange.side_effect = [doc_cursor, para_cursor, para_cursor]
 
-            res = gp.apply_language_change(ctx, "test-doc-ambig", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            res = apply_language_change(ctx, "test-doc-ambig", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
             assert res is False
             hit1.setPropertyValue.assert_not_called()
             hit2.setPropertyValue.assert_not_called()
@@ -559,6 +563,7 @@ class TestGrammarPersistence:
     def test_apply_language_change_one_findall_hit_matching_paragraph_writes_range(self) -> None:
         """One findAll hit whose paragraph equals paragraph_text writes that range."""
         from plugin.writer.locale import grammar_persistence as gp
+        from plugin.writer.locale.grammar_worker import apply_language_change
 
         ctx = MagicMock()
         model = MagicMock()
@@ -593,7 +598,7 @@ class TestGrammarPersistence:
 
             text_obj.createTextCursorByRange.side_effect = [doc_cursor, tc1, tc2]
 
-            res = gp.apply_language_change(ctx, "test-doc-one", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            res = apply_language_change(ctx, "test-doc-one", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
             assert res is True
             hit1.setPropertyValue.assert_called_once()
             assert hit1.setPropertyValue.call_args[0][0] == "CharLocale"
@@ -754,7 +759,7 @@ class TestGrammarPersistence:
             dp._entries["fp_unaccessed"] = {"en-US": [{"s": 0, "l": 2, "g": ["a"]}]}
             dp.put("fp_accessed", "en-US", [{"s": 3, "l": 4, "g": ["b"]}])
 
-            with patch("plugin.writer.locale.grammar_proofread_json.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
+            with patch("plugin.writer.locale.grammar_persistence.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
                  patch("plugin.doc.udprops.set_document_property") as mock_set, \
                  patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
                 dp._persist_to_udprops()
@@ -764,6 +769,31 @@ class TestGrammarPersistence:
             assert mock_compress.call_args[0][0] == {"s": 3, "l": 4, "g": ["b"]}
         finally:
             gp.grammar_registry.clear_all(ctx)
+
+    def test_compress_and_decompress_error(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        original = {
+            "n_error_start": 10,
+            "n_error_length": 5,
+            "suggestions": ["hello", "hi"],
+            "short_comment": "comment",
+            "full_comment": "long comment",
+            "rule_identifier": "rule1",
+            "extra_key": "stays_same",
+        }
+        compressed = gp.compress_error(original)
+        assert compressed == {
+            "s": 10,
+            "l": 5,
+            "g": ["hello", "hi"],
+            "c": "comment",
+            "f": "long comment",
+            "r": "rule1",
+            "extra_key": "stays_same",
+        }
+        decompressed = gp.decompress_error(compressed)
+        assert decompressed == original
 
     def test_load_drops_malformed_rows_and_later_valid_load_replaces(self) -> None:
         """Malformed good, bad, and ignored_rules entries are dropped without raising."""

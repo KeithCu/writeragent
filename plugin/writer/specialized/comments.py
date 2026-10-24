@@ -23,8 +23,9 @@ from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
 from plugin.framework.errors import reraise_if_disposed
 import uno
 
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
-from ..specialized_base import ToolWriterCommentBase, commit_or_rollback_mutation, enum_param
+from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
 

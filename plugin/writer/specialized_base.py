@@ -56,41 +56,6 @@ def index_error(index: int, count: int, what: str) -> str | None:
     return f"Invalid index {index}. The document has {count} {what}(s)."
 
 
-def commit_or_rollback_mutation(
-    tool: Any,
-    doc: Any,
-    undo_title: str,
-    mutate: Any,
-    undo_unavailable_msg: str,
-    rollback_msg: str,
-    **extra_error: Any,
-) -> dict[str, Any] | None:
-    """Execute mutate inside an undo transaction, reporting tool errors on failure."""
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
-    from plugin.framework.errors import is_real_disposal
-
-    try:
-        error = commit_or_rollback(doc, undo_title, mutate)
-        if error is not None:
-            return error
-    except UndoUnavailable:
-        return tool._tool_error(
-            undo_unavailable_msg,
-            code="UNDO_UNAVAILABLE",
-        )
-    except Exception as e:
-        if is_real_disposal(e):
-            raise
-        err = tool._tool_error(
-            f"{rollback_msg} ({e}).",
-            **extra_error,
-        )
-        if extra_error:
-            err.update(extra_error)
-        return err
-    return None
-
-
 class ToolWriterSpecialBase(ToolBase):
     """Base class for all specialized Writer tools.
 

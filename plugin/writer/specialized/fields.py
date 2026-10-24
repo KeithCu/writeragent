@@ -12,9 +12,10 @@
 import hashlib
 from typing import Any
 
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
-from ..specialized_base import ToolWriterFieldBase, commit_or_rollback_mutation, target_params
+from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import resolve_target_cursor
 
 

@@ -29,12 +29,6 @@ from typing import Any, NamedTuple
 
 log = logging.getLogger("writeragent.grammar")
 
-from plugin.framework.grammar_rule_ids import (
-    bcp47_to_uno_lang_country,
-    normalize_detected_bcp47,
-)
-
-from . import grammar_proofread_json
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
     GRAMMAR_CACHE_VERSION,
@@ -69,6 +63,42 @@ def grammar_checker_identity() -> str:
         return f"llm:{get_grammar_model() or ''}"
     except (ImportError, ModuleNotFoundError):
         return "llm:unknown"
+
+
+# Storage key mapping for error objects to reduce JSON footprint.
+_ERROR_KEY_MAP = {
+    "n_error_start": "s",
+    "n_error_length": "l",
+    "suggestions": "g",
+    "short_comment": "c",
+    "full_comment": "f",
+    "rule_identifier": "r",
+}
+_REV_ERROR_KEY_MAP = {v: k for k, v in _ERROR_KEY_MAP.items()}
+
+
+def compress_error(err: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the error dict with shortened keys for storage."""
+    out = {}
+    for k, v in err.items():
+        short = _ERROR_KEY_MAP.get(k)
+        if short:
+            out[short] = v
+        else:
+            out[k] = v
+    return out
+
+
+def decompress_error(err: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the error dict with long keys restored for runtime."""
+    out = {}
+    for k, v in err.items():
+        long = _REV_ERROR_KEY_MAP.get(k)
+        if long:
+            out[long] = v
+        else:
+            out[k] = v
+    return out
 
 
 def _blob_model_id(data: dict[str, Any]) -> str | None:
@@ -482,7 +512,7 @@ class DocumentPersistence:
                         errs: list[dict[str, Any]] = []
                         for e in compressed_errors:
                             if isinstance(e, dict):
-                                errs.append(grammar_proofread_json.decompress_error(e))
+                                errs.append(decompress_error(e))
                             else:
                                 dropped_count += 1
                         if not errs:
@@ -631,7 +661,7 @@ class DocumentPersistence:
                     good_by_locale.setdefault(locale, []).append(fp)
                 else:
                     bad_by_locale.setdefault(locale, {})[fp] = [
-                        grammar_proofread_json.compress_error(e) for e in errs
+                        compress_error(e) for e in errs
                     ]
 
             locales_out: dict[str, dict[str, Any]] = {}
@@ -798,117 +828,4 @@ def clear_all_document_persistence(ctx: Any) -> None:
     """Remove every ``DocumentPersistence`` (listeners + map); for tests / reset without doc_id."""
     grammar_registry.clear_all(ctx)
 
-
-def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
-    """Return the entire paragraph string containing rng, or None."""
-    try:
-        text_obj = getattr(rng, "getText", lambda: None)()
-        if text_obj is None and model is not None:
-            text_obj = getattr(model, "getText", lambda: None)()
-        if text_obj is not None:
-            tc = text_obj.createTextCursorByRange(rng)
-            if hasattr(tc, "gotoStartOfParagraph") and hasattr(tc, "gotoEndOfParagraph"):
-                tc.gotoStartOfParagraph(False)
-                tc.gotoEndOfParagraph(True)
-                return tc.getString()
-    except Exception as exc:
-        log.debug("paragraph text for range failed (%s)", type(exc).__name__)
-    return None
-
-
-def apply_language_change(
-    ctx: Any,
-    doc_id: str,
-    sentence_text: str,
-    detected_bcp47: str,
-    start_pos: int = 0,
-    paragraph_text: str = "",
-) -> bool:
-    """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
-    import uno
-
-    def _do_update() -> bool:
-        model = get_document_model_for_id(ctx, doc_id)
-        if not model:
-            return False
-
-        lang, country = bcp47_to_uno_lang_country(
-            normalize_detected_bcp47(detected_bcp47) or detected_bcp47
-        )
-
-        new_locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=lang, Country=country)
-
-        ctrl = getattr(model, "getCurrentController", lambda: None)()
-        view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
-
-        found_range = None
-        # Paragraph-relative cursor check: verify sentence text and paragraph text if provided.
-        # The paragraph-relative cursor is built for every start_pos,
-        # including 0. n_start is the sentence offset inside the
-        # proofread paragraph, so 0 is its first sentence, not "search
-        # from the caret". findNext from the view cursor retags a
-        # different copy of the same sentence when 0 is treated as "no
-        # offset". Offset 0 still selects from the start of that
-        # paragraph. start_pos > 0 still moves, then expands, on the same
-        # cursor.
-        if view_cursor is not None and start_pos >= 0:
-            # Document-wide search from the start — view-cursor-relative findNext can miss
-            # the sentence Writer just proofread when the caret is elsewhere.
-            text_obj = model.getText()
-            doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
-            if hasattr(doc_cursor, "gotoStartOfParagraph"):
-                doc_cursor.gotoStartOfParagraph(False)
-                if start_pos > 0:
-                    doc_cursor.goRight(start_pos, False)
-                doc_cursor.goRight(len(sentence_text), True)
-                if doc_cursor.getString() == sentence_text:
-                    if not paragraph_text:
-                        found_range = doc_cursor
-                    else:
-                        para_str = _get_paragraph_text_for_range(model, doc_cursor)
-                        if para_str == paragraph_text:
-                            found_range = doc_cursor
-
-        if found_range:
-            found_range.setPropertyValue("CharLocale", new_locale)
-            log.info("[grammar] Updated CharLocale for sentence to %s", detected_bcp47)
-            return True
-
-        # Fast path missed; fallback to findAll. Keep a hit only when that
-        # range's paragraph string equals paragraph_text. One remaining hit is retagged.
-        search_desc = model.createSearchDescriptor()
-        search_desc.setSearchString(sentence_text)
-        search_desc.SearchCaseSensitive = True
-
-        matches = model.findAll(search_desc)
-        matched_ranges = []
-        if matches is not None:
-            count = getattr(matches, "getCount", lambda: 0)()
-            for i in range(count):
-                rng = matches.getByIndex(i)
-                if paragraph_text:
-                    para_str = _get_paragraph_text_for_range(model, rng)
-                    if para_str == paragraph_text:
-                        matched_ranges.append(rng)
-                else:
-                    matched_ranges.append(rng)
-
-        if len(matched_ranges) == 1:
-            matched_ranges[0].setPropertyValue("CharLocale", new_locale)
-            log.info("[grammar] Updated CharLocale for sentence to %s (via findAll)", detected_bcp47)
-            return True
-
-        return False
-
-    try:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework import queue_executor
-
-        if on_main_thread():
-            return bool(_do_update())
-        else:
-            return bool(queue_executor.execute_on_main_thread(_do_update))
-    except Exception as e:
-        log.warning("Failed to update language property: %s", e)
-        return False
 

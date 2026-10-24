@@ -16,6 +16,7 @@ from tests.testing_utils import with_native_doc
 def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any) -> None:
     """When multiple paragraphs contain the same sentence, only the one matching paragraph_text is retagged."""
     from plugin.writer.locale import grammar_persistence as gp
+    from plugin.writer.locale.grammar_worker import apply_language_change
 
     try:
         text = doc.getText()
@@ -34,7 +35,7 @@ def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any
         assert dp is not None
 
         # Apply language change targeting the duplicate sentence in paragraph 2
-        success = gp.apply_language_change(
+        success = apply_language_change(
             ctx,
             doc_id,
             "This is a duplicate sentence.",

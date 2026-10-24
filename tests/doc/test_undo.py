@@ -160,3 +160,59 @@ def test_commit_or_rollback_undo_failure_keeps_cause():
     assert "undo failed" in res["message"]
     assert "original cause" in res["message"]
 
+
+def test_commit_or_rollback_mutation_success():
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    res = commit_or_rollback_mutation(
+        tool, doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
+    )
+    assert res is None
+
+
+def test_commit_or_rollback_mutation_undo_unavailable():
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = True
+    doc.getUndoManager.return_value = mgr
+
+    res = commit_or_rollback_mutation(
+        tool, doc, "Title", lambda: None, "Undo unavail", "Rollback failed"
+    )
+    assert res is not None
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+
+
+def test_commit_or_rollback_mutation_exception_reports_error():
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.return_value = ("Title",)
+    doc.getUndoManager.return_value = mgr
+
+    def mutate():
+        raise RuntimeError("boom")
+
+    res = commit_or_rollback_mutation(
+        tool, doc, "Title", mutate, "Undo unavail", "Rollback failed"
+    )
+    assert res is not None
+    assert res["status"] == "error"
+    assert "Rollback failed" in res["message"]
+
+

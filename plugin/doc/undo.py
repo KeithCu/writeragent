@@ -99,6 +99,40 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
     return None
 
 
+def commit_or_rollback_mutation(
+    tool: Any,
+    doc: Any,
+    undo_title: str,
+    mutate: Any,
+    undo_unavailable_msg: str,
+    rollback_msg: str,
+    **extra_error: Any,
+) -> dict[str, Any] | None:
+    """Execute mutate inside an undo transaction, reporting tool errors on failure."""
+    from plugin.framework.errors import is_real_disposal
+
+    try:
+        error = commit_or_rollback(doc, undo_title, mutate)
+        if error is not None:
+            return error
+    except UndoUnavailable:
+        return tool._tool_error(
+            undo_unavailable_msg,
+            code="UNDO_UNAVAILABLE",
+        )
+    except Exception as e:
+        if is_real_disposal(e):
+            raise
+        err = tool._tool_error(
+            f"{rollback_msg} ({e}).",
+            **extra_error,
+        )
+        if extra_error:
+            err.update(extra_error)
+        return err
+    return None
+
+
 def _step_undo_manager(
     tool: ToolBase,
     ctx: ToolContext,

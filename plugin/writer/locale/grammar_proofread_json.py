@@ -18,42 +18,6 @@ from plugin.framework.json_utils import repair_json_object, safe_json_loads
 
 _log = logging.getLogger("writeragent.grammar")
 
-# Storage key mapping for error objects to reduce JSON footprint.
-_ERROR_KEY_MAP = {
-    "n_error_start": "s",
-    "n_error_length": "l",
-    "suggestions": "g",
-    "short_comment": "c",
-    "full_comment": "f",
-    "rule_identifier": "r",
-}
-_REV_ERROR_KEY_MAP = {v: k for k, v in _ERROR_KEY_MAP.items()}
-
-
-def compress_error(err: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the error dict with shortened keys for storage."""
-    out = {}
-    for k, v in err.items():
-        short = _ERROR_KEY_MAP.get(k)
-        if short:
-            out[short] = v
-        else:
-            out[k] = v
-    return out
-
-
-def decompress_error(err: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the error dict with long keys restored for runtime."""
-    out = {}
-    for k, v in err.items():
-        long = _REV_ERROR_KEY_MAP.get(k)
-        if long:
-            out[long] = v
-        else:
-            out[k] = v
-    return out
-
-
 # ---------------------------------------------------------------------------
 # LLM JSON wire format
 # ---------------------------------------------------------------------------

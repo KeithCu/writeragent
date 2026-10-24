@@ -485,7 +485,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
          patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
-         patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=False) as mock_apply, \
+         patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=False) as mock_apply, \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
@@ -1137,7 +1137,7 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
         patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="off"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put,
-        patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=True) as mock_apply,
+        patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=True) as mock_apply,
         patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,
@@ -1253,7 +1253,7 @@ def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> Non
         patch("plugin.framework.config.get_config_int_safe", return_value=1),
         patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", side_effect=_cache_get),
-        patch("plugin.writer.locale.grammar_persistence.apply_language_change", return_value=True) as mock_apply,
+        patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=True) as mock_apply,
         patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", return_value=["fr-FR"]),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run_grammar,
         patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
