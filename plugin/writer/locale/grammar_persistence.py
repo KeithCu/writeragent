@@ -29,8 +29,6 @@ from typing import Any, NamedTuple
 
 log = logging.getLogger("writeragent.grammar")
 
-from plugin.framework.config import grammar_checker_identity
-
 from plugin.framework.grammar_rule_ids import (
     bcp47_to_uno_lang_country,
     normalize_detected_bcp47,
@@ -50,6 +48,27 @@ _V2_LLM_PENDING = "llm"
 # v2/v3 rows have no CharLocale. Empty cannot collide with a BCP-47 tag.
 # The first locale-specific read adopts the row; other locales miss.
 _LEGACY_LOCALE = ""
+
+
+def grammar_checker_identity() -> str:
+    """Stable cache/file identity for the active grammar checker.
+
+    Local engines use a sentinel (``harper`` / ``languagetool`` / ``vale``).
+    LLM uses ``llm:`` plus the resolved model from ``get_grammar_model()``.
+    """
+    from plugin.writer.locale.grammar_worker import get_grammar_provider
+
+    provider = get_grammar_provider()
+    if provider in ("harper", "languagetool", "vale"):
+        return provider
+    if provider == "off":
+        return "off"
+    try:
+        from plugin.framework.client.model_fetcher import get_grammar_model
+
+        return f"llm:{get_grammar_model() or ''}"
+    except (ImportError, ModuleNotFoundError):
+        return "llm:unknown"
 
 
 def _blob_model_id(data: dict[str, Any]) -> str | None:

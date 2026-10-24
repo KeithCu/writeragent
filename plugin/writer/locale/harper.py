@@ -464,7 +464,7 @@ def _log_harper_wait_reenter() -> None:
     started, wait_thread = _harper_wait_snapshot()
     wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
     try:
-        from plugin.framework.config import get_grammar_provider
+        from plugin.writer.locale.grammar_worker import get_grammar_provider
 
         provider = get_grammar_provider() or "harper"
     except Exception:
@@ -636,7 +636,8 @@ def maybe_start_harper_async(
     (parent of writeragent.json). Empty path is a no-op. WriterAgent starts from OnStartApp;
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
-    from plugin.framework.config import get_grammar_provider, is_grammar_enabled, user_config_dir as get_ucd
+    from plugin.framework.config import user_config_dir as get_ucd
+    from plugin.writer.locale.grammar_worker import get_grammar_provider, is_grammar_enabled
     from plugin.framework.uno_context import is_libreharper
 
     if not is_libreharper():

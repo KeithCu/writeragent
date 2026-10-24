@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 # Import; tests patch core.logging and init_logging per test
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.client.stream_normalizer import normalize_message_content
+from plugin.framework.client.response_normalizers import normalize_message_content
 
 
 def _make_sse_lines(*chunks, done=True):

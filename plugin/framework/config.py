@@ -423,49 +423,6 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
     return {}
 
 
-def is_grammar_enabled() -> bool:
-    """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
-    return get_grammar_provider() != "off"
-
-
-def get_grammar_provider() -> str:
-    """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
-    from plugin.framework.uno_context import is_libreharper
-
-    if is_libreharper():
-        return "harper"
-
-    val = get_config("doc.grammar_proofreader_enabled")
-    if isinstance(val, bool):
-        return "llm" if val else "off"
-    val_str = str(val).strip().lower()
-    if val_str == "true":
-        return "llm"
-    if val_str in ("llm", "languagetool", "vale", "harper"):
-        return val_str
-
-    return "off"
-
-
-def grammar_checker_identity() -> str:
-    """Stable cache/file identity for the active grammar checker.
-
-    Local engines use a sentinel (``harper`` / ``languagetool`` / ``vale``).
-    LLM uses ``llm:`` plus the resolved model from ``get_grammar_model()``.
-    """
-    provider = get_grammar_provider()
-    if provider in ("harper", "languagetool", "vale"):
-        return provider
-    if provider == "off":
-        return "off"
-    try:
-        from plugin.framework.client.model_fetcher import get_grammar_model
-
-        return f"llm:{get_grammar_model() or ''}"
-    except (ImportError, ModuleNotFoundError):
-        return "llm:unknown"
-
-
 def get_current_endpoint() -> str:
     """Return the current endpoint URL from config, normalized (stripped)."""
     return str(get_config("endpoint") or "").strip()

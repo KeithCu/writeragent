@@ -274,7 +274,8 @@ class BaseProviderShim:
         return self._post(self._url("/chat/completions"), data)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
-        from .stream_normalizer import extract_thinking_from_delta, normalize_message_content
+        from .response_normalizers import normalize_message_content
+        from .stream_normalizer import extract_thinking_from_delta
 
         choices = chunk.get("choices", [])
         # Unexpected schema (string "choices", non-dict first element) used to
@@ -305,7 +306,8 @@ class BaseProviderShim:
         return content, finish_reason, thinking, delta
 
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
-        from .stream_normalizer import normalize_delta, normalize_message_content
+        from .response_normalizers import normalize_message_content
+        from .stream_normalizer import normalize_delta
 
         # Local models (Ollama) can return {"done_reason": "stop", "message": ...}
         # with no top-level "choices". Prefer choices[0] when present, and fall

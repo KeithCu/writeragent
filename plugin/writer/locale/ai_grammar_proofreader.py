@@ -352,7 +352,8 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     active grammar checker under Tools → Options → Language Settings → Writing aids.
     """
     from plugin.framework.logging import init_logging
-    from plugin.framework.config import init_config, is_grammar_enabled, user_config_dir
+    from plugin.framework.config import init_config, user_config_dir
+    from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
     init_logging(ctx)
     log.debug("[grammar] ensure_proofreader_selection: entry")
@@ -680,7 +681,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
-        from plugin.framework.config import is_grammar_enabled
+        from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
         enabled = self._always_enabled or is_grammar_enabled()
         loc_raw = (getattr(a_locale, "Language", "") or "") if self._always_enabled else _locale_key(a_locale)
@@ -764,7 +765,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _active_grammar_provider(self) -> str:
         """Pinned instance provider (LibreHarper) or current config (WriterAgent)."""
-        from plugin.framework.config import get_grammar_provider
+        from plugin.writer.locale.grammar_worker import get_grammar_provider
 
         return self._provider or get_grammar_provider()
 
@@ -892,7 +893,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 elif provider in ("harper", "languagetool", "vale"):
                     checker_identity = provider
                 else:
-                    from plugin.framework.config import grammar_checker_identity
+                    from plugin.writer.locale.grammar_persistence import grammar_checker_identity
 
                     checker_identity = grammar_checker_identity()
 

@@ -44,6 +44,30 @@ _GRAMMAR_CHAT_EXTRA = {"reasoning": {"effort": "minimal"}}
 _grammar_worker_tls = threading.local()
 
 
+def is_grammar_enabled() -> bool:
+    """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
+    return get_grammar_provider() != "off"
+
+
+def get_grammar_provider() -> str:
+    """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
+    from plugin.framework.uno_context import is_libreharper
+
+    if is_libreharper():
+        return "harper"
+
+    val = config.get_config("doc.grammar_proofreader_enabled")
+    if isinstance(val, bool):
+        return "llm" if val else "off"
+    val_str = str(val).strip().lower()
+    if val_str == "true":
+        return "llm"
+    if val_str in ("llm", "languagetool", "vale", "harper"):
+        return val_str
+
+    return "off"
+
+
 def reset_grammar_llm_client_cache() -> None:
     """Clear thread-local cached LlmClient instance (for tests and cleanup)."""
     cached = getattr(_grammar_worker_tls, "client", None)
@@ -280,7 +304,7 @@ def run_grammar_check(
 ) -> None:
     """Grammar check dispatcher: executes LLM, LanguageTool, Vale, or Harper, then caches results."""
     try:
-        from plugin.framework.config import get_grammar_provider, user_config_dir
+        from plugin.framework.config import user_config_dir
 
         # Always use the job's explicit provider if present, even if it is not
         # the current default config, so that background retry and cache
@@ -840,13 +864,11 @@ def requeue_individual_item(
 def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
     """Return False when the batch should not run (grammar off or agent pause)."""
     item_provider = items[0].provider if items and items[0].provider else ""
-    if not item_provider and not config.is_grammar_enabled():
+    if not item_provider and not is_grammar_enabled():
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
     pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
     if pause_during_agent and send_cancellation.is_agent_active():
-        from plugin.framework.config import get_grammar_provider
-
         # Local engines do not share the LLM request lane; only pause the LLM provider.
         active_prov = item_provider or get_grammar_provider()
         if active_prov not in ("harper", "languagetool", "vale"):
@@ -1011,8 +1033,6 @@ def run_llm_and_cache_batch(
 
         gq_to_use.begin_status_cycle()
         status_cycle_started = True
-
-        from plugin.framework.config import get_grammar_provider
 
         provider = (items[0].provider if items and items[0].provider else "") or get_grammar_provider()
         # Local engines never need LlmClient / model_fetcher (and must not import framework.client package).

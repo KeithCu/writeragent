@@ -96,11 +96,11 @@ def grammar_max_in_flight(ctx: Any = None) -> int:
     Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
     drain threads and HTTP slots apply only when the grammar provider is LLM.
     """
-    from plugin.framework import config
+    from plugin.writer.locale.grammar_worker import get_grammar_provider
 
     del ctx
     n = _clamped_int_config("doc.grammar_proofreader_max_in_flight", default=1, lo=1, hi=GRAMMAR_MAX_IN_FLIGHT)
-    if config.get_grammar_provider() != "llm":
+    if get_grammar_provider() != "llm":
         # Harper / LanguageTool / Vale: never parallel drain threads.
         if n > 1:
             _log.debug("[grammar] max_in_flight=%s ignored for local provider (always 1)", n)

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
 
-from .response_normalizers import prepare_chat_messages, strip_leaked_chat_template_control_tokens
+from .response_normalizers import normalize_message_content, prepare_chat_messages, strip_leaked_chat_template_control_tokens
 
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
@@ -88,7 +88,6 @@ from .stream_normalizer import (
     iterate_sse,
     new_streaming_thinking_meta,
     normalize_delta,
-    normalize_message_content,
     strip_think_tags,
 )
 from .provider_detection import is_openrouter_endpoint

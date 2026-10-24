@@ -65,6 +65,27 @@ def _text_of(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def normalize_message_content(raw: Any) -> str | None:
+    """Return a single string from API message content (string or list of parts)."""
+    # crosshair: off
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts = []
+        for item in raw:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                # Bugfix: a non-string text (a nested object) reached str.join
+                # and the stream loop turned the TypeError into NetworkError.
+                if item.get("type") == "text" or "text" in item:
+                    parts.append(_text_of(item.get("text")))
+        return "".join(parts) if parts else None
+    return str(raw)
+
+
 def _has_date_line(text: str, date_msg: str) -> bool:
     """Return True if date_msg or standard date prefix appears anywhere in text."""
     return date_msg in text or "Today's date is " in text

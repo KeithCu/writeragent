@@ -1294,8 +1294,8 @@ def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) ->
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicMock) -> None:
     with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_provider", return_value="harper"):
+         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
+         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="harper"):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is True
         assert mock_bg.call_count == 1
@@ -1312,8 +1312,8 @@ def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicM
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, return_value, return_value_2) -> None:
     with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.framework.config.is_grammar_enabled", return_value=return_value), \
-         patch("plugin.framework.config.get_grammar_provider", return_value=return_value_2):
+         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=return_value), \
+         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=return_value_2):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()

@@ -44,7 +44,8 @@ def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -
 
 def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
     from unittest.mock import patch
-    from plugin.framework.config import get_grammar_provider, grammar_checker_identity, is_grammar_enabled
+    from plugin.writer.locale.grammar_persistence import grammar_checker_identity
+    from plugin.writer.locale.grammar_worker import get_grammar_provider, is_grammar_enabled
     from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
     from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
 
@@ -90,7 +91,7 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
 
         ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED = True
         with (
-            patch("plugin.framework.config.is_grammar_enabled", return_value=False),
+            patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=False),
             patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
         ):
             assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"

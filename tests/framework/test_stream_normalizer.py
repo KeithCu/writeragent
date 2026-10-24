@@ -5,7 +5,8 @@
 
 
 from plugin.framework.client import stream_normalizer as sn
-from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse, normalize_delta, normalize_message_content
+from plugin.framework.client.response_normalizers import normalize_message_content
+from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse, normalize_delta
 from plugin.tests.testing_utils import create_mock_http_response
 import pytest
 

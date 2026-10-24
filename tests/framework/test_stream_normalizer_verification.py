@@ -394,7 +394,6 @@ def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
     assert not any(f.endswith(".reasoning_replay_from_assistant_response") for f in fqns), 'reasoning_replay_from_assistant_response'
     assert not any(f.endswith("._normalize_stream_delta") for f in fqns), '_normalize_stream_delta'
     assert not any(f.endswith("._thinking_text_from_delta") for f in fqns), '_thinking_text_from_delta'
-    assert not any(f.endswith(".normalize_message_content") for f in fqns), 'normalize_message_content'
     assert not any(f.endswith("._normalize_delta_tool_calls_ok") for f in fqns), '_normalize_delta_tool_calls_ok'
     assert not any(f.endswith(".ThinkTagStreamSplitter.feed") for f in fqns), 'ThinkTagStreamSplitter.feed'
     assert not any(f.endswith(".strip_think_tags") for f in fqns), 'strip_think_tags'

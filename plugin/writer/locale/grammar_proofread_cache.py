@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.config import grammar_checker_identity
-
-from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
+from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_checker_identity, grammar_registry
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_NORMALIZATION_RE,
     MAX_CACHE_SIZE,

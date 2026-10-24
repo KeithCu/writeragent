@@ -1164,7 +1164,7 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
     ctx = MagicMock()
     with (
         patch("plugin.framework.config.init_config"),
-        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"),
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
@@ -1178,7 +1178,7 @@ def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_d
     ctx = MagicMock()
     with (
         patch("plugin.framework.config.init_config"),
-        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value=""),
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
@@ -1327,7 +1327,7 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
     s2 = "They is wrong."
 
     with (
-        patch("plugin.framework.config.grammar_checker_identity", return_value="llm:gpt-test"),
+        patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="llm:gpt-test"),
         patch.object(pr, "_active_grammar_provider", return_value="llm"),
     ):
         pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
