@@ -2,15 +2,14 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc cell navigation helpers and sidebar ``cell://`` link rendering."""
+"""Calc cell navigation helpers."""
 
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from html import unescape
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 
 
 from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
@@ -21,11 +20,7 @@ log = logging.getLogger("writeragent.calc")
 
 _XACCESSIBLE_TEXT = "com.sun.star.accessibility.XAccessibleText"
 
-
-# HTML: <a href="cell://B2">B2</a> (Calc chat uses HTML, not markdown)
-_CELL_LINK_HTML_RE = re.compile(r'(href\s*=\s*)(["\'])cell://([^"\']+)\2', re.IGNORECASE)
 _CELL_HREF_RE = re.compile(r"""href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1""", re.IGNORECASE)
-_CELL_LINK_ANCHOR_RE = re.compile(r"""<a\s+[^>]*href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1[^>]*>(.*?)</a>""", re.IGNORECASE | re.DOTALL)
 # Plain cell address (optional sheet prefix): Sheet1.B2, Excel Sheet1!B2, or B2.
 # Canonical form is always the Calc dot (Sheet1.B2).
 _CELL_ADDRESS_RE = re.compile(r"^(?:(?:'([^']+)'|([^.!]+))[.!])?([A-Z]{1,3})(\d{1,7})$", re.IGNORECASE)
@@ -100,61 +95,6 @@ def normalize_cell_address(raw: str) -> str | None:
     if sheet:
         return f"{sheet}.{addr}"
     return addr
-
-
-def extract_cell_links_from_html(html: str) -> list[tuple[str, str]]:
-    """Return ``(label, address)`` pairs from HTML ``cell://`` anchors in document order."""
-    if not html or "cell://" not in html.lower() and WRITERAGENT_CELL_URL_PREFIX not in html.lower():
-        return []
-    links: list[tuple[str, str]] = []
-    for match in _CELL_LINK_ANCHOR_RE.finditer(html):
-        addr = normalize_cell_address(match.group(2))
-        label = re.sub(r"<[^>]+>", "", match.group(3))
-        label = unescape(label).strip()
-        if addr and label:
-            links.append((label, addr))
-    return links
-
-
-def render_calc_cell_refs(text: str) -> str:
-    """Rewrite ``cell://`` in HTML ``<a href>`` to the internal sidebar link scheme."""
-    if not text or "cell://" not in text.lower():
-        return text
-
-    def _rewrite_href(match: re.Match[str]) -> str:
-        prefix, quote, raw_addr = match.group(1), match.group(2), match.group(3)
-        addr = normalize_cell_address(raw_addr)
-        if not addr:
-            return match.group(0)
-        return f"{prefix}{quote}{WRITERAGENT_CELL_URL_PREFIX}{addr}{quote}"
-
-    return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
-
-
-def cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
-    links: list[tuple[str, str]] = []
-    for _role, content in rows:
-        rendered = render_calc_cell_refs(content) if content else content
-        links.extend(extract_cell_links_from_html(rendered or ""))
-    return links
-
-
-def portion_cell_href(portion: Any) -> str | None:
-    """Read a ``cell://`` or ``writeragent-cell://`` URL from a Writer text portion, if any."""
-    if portion is None:
-        return None
-    for prop in ("HyperLinkURL", "HyperlinkURL", "HYPERLINK"):
-        url = getattr(portion, prop, None)
-        if isinstance(url, str) and url and ("cell://" in url.lower() or WRITERAGENT_CELL_URL_PREFIX in url.lower()):
-            return url
-    return None
-
-
-def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
-    """True when *text* is a cell address and the portion is underlined like a hyperlink."""
-    if not text or normalize_cell_address(text.strip()) is None:
-        return False
-    return int(getattr(portion, "CharUnderline", 0) or 0) != 0
 
 
 def register_cell_link_span(control: Any, start: int, end: int, address: str) -> None:

@@ -27,6 +27,7 @@ import logging
 import re
 from typing import Any, cast
 
+from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX, normalize_cell_address
 from plugin.framework.appearance import get_theme_colors
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
@@ -155,6 +156,25 @@ def strip_legacy_ai_label(text: str) -> str:
     if not text:
         return text
     return _LEGACY_AI_LABEL_RE.sub("", text, count=1)
+
+
+# HTML: <a href="cell://B2">B2</a> (Calc chat uses HTML, not markdown)
+_CELL_LINK_HTML_RE = re.compile(r'(href\s*=\s*)(["\'])cell://([^"\']+)\2', re.IGNORECASE)
+
+
+def render_calc_cell_refs(text: str) -> str:
+    """Rewrite ``cell://`` in HTML ``<a href>`` to the internal sidebar link scheme."""
+    if not text or "cell://" not in text.lower():
+        return text
+
+    def _rewrite_href(match: re.Match[str]) -> str:
+        prefix, quote, raw_addr = match.group(1), match.group(2), match.group(3)
+        addr = normalize_cell_address(raw_addr)
+        if not addr:
+            return match.group(0)
+        return f"{prefix}{quote}{WRITERAGENT_CELL_URL_PREFIX}{addr}{quote}"
+
+    return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
 
 
 USER_COLOR = 0x2A6099
@@ -397,8 +417,6 @@ def _append_rich_text_with_span(
 
         if text and text.strip():
             text = strip_legacy_ai_label(text) if role == "assistant" else text
-            from plugin.calc.navigation import render_calc_cell_refs
-
             text = render_calc_cell_refs(text)
 
         # Park anchor before the insert point so added span includes separator and prefix.

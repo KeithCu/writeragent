@@ -9,17 +9,12 @@ from unittest.mock import MagicMock, patch
 from plugin.calc.navigation import (
     WRITERAGENT_CELL_URL_PREFIX,
     _accessible_text,
-    cell_links_for_rows,
     _char_index_at_point,
     _click_text_index,
     cell_link_registry,
     cell_ref_at_index,
-    extract_cell_links_from_html,
     lookup_cell_ref_at_index,
     normalize_cell_address,
-    portion_cell_href,
-    portion_looks_like_cell_link,
-    render_calc_cell_refs,
 )
 
 
@@ -38,48 +33,6 @@ def test_normalize_cell_address_simple():
     assert normalize_cell_address("'My Sheet'.B2") == "My Sheet.B2"
     assert normalize_cell_address("'My-Sheet'.B2") == "My-Sheet.B2"
     assert normalize_cell_address("My_Sheet.B2") == "My_Sheet.B2"
-
-
-def test_render_calc_cell_refs_html():
-    text = (
-        '<p>See <a href="cell://B2">B2</a> and <a href=\'cell://Sheet1.C3\'>C3</a> '
-        'and <a href="cell://Orders!A1">A1</a>.</p>'
-    )
-    out = render_calc_cell_refs(text)
-    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}B2"' in out
-    assert f"href='{WRITERAGENT_CELL_URL_PREFIX}Sheet1.C3'" in out
-    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}Orders.A1"' in out
-    assert 'href="cell://' not in out.lower()
-    assert "href='cell://" not in out.lower()
-
-
-def test_extract_cell_links_from_html():
-    html = (
-        '<p>See <a href="cell://B2">B2</a> and <a href="writeragent-cell://C3">cell C3</a> '
-        'and <a href="cell://Orders!A1">jump</a>.</p>'
-    )
-    assert extract_cell_links_from_html(html) == [
-        ("B2", "B2"),
-        ("cell C3", "C3"),
-        ("jump", "Orders.A1"),
-    ]
-
-
-def test_render_calc_cell_refs_passthrough():
-    assert render_calc_cell_refs("no links here") == "no links here"
-    assert render_calc_cell_refs("") == ""
-
-
-def test_cell_links_for_rows():
-    rows = [
-        ("user", "Check cell A1"),
-        ("assistant", '<a href="cell://Sheet1.B2">B2</a> and <a href="cell://C3">C3</a>'),
-        ("user", ""),
-    ]
-    assert cell_links_for_rows(rows) == [
-        ("B2", "Sheet1.B2"),
-        ("C3", "C3"),
-    ]
 
 
 def test_cell_link_registry_lookup():
@@ -124,22 +77,6 @@ def test_accessible_text_query_interface_uses_uno_type():
         assert _accessible_text(control) is axtext
         mock_uno.getTypeByName.assert_called_with("com.sun.star.accessibility.XAccessibleText")
         ctx.queryInterface.assert_called_once_with(type_mock)
-
-
-def test_portion_cell_href():
-    p = SimpleNamespace(HyperLinkURL="cell://Sheet1.A1")
-    assert portion_cell_href(p) == "cell://Sheet1.A1"
-    assert portion_cell_href(None) is None
-    p_none = SimpleNamespace()
-    assert portion_cell_href(p_none) is None
-
-
-def test_portion_looks_like_cell_link():
-    p = SimpleNamespace(CharUnderline=1)
-    assert portion_looks_like_cell_link(p, "A1") is True
-    assert portion_looks_like_cell_link(p, "not_cell") is False
-    p_no_ul = SimpleNamespace(CharUnderline=0)
-    assert portion_looks_like_cell_link(p_no_ul, "A1") is False
 
 
 def test_click_text_index():
