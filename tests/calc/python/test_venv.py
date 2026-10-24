@@ -150,21 +150,21 @@ def test_execute_releases_doc_pin_when_script_raises(mock_run):
 
 
 def test_strip_image_payloads():
-    from plugin.calc.python.venv import _strip_image_payloads
+    from plugin.scripting.payload_codec import strip_image_payloads
 
     image = {"__wa_payload__": "image", "data": b"123", "format": "png"}
 
     # An image dict becomes "<image>"
-    assert _strip_image_payloads(image) == "<image>"
+    assert strip_image_payloads(image) == "<image>"
 
     # [1, None, image, 3] stays length 4 with None kept
-    res_list = _strip_image_payloads([1, None, image, 3])
+    res_list = strip_image_payloads([1, None, image, 3])
     assert res_list == [1, None, "<image>", 3]
     assert len(res_list) == 4
 
     # [[1, 2]] stays [[1, 2]]
-    assert _strip_image_payloads([[1, 2]]) == [[1, 2]]
+    assert strip_image_payloads([[1, 2]]) == [[1, 2]]
 
     # { "a": None, "b": image } keeps both keys
-    res_dict = _strip_image_payloads({"a": None, "b": image})
+    res_dict = strip_image_payloads({"a": None, "b": image})
     assert res_dict == {"a": None, "b": "<image>"}

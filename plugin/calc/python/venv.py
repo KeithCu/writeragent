@@ -17,7 +17,7 @@ from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data_on_main_thread
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
-from plugin.scripting.payload_codec import find_image_payloads, is_image_payload, write_image_payload_to_temp
+from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 if TYPE_CHECKING:
@@ -111,23 +111,6 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
     return desc, params
 
 
-# Bugfix: What was wrong: _strip_image_payloads dropped image payloads completely, collapsed lists, and dropped dictionary keys.
-# How it happened: It filtered out None values resulting from image payloads, which altered list lengths and deleted dictionary keys or omitted the result key entirely.
-# Why this change fixes it: It replaces any image payload with "<image>" while preserving collection lengths, sequence ordering, and dictionary keys.
-_IMAGE_PLACEHOLDER = "<image>"
-
-
-def _strip_image_payloads(obj: Any) -> Any:
-    """Return result with image payloads replaced by '<image>', preserving structure."""
-    if is_image_payload(obj):
-        return _IMAGE_PLACEHOLDER
-    if isinstance(obj, (list, tuple)):
-        return [_strip_image_payloads(x) for x in obj]
-    if isinstance(obj, dict):
-        return {str(k): _strip_image_payloads(v) for k, v in obj.items()}
-    return obj
-
-
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
@@ -219,7 +202,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 stdout_val = res.get("stdout")
                 if stdout_val:
                     out["stdout"] = stdout_val
-                stripped_result = _strip_image_payloads(result)
+                stripped_result = strip_image_payloads(result)
                 if stripped_result is not None:
                     out["result"] = stripped_result
 

@@ -635,6 +635,23 @@ def find_image_payloads(
     return []
 
 
+# Bugfix: What was wrong: strip_image_payloads dropped image payloads completely, collapsed lists, and dropped dictionary keys.
+# How it happened: It filtered out None values resulting from image payloads, which altered list lengths and deleted dictionary keys or omitted the result key entirely.
+# Why this change fixes it: It replaces any image payload with "<image>" while preserving collection lengths, sequence ordering, and dictionary keys.
+_IMAGE_PLACEHOLDER = "<image>"
+
+
+def strip_image_payloads(obj: Any) -> Any:
+    """Return result with image payloads replaced by '<image>', preserving structure."""
+    if is_image_payload(obj):
+        return _IMAGE_PLACEHOLDER
+    if isinstance(obj, (list, tuple)):
+        return [strip_image_payloads(x) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): strip_image_payloads(v) for k, v in obj.items()}
+    return obj
+
+
 def image_payload_suffix(payload: dict[str, Any]) -> str:
     """Return a temp-file suffix for *payload* (``.svg`` or ``.png``)."""
     # crosshair: off

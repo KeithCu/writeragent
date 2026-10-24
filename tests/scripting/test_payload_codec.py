@@ -2284,6 +2284,22 @@ def test_find_image_payloads_shared_image_and_wrapper() -> None:
     assert find_image_payloads({"a": box, "b": box}) == [img]
 
 
+def test_strip_image_payloads() -> None:
+    from plugin.scripting.payload_codec import PAYLOAD_IMAGE, strip_image_payloads
+
+    image = {"__wa_payload__": PAYLOAD_IMAGE, "data": b"123", "format": "png"}
+    assert strip_image_payloads(image) == "<image>"
+
+    res_list = strip_image_payloads([1, None, image, 3])
+    assert res_list == [1, None, "<image>", 3]
+    assert len(res_list) == 4
+
+    assert strip_image_payloads([[1, 2]]) == [[1, 2]]
+
+    res_dict = strip_image_payloads({"a": None, "b": image})
+    assert res_dict == {"a": None, "b": "<image>"}
+
+
 def test_write_image_payload_to_temp_unlinks_when_write_fails() -> None:
     """delete=False used to leave the file when data was not bytes."""
     import os
