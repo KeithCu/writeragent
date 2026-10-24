@@ -141,6 +141,6 @@ class TestBusyPlaceholderSemantics:
         assert "#BUSY!" == "#BUSY!"
 
     def test_error_field_on_sandbox_failure(self) -> None:
-        out = execute_code("import os\nresult = os.name")
+        out = execute_code("import subprocess\nresult = subprocess")
         assert out["status"] == "error"
         assert "error" in out

@@ -530,7 +530,7 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
         os_allowed = ("os" in relaxed_roots) or ("os" in extras_roots)
         if val.__name__ == "os" and not isinstance(val, _FileOsProxy) and not os_allowed:
             raise InterpreterError(f"Forbidden access to module: {val.__name__}")
-        if not check_import_authorized(val.__name__, authorized_imports or []):
+        if not _is_module_authorized(val.__name__, authorized_imports):
             raise InterpreterError(f"Forbidden access to module: {val.__name__}")
     elif callable(val):
         mod = getattr(val, "__module__", None)
@@ -761,6 +761,19 @@ def check_import_authorized(import_to_check: str, authorized_imports: list[str])
     from plugin.scripting.sandbox import import_authorized
 
     return import_authorized(import_to_check, authorized_imports)
+
+
+def _is_module_authorized(name: str, authorized_imports: list[str] | None = None) -> bool:
+    if check_import_authorized(name, authorized_imports or []):
+        return True
+    alias = (
+        "writeragent"
+        if name == "plugin.scripting.writeragent_api"
+        else ("writeragent" + name[len("plugin"):])
+        if name.startswith("plugin.")
+        else None
+    )
+    return alias is not None and check_import_authorized(alias, authorized_imports or [])
 
 
 def evaluate_attribute(
@@ -1943,7 +1956,7 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
     if root in relaxed_roots:
         return raw_module
 
-    if not check_import_authorized(name, authorized_imports or []):
+    if not _is_module_authorized(name, authorized_imports):
         return ModuleType(name)
 
     if name in ("operator", "string"):

@@ -251,3 +251,18 @@ def test_sandboxed_code_writeragent_analysis_without_api():
     assert response["status"] == "ok", response.get("message")
     assert response["result"] is True
 
+
+def test_sandboxed_code_writeragent_vision_as_module():
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+    register_alias_importer()
+    _clear_writeragent_modules()
+    code = (
+        "import writeragent.vision as v\n"
+        "result = callable(v.run_vision)\n"
+    )
+    response = run_sandboxed_code(code)
+    assert response["status"] == "ok", response.get("message")
+    assert response["result"] is True
+
+
