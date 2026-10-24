@@ -139,6 +139,17 @@ def duration_serial_from_iso(text: str) -> float:
     return float(td.total_seconds()) / 86400.0
 
 
+def time_day_fraction(value: datetime.time | datetime.datetime) -> float:
+    return (value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000.0) / 86400.0
+
+
+def datetime_serial(dt: datetime.date | datetime.datetime, null_dt: datetime.date) -> float:
+    if isinstance(dt, datetime.datetime):
+        days = (dt.date() - null_dt).days
+        return float(days) + time_day_fraction(dt)
+    return float((dt - null_dt).days)
+
+
 def iso_duration_from_serial(serial: float) -> str:
     """Emit compact ``PTnHnMnS`` with hours allowed to exceed 24 (not ``P1DT6H``).
 

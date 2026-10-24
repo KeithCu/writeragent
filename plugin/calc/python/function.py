@@ -24,12 +24,14 @@ from plugin.framework.uno_listeners import BaseModifyListener
 from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
 from plugin.calc.datetime_wire import (
-    format_category_from_type,
     coalesce_temporal_apply_rects,
+    datetime_serial,
     duration_serial_from_iso,
+    format_category_from_type,
     match_iso_duration,
     match_iso_temporal,
     should_preserve_temporal_format,
+    time_day_fraction,
 )
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
@@ -38,8 +40,8 @@ from plugin.framework.i18n import _
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, find_image_payloads
-from plugin.scripting.calc_range import dataframe_to_labeled_grid
+from plugin.scripting.payload_codec import find_image_payloads, is_split_grid
+from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -96,51 +98,6 @@ def _unwrap_single_cell(py_data: Any) -> Any:
     while isinstance(val, list) and len(val) == 1:
         val = val[0]
     return val
-
-
-def _host_ndarray_as_list(value: Any) -> list[Any] | None:
-    """Turn a NumPy array into a nested list without importing NumPy on the host.
-
-    ``tolist`` is the array method. A small numeric result that stays an
-    ndarray across the pipe fails ``float()`` when the array has more than
-    one cell, and ``to_calc_compatible`` then returns the array's text.
-    Pandas objects are left alone (their module is not ``numpy``).
-    """
-    if isinstance(value, (str, bytes, bytearray, list, tuple, dict)) or value is None:
-        return None
-    module = getattr(type(value), "__module__", "")
-    if not (isinstance(module, str) and (module == "numpy" or module.startswith("numpy."))):
-        return None
-    tolist = getattr(value, "tolist", None)
-    if not callable(tolist):
-        return None
-    try:
-        listed = tolist()
-    except Exception:
-        log.debug("result_to_calc_grid: ndarray tolist failed", exc_info=True)
-        return None
-    if isinstance(listed, list):
-        return listed
-    return None
-
-
-def result_to_calc_grid(result: Any) -> Any:
-    """Normalize worker results for Calc consumers.
-
-    DataFrame envelopes become a labeled 2D grid (header row + body).
-    Lists pass through. A leftover ndarray body is converted with ``tolist``.
-    """
-    if is_dataframe_payload(result):
-        cols = list(result.get("columns") or [])
-        data = result.get("data")
-        if not isinstance(data, list):
-            listed = _host_ndarray_as_list(data)
-            data = listed if listed is not None else []
-        return dataframe_to_labeled_grid(cols, data)
-    listed = _host_ndarray_as_list(result)
-    if listed is not None:
-        return listed
-    return result
 
 
 _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
@@ -1029,17 +986,6 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
-def _time_day_fraction(value: datetime.time | datetime.datetime) -> float:
-    return (value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000.0) / 86400.0
-
-
-def _datetime_serial(dt: datetime.date | datetime.datetime, null_dt: datetime.date) -> float:
-    if isinstance(dt, datetime.datetime):
-        days = (dt.date() - null_dt).days
-        return float(days) + _time_day_fraction(dt)
-    return float((dt - null_dt).days)
-
-
 def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
     """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
 
@@ -1065,15 +1011,15 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
 
     if isinstance(val, datetime.datetime):
         dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
-        serial = _datetime_serial(dt, null_dt)
+        serial = datetime_serial(dt, null_dt)
         return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.date):
-        serial = _datetime_serial(val, null_dt)
+        serial = datetime_serial(val, null_dt)
         return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.time):
-        serial = _time_day_fraction(val)
+        serial = time_day_fraction(val)
         return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
 
     if isinstance(val, datetime.timedelta):
@@ -1131,15 +1077,15 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             try:
                 if cat == "date":
                     d = datetime.date.fromisoformat(stripped)
-                    serial = _datetime_serial(d, null_dt)
+                    serial = datetime_serial(d, null_dt)
                     return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
                 elif cat == "datetime":
                     dt = datetime.datetime.fromisoformat(stripped.replace(" ", "T"))
-                    serial = _datetime_serial(dt, null_dt)
+                    serial = datetime_serial(dt, null_dt)
                     return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
                 elif cat == "time":
                     t = datetime.time.fromisoformat(stripped)
-                    serial = _time_day_fraction(t)
+                    serial = time_day_fraction(t)
                     return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
             except ValueError:
                 pass
@@ -1564,7 +1510,9 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     # RuntimeUID or the workbook session id) never sees this timer, so the
     # closure keeps ctx, the code, the grid, and the cached document after
     # the book closes.
-    lkey = _off_main_spill_lifecycle_key(doc)
+    from plugin.calc.python.workbook_lifecycle import off_main_spill_lifecycle_key
+
+    lkey = off_main_spill_lifecycle_key(doc)
     t = _new_spill_timer(0.1, _deferred)
     if lkey:
         _register_spill_timer(lkey, t, token=f"code:{code}")
@@ -1803,18 +1751,6 @@ def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
     timer = threading.Timer(delay_sec, _fire)
     pending.append(timer)
     return timer
-
-
-def _off_main_spill_lifecycle_key(doc: Any | None) -> str:
-    """Workbook key for an off-main spill timer, without UNO off the UI thread."""
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.calc.python.workbook_lifecycle import _lifecycle_key, lifecycle_key_if_known
-
-    if doc is not None and on_main_thread():
-        key = best_effort(lambda: _lifecycle_key(doc), "off-main spill lifecycle key")
-        if key:
-            return key
-    return lifecycle_key_if_known(doc)
 
 
 def _register_spill_timer(lifecycle_key: str, timer: threading.Timer, *, token: str = "") -> None:
@@ -2081,27 +2017,12 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             _emit_py_timing(code=code, total_ms=total_ms, pack_ms=pack_ms, ipc_ms=ipc_ms, image_ms=image_ms, cached=used_cache, pass_start=getattr(_PY_PASS_STATS, "pass_start", t_enter), n=_PY_PASS_STATS.n, pass_sum_ms=int(_PY_PASS_STATS.sum_ms), last_end=_PY_PASS_STATS.last_end)
 
 
-def _diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
-    """Stable workbook key for the diagnostics store (UNO-light best effort).
-
-    Uses the calling document only, and only reads an existing session id
-    (``existing_calc_session_id`` does not mint a UDProp).
-    """
-    from plugin.framework.thread_guard import on_main_thread
-
-    if doc is None or not on_main_thread():
-        return "unknown"
-    from plugin.scripting.session_manager import existing_calc_session_id
-
-    return best_effort(lambda: existing_calc_session_id(doc) or "unknown", "diagnostics workbook key", "unknown")
-
-
 def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:
     """Record stdout/errors for the LibrePy sidebar without extra UNO work.
 
     Skips successful evaluations with empty stdout so the log stays actionable.
     """
-    from plugin.calc.python.diagnostics import record_python_eval
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, record_python_eval
 
     stdout = ""
     tb = traceback
@@ -2117,7 +2038,7 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
         return
     best_effort(
         lambda: record_python_eval(
-            workbook_key=_diagnostics_workbook_key(ctx, doc=doc),
+            workbook_key=diagnostics_workbook_key(ctx, doc=doc),
             code=code or "",
             status=status,
             message=msg,

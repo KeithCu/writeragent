@@ -14,6 +14,7 @@ imports live inside conversion methods (venv only).
 
 from __future__ import annotations
 
+import logging
 import math
 import operator
 from typing import Any, Callable, ClassVar, Iterator, NoReturn, cast
@@ -27,7 +28,9 @@ from plugin.framework.deal_shim import (
     deal,
     str_bounded,
 )
-from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
+from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload, is_dataframe_payload
+
+log = logging.getLogger(__name__)
 
 # Cover: 1×1 grid, int 0, 1-char ascii.
 _DEAL_GRID_DIM = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
@@ -711,6 +714,51 @@ def dataframe_to_labeled_grid(
     return [header] + body
 
 
+def _host_ndarray_as_list(value: Any) -> list[Any] | None:
+    """Turn a NumPy array into a nested list without importing NumPy on the host.
+
+    ``tolist`` is the array method. A small numeric result that stays an
+    ndarray across the pipe fails ``float()`` when the array has more than
+    one cell, and ``to_calc_compatible`` then returns the array's text.
+    Pandas objects are left alone (their module is not ``numpy``).
+    """
+    if isinstance(value, (str, bytes, bytearray, list, tuple, dict)) or value is None:
+        return None
+    module = getattr(type(value), "__module__", "")
+    if not (isinstance(module, str) and (module == "numpy" or module.startswith("numpy."))):
+        return None
+    tolist = getattr(value, "tolist", None)
+    if not callable(tolist):
+        return None
+    try:
+        listed = tolist()
+    except Exception:
+        log.debug("result_to_calc_grid: ndarray tolist failed", exc_info=True)
+        return None
+    if isinstance(listed, list):
+        return listed
+    return None
+
+
+def result_to_calc_grid(result: Any) -> Any:
+    """Normalize worker results for Calc consumers.
+
+    DataFrame envelopes become a labeled 2D grid (header row + body).
+    Lists pass through. A leftover ndarray body is converted with ``tolist``.
+    """
+    if is_dataframe_payload(result):
+        cols = list(result.get("columns") or [])
+        data = result.get("data")
+        if not isinstance(data, list):
+            listed = _host_ndarray_as_list(data)
+            data = listed if listed is not None else []
+        return dataframe_to_labeled_grid(cols, data)
+    listed = _host_ndarray_as_list(result)
+    if listed is not None:
+        return listed
+    return result
+
+
 __all__ = [
     "PAYLOAD_CALC_RANGE",
     "CalcRange",
@@ -721,4 +769,5 @@ __all__ = [
     "materialize_calc_range",
     "materialize_inputs",
     "pack_calc_range_envelope",
+    "result_to_calc_grid",
 ]

@@ -79,7 +79,7 @@ def test_module_singleton_record_python_eval():
 
 def test_diagnostics_workbook_key_uses_caller_doc_only():
     from unittest.mock import MagicMock, patch
-    from plugin.calc.python.function import _diagnostics_workbook_key
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -89,7 +89,7 @@ def test_diagnostics_workbook_key_uses_caller_doc_only():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx") as front_window,
     ):
-        assert _diagnostics_workbook_key(ctx, doc=doc) == "calc:file:///other.ods"
+        assert diagnostics_workbook_key(ctx, doc=doc) == "calc:file:///other.ods"
         # No caller doc: no front-window guess.
-        assert _diagnostics_workbook_key(ctx, doc=None) == "unknown"
+        assert diagnostics_workbook_key(ctx, doc=None) == "unknown"
     front_window.assert_not_called()

@@ -12,8 +12,7 @@ pytest.importorskip("pandas")
 pytest.importorskip("numpy")
 
 from plugin.calc.calc_addin_data import pack_calc_data_for_wire
-from plugin.calc.python.function import result_to_calc_grid
-from plugin.scripting.calc_range import CalcRange, dataframe_to_labeled_grid, materialize_inputs
+from plugin.scripting.calc_range import CalcRange, dataframe_to_labeled_grid, materialize_inputs, result_to_calc_grid
 from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, child_unpack_data, is_calc_range_payload
 from plugin.scripting.venv.coerce import grid_to_dataframe
 

@@ -291,7 +291,8 @@ def test_serialize_result_small_numeric_dataframe_spills_body():
     pd = pytest.importorskip("pandas")
     np = pytest.importorskip("numpy")
     from plugin.scripting.venv.venv_sandbox import serialize_result
-    from plugin.calc.python.function import result_to_calc_grid, to_calc_compatible
+    from plugin.calc.python.function import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
     from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
 
     df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) + 0.5})
@@ -347,7 +348,8 @@ def test_serialize_result_empty_dataframe_and_series():
     """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
     pd = pytest.importorskip("pandas")
     from plugin.scripting.venv.venv_sandbox import serialize_result
-    from plugin.calc.python.function import result_to_calc_grid, to_calc_compatible
+    from plugin.calc.python.function import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
     from plugin.scripting.payload_codec import is_dataframe_payload
 
     df = pd.DataFrame(columns=["A", "B"])
@@ -372,7 +374,8 @@ def test_serialize_result_dataframe_datetime_is_iso_not_unix_epoch():
     pd = pytest.importorskip("pandas")
     from plugin.scripting.venv.venv_sandbox import serialize_result
     from plugin.scripting.payload_codec import host_unpack_data
-    from plugin.calc.python.function import result_to_calc_grid, to_calc_compatible
+    from plugin.calc.python.function import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
 
     df = pd.DataFrame({"d": pd.to_datetime(["2026-06-25", "2026-06-26"])})
     unpacked = host_unpack_data(serialize_result(df))

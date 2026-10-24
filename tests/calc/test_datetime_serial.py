@@ -15,6 +15,7 @@ from plugin.calc.datetime_wire import (
     format_category_from_type,
     iso8601_from_serial,
     coalesce_temporal_apply_rects,
+    datetime_serial,
     duration_serial_from_iso,
     horizontal_apply_runs,
     is_elapsed_format_string,
@@ -26,6 +27,7 @@ from plugin.calc.datetime_wire import (
     is_compatible_temporal_template,
     resolve_s25_row_empties,
     should_preserve_temporal_format,
+    time_day_fraction,
 )
 
 
@@ -248,3 +250,23 @@ def test_calc_serial_iso8601_rounds_float_noise_to_whole_seconds():
     dusty = 0.5 + 1e-12
     assert iso8601_from_serial(dusty, "time", null_date) == "12:00:00"
     assert "." not in iso8601_from_serial(dusty, "datetime", null_date).split("T", 1)[1]
+
+
+def test_time_day_fraction():
+    import datetime
+
+    t = datetime.time(12, 0, 0)
+    assert time_day_fraction(t) == pytest.approx(0.5)
+    t2 = datetime.time(6, 0, 0)
+    assert time_day_fraction(t2) == pytest.approx(0.25)
+
+
+def test_datetime_serial():
+    import datetime
+
+    null_dt = datetime.date(1899, 12, 30)
+    d = datetime.date(2026, 8, 8)
+    assert datetime_serial(d, null_dt) == 46242.0
+
+    dt = datetime.datetime(2026, 8, 8, 12, 0, 0)
+    assert datetime_serial(dt, null_dt) == 46242.5

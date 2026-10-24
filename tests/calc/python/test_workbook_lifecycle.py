@@ -29,6 +29,7 @@ from plugin.calc.python.workbook_lifecycle import (
     ensure_calc_workbook_unload_resets_python,
     ensure_python_session_cleared_on_unload,
     lifecycle_key_if_known,
+    off_main_spill_lifecycle_key,
 )
 from plugin.tests.testing_utils import CalcDocStub
 
@@ -301,5 +302,21 @@ def test_lifecycle_key_runtime_uid_replaces_remembered_fallback(monkeypatch: pyt
     doc.setPropertyValue("RuntimeUID", "uid-later")
     assert _lifecycle_key(doc) == "uid-later"
     assert lifecycle_key_if_known(doc) == "uid-later"
+
+
+def test_off_main_spill_lifecycle_key_on_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="", props={"RuntimeUID": "uid-main"})
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    assert off_main_spill_lifecycle_key(doc) == "uid-main"
+
+
+def test_off_main_spill_lifecycle_key_off_main_uses_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="", props={"RuntimeUID": "uid-cached"})
+    # Warm the cache on the main thread
+    _lifecycle_key(doc)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    assert off_main_spill_lifecycle_key(doc) == "uid-cached"
+    assert off_main_spill_lifecycle_key(None) == ""
+
 
 

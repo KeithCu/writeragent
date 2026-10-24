@@ -133,6 +133,21 @@ def record_python_eval(*, workbook_key: str, code: str, status: str, message: st
     return _STORE.record(workbook_key=workbook_key, code=code, status=status, message=message, stdout=stdout, traceback=traceback, sheet=sheet, address=address)
 
 
+def diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
+    """Stable workbook key for the diagnostics store (UNO-light best effort).
+
+    Uses the calling document only, and only reads an existing session id
+    (``existing_calc_session_id`` does not mint a UDProp).
+    """
+    from plugin.framework.thread_guard import on_main_thread
+
+    if doc is None or not on_main_thread():
+        return "unknown"
+    from plugin.scripting.session_manager import existing_calc_session_id
+
+    return best_effort(lambda: existing_calc_session_id(doc) or "unknown", "diagnostics workbook key", "unknown")
+
+
 def diagnostics_detail_text(entry: DiagnosticEntry) -> str:
     """Multi-line detail for the diagnostics text area."""
     lines = [f"Cell: {entry.address or '(unknown)'}", f"Status: {entry.status}", f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry.timestamp))}", "", "Code:", entry.code or "(empty)"]
