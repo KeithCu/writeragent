@@ -189,6 +189,21 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     return result
 
 
+def _ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]:  # pyright: ignore[reportUnusedFunction]  # imported by web_research.py
+    """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
+    if not query:
+        return []
+    fluff = get_research_fluff_words(snowball_lang=snowball_lang)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for token in tokenize_query_words(query):
+        if token in fluff or len(token) < 3 or token in seen:
+            continue
+        seen.add(token)
+        ordered.append(token)
+    return ordered
+
+
 def research_cache_key_mode(raw_key: str) -> str:
     """``deep`` when the row is a deep-research report; shallow rows are ``""``."""
     if str(raw_key or "").startswith("deep|"):

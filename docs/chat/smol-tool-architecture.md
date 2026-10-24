@@ -94,6 +94,7 @@ flowchart TB
 | Brainstorming, writing plan, deep research turns | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_smol_side_turn` (librarian keeps its own `execute_safe` call so `upsert_memory` can write the chat line; PPT-Master stays on `run_ppt_master_venv_turn`) |
 | Smol few-shot examples (Action/Observation) | [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) — edit in place; refresh with [`scripts/generate_smol_examples.py`](../../scripts/generate_smol_examples.py) |
 | `ToolBase` → smol `inputs` | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `to_smol_inputs` / `SmolToolAdapter` |
+| Sub-agent runner error boundary | [`plugin/chatbot/sub_agent_tools.py`](../../plugin/chatbot/sub_agent_tools.py) — `run_subagent_tool` |
 | Librarian | [`plugin/chatbot/librarian.py`](../../plugin/chatbot/librarian.py) |
 | Specialized delegation | [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py) |
 | Main chat loop | [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py), [`tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) |

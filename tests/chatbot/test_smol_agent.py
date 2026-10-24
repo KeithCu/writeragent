@@ -64,9 +64,9 @@ from plugin.chatbot.smol_agent import (
     SmolToolAdapter,
     WriterAgentSmolModel,
     build_toolcalling_agent,
-    run_subagent_tool,
     to_smol_inputs,
 )
+from plugin.chatbot.sub_agent_tools import run_subagent_tool
 from plugin.chatbot.librarian import (
     LibrarianOnboardingTool,
     get_libreoffice_user_display_name,
@@ -1415,7 +1415,7 @@ class TestRunSubagentTool:
         def failing_runner(c, **kwargs):
             raise RuntimeError("API timeout")
 
-        with caplog.at_level("ERROR", logger="writeragent.smol_agent"):
+        with caplog.at_level("ERROR", logger="writeragent.sub_agent_tools"):
             result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
 
         assert (result.get("status")) == ("error")

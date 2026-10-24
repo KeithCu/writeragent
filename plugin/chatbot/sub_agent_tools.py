@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import logging
+from typing import Any, Callable, ClassVar
 
 from plugin.doc.document_research import (
     DOC_RESEARCH_DISCOVERY_TOOL_NAMES,
     filter_document_research_discovery_tools,
 )
+from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.prompts import (
     WRITER_APPLY_DOCUMENT_HTML_RULES,
     get_chat_response_format_instructions,
 )
 from plugin.framework.tool import ToolBase, ToolContext
+
+log = logging.getLogger("writeragent.sub_agent_tools")
 
 
 class SubAgentResearchWebBase(ToolBase):
@@ -73,5 +77,37 @@ def collect_sub_agent_tools(ctx: ToolContext, active_domain: str) -> list[ToolBa
         if t.name in allow and t.name not in by_name:
             by_name[t.name] = t
     return list(by_name.values())
+
+
+def run_subagent_tool(
+    agent_label: str,
+    runner: Callable[..., dict[str, Any]],
+    ctx: ToolContext,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute a specialized subagent runner with standard error handling.
+
+    Failures are logged with ``log.exception`` so the traceback stays in the
+    log. The payload shown to the model and UI is the exception text only.
+
+    Args:
+        agent_label: Human-readable label for logging and errors (e.g. 'Writing plan', 'PPT-Master').
+        runner: Callable that executes the subagent turn (takes ctx and keyword arguments).
+        ctx: ToolContext for the tool execution.
+        **kwargs: Arguments passed to the tool (query, history_text, topic, etc.).
+
+    Returns:
+        Result dictionary from runner or formatted ToolExecutionError payload.
+    """
+    query = kwargs.get("query")
+    try:
+        return runner(ctx, **kwargs)
+    except Exception as e:
+        # This except is the boundary for subagent runners. log.exception
+        # records the traceback; the payload keeps the exception text only.
+        log.exception("%s execution failed", agent_label)
+        err = ToolExecutionError(f"{agent_label} failed: {str(e)}", details={"query": query})
+        return format_error_payload(err)
+
 
 

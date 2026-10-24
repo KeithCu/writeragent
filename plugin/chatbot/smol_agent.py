@@ -27,7 +27,7 @@ from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, rem
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.chatbot import smol_examples
 from plugin.framework.config import get_api_config, get_config_int
-from plugin.framework.errors import ToolExecutionError, format_error_payload, make_tool_error
+from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.tool import prepare_tool_call
 
@@ -402,37 +402,6 @@ def run_inner_tool_agent(
         stop_message=stop_message,
         error_prefix=error_prefix,
     )
-
-
-def run_subagent_tool(
-    agent_label: str,
-    runner: Callable[..., dict[str, Any]],
-    ctx: ToolContext,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Execute a specialized subagent runner with standard error handling.
-
-    Failures are logged with ``log.exception`` so the traceback stays in the
-    log. The payload shown to the model and UI is the exception text only.
-
-    Args:
-        agent_label: Human-readable label for logging and errors (e.g. 'Writing plan', 'PPT-Master').
-        runner: Callable that executes the subagent turn (takes ctx and keyword arguments).
-        ctx: ToolContext for the tool execution.
-        **kwargs: Arguments passed to the tool (query, history_text, topic, etc.).
-
-    Returns:
-        Result dictionary from runner or formatted ToolExecutionError payload.
-    """
-    query = kwargs.get("query")
-    try:
-        return runner(ctx, **kwargs)
-    except Exception as e:
-        # This except is the boundary for subagent runners. log.exception
-        # records the traceback; the payload keeps the exception text only.
-        log.exception("%s execution failed", agent_label)
-        err = ToolExecutionError(f"{agent_label} failed: {str(e)}", details={"query": query})
-        return format_error_payload(err)
 
 
 def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:

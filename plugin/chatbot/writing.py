@@ -148,6 +148,6 @@ class WritingPlanSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.smol_agent import run_subagent_tool
+        from plugin.chatbot.sub_agent_tools import run_subagent_tool
 
         return run_subagent_tool("Writing plan", _run_writing_agent, ctx, **kwargs)

@@ -106,7 +106,7 @@ class DeepResearchSessionTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.smol_agent import run_subagent_tool
+        from plugin.chatbot.sub_agent_tools import run_subagent_tool
 
         return run_subagent_tool("Deep research", _run_deep_research_agent, ctx, **kwargs)
 
