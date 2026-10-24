@@ -14,12 +14,15 @@ import pytest
 
 from plugin.calc.spreadsheet_import.graph import (
     build_dependency_graph,
-    extract_cell_refs,
     extract_range_refs,
-    filter_refs_to_scope,
     topological_formula_order,
 )
-from plugin.calc.spreadsheet_import.ingest import classify_cell, ingest_from_arrays
+from plugin.calc.spreadsheet_import.ingest import (
+    classify_cell,
+    extract_cell_refs,
+    filter_refs_to_scope,
+    ingest_from_arrays,
+)
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "spreadsheet_import_corpus" / "simple_budget_snapshot.json"
 
 

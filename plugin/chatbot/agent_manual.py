@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.errors import best_effort
+from plugin.doc.doc_type import doc_type_of
 from plugin.framework.prompts import (
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     GENERIC_EDIT_CONFIRMATION_RULES,
@@ -174,25 +174,6 @@ def _app(doc_type: str | None) -> str:
     if label == "impress":
         return "draw"
     return label if label in _MANUALS else "writer"
-
-
-def doc_type_of(doc: Any) -> str | None:
-    """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
-
-    Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
-    if doc is None:
-        return None
-
-    def _classify() -> str:
-        from plugin.doc.doc_type import is_calc, is_draw
-
-        if is_calc(doc):
-            return "calc"
-        if is_draw(doc):
-            return "draw"
-        return "writer"
-
-    return best_effort(_classify, "doc_type_of: could not classify document; defaulting to writer", "writer")
 
 
 def list_topics(doc_type: str | None = "writer") -> list[str]:

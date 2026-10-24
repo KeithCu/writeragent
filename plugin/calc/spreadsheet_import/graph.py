@@ -8,13 +8,8 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict, deque
-from typing import TYPE_CHECKING
 
-from plugin.calc.address_utils import A1_CELL_RE
 from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, CellRecord, SheetModel
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 
 _RANGE_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?", re.IGNORECASE)
@@ -35,26 +30,6 @@ def extract_range_refs(formula: str) -> list[str]:
         if ref not in seen:
             seen.add(ref)
             ordered.append(ref)
-    return ordered
-
-
-def extract_cell_refs(formula: str) -> list[str]:
-    """Extract same-sheet A1-style references from a formula string."""
-    if not formula:
-        return []
-    refs = A1_CELL_RE.findall(formula.upper())
-    return [f"{col}{row}" for col, row in refs]
-
-
-def filter_refs_to_scope(refs: Iterable[str], scope: frozenset[str]) -> list[str]:
-    """Keep only references that fall inside the ingested used range."""
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for ref in refs:
-        key = ref.upper()
-        if key in scope and key not in seen:
-            seen.add(key)
-            ordered.append(key)
     return ordered
 
 

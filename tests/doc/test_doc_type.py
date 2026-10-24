@@ -18,6 +18,7 @@ from plugin.doc.doc_type import (
     agent_label_for_context,
     doc_type_family_label,
     doc_type_label_for_enum,
+    doc_type_of,
     doc_type_title_for_label,
     get_document_type,
     get_document_uno_services,
@@ -120,6 +121,20 @@ def test_doc_type_truth_table(
     assert is_writer(model) is (expected_type == DocumentType.WRITER)
     assert is_calc(model) is (expected_type == DocumentType.CALC)
     assert is_draw(model) is (expected_type in (DocumentType.DRAW, DocumentType.IMPRESS))
+
+
+def test_doc_type_of_resolution() -> None:
+    assert doc_type_of(None) is None
+    assert doc_type_of(_ServiceModel({_TEXT_SERVICE})) == "writer"
+    assert doc_type_of(_ServiceModel({_CALC_SERVICE})) == "calc"
+    assert doc_type_of(_ServiceModel({_DRAW_SERVICE})) == "draw"
+
+    class BrokenDoc:
+        def supportsService(self, name: str) -> bool:
+            raise RuntimeError("bridge disconnected")
+
+    assert doc_type_of(BrokenDoc()) == "writer"
+
 
 
 def test_get_document_uno_services_truth() -> None:

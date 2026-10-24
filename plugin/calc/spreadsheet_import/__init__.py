@@ -7,8 +7,8 @@
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.spreadsheet_import.extract import canonicalize_py_formula_for_parse, extract_py_cells, normalize_py_formula, py_formula_semantics
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
-from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, build_dependency_graph, extract_cell_refs, extract_range_refs, topological_formula_order
-from plugin.calc.spreadsheet_import.ingest import classify_cell, ingest_from_arrays, ingest_sheet
+from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, build_dependency_graph, extract_range_refs, topological_formula_order
+from plugin.calc.spreadsheet_import.ingest import classify_cell, extract_cell_refs, ingest_from_arrays, ingest_sheet
 from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, CellRecord, CellType, ConversionReport, OutputCell, OutputSheetModel, PyCellExtract, SheetModel, TranslationResult, VerifyResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, build_output_model, enrich_number_formats, preserve_sheet_to_new_sheet

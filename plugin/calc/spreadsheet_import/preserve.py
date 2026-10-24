@@ -11,7 +11,7 @@ from typing import Any
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
-from plugin.calc.spreadsheet_import.models import CellRecord, OutputCell, OutputSheetModel, PyCellExtract, SheetModel
+from plugin.calc.spreadsheet_import.models import OutputSheetModel, SheetModel, output_cell_from_record
 
 
 def _safe_number_format(cell: Any) -> int | None:
@@ -31,25 +31,11 @@ def enrich_number_formats(sheet: Any, model: SheetModel, *, enrich_all: bool = F
     return model
 
 
-def _output_cell_from_record(cell: CellRecord, py_by_addr: dict[str, PyCellExtract]) -> OutputCell:
-    if cell.type == "empty":
-        return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
-    if cell.type == "constant":
-        return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
-    if cell.type == "py_formula":
-        extract = py_by_addr.get(cell.address)
-        formula = extract.normalized_formula if extract is not None else cell.formula
-        return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
-    if cell.formula:
-        return OutputCell(address=cell.address, value=None, formula=cell.formula, number_format=None)
-    return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=None)
-
-
 def build_output_model(model: SheetModel) -> OutputSheetModel:
     """Build a preserve output grid: constants unchanged, PY normalized, other formulas pass-through."""
     py_extracts = extract_py_cells(model)
     py_by_addr = {item.address: item for item in py_extracts}
-    cells = {addr: _output_cell_from_record(record, py_by_addr) for addr, record in model.cells.items()}
+    cells = {addr: output_cell_from_record(record, py_by_addr) for addr, record in model.cells.items()}
     return OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells, py_extracts=py_extracts)
 
 

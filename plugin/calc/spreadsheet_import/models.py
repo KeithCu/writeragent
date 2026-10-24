@@ -72,6 +72,20 @@ class OutputCell:
         return asdict(self)
 
 
+def output_cell_from_record(cell: CellRecord, py_by_addr: dict[str, PyCellExtract]) -> OutputCell:
+    if cell.type == "empty":
+        return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
+    if cell.type == "constant":
+        return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
+    if cell.type == "py_formula":
+        extract = py_by_addr.get(cell.address)
+        formula = extract.normalized_formula if extract is not None else cell.formula
+        return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
+    if cell.formula:
+        return OutputCell(address=cell.address, value=None, formula=cell.formula, number_format=None)
+    return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=None)
+
+
 @dataclass
 class TranslationResult:
     """Outcome of translating one Calc formula to Python."""

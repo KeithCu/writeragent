@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Literal
 
-from plugin.framework.errors import safe_call, safe_uno_call
+from plugin.framework.errors import best_effort, safe_call, safe_uno_call
 from plugin.framework.thread_guard import main_thread_only
 
 DocTypeLabel = Literal["writer", "calc", "draw", "impress", "unknown"]
@@ -206,3 +206,21 @@ def is_draw(model: Any) -> bool:
     """Return True if model is a Draw/Impress document."""
     doc_type = get_document_type(model)
     return doc_type in (DocumentType.DRAW, DocumentType.IMPRESS)
+
+
+def doc_type_of(doc: Any) -> str | None:
+    """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
+
+    Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
+    if doc is None:
+        return None
+
+    def _classify() -> str:
+        if is_calc(doc):
+            return "calc"
+        if is_draw(doc):
+            return "draw"
+        return "writer"
+
+    return best_effort(_classify, "doc_type_of: could not classify document; defaulting to writer", "writer")
+

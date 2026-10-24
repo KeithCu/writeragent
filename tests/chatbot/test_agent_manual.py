@@ -12,7 +12,6 @@ sections are per document type so a Calc session never reads Writer advice. No L
 
 from plugin.chatbot.agent_manual import (
     MANUAL_SECTIONS,
-    doc_type_of,
     full_manual,
     full_manual_for_model,
     get_section,
@@ -74,19 +73,6 @@ def test_manual_index_lists_every_topic():
 
 
 # ---- per document type -----------------------------------------------------
-
-def test_doc_type_of_resolution():
-    assert doc_type_of(None) is None
-    assert doc_type_of(WRITER_DOC) == "writer"
-    assert doc_type_of(CALC_DOC) == "calc"
-    assert doc_type_of(DRAW_DOC) == "draw"
-
-    class BrokenDoc:
-        def supportsService(self, name):
-            raise RuntimeError("bridge disconnected")
-
-    assert doc_type_of(BrokenDoc()) == "writer"
-
 
 def test_calc_topics_are_generic_and_leak_no_writer_advice():
     topics = list_topics("calc")

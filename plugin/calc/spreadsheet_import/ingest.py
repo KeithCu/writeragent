@@ -10,13 +10,13 @@ import re
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
-from plugin.calc.address_utils import format_address, format_range
+from plugin.calc.address_utils import A1_CELL_RE, format_address, format_range
 from plugin.calc.error_detector import is_calc_error_display
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, extract_cell_refs, filter_refs_to_scope
+from plugin.calc.spreadsheet_import.graph import attach_graph_to_model
 from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetModel
 
 _PROMPT_HEAD_RE = re.compile(r"^=\s*PROMPT\s*\(", re.IGNORECASE)
@@ -59,6 +59,26 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
     if raw_val is not None and raw_val != "":
         return "constant", raw_val, None, None
     return "empty", None, None, None
+
+
+def extract_cell_refs(formula: str) -> list[str]:
+    """Extract same-sheet A1-style references from a formula string."""
+    if not formula:
+        return []
+    refs = A1_CELL_RE.findall(formula.upper())
+    return [f"{col}{row}" for col, row in refs]
+
+
+def filter_refs_to_scope(refs: Iterable[str], scope: frozenset[str]) -> list[str]:
+    """Keep only references that fall inside the ingested used range."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for ref in refs:
+        key = ref.upper()
+        if key in scope and key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    return ordered
 
 
 def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_array: Sequence[Sequence[Any]], formula_array: Sequence[Sequence[str]]) -> SheetModel:

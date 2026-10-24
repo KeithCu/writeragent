@@ -13,8 +13,15 @@ from typing import Any
 from plugin.framework.errors import best_effort
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
-from plugin.calc.spreadsheet_import.models import CellRecord, ConversionReport, OutputCell, OutputSheetModel, SheetModel, TodoCell
-from plugin.calc.spreadsheet_import.preserve import _output_cell_from_record
+from plugin.calc.spreadsheet_import.models import (
+    CellRecord,
+    ConversionReport,
+    OutputCell,
+    OutputSheetModel,
+    SheetModel,
+    TodoCell,
+    output_cell_from_record,
+)
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
 
@@ -94,7 +101,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         report.pass_through.append(addr)
         if reason is not None:
             report.skipped.append(TodoCell(address=addr, reason=reason))
-        cells[addr] = _output_cell_from_record(record, py_by_addr)
+        cells[addr] = output_cell_from_record(record, py_by_addr)
 
     for addr in sorted(model.cells):
         if addr in vector_handled_cells:
@@ -106,11 +113,11 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             cells[addr] = OutputCell(address=addr, value=None, formula=None, number_format=None)
             continue
         if record.type == "constant":
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            cells[addr] = output_cell_from_record(record, py_by_addr)
             continue
         if record.type == "py_formula":
             report.normalized_py.append(addr)
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            cells[addr] = output_cell_from_record(record, py_by_addr)
             continue
         if record.type == "prompt":
             _pass_through(addr, record, "PROMPT")
@@ -122,7 +129,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             _pass_through(addr, record, "CIRCULAR_REF")
             continue
         if record.type not in ("formula", "error") or not record.formula:
-            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            cells[addr] = output_cell_from_record(record, py_by_addr)
             continue
 
         ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(record.formula)), "parse formula")
