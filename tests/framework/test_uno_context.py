@@ -779,4 +779,34 @@ def test_iter_open_models_stops_at_enum_cap(caplog):
     assert "hit cap=2" in caplog.text
 
 
+def test_document_id_for_frame():
+    from plugin.framework.uno_context import document_id_for_frame
+
+    # None frame returns empty string
+    assert document_id_for_frame(None) == ""
+
+    frame = MagicMock(name="frame")
+
+    # Off main thread returns empty string
+    with patch("plugin.framework.uno_context.on_main_thread", return_value=False):
+        assert document_id_for_frame(frame) == ""
+
+    # Model is None returns empty string
+    with (
+        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch("plugin.framework.uno_context.get_document_from_frame", return_value=None),
+    ):
+        assert document_id_for_frame(frame) == ""
+
+    # Model resolved returns its runtime uid
+    model = MagicMock(name="model")
+    with (
+        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch("plugin.framework.uno_context.get_document_from_frame", return_value=model),
+        patch("plugin.framework.uno_context.get_runtime_uid", return_value="uid-1234"),
+    ):
+        assert document_id_for_frame(frame) == "uid-1234"
+
+
+
 

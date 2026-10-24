@@ -722,6 +722,22 @@ def get_document_from_frame(frame: Any) -> Any:
     return None
 
 
+def document_id_for_frame(frame: Any) -> str:
+    """RuntimeUID of the model on *frame*, or ``""``.
+
+    The id comes from the frame's controller. ``getCurrentComponent()`` is a
+    different window when focus has moved.
+    """
+    if frame is None:
+        return ""
+    if not on_main_thread():
+        return ""
+    model = get_document_from_frame(frame)
+    if model is None:
+        return ""
+    return get_runtime_uid(model)
+
+
 def create_property_value(name: str, value: Any) -> Any:
     """Create a ``com.sun.star.beans.PropertyValue``."""
     import uno

@@ -1376,7 +1376,8 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
 
-        from plugin.framework.frame_session import document_id_for_frame, open_frame_session
+        from plugin.framework.frame_session import open_frame_session
+        from plugin.framework.uno_context import document_id_for_frame
 
         # One session per frame, opened with the document id of that frame.
         session = open_frame_session(frame, document_id_for_frame(frame))

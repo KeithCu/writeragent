@@ -16,11 +16,11 @@ import pytest
 
 from plugin.framework.frame_session import (
     FrameSession,
-    document_id_for_frame,
     open_frame_session,
     reset_frame_sessions,
     session_for_frame,
 )
+from plugin.framework.uno_context import document_id_for_frame
 
 
 @pytest.fixture(autouse=True)
@@ -141,7 +141,7 @@ def test_factory_opens_one_session_per_frame():
         return "uid-a" if frame is frame_a else "uid-b"
 
     with (
-        patch("plugin.framework.frame_session.document_id_for_frame", side_effect=_doc_id),
+        patch("plugin.framework.uno_context.document_id_for_frame", side_effect=_doc_id),
         patch("plugin.framework.uno_context.get_active_document", side_effect=AssertionError("current component")),
     ):
         element_a = factory.createUIElement("private:resource/toolpanel/WriterAgent/ChatPanel", _args(frame_a))

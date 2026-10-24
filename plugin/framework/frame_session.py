@@ -57,26 +57,6 @@ def _same_frame(left: Any, right: Any) -> bool:
     return bool(uno_same(left, right))
 
 
-def document_id_for_frame(frame: Any) -> str:
-    """RuntimeUID of the model on *frame*, or ``""``.
-
-    The id comes from the frame's controller. ``getCurrentComponent()`` is a
-    different window when focus has moved.
-    """
-    if frame is None:
-        return ""
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
-        return ""
-    from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
-
-    model = get_document_from_frame(frame)
-    if model is None:
-        return ""
-    return get_runtime_uid(model)
-
-
 def session_for_frame(frame: Any) -> FrameSession | None:
     """The open session for *frame*, or None."""
     if frame is None:
