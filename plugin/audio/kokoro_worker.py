@@ -40,7 +40,7 @@ from plugin.scripting.ipc import (  # noqa: E402
     read_pickle_frame,
     write_pickle_frame,
 )
-from plugin.audio.kokoro_g2p import g2p_fallback_warning  # noqa: E402
+from plugin.audio.kokoro_g2p import misaki_frontend  # noqa: E402
 
 # Held for the life of the process. Replaced only when the model paths change.
 _loaded_key: tuple[str, str] | None = None
@@ -135,32 +135,6 @@ def _get_kokoro(model_path: str, voices_path: str) -> Any:
     return inst
 
 
-def _misaki_frontend(text: str, lang: str) -> tuple[str, str]:
-    """Return ``(phonemes, warning)``. Empty phonemes means espeak-ng.
-
-    The warning strings match ``KOKORO_ONNX_SCRIPT`` so the host can show the
-    same status line for the warm worker and the one-shot fallback. English
-    returns ``("", "")`` and does not import misaki.
-    """
-    try:
-        from plugin.audio.kokoro_g2p import kokoro_lang_uses_misaki, misaki_phonemes
-    except Exception as exc:
-        # English never needs Misaki. A broken import must not mark af_* as
-        # a phonemizer failure. Other langs still speak via espeak-ng.
-        if lang in ("en-us", "en-gb", ""):
-            return "", ""
-        return "", g2p_fallback_warning(lang, exc)
-    if not kokoro_lang_uses_misaki(lang):
-        return "", ""
-    try:
-        phonemes = misaki_phonemes(text, lang)
-    except Exception as exc:
-        return "", g2p_fallback_warning(lang, exc)
-    if isinstance(phonemes, str) and phonemes.strip():
-        return phonemes, ""
-    return "", g2p_fallback_warning(lang)
-
-
 def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     """Synthesize one utterance to ``out_path`` and return that path."""
     text = req.get("text")
@@ -202,7 +176,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         warning = f"Kokoro voice {voice!r} is not in {voices_path}; using {fallback}"
         voice = fallback
 
-    phonemes, g2p_warning = _misaki_frontend(text, lang)
+    phonemes, g2p_warning = misaki_frontend(text, lang)
     if g2p_warning:
         warning = f"{warning} {g2p_warning}".strip() if warning else g2p_warning
 

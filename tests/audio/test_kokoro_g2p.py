@@ -20,6 +20,7 @@ from plugin.audio.kokoro_g2p import (
     kokoro_misaki_install_hint,
     kokoro_misaki_packages,
     kokoro_misaki_probe_code,
+    misaki_frontend,
 )
 
 
@@ -490,3 +491,32 @@ def test_kokoro_lang_for_voice():
     assert _kokoro_lang_for_voice("zf_xiaobei") == "zh"
     assert _kokoro_lang_for_voice("hf_alpha") == "hi"
     assert _kokoro_lang_for_voice("pf_dora") == "pt-br"
+
+
+def test_misaki_frontend_english_and_non_misaki():
+    assert misaki_frontend("Hello", "en-us") == ("", "")
+    assert misaki_frontend("Hello", "en-gb") == ("", "")
+    assert misaki_frontend("Hello", "") == ("", "")
+    assert misaki_frontend("Hello", "unknown") == ("", "")
+
+
+def test_misaki_frontend_success():
+    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", return_value="k o n n i c h i w a"):
+        phonemes, warning = misaki_frontend("こんにちは", "ja")
+    assert phonemes == "k o n n i c h i w a"
+    assert warning == ""
+
+
+def test_misaki_frontend_empty_phonemes_warning():
+    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", return_value="   "):
+        phonemes, warning = misaki_frontend("こんにちは", "ja")
+    assert phonemes == ""
+    assert "ja" in warning
+
+
+def test_misaki_frontend_exception_warning():
+    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", side_effect=RuntimeError("G2P crash")):
+        phonemes, warning = misaki_frontend("Bonjour", "fr-fr")
+    assert phonemes == ""
+    assert "fr-fr" in warning
+    assert "G2P crash" in warning

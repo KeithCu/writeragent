@@ -213,6 +213,24 @@ def misaki_phonemes(text: str, lang: str) -> str:
     return phonemes
 
 
+def misaki_frontend(text: str, lang: str) -> tuple[str, str]:
+    """Return ``(phonemes, warning)``. Empty phonemes means espeak-ng.
+
+    The warning strings match ``KOKORO_ONNX_SCRIPT`` so the host can show the
+    same status line for the warm worker and the one-shot fallback. English
+    returns ``("", "")`` and does not import misaki.
+    """
+    if not kokoro_lang_uses_misaki(lang):
+        return "", ""
+    try:
+        phonemes = misaki_phonemes(text, lang)
+    except Exception as exc:
+        return "", g2p_fallback_warning(lang, exc)
+    if isinstance(phonemes, str) and phonemes.strip():
+        return phonemes, ""
+    return "", g2p_fallback_warning(lang)
+
+
 def kokoro_misaki_packages(lang: str) -> tuple[str, ...]:
     """Pip requirements for ``lang``, or empty when English keeps espeak-ng."""
     spec = _LANG_SPECS.get(lang)

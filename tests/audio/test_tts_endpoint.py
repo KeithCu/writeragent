@@ -16,9 +16,8 @@ from plugin.audio.tts_endpoint import (
     _pcm_s16le_to_wav,
     _post_audio_speech,
     _resolve_tts_voice,
-    _speak_endpoint,
 )
-from plugin.audio.tts_service import _release_temp
+from plugin.audio.tts_service import _release_temp, _speak_endpoint
 from plugin.framework.client import model_fetcher as cfg
 
 
@@ -382,7 +381,7 @@ def test_speak_endpoint_chunks_long_text():
         downloads.append(chunk)
         return f"/tmp/clip{len(downloads)}.wav"
 
-    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system, \
@@ -403,7 +402,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
             return "/tmp/a.wav"
         return None
 
-    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system, \
@@ -417,7 +416,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
 
 
 def test_speak_endpoint_playback_failure_uses_system_speech():
-    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", return_value="/tmp/x.wav"), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value="/tmp/x.wav"), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=False), \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system, \
@@ -438,7 +437,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
         return False
 
     try:
-        with patch("plugin.audio.tts_endpoint._download_endpoint_speech", return_value="/tmp/x.wav"), \
+        with patch("plugin.audio.tts_service._download_endpoint_speech", return_value="/tmp/x.wav"), \
              patch("plugin.audio.tts_service._play_audio_file", side_effect=play), \
              patch("plugin.audio.tts_service._release_temp"), \
              patch("plugin.audio.tts_service._speak_system") as system:
@@ -489,7 +488,7 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
     sentinel_status: object = object()
     text = ("A" * 4000) + " tail stays"
 
-    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True), \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system, \

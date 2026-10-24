@@ -32,7 +32,7 @@ from plugin.audio.kokoro_pool import (
     get_kokoro_pool,
     resolve_kokoro_python,
 )
-from plugin.audio.tts_endpoint import _speak_endpoint
+from plugin.audio.tts_endpoint import _download_endpoint_speech
 from plugin.audio.tts_models import (
     _clear_tts_status,
     _notify_tts_status,
@@ -51,6 +51,7 @@ from plugin.audio.tts_voices import (
     parse_tts_speed,
 )
 from plugin.framework import config
+from plugin.framework.client.http_security import public_target
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
@@ -1373,6 +1374,48 @@ def _run_sentence_pipeline(
         with _speech_lock:
             if _ready_queue is ready:
                 _ready_queue = None
+
+
+def _speak_endpoint(
+    text: str,
+    endpoint_url: str,
+    api_key: str,
+    model: str = "",
+    voice: str = "",
+    speed: float = 1.0,
+    generation: int | None = None,
+    on_status: Callable[[str], None] | None = None,
+) -> None:
+    """Download audio from an OpenAI-compatible speech endpoint and play it."""
+    log.info("Speaking via endpoint TTS (%s, model=%s, voice=%s)", public_target(endpoint_url), model, voice)
+    if _playback_blocked(generation):
+        return
+
+    # Hosted /audio/speech rejects inputs around 4096 characters. One POST of
+    # a long reply used to 400 and fall back to OS speech for the whole thing.
+    chunks = _chunk_text(text, 4000)
+    for index, chunk in enumerate(chunks):
+        if _playback_blocked(generation):
+            return
+        # Pass on_status on every chunk: later chunks only hit on_status for a
+        # failed or empty download, and chunk 0 already shows that line.
+        wav_path = _download_endpoint_speech(
+            chunk, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
+            on_status=on_status,
+        )
+        played = False
+        if wav_path:
+            try:
+                played = _play_audio_file(wav_path, generation=generation)
+            finally:
+                _release_temp(wav_path)
+        if _playback_blocked(generation):
+            return
+        if played is False:
+            rest = " ".join(chunks[index:])
+            log.warning("Endpoint TTS failed; falling back to OS system speech.")
+            _speak_system(rest, speed=speed, generation=generation)
+            return
 
 
 def speak_text_async(
