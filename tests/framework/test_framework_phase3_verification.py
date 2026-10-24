@@ -16,7 +16,6 @@ from plugin.framework.appearance import (
     get_monaco_theme_info,
 )
 from plugin.framework.event_bus import EventBus
-from plugin.framework.config_service import ConfigService
 
 
 @given(color=st.integers(min_value=0, max_value=0xFFFFFF))

@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from plugin.framework.worker_pool import run_in_background
 
 if TYPE_CHECKING:
-    import ssl
     from collections.abc import Callable
 
 log = logging.getLogger("writeragent.framework.http_server")
