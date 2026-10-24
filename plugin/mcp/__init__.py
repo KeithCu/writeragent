@@ -23,13 +23,14 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.http_server import format_bind_failure
 from plugin.framework.module_base import ModuleBase
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
 from plugin.mcp.cors import reload_cors_policy_from_config
-from plugin.mcp.server import mcp_endpoint_url, format_mcp_start_failure, is_port_in_use_error
-from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label
+from plugin.mcp.server import is_port_in_use_error, mcp_endpoint_url
+from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
 
 log = logging.getLogger("writeragent.http")
 
@@ -105,6 +106,15 @@ def _remove_debug_token_file() -> None:
             os.remove(token_path)
     except OSError:
         pass
+
+
+def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> str:
+    """Short user-facing body for MCP/HTTP start failures (no full traceback).
+
+    Always includes host:port and the exception line. Port conflicts get the same
+    guidance as the bind log so the dialog is actionable without opening the debug log.
+    """
+    return format_bind_failure(host, port, exc, service_name="MCP")
 
 
 class McpModule(ModuleBase):
@@ -478,23 +488,6 @@ class McpModule(ModuleBase):
         running = b and b.is_running()
         return "running" if running else "stopped"
 
-    def _tunnel_status_line(self, pname: str, tunnel: TunnelManager | None, public_url: str | None, tunnel_enabled: bool) -> str | None:
-        """One Status/toast line for public tunnel state, or None if tunnel off."""
-        from plugin.framework.i18n import _
-
-        if not tunnel_enabled:
-            return None
-        if public_url:
-            return _("Public tunnel via {0} (no auth)").format(pname)
-        if tunnel and getattr(tunnel, "is_reconnecting", False):
-            return _("Public tunnel via {0}: {1}").format(pname, tunnel.last_error or _("reconnecting…"))
-        err = tunnel.last_error if tunnel else None
-        if err:
-            return _("Public tunnel via {0} failed: {1}").format(pname, err)
-        if tunnel and tunnel.is_running:
-            return _("Public tunnel via {0} starting…").format(pname)
-        return _("Public tunnel via {0} not running (is the provider binary installed?)").format(pname)
-
     def _action_toggle_server(self) -> None:
         # No msgbox on success: modal boxes block the sidebar; the panel status line shows it.
         from plugin.framework.uno_context import get_ctx
@@ -559,7 +552,7 @@ class McpModule(ModuleBase):
         # Primary copy URL is the public tunnel URL when active, else local URL
         active_url = public_url or local_url
         msg = _("MCP server running") + "\n" + _("Routes: {0}").format(routes)
-        tunnel_line = self._tunnel_status_line(pname, tunnel, public_url, tunnel_enabled)
+        tunnel_line = tunnel_status_line(pname, tunnel, public_url, tunnel_enabled)
         fallback_msg = msg + "\n" + _("Local URL: {0}").format(local_url)
         if tunnel_line:
             fallback_msg = fallback_msg + "\n" + tunnel_line

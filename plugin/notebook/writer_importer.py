@@ -53,8 +53,6 @@ from plugin.notebook.notebook_controls import (
     _log_shape_add,
     _mono_ms,
     _page_style,
-    _resolve_para_style,
-    _style_control_paragraph,
     _text_area_width_units,
     _text_width_from_style,
 )
@@ -234,6 +232,20 @@ def _get_para_styles(doc: Any) -> Any | None:
     except Exception:
         log.debug("notebook import could not get ParagraphStyles", exc_info=True)
         return None
+
+
+def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
+    """Map English style label to a name that exists in this document (locale-safe)."""
+    if not style_name:
+        return None
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    if para_styles.hasByName(style_name):
+        return style_name
+    lower = style_name.lower()
+    for name in para_styles.getElementNames():
+        if name.lower() == lower:
+            return name
+    return None
 
 
 def _no_spellcheck_locale() -> Any:
@@ -439,6 +451,25 @@ def _clear_keep_at_body_end(doc: Any) -> None:
     cursor = doc.getText().createTextCursor()
     cursor.gotoEnd(False)
     cursor.setPropertyValue("ParaKeepTogether", False)
+
+
+def _style_control_paragraph(doc: Any) -> None:
+    """Field-only paragraph: full text-area width, no hanging indent for ▶."""
+
+    def _style() -> None:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        body = _resolve_para_style(doc, "Text Body")
+        if body:
+            cursor.setPropertyValue("ParaStyleName", body)
+        cursor.setPropertyValue("ParaFirstLineIndent", 0)
+        cursor.setPropertyValue("ParaLeftMargin", 0)
+        cursor.setPropertyValue("ParaTopMargin", 0)
+        cursor.setPropertyValue("ParaBottomMargin", 150)
+        cursor.setPropertyValue("ParaKeepTogether", False)
+
+    best_effort(_style, "notebook controls paragraph style failed")
 
 
 def _numbering_kind(name: str) -> str:

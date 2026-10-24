@@ -988,6 +988,29 @@ def _redact_cmd_for_log(cmd: list[str]) -> str:
     return " ".join(out)
 
 
+def tunnel_status_line(
+    pname: str,
+    tunnel: TunnelManager | None,
+    public_url: str | None,
+    tunnel_enabled: bool,
+) -> str | None:
+    """One Status/toast line for public tunnel state, or None if tunnel off."""
+    from plugin.framework.i18n import _
+
+    if not tunnel_enabled:
+        return None
+    if public_url:
+        return _("Public tunnel via {0} (no auth)").format(pname)
+    if tunnel and getattr(tunnel, "is_reconnecting", False):
+        return _("Public tunnel via {0}: {1}").format(pname, tunnel.last_error or _("reconnecting…"))
+    err = tunnel.last_error if tunnel else None
+    if err:
+        return _("Public tunnel via {0} failed: {1}").format(pname, err)
+    if tunnel and tunnel.is_running:
+        return _("Public tunnel via {0} starting…").format(pname)
+    return _("Public tunnel via {0} not running (is the provider binary installed?)").format(pname)
+
+
 def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765) -> tuple[bool, str, Optional[str]]:
     """Checks that the provider binary runs, whether local MCP /health answers, and whether a tunnel is already running.
 

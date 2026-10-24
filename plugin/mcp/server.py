@@ -47,7 +47,6 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.http_server import (
     DualStackThreadPoolHTTPServer,
     _PORT_IN_USE_GUIDANCE as _PORT_IN_USE_GUIDANCE,
-    format_bind_failure,
     is_port_in_use_error as is_port_in_use_error,
 )
 from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers
@@ -315,15 +314,6 @@ def stop_sse_keepalives(tcp_server: Any) -> None:
         log.info("Closing %d SSE keepalive socket(s)", len(socks))
     for sock in socks:
         _shutdown_sse_socket(sock)
-
-
-def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> str:
-    """Short user-facing body for MCP/HTTP start failures (no full traceback).
-
-    Always includes host:port and the exception line. Port conflicts get the same
-    guidance as the bind log so the dialog is actionable without opening the debug log.
-    """
-    return format_bind_failure(host, port, exc, service_name="MCP")
 
 
 class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):

@@ -21,8 +21,19 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
-from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
-from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _collapse_cr, _insert_image_in_flow, _strip_ansi, output_para_style
+from plugin.notebook.notebook_controls import _doc_key
+from plugin.notebook.writer_importer import (
+    _PARAGRAPH_BREAK,
+    _STYLE_MD_H1,
+    _STYLE_MD_H2,
+    _STYLE_NOTEBOOK_IN,
+    _STYLE_NOTEBOOK_OUT,
+    _collapse_cr,
+    _insert_image_in_flow,
+    _resolve_para_style,
+    _strip_ansi,
+    output_para_style,
+)
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv

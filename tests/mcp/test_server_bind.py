@@ -9,10 +9,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from plugin.mcp import format_mcp_start_failure
 from plugin.mcp.server import (
     HttpServer,
     _PORT_IN_USE_GUIDANCE,
-    format_mcp_start_failure,
     is_port_in_use_error,
 )
 
