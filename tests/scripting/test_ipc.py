@@ -28,7 +28,6 @@ from plugin.scripting.ipc import (
     IpcPartialFrameTimeout,
     IpcTruncatedFrame,
     pack_pickle_frame,
-    parse_worker_stdout_frame,
     read_frame_payload,
     read_json_line,
     read_pickle_frame,
@@ -1549,22 +1548,6 @@ def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
                 pass
 
 
-def test_parse_worker_stdout_frame_rejects_non_dict():
-    payload = pickle.dumps([1], protocol=5)
-    with pytest.raises(RuntimeError, match="Worker response must be a dict"):
-        parse_worker_stdout_frame(payload)
-
-
-def test_parse_worker_stdout_frame_returns_empty_dict():
-    payload = pickle.dumps({}, protocol=5)
-    assert parse_worker_stdout_frame(payload) == {}
-
-
-def test_parse_worker_stdout_frame_empty_bytes_raise():
-    with pytest.raises(ValueError):
-        parse_worker_stdout_frame(b"")
-
-
 def test_write_child_ipc_frame_holds_tool_call_lock():
     class GateStream:
         def __init__(self, buf: io.BytesIO) -> None:
@@ -1596,7 +1579,7 @@ def test_write_child_ipc_frame_holds_tool_call_lock():
     buf.seek(0)
     payload = read_frame_payload(buf)
     assert payload is not None
-    assert parse_worker_stdout_frame(payload) == msg
+    assert unpack_pickle_frame(payload) == msg
 
 
 def test_read_frame_payload_dead_child_returns_none():

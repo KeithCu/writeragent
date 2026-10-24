@@ -13,9 +13,9 @@ import plugin.scripting.ipc
 from plugin.scripting.ipc import (
     FRAME_HEARTBEAT,
     FRAME_RESULT,
-    parse_worker_stdout_frame,
     read_frame_payload,
 )
+from plugin.scripting.venv_worker import parse_worker_stdout_frame
 from plugin.scripting.venv.worker_heartbeat import (
     HeartbeatEmitter,
     write_result_frame,

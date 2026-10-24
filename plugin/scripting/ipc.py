@@ -1054,21 +1054,6 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
-    """Parse one Pickle5 frame from child stdout into a dictionary.
-
-    Empty and non-dict payloads raise: empty bytes raise ValueError from
-    unpack_pickle_frame, and a decoded object that is not a dict raises
-    RuntimeError. A missing frame_type is still a valid dict (bare dict for
-    exec_started, tool_call, llm_request, worker_event, or non-heartbeat
-    terminal responses).
-    """
-    data = unpack_pickle_frame(payload)
-    if not isinstance(data, dict):
-        raise RuntimeError("Worker response must be a dict")
-    return data
-
-
 def _decode_pickle_payload(
     payload: bytes | None,
     *,

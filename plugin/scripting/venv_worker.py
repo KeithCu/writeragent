@@ -96,6 +96,21 @@ def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = N
     }
 
 
+def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
+    """Parse one Pickle5 frame from child stdout into a dictionary.
+
+    Empty and non-dict payloads raise: empty bytes raise ValueError from
+    unpack_pickle_frame, and a decoded object that is not a dict raises
+    RuntimeError. A missing frame_type is still a valid dict (bare dict for
+    exec_started, tool_call, llm_request, worker_event, or non-heartbeat
+    terminal responses).
+    """
+    data = unpack_pickle_frame(payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("Worker response must be a dict")
+    return data
+
+
 class _NonReplayableIpcWriteTimeout(RuntimeError):
     """A mid-turn host response timed out after side effects may have occurred."""
 
@@ -1254,7 +1269,7 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None:
-        from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT, parse_worker_stdout_frame
+        from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept
@@ -1622,6 +1637,7 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
 
 __all__ = [
     "PythonWorkerManager",
+    "parse_worker_stdout_frame",
     "reset_python_session",
     "run_code_in_user_venv",
     "warm_venv_worker",

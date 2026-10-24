@@ -290,7 +290,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
-| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT`, `FRAME_RESULT`, and `parse_worker_stdout_frame` live in `ipc.py`. |
+| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT` and `FRAME_RESULT` live in `ipc.py`; `parse_worker_stdout_frame` lives in `venv_worker.py`. |
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv routing |

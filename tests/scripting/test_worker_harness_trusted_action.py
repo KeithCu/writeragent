@@ -78,7 +78,8 @@ def test_handle_request_maintain_heartbeat_without_stub_code(mock_dispatch) -> N
     return_value={"large": "x" * 17_000_000},
 )
 def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
@@ -111,7 +112,8 @@ def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_
     side_effect=RuntimeError("Index corrupt"),
 )
 def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
@@ -214,7 +216,8 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     return_value={"helper": "describe_data"},
 )
 def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
@@ -249,7 +252,8 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     side_effect=RuntimeError("bad spec"),
 )
 def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
@@ -277,7 +281,8 @@ def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
 
 
 def test_allow_heartbeat_frames_unknown_domain() -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
@@ -361,7 +366,8 @@ def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
 
 
 def test_heartbeat_result_id_beats_resp_id() -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     fake_err = {"id": "from-exception", "status": "error", "message": "boom", "traceback": "tb"}
     with (

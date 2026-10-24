@@ -41,6 +41,7 @@ from plugin.scripting.venv_worker import (
     _worker_error,
     _worker_error_message,
     _ExecRequest,
+    parse_worker_stdout_frame,
     reset_python_session,
     run_code_in_user_venv,
     warm_venv_worker,
@@ -2545,7 +2546,7 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
     started = time.monotonic()
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+        patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=parse),
     ):
         with pytest.raises(subprocess.TimeoutExpired):
             mgr._read_response_with_heartbeats(
@@ -2569,7 +2570,7 @@ def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING):
         with (
             patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-            patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+            patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=parse),
         ):
             with pytest.raises(subprocess.TimeoutExpired):
                 mgr._read_response_with_heartbeats(
@@ -2759,7 +2760,7 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
         raise RuntimeError("simulated ui callback error")
 
     with patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"), \
-         patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=mock_parse_frame):
+         patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=mock_parse_frame):
 
         # The terminal frame is the dict parse_worker_stdout_frame already built.
         result = mgr._read_response_with_heartbeats(
@@ -3238,7 +3239,7 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
     started = time.monotonic()
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+        patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=parse),
     ):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
             mgr._read_response_with_heartbeats(
@@ -3277,7 +3278,7 @@ def test_heartbeat_then_stall_uses_grace():
     started = time.monotonic()
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+        patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=parse),
     ):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
             mgr._read_response_with_heartbeats(
@@ -3304,7 +3305,7 @@ def test_read_response_non_dict_raises_once():
 
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=payload),
-        patch("plugin.scripting.ipc.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
+        patch("plugin.scripting.venv_worker.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
     ):
         with pytest.raises(RuntimeError, match="must be a dict"):
             mgr._read_response_with_heartbeats(
@@ -3327,7 +3328,7 @@ def test_read_response_empty_dict_is_terminal():
 
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=payload),
-        patch("plugin.scripting.ipc.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
+        patch("plugin.scripting.venv_worker.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
     ):
         res = mgr._read_response_with_heartbeats(
             io.BytesIO(),
@@ -3649,5 +3650,21 @@ def test_ensure_running_live_proc_reads_proc_once(monkeypatch: pytest.MonkeyPatc
     mgr._ensure_running()
     assert not started
     assert loads.seen == [alive]
+
+
+def test_parse_worker_stdout_frame_rejects_non_dict():
+    payload = pickle.dumps([1], protocol=5)
+    with pytest.raises(RuntimeError, match="Worker response must be a dict"):
+        parse_worker_stdout_frame(payload)
+
+
+def test_parse_worker_stdout_frame_returns_empty_dict():
+    payload = pickle.dumps({}, protocol=5)
+    assert parse_worker_stdout_frame(payload) == {}
+
+
+def test_parse_worker_stdout_frame_empty_bytes_raise():
+    with pytest.raises(ValueError):
+        parse_worker_stdout_frame(b"")
 
 
