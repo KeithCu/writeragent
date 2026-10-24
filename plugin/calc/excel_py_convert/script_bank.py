@@ -282,7 +282,7 @@ def defined_name_targets_sheet(name: str, val: str, sheet_title: str) -> bool:
     return False
 
 
-def _is_py_code_bank_sheet(  # pyright: ignore[reportUnusedFunction]
+def is_py_code_bank_sheet(
     zin: zipfile.ZipFile,
     sh_title: str,
     sh_part_name: str,
@@ -319,7 +319,7 @@ def _is_py_code_bank_sheet(  # pyright: ignore[reportUnusedFunction]
     return False
 
 
-def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by apply_calc.py
+def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # imported by apply_calc.py
     expected_def = bank_defined_name_for(code_sheet)
     named_ranges = getattr(doc, "NamedRanges", None)
     if named_ranges is not None:

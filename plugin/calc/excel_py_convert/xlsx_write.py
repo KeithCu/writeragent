@@ -43,7 +43,7 @@ from plugin.calc.excel_py_convert.script_bank import (
     CODE_SHEET_NOTE,
     CODE_SHEET_NOTE_CELL,
     CODE_SHEET_PREFIX,
-    _is_py_code_bank_sheet,
+    is_py_code_bank_sheet,
     a1_span_bounds,
     bank_defined_name_for,
     collect_script_bank,
@@ -737,7 +737,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         for s in code_sheets:
             if not s.part_name:
                 continue
-            if _is_py_code_bank_sheet(zin, s.title, s.part_name, defined_names, shared_strings):
+            if is_py_code_bank_sheet(zin, s.title, s.part_name, defined_names, shared_strings):
                 drop_parts.add(s.part_name)
                 drop_rids.add(s.rel_id)
                 drop_titles.add(s.title)
@@ -872,7 +872,7 @@ def write_dag_formulas_xlsx(
         for code_sheet in bank:
             existing_sh = title_to_info.get(code_sheet) or title_to_info_l.get(code_sheet.lower())
             if existing_sh is not None:
-                if not _is_py_code_bank_sheet(zin, existing_sh.title, existing_sh.part_name, defined_names, shared_strings):
+                if not is_py_code_bank_sheet(zin, existing_sh.title, existing_sh.part_name, defined_names, shared_strings):
                     raise ValueError(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
 
         patched: dict[str, ET.Element] = {}

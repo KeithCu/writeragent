@@ -170,7 +170,7 @@ def dumps_response(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def _json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False) -> dict[str, Any]:
     """Pickle envelope: small status for host logs + result_json bytes to forward."""
     if session_reset:
         res["session_reset"] = True
