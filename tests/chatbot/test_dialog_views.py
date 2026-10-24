@@ -1011,7 +1011,12 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
          patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
         combo.getText.return_value = "https://api.groq.com/openai/v1x"
-        listener.textChanged(MagicMock())
+        try:
+            listener.textChanged(MagicMock())
+        finally:
+            # textChanged starts the real 1 s debounce Timer; left running, it
+            # posts into default_executor during a later test on this worker.
+            listener.close()
     mock_set.assert_not_called()
     assert api.getText.return_value == "sk-pasted"
 

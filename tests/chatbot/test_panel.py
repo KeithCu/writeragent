@@ -28,6 +28,7 @@ from plugin.chatbot.panel import (
 )
 from plugin.chatbot.record_gesture import HANDS_FREE_STATUS, RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
+from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
@@ -75,7 +76,7 @@ def _make_send_listener() -> SendButtonListener:
             with patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True):
                 session = MagicMock()
                 session.messages = [{"role": "system", "content": "test"}]
-                return SendButtonListener(
+                listener = SendButtonListener(
                     MagicMock(),
                     MagicMock(),
                     MagicMock(),
@@ -87,6 +88,12 @@ def _make_send_listener() -> SendButtonListener:
                     MagicMock(),
                     session,
                 )
+    # Own queue: another test's leftover thread (e.g. the 1 s settings
+    # debounce Timer) can post_to_main_thread into default_executor mid-test,
+    # adding to ``posted`` or taking process_queue()'s one turn. A mock ctx
+    # gives a mock AsyncCallback, so posts queue as they did on default_executor.
+    listener.queue_executor = QueueExecutor(MagicMock())
+    return listener
 
 
 class TestGrammarStatusDocType:
