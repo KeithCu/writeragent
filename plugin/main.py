@@ -26,8 +26,10 @@ _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
+import enum
 import logging
 import threading
+import types
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
@@ -105,17 +107,53 @@ from plugin.framework.main_shared import (
 
 _tools: ToolRegistry | None = None
 _modules: list[ModuleBase] = []
-# What was wrong: _initialized remained True even if module loading or
+
+
+class BootstrapState(enum.Enum):
+    UNINITIALIZED = "uninitialized"
+    BOOTSTRAPPING = "bootstrapping"
+    INITIALIZED = "initialized"
+
+
+# What was wrong: _bootstrap_state remained INITIALIZED even if module loading or
 # background start failed, permanently wedging startup so subsequent calls
 # returned immediately and menus only logged "No handler or module found".
-# How it happened: _initialized was set early to prevent re-entrant calls
+# How it happened: INITIALIZED was set early to prevent re-entrant calls
 # during module imports, but unhandled exceptions after that point never cleared it.
 # Why this change: retry only when _modules is still empty; otherwise a second
 # pass would construct another registry and start background services again.
-_bootstrapping = False
-_initialized = False
+_bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
 _bootstrap_error: BaseException | None = None
 _terminate_listener: Any | None = None
+
+
+class _MainModule(types.ModuleType):
+    @property
+    def _initialized(self) -> bool:
+        return _bootstrap_state is BootstrapState.INITIALIZED
+
+    @_initialized.setter
+    def _initialized(self, value: bool) -> None:
+        global _bootstrap_state
+        if value:
+            _bootstrap_state = BootstrapState.INITIALIZED
+        elif _bootstrap_state is BootstrapState.INITIALIZED:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
+
+    @property
+    def _bootstrapping(self) -> bool:
+        return _bootstrap_state is BootstrapState.BOOTSTRAPPING
+
+    @_bootstrapping.setter
+    def _bootstrapping(self, value: bool) -> None:
+        global _bootstrap_state
+        if value:
+            _bootstrap_state = BootstrapState.BOOTSTRAPPING
+        elif _bootstrap_state is BootstrapState.BOOTSTRAPPING:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
+
+
+sys.modules[__name__].__class__ = _MainModule
 
 
 def _install_terminate_listener(ctx: Any) -> None:
@@ -142,6 +180,7 @@ def _install_terminate_listener(ctx: Any) -> None:
 
                     shutdown_kokoro_pool()
                 except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error shutting down Kokoro pool on desktop termination")
 
                 # shutdown_all kill_trees registered children and does not signal
@@ -154,12 +193,14 @@ def _install_terminate_listener(ctx: Any) -> None:
 
                     shutdown_all()
                 except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error shutting down managed subprocesses on desktop termination")
 
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
         _terminate_listener = listener
     except Exception:
+        # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
 
 def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
@@ -204,11 +245,11 @@ def bootstrap(ctx: Any | None = None) -> None:
     MCP server starts automatically in headless mode. We could make this lazy
     again in the future if startup performance becomes a concern.
     """
-    global _services, _tools, _modules, _initialized, _bootstrap_error, _bootstrapping
+    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
 
     # Off-thread get_menu_text and _get_menu_icon depend on returning early
     # when initialized, before the on_main_thread check raises BOOTSTRAP_OFF_THREAD.
-    if _initialized:
+    if _bootstrap_state is BootstrapState.INITIALIZED:
         return
 
     from plugin.framework.thread_guard import on_python_main_thread
@@ -222,7 +263,7 @@ def bootstrap(ctx: Any | None = None) -> None:
             code="BOOTSTRAP_OFF_THREAD",
         )
 
-    if _bootstrapping:
+    if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
         return
 
     # What was wrong: _init_lock wrapped only the _initialized recheck, then
@@ -233,7 +274,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     # other thread, and a nested call on this thread returns at _bootstrapping.
     # The lock excluded nobody. It is also not reentrant, so putting the body
     # back under it would deadlock if a nested call ever reached it.
-    _bootstrapping = True
+    _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         # 1. Basic UNO context
         if ctx is None:
@@ -294,7 +335,7 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         # Set initialized early to prevent recursive calls from re-running bootstrap
         # but after _services and _tools are created.
-        _initialized = True
+        _bootstrap_state = BootstrapState.INITIALIZED
 
         # 5. Load manifest and initialize modules
         from plugin.framework.module_base import ModuleLoader
@@ -311,7 +352,7 @@ def bootstrap(ctx: Any | None = None) -> None:
             log.exception("bootstrap failed after the init flag was set")
             _bootstrap_error = exc
             if not _modules:
-                _initialized = False
+                _bootstrap_state = BootstrapState.UNINITIALIZED
                 return
             # What was wrong: a module start_background failure used to return before
             # core handlers, so Settings and the other register_action_handler calls never ran.
@@ -351,7 +392,8 @@ def bootstrap(ctx: Any | None = None) -> None:
         if not module_phase_failed:
             _bootstrap_error = None
     finally:
-        _bootstrapping = False
+        if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
 
 
 def _register_core_handlers() -> None:
@@ -406,7 +448,7 @@ def _register_core_handlers() -> None:
 
     # What was wrong: the from-import sat outside _install_optional.
     # How it happened: only the call was wrapped, so ImportError left this
-    # function. _initialized is already True, so bootstrap does not retry and
+    # function. _bootstrap_state is already INITIALIZED, so bootstrap does not retry and
     # handlers after the import (search, review) never register.
     # Why this change: import inside the callable, same as _install_calc_menus.
     def _install_excel_py_auto_convert() -> None:
@@ -436,7 +478,7 @@ def _register_core_handlers() -> None:
             from plugin.writer.review_toolbar import refresh_review_toolbar
 
             refresh_review_toolbar(model)
-        except Exception:
+        except Exception:  # UNO boundary: refresh_review_toolbar layout/controller access
             log.debug("review toolbar refresh failed", exc_info=True)
 
     def _resolve_change_at_cursor(accept: bool) -> None:
@@ -518,7 +560,7 @@ def _tests_bundled() -> bool:
             import importlib.util
 
             _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.conftest") is not None
-        except Exception:
+        except (ImportError, ValueError, AttributeError):  # Narrowed: purely inspect spec
             _TESTS_AVAILABLE = False
     return bool(_TESTS_AVAILABLE)
 
@@ -755,6 +797,7 @@ def notify_menu_update() -> None:
         try:
             _fire_status_event(listener, url, text)
         except Exception as e:
+            # UNO boundary: listener.statusChanged callback
             failed.append((listener, url))
             log.warning(
                 "notify_menu_update: failed to fire status event for %s: %s",
@@ -782,7 +825,7 @@ def notify_menu_update() -> None:
                 # How it happened: post_to_main_thread omitted bound_scope, inheriting the worker thread's copied contextvar.
                 # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
                 post_to_main_thread(_prune_failed_status_listeners, list(failed), bound_scope=None)
-            except Exception:
+            except (RuntimeError, TimeoutError):  # Narrowed: post_to_main_thread failure modes
                 log.exception("notify_menu_update: failed to post listener prune")
     if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
         # Update icons in a background thread (avoids blocking UI)
@@ -897,7 +940,7 @@ def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = N
         if graphic is None:
             log.warning("_load_icon_graphic: GraphicProvider returned None for %s (%s)", pv.Value, module_name)
         return graphic
-    except Exception as e:
+    except Exception as e:  # UNO boundary: GraphicProvider.queryGraphic
         log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
         return None
 
@@ -990,6 +1033,7 @@ def _update_menu_icons_impl() -> None:
                                 else:
                                     img_mgr.insertImages(itype, (cmd,), (graphic,))
                             except Exception as e:
+                                # UNO boundary: XImageManager image insertion/replacement
                                 apply_failed = True
                                 log.warning(
                                     "_update_menu_icons: failed to insert/replace image for %s type=%s: %s",
@@ -998,12 +1042,14 @@ def _update_menu_icons_impl() -> None:
                                     e,
                                 )
             except Exception as e:
+                # UNO boundary: ModuleUIConfigurationManagerSupplier / getImageManager
                 apply_failed = True
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
 
         if not apply_failed and len(key_graphics) == len(key_cmds):
             _icon_apply_stamp = _icon_apply_signature(icon_cmds, icon_px)
     except Exception:
+        # UNO boundary: outer ImageManager update
         log.exception("_update_menu_icons: outer exception")
 
 
@@ -1047,24 +1093,24 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         """Called by the Jobs framework on OnStartApp."""
         try:
             init_logging(self.ctx)
-        except Exception:
+        except Exception:  # UNO boundary: XJob.execute entry point
             log.exception("MainBootstrapJob.execute: init_logging failed")
         try:
             bootstrap(self.ctx)
-        except Exception as e:
+        except Exception as e:  # UNO boundary: XJob.execute entry point
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
             from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(self.ctx)
-        except Exception as e:
+        except Exception as e:  # UNO boundary: XJob.execute entry point
             log.warning("[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
         return ()
 
     def trigger(self, Event: str) -> None:
         try:
             init_logging(self.ctx)
-        except Exception:
+        except Exception:  # UNO boundary: XJobExecutor.trigger entry point
             log.exception("MainBootstrapJob.trigger: init_logging failed")
 
         try:
@@ -1089,7 +1135,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             doc_type = get_document_type(model)
             if doc_type in (DocumentType.WRITER, DocumentType.CALC):
                 self._handle_selection_actions(args, model)
-        except Exception as exc:
+        except Exception as exc:  # UNO boundary: XJobExecutor.trigger entry point
             from plugin.framework.main_shared import report_action_failure
 
             report_action_failure(str(Event or "trigger"), exc)
@@ -1173,7 +1219,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             from plugin.framework.worker_pool import run_in_background
 
             run_in_background(notify_menu_update)
-        except Exception as e:
+        except Exception as e:  # UNO boundary: XDispatch.dispatch entry point
             log_exception(e, context="Dispatch")
             from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
@@ -1215,7 +1261,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         if text is not None:
             try:
                 _fire_status_event(listener, url, text)
-            except Exception as e:
+            except Exception as e:  # UNO boundary: initial statusChanged callback
                 log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
     def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:

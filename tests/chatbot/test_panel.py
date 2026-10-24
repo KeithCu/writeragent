@@ -102,6 +102,22 @@ class TestGrammarStatusDocType:
         listener.status_control.setText.assert_called_once_with("Grammar: failed 'sample' len 6: API error")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_default_executor():
+    from plugin.framework.queue_executor import default_executor
+
+    orig_post = default_executor.post
+    try:
+        yield
+    finally:
+        default_executor.post = orig_post
+        while not default_executor._work_queue.empty():
+            try:
+                default_executor._work_queue.get_nowait()
+            except Exception:
+                break
+
+
 @pytest.fixture(autouse=False)
 def _run_posts_inline():
     with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a)):

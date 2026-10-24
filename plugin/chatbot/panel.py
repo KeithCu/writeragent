@@ -32,7 +32,7 @@ from plugin.chatbot.tool_loop import ToolCallingMixin
 
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
-from plugin.framework.queue_executor import QueueExecutor
+from plugin.framework.queue_executor import QueueExecutor, default_executor
 from plugin.chatbot.record_gesture import (
     EMPTY_TAKES_EXIT,
     RECORDING_STATUS,
@@ -419,7 +419,7 @@ class SendButtonListener(BaseActionListener):
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
-        self.queue_executor = QueueExecutor(ctx=ctx)
+        self.queue_executor = default_executor
         self._voice = PanelVoiceController(self)
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
@@ -596,15 +596,12 @@ class SendButtonListener(BaseActionListener):
             return
         text = format_grammar_status(data)
         try:
-            from plugin.framework.queue_executor import post_to_main_thread
-            from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+            from plugin.framework.queue_executor import on_main_thread_or_post
 
-            if on_main_thread() and not get_background_task_name():
-                self._set_status(text)
-            else:
-                post_to_main_thread(self._set_status, text)
+            on_main_thread_or_post(self._set_status, text)
         except Exception as e:
-            log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
+            log.debug("_on_grammar_status: on_main_thread_or_post failed: %s", e)
+            return
 
     def _on_http_server_started(self, url: str = "", **kwargs: Any) -> None:
         self._events._on_http_server_started(url, **kwargs)
@@ -628,15 +625,9 @@ class SendButtonListener(BaseActionListener):
 
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
-        # Designated UNO thread and Python main thread differ when set_designated_main_thread
-        # is set; a background task name must post, matching _on_grammar_status and
-        # _on_mcp_result. Force-marshal is not consulted because this paint has to run
-        # on the drain's UI turn.
-        from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+        from plugin.framework.queue_executor import on_main_thread_or_post
 
-        if on_main_thread() and not get_background_task_name():
-            return fn(*args, **kwargs)
-        self.queue_executor.post(fn, *args, **kwargs)
+        return on_main_thread_or_post(fn, *args, executor=self.queue_executor, **kwargs)
 
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""

@@ -70,6 +70,7 @@ from plugin.framework.main_shared import (
 @pytest.fixture(autouse=True)
 def _isolate_main_state():
     """Isolate global state in plugin.main across tests."""
+    prev_state = getattr(main, "_bootstrap_state", None)
     prev_init = main._initialized
     prev_bootstrapping = getattr(main, "_bootstrapping", False)
     prev_services = main._services
@@ -82,6 +83,8 @@ def _isolate_main_state():
     try:
         yield
     finally:
+        if prev_state is not None:
+            main._bootstrap_state = prev_state
         main._initialized = prev_init
         main._bootstrapping = prev_bootstrapping
         main._services = prev_services
@@ -1012,5 +1015,29 @@ def test_register_core_handlers_continues_after_optional_import_failure(
             sys.modules["plugin.calc.excel_py_convert.auto_open"] = prev_module
         else:
             sys.modules.pop("plugin.calc.excel_py_convert.auto_open", None)
+
+
+def test_bootstrap_state_enum(monkeypatch):
+    """BootstrapState enum tracks bootstrap lifecycle states."""
+    from plugin.main import BootstrapState
+
+    assert BootstrapState.UNINITIALIZED.value == "uninitialized"
+    assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
+    assert BootstrapState.INITIALIZED.value == "initialized"
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
+    monkeypatch.setattr(main, "_register_core_handlers", lambda: None)
+    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
+
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
+    assert main._bootstrap_state is BootstrapState.UNINITIALIZED
+
+    main.bootstrap(MagicMock())
+    assert main._bootstrap_state is BootstrapState.INITIALIZED
+
 
 

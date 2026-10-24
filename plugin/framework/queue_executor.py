@@ -799,6 +799,33 @@ def post_to_main_thread(fn: Any, *args: Any, bound_scope: SendCancellation | Non
     return default_executor.post(fn, *args, bound_scope=bound_scope, **kwargs)
 
 
+def on_main_thread_or_post(
+    fn: Any,
+    *args: Any,
+    executor: QueueExecutor | None = None,
+    bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+    **kwargs: Any,
+) -> Any:
+    """Run fn immediately if on main thread without a background task tag, else post.
+
+    Matches the sidebar UI update idiom: paint inline on the VCL main thread,
+    but enqueue via post when called from a background thread or a task-tagged
+    worker (e.g. MCP, audio recording, grammar observer).
+    """
+    assert callable(fn), "fn must be callable"
+    from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+
+    if on_main_thread() and not get_background_task_name():
+        return fn(*args, **kwargs)
+    if bound_scope is not _SCOPE_UNSET:
+        kwargs["bound_scope"] = bound_scope
+    if executor is not None:
+        executor.post(fn, *args, **kwargs)
+    else:
+        post_to_main_thread(fn, *args, **kwargs)
+    return None
+
+
 def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor | None = None) -> None:
     """Process queued UNO work on the LO main thread (call from idle/drain loops).
 
