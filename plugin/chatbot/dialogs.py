@@ -24,8 +24,7 @@ shared XDL kit — it is not the chat panel.
 
 XDL loading rules (sidebar / extension dialogs):
 - Use ``DialogProvider`` (``DialogProvider2`` fallback) + extension ``base_url`` from
-  ``PackageInformationProvider`` (see ``load_writeragent_dialog`` /
-  ``_load_xdl``). **Never** ``vnd.sun.star.script:…?location=application``
+  ``PackageInformationProvider`` (see ``load_writeragent_dialog``). **Never** ``vnd.sun.star.script:…?location=application``
   with sidebar components — that path deadlocks.
 - Multi-page dialogs: ``dlg:page`` on controls + ``dlg.getModel().Step``;
   ``tabpagecontainer`` / ``tabpage`` fail silently.
@@ -35,20 +34,10 @@ XDL loading rules (sidebar / extension dialogs):
 
 Usage from modules::
 
-    from plugin.chatbot.dialogs import msgbox, msgbox_with_copy, copy_to_clipboard
+    from plugin.chatbot.dialogs import msgbox, copy_to_clipboard
     from plugin.framework.uno_context import get_ctx
 
     msgbox(get_ctx(), "Title", "Hello world")
-    msgbox_with_copy(get_ctx(), "URL", "Server running at:", "https://localhost:8766")
-
-XDL dialog loading (used by ModuleBase helpers)::
-
-    from plugin.chatbot.dialogs import load_module_dialog, load_framework_dialog
-
-    dlg = load_framework_dialog("info_action")
-    dlg.getControl("MessageText").getModel().Label = "Hello"
-    dlg.execute()
-    dlg.dispose()
 """
 
 from __future__ import annotations
@@ -307,7 +296,7 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
 
 
 class CopyListener(BaseActionListener):
-    """Copy button shared by msgbox_with_copy and msgbox_with_report.
+    """Copy button shared by msgbox_with_report and the MCP URL dialog.
 
     actionPerformed is already wrapped by BaseActionListener._catch_and_log,
     so a missing CopyBtn is logged at the listener boundary.
@@ -338,42 +327,6 @@ class _DismissDialogListener(BaseActionListener):
 
     def actionPerformed(self, rEvent: ActionEvent) -> None:
         self._dlg.endDialog(1)
-
-
-# ── Message box with Copy button ─────────────────────────────────────
-
-
-def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None:
-    """Show a dialog with a message and a Copy button."""
-    if not ctx:
-        log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
-        return
-    try:
-        dlg = load_writeragent_dialog("MsgBoxWithCopyDialog", ctx)
-        if dlg is None:
-            msgbox(ctx, title, message)
-            return
-
-        if title:
-            dlg.getModel().Title = _(title)
-
-        msg_ctrl = dlg.getControl("Msg")
-        if msg_ctrl is not None:
-            msg_ctrl.getModel().Label = str(message)
-
-        copy_btn = dlg.getControl("CopyBtn")
-        if copy_btn is not None:
-            copy_btn.addActionListener(CopyListener(dlg, ctx, copy_text))
-
-        ok_btn = dlg.getControl("OKBtn")
-        if ok_btn is not None:
-            ok_btn.addActionListener(_DismissDialogListener(dlg))
-
-        dlg.execute()
-        dlg.dispose()
-    except Exception:
-        log.exception("Copy dialog error")
-        msgbox(ctx, title, message)
 
 
 def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool = False, report_title: str = "", report_extra: str = "", box_type: int = 3) -> None:
@@ -569,31 +522,6 @@ def translate_dialog(dlg: Any) -> None:
                     translate_one(c)
 
 
-def load_module_dialog(module_name: Any, dialog_name: str) -> Any:
-    """Load an XDL dialog from a module's directory.
-
-    Returns an XDialog ready for execute()/dispose().
-    """
-    module_dir = module_name.replace(".", "_")
-    xdl_path = "plugin/%s/%s.xdl" % (module_dir, dialog_name)
-    dlg = _load_xdl(xdl_path)
-    if dlg:
-        translate_dialog(dlg)
-    return dlg
-
-
-def load_framework_dialog(dialog_name: str) -> Any:
-    """Load an XDL dialog from the framework's directory.
-
-    Returns an XDialog ready for execute()/dispose().
-    """
-    xdl_path = "plugin/framework/%s.xdl" % dialog_name
-    dlg = _load_xdl(xdl_path)
-    if dlg:
-        translate_dialog(dlg)
-    return dlg
-
-
 def format_exception_detail(exc: BaseException, *, _depth: int = 0) -> str:
     """Best-effort printable detail for Python and UNO exceptions (incl. nested Target/Context)."""
     if _depth > 4:
@@ -757,10 +685,6 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
         smgr = getattr(ctx_any, "ServiceManager", None)
     assert smgr is not None
 
-    # Fallback for unit testing when ServiceManager or context is mocked
-    if "Mock" in type(smgr).__name__ or "Mock" in type(ctx).__name__:
-        return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any), None
-
     base = get_extension_url(ctx)
     url = base + "/Dialogs/" + dialog_name + ".xdl"
     dlg, provider_failure = _create_xdl_dialog(smgr, ctx_any, url)
@@ -776,23 +700,6 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
 def load_writeragent_dialog(dialog_name: str, ctx: Any = None) -> Any:
     """Load an XDL dialog from the Dialogs/ directory."""
     dlg, _detail = load_writeragent_dialog_detail(dialog_name, ctx=ctx)
-    return dlg
-
-
-def _load_xdl(relative_path: str) -> Any:
-    """Load an XDL file from the extension bundle via DialogProvider (+ DP2 fallback)."""
-
-    ctx = get_ctx()
-    assert ctx is not None
-    ctx_any = cast("Any", ctx)
-    if hasattr(ctx_any, "getServiceManager"):
-        smgr = ctx_any.getServiceManager()
-    else:
-        smgr = getattr(ctx_any, "ServiceManager", None)
-    assert smgr is not None
-    base = get_extension_url(ctx)
-    url = base + "/" + relative_path
-    dlg, _detail = _create_xdl_dialog(smgr, ctx_any, url)
     return dlg
 
 

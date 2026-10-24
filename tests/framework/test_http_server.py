@@ -157,12 +157,21 @@ def test_socket_timeout_none_does_not_set_deadline() -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     conn = MagicMock()
     try:
-        assert server.socket_timeout is None
         wrapped, _addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
     finally:
         server.server_close()
     assert wrapped is conn
     conn.settimeout.assert_not_called()
+
+
+def test_wrap_accepted_socket_sets_tcp_nodelay() -> None:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    conn = MagicMock()
+    try:
+        server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
+    finally:
+        server.server_close()
+    conn.setsockopt.assert_any_call(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
 def test_server_close_closes_queued_socket_without_running_handler() -> None:

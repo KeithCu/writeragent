@@ -87,7 +87,7 @@ Smaller, same area: `_parse_finished` in `plugin/ppt_master/venv/runner.py` keep
 
 `_app` maps every unknown label, including `"impress"`, to `"writer"` (`plugin/chatbot/agent_manual.py` around line 159). `_SECTIONS_BY_APP` has no `impress` key. The agent-backend worker passes the cached label `"impress"` straight into `full_manual` (`plugin/chatbot/send_handlers.py`). Core directives already treat Impress as Draw (`get_core_directives_for_type` in `plugin/framework/prompts.py`). Map `impress` to `draw` in `_app`. One place, same topic tables.
 
-Sidebar `get_guidance` on the main thread is fine, because `doc_type_of` sees a Draw model (`is_draw` is true for Impress). Do not call `full_manual_for_model` on the worker, and do not add a second topic list.
+Sidebar `get_guidance` on the main thread is fine, because `doc_type_of` sees a Draw model (`is_draw` is true for Impress). Do not classify the document on the worker, and do not add a second topic list.
 
 ## Settings and panel shell
 

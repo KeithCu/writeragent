@@ -4,7 +4,6 @@ import pytest
 import plugin.framework.client.model_fetcher as model_fetcher_mod
 import plugin.framework.config_service as config_service_mod
 from plugin.framework.config_service import (
-    ConfigAccessError,
     ConfigService,
 )
 
@@ -82,34 +81,6 @@ class TestSetGet():
         assert data is None
 
 
-class TestAccessControl():
-
-    @pytest.mark.parametrize(
-        "caller_module",
-        [
-            pytest.param('mcp', id="test_read_own_key_ok"),
-            pytest.param('chatbot', id="test_read_public_key_ok"),
-        ],
-    )
-    def test_read_own_key_ok(self, config_svc, caller_module):
-        assert (config_svc.get('mcp.mcp_port', caller_module=caller_module) == 18765)
-
-    def test_read_private_key_denied(self, config_svc):
-        with pytest.raises(ConfigAccessError, match='cannot read private'):
-            config_svc.get('mcp.cors_allow_private_origins', caller_module='chatbot')
-
-    def test_write_own_key_ok(self, config_svc):
-        config_svc.set('mcp.mcp_port', 9000, caller_module='mcp')
-        assert (config_svc.get('mcp.mcp_port') == 9000)
-
-    def test_write_other_key_denied(self, config_svc):
-        with pytest.raises(ConfigAccessError, match='cannot write'):
-            config_svc.set('mcp.mcp_port', 9000, caller_module='chatbot')
-
-    def test_no_caller_no_restriction(self, config_svc):
-        assert (config_svc.get('mcp.mcp_port') == 18765)
-
-
 class TestEvents():
 
     def test_config_changed_event(self, config_svc):
@@ -153,11 +124,6 @@ class TestModuleConfigProxy():
         proxy = config_svc.proxy_for('mcp')
         proxy.set('mcp_port', 9000)
         assert (proxy.get('mcp_port') == 9000)
-
-    def test_cross_module_read_private_denied(self, config_svc):
-        proxy = config_svc.proxy_for('chatbot')
-        with pytest.raises(ConfigAccessError):
-            proxy.get('mcp.cors_allow_private_origins')
 
     def test_default_fallback(self, config_svc):
         import plugin.framework.config as c
@@ -223,9 +189,7 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
             raise ConfigError("missing")
 
         monkeypatch.setattr("plugin.framework.config_service.get_config", missing)
-        assert config.get("mcp.mcp_port", caller_module="chatbot") == 18765
-        with pytest.raises(ConfigAccessError, match="cannot read private"):
-            config.get("mcp.cors_allow_private_origins", caller_module="chatbot")
+        assert config.get("mcp.mcp_port") == 18765
     finally:
         main._bootstrap_state, main._services, main._tools = previous[0], previous[1], previous[2]
         main._modules[:] = previous[3]

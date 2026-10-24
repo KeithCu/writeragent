@@ -13,7 +13,6 @@ sections are per document type so a Calc session never reads Writer advice. No L
 from plugin.chatbot.agent_manual import (
     MANUAL_SECTIONS,
     full_manual,
-    full_manual_for_model,
     get_section,
     list_topics,
     manual_index,
@@ -190,14 +189,6 @@ def test_full_manual_impress_uses_draw_sections():
     assert full_manual(" Writer ") == full_manual("writer")
     assert "TRACKED CHANGES" in full_manual(" Writer ")
     assert full_manual(" Nope ") == full_manual("writer")
-
-
-def test_full_manual_for_model_switches_per_app():
-    assert "TRACKED CHANGES" in full_manual_for_model(WRITER_DOC)
-    calc_manual = full_manual_for_model(CALC_DOC)
-    assert "TRACKED CHANGES" not in calc_manual
-    assert "structured fields" in calc_manual
-    assert "429" in calc_manual
 
 
 # ---- GetGuidance tool --------------------------------------------------------

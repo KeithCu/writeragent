@@ -71,7 +71,6 @@ LibreOffice controls often differ in method vs model property names across OS bu
 | Function / Class | Location | Description |
 | :--- | :--- | :--- |
 | `msgbox(ctx, title, message, *, box_type=1)` | `plugin.chatbot.dialogs` | Native message box (1=INFO, 2=WARNING, 3=ERROR, 4=QUERY). |
-| `msgbox_with_copy(ctx, title, message, copy_text)` | `plugin.chatbot.dialogs` | Message box with a "Copy to Clipboard" button. |
 | `msgbox_with_report(ctx, title, message, ...)` | `plugin.chatbot.dialogs` | Error message box with a "Report Issue" button opening GitHub. |
 | `input_box(ctx, message, title="", default="")` | `plugin.chatbot.dialog_views` | Multi-line text input dialog (`EditInputDialog.xdl`) with prompt/model LRU comboboxes. The model combo passes `skip_remote_fetch` so Edit/Extend Selection does not block the UI thread on `/v1/models`. |
 | `show_text_input_dialog(ctx, message, title="", default="")` | `plugin.chatbot.dialogs` | Simple single-line text input dialog (`ShortTextInputDialog.xdl`). |

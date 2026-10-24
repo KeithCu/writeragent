@@ -237,7 +237,7 @@ class TestEndpointCombinedListener:
         def track_apply(*args, **kwargs):
             apply_calls.append((args, kwargs))
 
-        def track_bg(gen, resolved, tts_model_id=""):
+        def track_bg(gen, resolved, tts_model_id="", *args, **kwargs):
             bg_calls.append((gen, resolved, tts_model_id))
 
         listener._apply_dropdowns = track_apply
@@ -553,7 +553,7 @@ class TestSettingsEnhancements:
     @patch("plugin.mcp.mcp_ui.get_config_int_safe", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         import json
-        from plugin.chatbot.dialog_views import build_mcp_config_snippet
+        from plugin.mcp.mcp_ui import build_mcp_config_snippet
 
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)
@@ -561,7 +561,7 @@ class TestSettingsEnhancements:
 
     def test_build_mcp_config_snippet_custom_port(self):
         import json
-        from plugin.chatbot.dialog_views import build_mcp_config_snippet
+        from plugin.mcp.mcp_ui import build_mcp_config_snippet
 
         snippet = build_mcp_config_snippet(9000)
         parsed = json.loads(snippet)
@@ -569,7 +569,7 @@ class TestSettingsEnhancements:
 
     @patch("plugin.mcp.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener_action(self, mock_copy):
-        from plugin.chatbot.dialog_views import CopyMcpConfigListener
+        from plugin.mcp.mcp_ui import CopyMcpConfigListener
 
         ctx = MagicMock()
         dlg = MagicMock()
@@ -595,7 +595,7 @@ class TestSettingsEnhancements:
         assert (btn_model.Label) == ("✓ Copied!")
 
     def test_mcp_port_text_listener_updates_snippet(self):
-        from plugin.chatbot.dialog_views import McpPortTextListener
+        from plugin.mcp.mcp_ui import McpPortTextListener
 
         dlg = MagicMock()
         snippet_ctrl = MagicMock()
@@ -1888,7 +1888,7 @@ def test_tts_test_voice_listener_speak_error_stays_in_dialog():
 
 def test_voice_combo_change_does_not_write_config_until_ok():
     """Changing the voice combo must not touch writeragent.json. OK does."""
-    from plugin.chatbot.dialog_views import TtsSettingsListener, TtsVoiceListener
+    from plugin.chatbot.dialog_views import TtsSettingsListener
     from plugin.chatbot.settings_dialog import apply_settings_result
 
     dlg = MagicMock()
@@ -1908,11 +1908,9 @@ def test_voice_combo_change_does_not_write_config_until_ok():
             return voice_ctrl
         return None
 
-    voice_listener = TtsVoiceListener(dlg, TtsSettingsListener(dlg, MagicMock()))
     stored: dict[str, str] = {}
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
-        voice_listener._on_change()
         TtsSettingsListener(dlg, MagicMock()).sync_ui()
     assert "audio.tts_voice" not in stored
     assert "audio.tts_voice_piper" not in stored
@@ -2079,6 +2077,37 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
         if listener is not None and listener._timer is not None:
             listener._timer.cancel()
         cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+
+
+def test_bg_fetch_receives_typed_api_key():
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.openai.com/v1"
+    combo.getItem.return_value = "https://api.openai.com/v1"
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._api_key_override = MagicMock(return_value="typed-key")
+    listener.run_in_background = lambda fn, name=None: fn()
+    listener._catalog_is_warm = MagicMock(return_value=False)
+    listener._sync_api_key = MagicMock()
+    listener._apply_dropdowns = MagicMock()
+    listener._tts_model_id_for_voice_fetch = MagicMock(return_value="")
+
+    with patch.object(listener, "_bg_fetch") as mock_bg_fetch:
+        listener.force_catalog_refresh()
+        assert mock_bg_fetch.call_count == 1
+        args, kwargs = mock_bg_fetch.call_args
+        assert args[1] == "https://api.openai.com"
+        assert args[3] == "typed-key"
+
+        mock_bg_fetch.reset_mock()
+        event = MagicMock()
+        event.Selected = 0
+        listener.itemStateChanged(event)
+        assert mock_bg_fetch.call_count == 1
+        args, kwargs = mock_bg_fetch.call_args
+        assert args[1] == "https://api.openai.com"
+        assert args[3] == "typed-key"
 
 
 def test_settings_hf_button_uses_router():

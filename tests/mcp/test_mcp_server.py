@@ -439,23 +439,6 @@ def test_read_json_body_rejects_chunked_and_does_not_read():
     assert identity._read_body() == {}
 
 
-def test_get_request_sets_socket_timeout():
-    import socketserver
-
-    from plugin.mcp.server import MCP_HTTP_SOCKET_TIMEOUT_SEC, _ThreadedHTTPServer
-
-    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
-    # __new__ does not run __init__. The class default is None ("handler
-    # sets the deadline"), so the MCP timeout has to be assigned here.
-    server.socket_timeout = MCP_HTTP_SOCKET_TIMEOUT_SEC
-    conn = MagicMock()
-    with patch.object(socketserver.TCPServer, "get_request", return_value=(conn, ("127.0.0.1", 1))):
-        got, addr = _ThreadedHTTPServer.get_request(server)
-    assert got is conn
-    assert addr == ("127.0.0.1", 1)
-    conn.settimeout.assert_called_once_with(MCP_HTTP_SOCKET_TIMEOUT_SEC)
-
-
 def test_handle_error_timeout_does_not_call_super():
     import socket
 
@@ -500,16 +483,14 @@ def test_route_registry_is_per_server_instance():
         srv_b.server_close()
 
 
-def test_get_request_wraps_tls_per_connection():
+def test_wrap_accepted_socket_wraps_tls_per_connection():
     from plugin.mcp.server import _ThreadedHTTPServer
 
     server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
     conn, wrapped = MagicMock(name="conn"), MagicMock(name="tls")
-    server.socket = MagicMock()
-    server.socket.accept.return_value = (conn, ("127.0.0.1", 5))
     server.ssl_ctx = MagicMock()
     server.ssl_ctx.wrap_socket.return_value = wrapped
-    got, addr = server.get_request()
+    got, addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 5))
     assert got is wrapped
     assert addr == ("127.0.0.1", 5)
     server.ssl_ctx.wrap_socket.assert_called_once_with(conn, server_side=True, do_handshake_on_connect=False)

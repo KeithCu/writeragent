@@ -44,8 +44,22 @@ class TestMemory:
             assert user_profile_exists(self.ctx) is False
             MemoryStore().write("   ")
             assert user_profile_exists(self.ctx) is False
+            MemoryStore().write("{}")
+            assert user_profile_exists(self.ctx) is False
+            MemoryStore().write("  {}\n")
+            assert user_profile_exists(self.ctx) is False
             MemoryStore().write('{"name": "Keith"}')
             assert user_profile_exists(self.ctx) is True
+
+    def test_delete_last_key_clears_file_and_profile_not_exists(self):
+        with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
+            store = MemoryStore()
+            store.write('{"name": "A"}')
+            assert user_profile_exists(self.ctx) is True
+            res = MemoryTool().execute(self.ctx, key="name", content="")
+            assert res["status"] == "ok"
+            assert store.read() == ""
+            assert user_profile_exists(self.ctx) is False
 
     def test_user_profile_exists_false_on_store_error(self):
         with patch("plugin.chatbot.memory.MemoryStore", side_effect=RuntimeError("no config")):
@@ -170,32 +184,6 @@ class TestMemoryWriteConcurrency:
         assert (json.loads(self.store.read())) == ({"name": "Andre"})
         leftovers = [f for f in os.listdir(self.tmp_dir) if f.startswith(".memory-")]
         assert (leftovers) == ([]), "atomic-write temp files must not leak"
-
-    def test_upserting_name_clears_seed_marker(self):
-        # After the user confirms their name, the seed guidance must stop
-        # injecting — otherwise every new session re-asks name/color.
-        seeded = {
-            "name_source": "auto-detected from LibreOffice User Data or OS login; not yet confirmed by the user",
-            "favorite_colors": "",
-            "name": "andre",
-        }
-        self.store.write(json.dumps(seeded))
-
-        res = MemoryTool().execute(self.ctx, key="name", content="André")
-        assert (res["status"]) == ("ok")
-
-        data = json.loads(self.store.read())
-        assert ("name_source") not in (data)
-        assert (data["name"]) == ("André")
-
-    def test_color_upsert_alone_keeps_seed_marker(self):
-        seeded = {"name_source": "auto-detected", "favorite_colors": "", "name": "andre"}
-        self.store.write(json.dumps(seeded))
-
-        MemoryTool().execute(self.ctx, key="favorite_colors", content="blue")
-
-        data = json.loads(self.store.read())
-        assert ("name_source") in (data)  # name still unconfirmed → keep asking once
 
 
 def test_upsert_rejects_non_json_user_md(tmp_path):

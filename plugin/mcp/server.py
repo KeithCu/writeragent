@@ -482,7 +482,6 @@ class HttpServer:
             GenericRequestHandler,
             max_threads=32,
             thread_name_prefix="mcp-worker",
-            socket_timeout=MCP_HTTP_SOCKET_TIMEOUT_SEC,
         )
         self._server.route_registry = self.route_registry
         # The configured bind host (e.g. a LAN name) is an allowed Host header

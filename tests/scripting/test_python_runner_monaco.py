@@ -692,6 +692,10 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()
@@ -785,6 +789,10 @@ def test_show_python_input_dialog_save_button():
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()
@@ -902,6 +910,10 @@ def test_show_python_input_dialog_save_as_button():
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()
@@ -967,6 +979,10 @@ def test_native_dialog_btn_new_action_creates_script():
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()
@@ -1037,6 +1053,10 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()

@@ -31,9 +31,7 @@ a Calc session never reads Writer advice."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from plugin.doc.doc_type import doc_type_of
 from plugin.framework.prompts import (
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     GENERIC_EDIT_CONFIRMATION_RULES,
@@ -231,8 +229,3 @@ def full_manual(doc_type: str | None = "writer") -> str:
     sidebar does not use this: its template assembles the shared pieces directly (constants)."""
     parts = [t.text for t in _MANUALS[_app(doc_type)]]
     return "HOW TO WORK WITH THE DOCUMENT:\n\n" + "\n\n".join(parts)
-
-
-def full_manual_for_model(model: Any) -> str:
-    """full_manual() resolved from a document model (agent-backend convenience)."""
-    return full_manual(doc_type_of(model) or "writer")

@@ -157,14 +157,13 @@ LibrePy Settings / Run Python Script / message boxes share this kit. Full how-to
 | Symbol | Purpose |
 |--------|---------|
 | `load_writeragent_dialog` / `load_writeragent_dialog_detail` | Load `Dialogs/<name>.xdl` via DialogProvider (+ DP2), then `translate_dialog`. |
-| `load_module_dialog` / `load_framework_dialog` / `_load_xdl` | Same provider path for `plugin/<module>/` and `plugin/framework/` XDL. |
 | `translate_dialog` | gettext walk of Label/Text/Title/HelpText. |
 | `get_optional` | Control by name or `None` (missing / disposed). |
 | `get_control_text` / `set_control_text` | Text via method or model. |
 | `is_checkbox_control` / `get_checkbox_state` / `set_checkbox_state` | Checkbox State quirks. |
 | `set_control_enabled` / `set_control_visible` | Enable/visible via method or model. |
 | `add_dialog_button` / `add_dialog_label` / `add_dialog_edit` / `add_dialog_hyperlink` | Programmatic control insert. |
-| `msgbox` / `msgbox_with_copy` / `msgbox_with_report` | Message boxes. |
+| `msgbox` / `msgbox_with_report` | Message boxes. |
 | `copy_to_clipboard` | `SystemClipboard`. |
 | `format_exception_detail` | Printable Python + UNO exception (nested Target/Context). |
 | `TabListener` | Multi-page `dlg.getModel().Step` (not `tabpagecontainer`). |

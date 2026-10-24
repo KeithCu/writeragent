@@ -235,7 +235,7 @@ Pick **one** small change at a time; avoid combining socket timeouts, `tools/lis
 
 3. **Force `Connection: close`** — Set `self.close_connection = True` at the start of each handler (`_dispatch` / `do_OPTIONS`) so workers do not sit in `readline` after preflight. Does **not** fix Expect deadlock on POST; only reduces idle keep-alive threads.
 
-4. **Per-connection read timeout** — Shipped as 30s (`MCP_HTTP_SOCKET_TIMEOUT_SEC`) on `GenericRequestHandler.timeout` and `get_request()`. A stall under the body cap returns HTTP 408. SSE keepalive uses `select()` and is not cut by that timeout. The timeout does not fix an Expect handshake deadlock.
+4. **Per-connection read timeout** — Shipped as 30s (`MCP_HTTP_SOCKET_TIMEOUT_SEC`) on `GenericRequestHandler.timeout`. A stall under the body cap returns HTTP 408. SSE keepalive uses `select()` and is not cut by that timeout. The timeout does not fix an Expect handshake deadlock.
 
 5. **`tools/list` without blocking on active document** — Separate issue: if AsyncCallback is missing, `QueueExecutor.execute` runs UNO on the HTTP thread and can hang forever (no timeout). That is **not** fixed by HTTP version; would need a dedicated change in [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) (e.g. skip `get_active_document` when dispatch is unavailable). Only consider if py-spy shows the worker past `do_POST`, inside UNO, with MainThread idle.
 

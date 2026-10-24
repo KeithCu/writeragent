@@ -16,7 +16,7 @@ from plugin.framework.appearance import (
     get_monaco_theme_info,
 )
 from plugin.framework.event_bus import EventBus
-from plugin.framework.config_service import ConfigService, ConfigAccessError
+from plugin.framework.config_service import ConfigService
 
 
 @given(color=st.integers(min_value=0, max_value=0xFFFFFF))
@@ -66,37 +66,3 @@ def test_event_bus_exception_isolation() -> None:
     # emit must NOT raise
     bus.emit("test:event")
     assert called == ["bad", "good"]
-
-
-def test_config_service_access_control_contracts() -> None:
-    service = ConfigService()
-    from plugin.framework import config_schema
-    orig = (
-        config_schema.MODULES,
-        config_schema.CONFIG_DEFAULTS,
-        config_schema.CONFIG_SCHEMAS,
-        config_schema.DOTTED_FALLBACKS,
-    )
-    config_schema.set_manifest_modules([{
-        "name": "mod_a",
-        "config": {
-            "secret": {"default": "a", "public": False},
-            "shared": {"default": "b", "public": True},
-        },
-    }])
-    try:
-        # Same module reading private config is allowed
-        service._check_read_access("mod_a.secret", "mod_a")
-
-        # Other module reading public config is allowed
-        service._check_read_access("mod_a.shared", "mod_b")
-
-        # Other module reading private config raises ConfigAccessError
-        with pytest.raises(ConfigAccessError):
-            service._check_read_access("mod_a.secret", "mod_b")
-
-        # Write access across module boundaries raises ConfigAccessError
-        with pytest.raises(ConfigAccessError):
-            service._check_write_access("mod_a.secret", "mod_b")
-    finally:
-        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig

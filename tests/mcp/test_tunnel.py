@@ -1453,7 +1453,7 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
 
     # 3. Switching provider to bore (untested) -> shows bore default template, NOT cloudflare URL!
     mock_provider.getText.return_value = "bore"
-    from plugin.chatbot.dialog_views import McpTunnelProviderListener
+    from plugin.mcp.mcp_ui import McpTunnelProviderListener
     provider_listener = McpTunnelProviderListener(mock_dlg)
     provider_listener.itemStateChanged(MagicMock())
     args, _ = mock_snippet.setText.call_args

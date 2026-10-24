@@ -37,6 +37,10 @@ def _build_dialog_mock(
     def fake_create(service, _ctx):
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         return MagicMock()
 
     smgr.createInstanceWithContext.side_effect = fake_create

@@ -57,7 +57,8 @@ class MemoryStore:
 def user_profile_exists(ctx: Any = None) -> bool:
     """True when USER.md has non-empty content. Missing store or I/O → False (start Librarian)."""
     val = best_effort(lambda: MemoryStore().read(), "user_profile_exists: treating profile as missing")
-    return bool(str(val or "").strip())
+    text = str(val or "").strip()
+    return bool(text) and text != "{}"
 
 
 # Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.
@@ -230,13 +231,7 @@ class MemoryTool(ToolBase):
                 current_dict = child
             current_dict[parts[-1]] = content
 
-        # Once a real name lands, the seed marker has served its purpose.
-        # Leaving it in place made the seed-guidance re-ask name/color in
-        # every future session (only-once guarantee, #346).
-        if key == "name":
-            parsed.pop("name_source", None)
-
-        new_content = json.dumps(parsed, indent=2, ensure_ascii=False)
+        new_content = "" if not parsed else json.dumps(parsed, indent=2, ensure_ascii=False)
         if new_content == current:
             return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
 

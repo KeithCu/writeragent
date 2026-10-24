@@ -52,7 +52,7 @@ def test_mode_labels_match_modes_for_length_and_order():
 
 
 def test_mode_labels_include_brainstorming_when_writer():
-    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_deep_research=True)
     labels = get_mode_labels(flags)
     assert len(labels) == 7
     assert mode_from_label(labels[0], flags) == CHAT_MODE_CHAT
@@ -68,8 +68,8 @@ def test_mode_labels_include_brainstorming_when_writer():
 def test_mode_labels_omit_brainstorming_for_calc():
     flags = SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
     labels = get_mode_labels(flags)
-    assert len(labels) == 6
-    assert mode_from_label(labels[4], flags) == CHAT_MODE_WRITING_PLAN
+    assert len(labels) == 5
+    assert mode_from_label(labels[3], flags) == CHAT_MODE_WRITING_PLAN
     assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
 
 
@@ -82,14 +82,20 @@ def test_calc_sidebar_omits_writing_plan():
 def test_mode_labels_ppt_master_for_impress():
     flags = sidebar_mode_flags_for_doc_type("impress")
     labels = get_mode_labels(flags)
-    assert len(labels) == 6
-    assert mode_from_label(labels[4], flags) == CHAT_MODE_PPT_MASTER
+    assert len(labels) == 5
+    assert mode_from_label(labels[3], flags) == CHAT_MODE_PPT_MASTER
     assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
+
+
+def test_deep_research_hidden_outside_writer():
+    for app in ("calc", "draw", "impress"):
+        assert "Deep Research" not in get_mode_labels(sidebar_mode_flags_for_doc_type(app))
+    assert "Deep Research" in get_mode_labels(sidebar_mode_flags_for_doc_type("writer"))
 
 
 def test_mode_from_selector_reads_combobox_text():
     ctrl = MagicMock()
-    flags = SidebarModeFlags(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     labels = get_mode_labels(flags)
     ctrl.getSelectedItemPos.return_value = -1
     ctrl.getText.return_value = labels[1]
@@ -111,7 +117,7 @@ def test_mode_from_selector_prefers_selected_index_over_stale_text():
 
 def test_mode_from_selector_oob_index_falls_back_to_text():
     ctrl = MagicMock()
-    flags = SidebarModeFlags(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     labels = get_mode_labels(flags)
     ctrl.getSelectedItemPos.return_value = 99
     ctrl.getText.return_value = labels[1]
@@ -120,7 +126,7 @@ def test_mode_from_selector_oob_index_falls_back_to_text():
 
 def test_set_selector_mode_selects_by_index():
     ctrl = MagicMock()
-    flags = SidebarModeFlags(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     labels = get_mode_labels(flags)
     set_selector_mode_with_flags(ctrl, CHAT_MODE_WEB_RESEARCH, flags)
     ctrl.selectItemPos.assert_called_once_with(2, True)
@@ -132,7 +138,7 @@ def test_populate_mode_selector_sets_string_item_list_on_model():
     model = MagicMock()
     ctrl.getModel.return_value = model
     ctrl.getItemCount.return_value = 0
-    flags = SidebarModeFlags(include_brainstorming=True)
+    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     populate_mode_selector_with_flags(ctrl, flags)
     labels = tuple(str(x) for x in get_mode_labels(flags))
     assert model.StringItemList == labels

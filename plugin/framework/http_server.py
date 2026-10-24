@@ -52,6 +52,7 @@ _PORT_IN_USE_GUIDANCE = (
 
 # errno.EADDRINUSE is 98 (Linux) / 48 (macOS); Windows uses winerror 10048 (WSAEADDRINUSE).
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
+_WARN_THROTTLE_SEC = 1.0
 
 
 def is_port_in_use_error(exc: BaseException) -> bool:
@@ -317,9 +318,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     The accept queue is capped (default 128); past the ceiling the accept thread closes the socket and writes no response. Compute HTTP 503 is worker admission, not this path.
     Supports optional TLS socket wrapping.
 
-    ``socket_timeout`` is None unless the caller passes one. None means the
-    request handler sets the deadline. MCP passes its 30s constant. The compute
-    service leaves it None and ``DeadlineRequestHandler`` sets the read deadline.
+    The request handler sets the read deadline (MCP: ``GenericRequestHandler.timeout``; compute: ``DeadlineRequestHandler``).
     """
 
     request_queue_size: int = 128
@@ -342,7 +341,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     sockets: list[Socket]
     socket: Socket
     ssl_ctx: ssl.SSLContext | None = None
-    socket_timeout: float | None = None
 
     def __init__(
         self,
@@ -352,7 +350,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         max_threads: int | None = None,
         *,
         thread_name_prefix: str = "http-worker",
-        socket_timeout: float | None = None,
         max_queued: int = 128,
     ) -> None:
         self.sockets = []
@@ -374,7 +371,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # shutdown_request. Keyed by the Future the pool returns.
         self._queued: dict[Future[Any], Any] = {}
         self._queued_lock = threading.Lock()
-        self.socket_timeout = socket_timeout
         self.executor = _RequestThreads(max_threads, thread_name_prefix, max_queued=max_queued)
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
@@ -513,20 +509,15 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     def fileno(self) -> int:
         return self.socket.fileno()
 
-    def get_request(self) -> tuple[Any, Any]:
-        """TCPServer interface compatibility method."""
-        conn, addr = super().get_request()
-        return self._wrap_accepted_socket(conn, addr)
+    def _warn_due(self, attr: str, now: float) -> bool:
+        if now - getattr(self, attr) < _WARN_THROTTLE_SEC:
+            return False
+        setattr(self, attr, now)
+        return True
 
     def _wrap_accepted_socket(self, conn: Socket, addr: Any) -> tuple[Socket, Any]:
-        """Apply configured socket timeout and optional TLS wrap."""
-        # None means the handler sets the deadline. The old getattr fallback
-        # of 30s never ran: __init__ always assigns this attribute.
-        if self.socket_timeout is not None:
-            try:
-                conn.settimeout(self.socket_timeout)
-            except OSError:
-                pass
+        """Optional TLS wrap of an accepted socket."""
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
         if self.ssl_ctx is not None:
             conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
         return conn, addr
@@ -549,8 +540,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             else:
                 log.info("HTTP read timed out from %s", host)
             return
-        ssl_mod = sys.modules.get("ssl")  # Tip: no runtime ssl import; no ssl loaded means no SSLError.
-        if ssl_mod is not None and isinstance(exc, ssl_mod.SSLError):
+        if isinstance(exc, ssl.SSLError):
             # Tip: TLS handshake/shutdown failures are client disconnects (port probes), not server bugs.
             log.info("HTTP TLS error from %s: %s", host, exc)
             return
@@ -565,8 +555,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             if err_no in _BENIGN_ACCEPT_ERRNOS:
                 return
             now = time.monotonic()
-            if now - self._last_accept_error_warn >= 1.0:
-                self._last_accept_error_warn = now
+            if self._warn_due("_last_accept_error_warn", now):
                 log.warning("Accept error (errno %s): %s; backing off", err_no, e)
             self._accept_pause_until = now + self._accept_backoff_sec
             self._accept_backoff_sec = min(1.0, self._accept_backoff_sec * 2.0)
@@ -687,8 +676,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             fut = self.executor.submit(self.process_request_thread, request, client_address)
         except _AcceptQueueFull as exc:
             now = time.monotonic()
-            if now - self._last_queue_full_warn >= 1.0:
-                self._last_queue_full_warn = now
+            if self._warn_due("_last_queue_full_warn", now):
                 log.warning(
                     "Accept queue full (%d pending, cap %d); closing connection",
                     exc.pending,

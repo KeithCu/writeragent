@@ -35,19 +35,20 @@ class SidebarModeFlags:
     """Which optional sidebar modes appear for the current document type."""
 
     include_brainstorming: bool = False
-    include_writing_plan: bool = True
+    include_writing_plan: bool = False
     include_ppt_master: bool = False
+    include_deep_research: bool = False
 
 
 @deal.pre(lambda doc_type_label: str_bounded(doc_type_label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, SidebarModeFlags))
 def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
-    """Writer gets brainstorming and writing plan; Draw and Impress get PPT-Master; Calc and every other label get the shared modes only (Chat, Image, Web Research, Deep Research, Librarian)."""
+    """Writer gets brainstorming, writing plan, and deep research; Draw and Impress get PPT-Master; Calc and every other label get the shared modes only (Chat, Image, Web Research, Librarian)."""
     if doc_type_label == "writer":
-        return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False)
+        return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False, include_deep_research=True)
     if doc_type_label in ("draw", "impress"):
         return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True)
-    return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=False)
+    return SidebarModeFlags()
 
 
 def _label_chat() -> str:
@@ -94,7 +95,7 @@ _MODE_SPECS: tuple[_ModeSpec, ...] = (
     _ModeSpec(CHAT_MODE_CHAT, _label_chat),
     _ModeSpec(CHAT_MODE_IMAGE, _label_image),
     _ModeSpec(CHAT_MODE_WEB_RESEARCH, _label_web_research),
-    _ModeSpec(CHAT_MODE_DEEP_RESEARCH, _label_deep_research),
+    _ModeSpec(CHAT_MODE_DEEP_RESEARCH, _label_deep_research, flag_attr="include_deep_research"),
     _ModeSpec(CHAT_MODE_BRAINSTORMING, _label_brainstorming, flag_attr="include_brainstorming"),
     _ModeSpec(CHAT_MODE_WRITING_PLAN, _label_writing_plan, flag_attr="include_writing_plan"),
     _ModeSpec(CHAT_MODE_PPT_MASTER, _label_ppt_master, flag_attr="include_ppt_master"),
@@ -118,7 +119,7 @@ def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
     return tuple(modes + pinned)
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) >= 5)
+@deal.post(lambda result: isinstance(result, tuple) and len(result) >= 4)
 def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, ...]:
     """Translated combobox labels in the same order as ``_modes_for``."""
     return tuple(_SPEC_BY_KEY[mode].label_fn() for mode in _modes_for(flags))

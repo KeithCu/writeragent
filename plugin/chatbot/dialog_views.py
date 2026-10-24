@@ -189,8 +189,6 @@ _SETTINGS_LISTENER_DETACH: tuple[tuple[str, str, str], ...] = (
     ("_tts_listener", "audio__tts_provider", "removeTextListener"),
     ("_tts_listener", "audio__tts_model", "removeItemListener"),
     ("_tts_listener", "audio__tts_model", "removeTextListener"),
-    ("_tts_voice_listener", "audio__tts_voice", "removeItemListener"),
-    ("_tts_voice_listener", "audio__tts_voice", "removeTextListener"),
     ("_tts_test_listener", "audio__test_voice", "removeActionListener"),
     ("_stt_listener", "audio__stt_provider", "removeItemListener"),
     ("_stt_listener", "audio__stt_provider", "removeTextListener"),
@@ -212,7 +210,6 @@ class SettingsDialog:
     _mcp_tunnel_provider_listener: Any
     _mcp_port_listener: Any
     _tts_listener: Any
-    _tts_voice_listener: Any
     _tts_test_listener: Any
     _stt_listener: Any
 
@@ -231,7 +228,6 @@ class SettingsDialog:
         self._mcp_tunnel_provider_listener = None
         self._mcp_port_listener = None
         self._tts_listener = None
-        self._tts_voice_listener = None
         self._tts_test_listener = None
         self._stt_listener = None
 
@@ -458,12 +454,6 @@ class SettingsDialog:
             model_ctrl.addItemListener(self._tts_listener)
             if hasattr(model_ctrl, "addTextListener"):
                 model_ctrl.addTextListener(self._tts_listener)
-
-        if voice_ctrl and hasattr(voice_ctrl, "addItemListener"):
-            self._tts_voice_listener = TtsVoiceListener(self._dlg, self._tts_listener)
-            voice_ctrl.addItemListener(self._tts_voice_listener)
-            if hasattr(voice_ctrl, "addTextListener"):
-                voice_ctrl.addTextListener(self._tts_voice_listener)
 
         self._tts_listener.sync_ui()
 
@@ -956,33 +946,6 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
 
     def textChanged(self, rEvent: TextEvent) -> None:
         self.sync_ui()
-
-
-class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
-    """Voice combo listener. The selection is stored only when Settings OK runs.
-
-    The combo shows the selection; ``sync_ui`` updates it when the
-    provider or model changes; ``apply_settings_result`` writes it.
-    Saving ``audio.tts_voice*`` on every pick leaves the new voice on disk
-    after Cancel.
-    """
-
-    _dlg: Any
-    _tts_listener: TtsSettingsListener
-
-    def __init__(self, dialog: Any, tts_listener: TtsSettingsListener) -> None:
-        self._dlg = dialog
-        self._tts_listener = tts_listener
-
-    def itemStateChanged(self, rEvent: ItemEvent) -> None:
-        self._on_change()
-
-    def textChanged(self, rEvent: TextEvent) -> None:
-        self._on_change()
-
-    def _on_change(self) -> None:
-        # Combo already shows the pick. Do not write config; OK does.
-        return
 
 
 class _TtsTestProgressBox:
@@ -1649,14 +1612,15 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if not resolved:
             return
-        self.clear_settings_catalog_cache(resolved, api_key_override=self._api_key_override())
+        key_ov = self._api_key_override()
+        self.clear_settings_catalog_cache(resolved, api_key_override=key_ov)
         if self._timer:
             self._timer.cancel()
         self._debounce_gen += 1
         gen = self._debounce_gen
         tts_model_id = self._tts_model_id_for_voice_fetch()
         self.run_in_background(
-            lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-recheck",
+            lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-recheck",
         )
 
     def textChanged(self, rEvent: TextEvent) -> None:
@@ -1686,6 +1650,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
+            key_ov = self._api_key_override()
             if self._catalog_is_warm(resolved):
                 self._apply_from_cache(resolved)
                 return
@@ -1695,7 +1660,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             self._apply_dropdowns(resolved, models=None, skip_fetch=True)
             tts_model_id = self._tts_model_id_for_voice_fetch()
             self.run_in_background(
-                lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-select",
+                lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-select",
             )
 
 
@@ -1763,16 +1728,6 @@ class DownloadAudioListener(_CtxDlgActionListener):
         )
 
 
-# ── Evaluation Dashboard ─────────────────────────────────────────────
-
-from plugin.chatbot.eval_dashboard_ui import (
-    EvalDashboard,
-    EvalRunListener,
-    SimpleCloseListener,
-    show_eval_dashboard,
-)
-
-
 # ── MCP UI Integration ───────────────────────────────────────────────
 
 from plugin.mcp.mcp_ui import (
@@ -1781,41 +1736,21 @@ from plugin.mcp.mcp_ui import (
     McpTunnelEnabledListener,
     McpTunnelProviderListener,
     TestTunnelListener,
-    _PROVIDER_DEFAULT_URLS,
-    _tested_provider_tunnel_urls,
-    build_mcp_config_snippet,
     clear_active_settings_dialog,
-    notify_tunnel_url_acquired,
     set_active_settings_dialog,
     sync_mcp_config_snippet,
 )
 
 __all__ = [
-    "CopyMcpConfigListener",
     "DownloadAudioListener",
     "EndpointCombinedListener",
-    "EvalDashboard",
-    "EvalRunListener",
-    "McpPortTextListener",
-    "McpTunnelEnabledListener",
-    "McpTunnelProviderListener",
     "ProviderStarterListener",
     "SettingsDialog",
-    "SimpleCloseListener",
     "TestConnectionListener",
-    "TestTunnelListener",
-    "_PROVIDER_DEFAULT_URLS",
-    "_tested_provider_tunnel_urls",
-    "build_mcp_config_snippet",
-    "clear_active_settings_dialog",
     "input_box",
-    "notify_tunnel_url_acquired",
     "open_system_url",
-    "set_active_settings_dialog",
     "settings_box",
     "setup_module_tabs",
-    "show_eval_dashboard",
-    "sync_mcp_config_snippet",
 ]
 
 

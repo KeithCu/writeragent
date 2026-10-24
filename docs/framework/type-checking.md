@@ -83,7 +83,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 
 ### `getattr` / UNO context chains
 
-- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs._load_xdl`**, [**`images.py`**](../../plugin/writer/images/images.py), **`queue_executor`**, **`main`** icon loading).
+- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs.load_writeragent_dialog_detail`**, [**`images.py`**](../../plugin/writer/images/images.py), **`queue_executor`**, **`main`** icon loading).
 
 ### Import / branch typing quirks
 

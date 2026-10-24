@@ -4,7 +4,7 @@
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![LibreOffice 7.0+](https://img.shields.io/badge/LibreOffice-7.0%2B-green.svg)](https://www.libreoffice.org/)
+[![LibreOffice 24.8+](https://img.shields.io/badge/LibreOffice-24.8%2B-green.svg)](https://www.libreoffice.org/)
 [![Release](https://img.shields.io/github/v/release/KeithCu/writeragent)](https://github.com/KeithCu/writeragent/releases)
 
 ![CI status](https://keithcu.github.io/writeragent/status.svg)

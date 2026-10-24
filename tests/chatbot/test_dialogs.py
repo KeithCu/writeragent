@@ -350,6 +350,10 @@ def _mock_text_input_dialog_uno(text_on_ok: str):
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         if "Toolkit" in service:
             return toolkit
         return MagicMock()
@@ -429,6 +433,10 @@ def _mock_new_script_dialog_uno(name_on_ok: str, attach_state: int = 1):
             return dlg_model
         if "UnoControlDialog" in service:
             return dlg
+        if "DialogProvider" in service:
+            dp = MagicMock()
+            dp.createDialog.return_value = dlg
+            return dp
         return MagicMock()
 
     smgr.createInstanceWithContext.side_effect = fake_create
