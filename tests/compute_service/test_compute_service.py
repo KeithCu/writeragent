@@ -426,13 +426,17 @@ class TestComputeHttp:
                 posters.append(p)
 
             assert started.wait(timeout=5)
-            # The active calculation is still held. Verify that /health responds immediately (<0.5s).
+            # The active calculation is still held, and hold is only set in finally.
+            # A starved /health waits for that permit and so never returns here: it
+            # hits the urlopen timeout. Serving /health takes ~40us; the bound only
+            # has to absorb this xdist worker's GIL and CPU contention (CI saw 0.513s
+            # with 6 workers on a 4-vCPU runner), so 2s keeps it well clear of that.
             t0 = time.perf_counter()
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
                 t_elapsed = time.perf_counter() - t0
                 assert resp.status == 200
                 assert json.loads(resp.read().decode())["status"] == "healthy"
-                assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
+                assert t_elapsed < 2.0, f"/health took too long: {t_elapsed:.3f}s"
 
             # The in-flight calculation still holds the permit. Overflow must be
             # waiting, not already answered with 503.
