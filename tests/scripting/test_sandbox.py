@@ -11,25 +11,12 @@ from __future__ import annotations
 
 import stat
 import sys
-import types
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import pytest
 
-
-if "fcntl" not in sys.modules:
-    fake_fcntl = types.ModuleType("fcntl")
-    fake_fcntl.F_SETPIPE_SZ = 1031
-    fake_fcntl.fcntl = lambda *args, **kwargs: None
-    sys.modules["fcntl"] = fake_fcntl
-elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
-    setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031)
-
 from plugin.scripting.sandbox import (
-    _PIPE_BUF_TARGET,
     _reset_cache,
     detect_sandbox,
-    optimize_pipe,
-    optimize_popen_pipes,
     resolve_libreoffice_python,
     resolve_venv_python,
     wrap_command_for_sandbox,
@@ -451,59 +438,6 @@ def test_wrap_does_not_mutate_original():
                 assert cmd == original
     finally:
         _reset_cache()
-
-
-@patch("plugin.scripting.sandbox.sys.platform", "linux")
-@patch("fcntl.fcntl")
-def test_optimize_pipe_calls_fcntl(mock_fcntl: MagicMock) -> None:
-    optimize_pipe(7)
-    mock_fcntl.assert_called_once()
-    args = mock_fcntl.call_args[0]
-    assert args[0] == 7
-    assert args[2] == _PIPE_BUF_TARGET
-
-
-@patch("plugin.scripting.sandbox.sys.platform", "linux")
-@patch("fcntl.fcntl", side_effect=OSError("cap denied"))
-def test_optimize_pipe_swallows_oserror(_mock_fcntl: MagicMock) -> None:
-    optimize_pipe(3)
-
-
-@patch("plugin.scripting.sandbox.optimize_pipe")
-def test_optimize_popen_pipes_iterates_streams(mock_optimize: MagicMock) -> None:
-    proc = MagicMock()
-    proc.stdin.fileno.return_value = 10
-    proc.stdout.fileno.return_value = 11
-    proc.stderr.fileno.return_value = 12
-    optimize_popen_pipes(proc)
-    assert mock_optimize.call_count == 3
-    mock_optimize.assert_any_call(10)
-    mock_optimize.assert_any_call(11)
-    mock_optimize.assert_any_call(12)
-
-
-@patch("plugin.scripting.sandbox.optimize_pipe")
-def test_optimize_popen_pipes_skips_none_streams(mock_optimize: MagicMock) -> None:
-    proc = MagicMock()
-    proc.stdin = None
-    proc.stdout.fileno.return_value = 11
-    proc.stderr = None
-    optimize_popen_pipes(proc)
-    mock_optimize.assert_called_once_with(11)
-
-
-@patch("plugin.scripting.sandbox.sys.platform", "win32")
-@patch("fcntl.fcntl")
-def test_optimize_pipe_noop_on_windows(mock_fcntl: MagicMock) -> None:
-    optimize_pipe(5)
-    mock_fcntl.assert_not_called()
-
-
-@patch("plugin.scripting.sandbox.sys.platform", "darwin")
-@patch("fcntl.fcntl")
-def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
-    optimize_pipe(5)
-    mock_fcntl.assert_not_called()
 
 
 def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:

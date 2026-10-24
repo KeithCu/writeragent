@@ -30,7 +30,7 @@ from plugin.framework.worker_pool import (
     start_stderr_drain,
     run_in_background,
 )
-from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
+from plugin.scripting.sandbox import scrub_subprocess_env
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ _REAP_CLOSE_WAIT_SEC = 5.0
 _REAP_WAIT_SEC = 1.0
 _REAPER_MAX_PASSES = 5
 _REAPER_RETRY_PAUSE_SEC = 0.1
+_PIPE_BUF_TARGET = 1024 * 1024
 _RealPopen = subprocess.Popen
 
 
@@ -782,6 +783,39 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
             pass
         return
     _kill_direct(proc)
+
+
+def optimize_pipe(pipe_fd: int) -> None:
+    """Raise managed child process pipe capacity toward 1 MiB on Linux (default ~64 KiB).
+
+    Large IPC can exceed the default pipe buffer; F_SETPIPE_SZ requests a
+    larger kernel ring buffer so host and child block less. No-op on macOS/Windows
+    (no supported API). Silently no-ops when caps deny resize.
+    """
+    # crosshair: off
+    if sys.platform != "linux":
+        return
+    import fcntl
+
+    cmd = getattr(fcntl, "F_SETPIPE_SZ", None)
+    if cmd is None:
+        return
+    try:
+        fcntl.fcntl(pipe_fd, cmd, _PIPE_BUF_TARGET)
+    except OSError:
+        pass
+
+
+def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
+    """Apply :func:`optimize_pipe` to stdin/stdout/stderr of a piped child process."""
+    # crosshair: off
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        if stream is None:
+            continue
+        try:
+            optimize_pipe(stream.fileno())
+        except (OSError, ValueError):
+            pass
 
 
 _instances: set[ManagedSubprocess] = set()

@@ -252,7 +252,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame`, empty-read → EOF, `max_payload_bytes` |
 | [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | No ready frame; import-before-read |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | Host spawn, `scrub_subprocess_env`, warm timeout |
-| [`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py) | `optimize_popen_pipes`, scrub |
+| [`plugin/framework/managed_subprocess.py`](../../plugin/framework/managed_subprocess.py) | `optimize_popen_pipes` |
 | [`plugin/framework/worker_pool.py`](../../plugin/framework/worker_pool.py) | `start_stderr_drain` |
 | [`tests/compute_service/test_formula_pool.py`](../../tests/compute_service/test_formula_pool.py) | Autouse `shutdown_formula_pool` |
 

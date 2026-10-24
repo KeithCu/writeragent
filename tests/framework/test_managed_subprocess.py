@@ -10,15 +10,27 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+if "fcntl" not in sys.modules:
+    fake_fcntl = types.ModuleType("fcntl")
+    fake_fcntl.F_SETPIPE_SZ = 1031
+    fake_fcntl.fcntl = lambda *args, **kwargs: None
+    sys.modules["fcntl"] = fake_fcntl
+elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
+    setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031)
+
 from plugin.framework.managed_subprocess import (
     ManagedSubprocess,
-    shutdown_all,
+    _PIPE_BUF_TARGET,
     _instances,
+    optimize_pipe,
+    optimize_popen_pipes,
+    shutdown_all,
 )
 
 
@@ -792,6 +804,59 @@ def test_optimize_pipes_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
         assert opt_calls == [mock_proc]
     finally:
         proc_opt.close()
+
+
+@patch("plugin.framework.managed_subprocess.sys.platform", "linux")
+@patch("fcntl.fcntl")
+def test_optimize_pipe_calls_fcntl(mock_fcntl: MagicMock) -> None:
+    optimize_pipe(7)
+    mock_fcntl.assert_called_once()
+    args = mock_fcntl.call_args[0]
+    assert args[0] == 7
+    assert args[2] == _PIPE_BUF_TARGET
+
+
+@patch("plugin.framework.managed_subprocess.sys.platform", "linux")
+@patch("fcntl.fcntl", side_effect=OSError("cap denied"))
+def test_optimize_pipe_swallows_oserror(_mock_fcntl: MagicMock) -> None:
+    optimize_pipe(3)
+
+
+@patch("plugin.framework.managed_subprocess.optimize_pipe")
+def test_optimize_popen_pipes_iterates_streams(mock_optimize: MagicMock) -> None:
+    proc = MagicMock()
+    proc.stdin.fileno.return_value = 10
+    proc.stdout.fileno.return_value = 11
+    proc.stderr.fileno.return_value = 12
+    optimize_popen_pipes(proc)
+    assert mock_optimize.call_count == 3
+    mock_optimize.assert_any_call(10)
+    mock_optimize.assert_any_call(11)
+    mock_optimize.assert_any_call(12)
+
+
+@patch("plugin.framework.managed_subprocess.optimize_pipe")
+def test_optimize_popen_pipes_skips_none_streams(mock_optimize: MagicMock) -> None:
+    proc = MagicMock()
+    proc.stdin = None
+    proc.stdout.fileno.return_value = 11
+    proc.stderr = None
+    optimize_popen_pipes(proc)
+    mock_optimize.assert_called_once_with(11)
+
+
+@patch("plugin.framework.managed_subprocess.sys.platform", "win32")
+@patch("fcntl.fcntl")
+def test_optimize_pipe_noop_on_windows(mock_fcntl: MagicMock) -> None:
+    optimize_pipe(5)
+    mock_fcntl.assert_not_called()
+
+
+@patch("plugin.framework.managed_subprocess.sys.platform", "darwin")
+@patch("fcntl.fcntl")
+def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
+    optimize_pipe(5)
+    mock_fcntl.assert_not_called()
 
 
 def test_stderr_name_and_cap_are_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:

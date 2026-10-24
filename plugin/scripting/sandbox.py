@@ -15,10 +15,9 @@ import hashlib
 import os
 import sys
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import subprocess
     from collections.abc import Sequence
 
 from plugin.framework.deal_shim import (
@@ -656,8 +655,6 @@ _BLOCKED_ENV_EXACT = {
     "WRITERAGENT_COMPUTE_WORKER",
 }
 
-_PIPE_BUF_TARGET = 1024 * 1024
-
 
 # scrub_subprocess_env: keep pytest wide.
 _DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
@@ -796,39 +793,6 @@ def detect_sandbox() -> str | None:
     if os.environ.get("SNAP_NAME"):
         return "snap"
     return None
-
-
-def optimize_pipe(pipe_fd: int) -> None:
-    """Raise venv-worker pipe capacity toward 1 MiB on Linux (default ~64 KiB).
-
-    Large pickle IPC (split-grid / NumPy) can exceed the default pipe buffer;
-    F_SETPIPE_SZ requests a larger kernel ring buffer so host and child block less.
-    No-op on macOS/Windows (no supported API). Silently no-ops when caps deny resize.
-    """
-    # crosshair: off
-    if sys.platform != "linux":
-        return
-    import fcntl
-
-    cmd = getattr(fcntl, "F_SETPIPE_SZ", None)
-    if cmd is None:
-        return
-    try:
-        fcntl.fcntl(pipe_fd, cmd, _PIPE_BUF_TARGET)
-    except OSError:
-        pass
-
-
-def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
-    """Apply :func:`optimize_pipe` to stdin/stdout/stderr of a piped child process."""
-    # crosshair: off
-    for stream in (proc.stdin, proc.stdout, proc.stderr):
-        if stream is None:
-            continue
-        try:
-            optimize_pipe(stream.fileno())
-        except (OSError, ValueError):
-            pass
 
 
 # Hypothesis and venv-path tests pass Unicode argv/paths; ascii_bounded would reject them.

@@ -116,7 +116,7 @@ When executing Python code or transporting dense matrix data on Linux, the compu
 ### Under-the-hood mechanics
 
 - **UNIX Pipes via `pipe2(2)`**: When `PythonWorkerManager` spawns the venv subprocess, it specifies `stdin=subprocess.PIPE` and `stdout=subprocess.PIPE`. Under the hood, Python calls the Linux kernel's `pipe2(2)` system call to establish private, unidirectional in-memory data channels.
-- **Kernel-Buffered Transit**: These pipes are backed by kernel-space ring buffers (defaulting to **64 KiB** since Linux 2.6.11, and dynamically scaling or configurable up to 1 MiB). On Linux, [`PythonWorkerManager`](../../plugin/scripting/venv_worker.py) requests **1 MiB** via `F_SETPIPE_SZ` when spawning the worker ([`sandbox.py`](../../plugin/scripting/sandbox.py)).
+- **Kernel-Buffered Transit**: These pipes are backed by kernel-space ring buffers (defaulting to **64 KiB** since Linux 2.6.11, and dynamically scaling or configurable up to 1 MiB). On Linux, [`PythonWorkerManager`](../../plugin/scripting/venv_worker.py) requests **1 MiB** via `F_SETPIPE_SZ` when spawning the worker ([`managed_subprocess.py`](../../plugin/framework/managed_subprocess.py)).
 - **Zero Disk/Network Overhead**: Data is written by the host directly to the kernel pipe buffer and read by the child process from the same buffer. The transaction resides entirely in RAM.
 - **Efficient Context Switching**: Copies via `copy_to_user` / `copy_from_user`; context switches between host and warm worker typically **1–5 microseconds**.
 
@@ -136,7 +136,7 @@ When executing Python code or transporting dense matrix data on Linux, the compu
 plugin/scripting/
 ├── venv_worker.py            # Path resolve, warm worker, run_code_in_user_venv
 ├── host_rpc.py               # venv → LO tool_call dispatch (Run Python Script / chat)
-├── sandbox.py                # Import blocklist, env scrub, Flatpak spawn, pipe sizing, path resolve
+├── sandbox.py                # Import blocklist, env scrub, Flatpak spawn, path resolve
 ├── config_limits.py          # Timeout + max data cells from module.yaml
 ├── sandbox_cache.py          # AST policy + parse hot cache
 ├── venv/
