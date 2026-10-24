@@ -354,7 +354,8 @@ class TestAppendRichText:
 
     def test_bad_element_does_not_leave_tags_or_a_partial_row(self):
         """A filter that writes tags and then raises must not leave them."""
-        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+        from plugin.chatbot.rich_text import append_rich_text
+        from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
 
         doc = MockDoc()
 
@@ -392,7 +393,7 @@ class TestAppendRichText:
 
     def test_render_rejects_an_edit_that_is_not_the_message(self):
         """A later edit that returns success but wrote other text must not stay."""
-        from plugin.chatbot.rich_text import render_messages_to_hidden_doc
+        from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
 
         doc = MockDoc()
 
@@ -482,28 +483,28 @@ class TestLeadingListImport:
 
     def test_compact_list_matches_its_message(self):
         """A full repaint checked the span against "abc" and wrote plain "abc"."""
-        from plugin.chatbot.rich_text import _span_matches_message
+        from plugin.chatbot.rich_text import span_matches_message
 
         html = "<ol><li>alpha</li><li>beta</li><li>gamma</li></ol>"
-        assert _span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
-        assert _span_matches_message("Assistant: \na\nb\nc\n", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
-        assert _span_matches_message("Assistant: abc", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
-        assert _span_matches_message("Assistant: \nhello\nworld\n", "assistant", "<p>hello</p><p>world</p>")
-        assert _span_matches_message("Assistant: helloworld", "assistant", "<p>hello</p><p>world</p>")
-        assert _span_matches_message("Assistant: a & b", "assistant", "a &amp; b")
-        assert _span_matches_message("\n\nAssistant: hello", "assistant", "hello")
+        assert span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
+        assert span_matches_message("Assistant: \na\nb\nc\n", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert span_matches_message("Assistant: abc", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert span_matches_message("Assistant: \nhello\nworld\n", "assistant", "<p>hello</p><p>world</p>")
+        assert span_matches_message("Assistant: helloworld", "assistant", "<p>hello</p><p>world</p>")
+        assert span_matches_message("Assistant: a & b", "assistant", "a &amp; b")
+        assert span_matches_message("\n\nAssistant: hello", "assistant", "hello")
 
-        assert not _span_matches_message("Assistant: hello", "assistant", "hello world")
-        assert not _span_matches_message("Assistant: hello", "assistant", "hello hello")
-        assert not _span_matches_message("Assistant: alpha gamma", "assistant", "alpha beta gamma")
-        assert not _span_matches_message("Assistant: alpha\nINTRUDER", "assistant", html)
+        assert not span_matches_message("Assistant: hello", "assistant", "hello world")
+        assert not span_matches_message("Assistant: hello", "assistant", "hello hello")
+        assert not span_matches_message("Assistant: alpha gamma", "assistant", "alpha beta gamma")
+        assert not span_matches_message("Assistant: alpha\nINTRUDER", "assistant", html)
 
         with patch("plugin.chatbot.rich_text._", side_effect=lambda msg: "Asistente:" if msg == "Assistant:" else msg):
-            assert _span_matches_message("Asistente: hola mundo", "assistant", "hola mundo")
-            assert _span_matches_message("Asistente: Assistant dice hola", "assistant", "Assistant dice hola")
+            assert span_matches_message("Asistente: hola mundo", "assistant", "hola mundo")
+            assert span_matches_message("Asistente: Assistant dice hola", "assistant", "Assistant dice hola")
 
     def test_render_dropped_words_falls_back_to_plain(self):
-        from plugin.chatbot.rich_text import render_messages_to_hidden_doc
+        from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
 
         doc = MockDoc()
 
@@ -654,7 +655,8 @@ class TestContainsHtmlTag:
 
 class TestGenericTokensStayInTheTranscript:
     def test_append_and_render_keep_tokens_and_still_import_formatting(self):
-        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+        from plugin.chatbot.rich_text import append_rich_text
+        from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
 
         text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
         doc = MockDoc()
@@ -729,7 +731,8 @@ class TestChatTypography:
         cursor.ParaFirstLineIndent = 0
 
     def test_configure_hidden_writer_for_chat(self):
-        from plugin.chatbot.rich_text import CHAT_FONT_NAME, configure_hidden_writer_for_chat
+        from plugin.chatbot.rich_text import CHAT_FONT_NAME
+        from plugin.chatbot.rich_text_paste import configure_hidden_writer_for_chat
 
         std_para = MagicMock()
         para_styles = MagicMock()

@@ -1084,7 +1084,7 @@ class ToolCallingMixin:
                 # Blocking drain: this runs before we return. Event-driven
                 # drain: the function already returned to VCL; this runs on
                 # the terminal slice, still before abort_turn below.
-                from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+                from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 

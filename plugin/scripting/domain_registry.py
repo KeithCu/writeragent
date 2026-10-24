@@ -653,3 +653,27 @@ def parse_picker_display_name(prefix: str, display: str) -> str | None:
     if display.startswith(prefix):
         return display[len(prefix) :]
     return None
+
+
+def domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]]:
+    """Return [(domain, {display_name: code})] for picker domains supporting *doc*."""
+    results: list[tuple[Any, dict[str, str]]] = []
+    for domain in get_picker_domains():
+        try:
+            if not domain.supports(doc):
+                continue
+        except Exception:
+            # Swallowed exception logged per AGENTS.md / cleanups
+            log.debug("domain %s supports() check failed", domain.origin, exc_info=True)
+            continue
+        try:
+            templates = domain.templates()
+        except Exception:
+            log.debug("picker templates failed for %s", domain.origin, exc_info=True)
+            continue
+        display_scripts = {
+            picker_display_name(domain.display_prefix, name): code
+            for name, code in templates.items()
+        }
+        results.append((domain, display_scripts))
+    return results

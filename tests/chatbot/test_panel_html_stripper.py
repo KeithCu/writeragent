@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper
 

@@ -831,7 +831,7 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.get_toolkit", return_value=MagicMock()),
         patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
-        patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response"),
+        patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),
     ):
         from plugin.chatbot.tool_loop_actions import begin_send_turn
         begin_send_turn(test_instance, "chat")

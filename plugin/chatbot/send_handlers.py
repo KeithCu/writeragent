@@ -617,7 +617,7 @@ class SendHandlersMixin:
             # do the same or Image-mode Stop shows no '[Stopped by user]'
             # until a later repaint.
             if self._panel.stop_requested:
-                from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+                from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
             # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
@@ -1209,7 +1209,7 @@ class SendHandlersMixin:
 
         def _finalize_research() -> None:
             _reset_active_run_flags(self._panel)
-            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+            from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
             finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 

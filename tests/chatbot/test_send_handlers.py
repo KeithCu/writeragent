@@ -2096,7 +2096,7 @@ def test_direct_image_stop_finalizes_with_stop_line():
     panel.stop_requested = True
     state = SendHandlerState(handler_type="image", status="ready")
     interpreter = EffectInterpreter(panel)
-    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response") as fin:
+    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response") as fin:
         panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
     fin.assert_called_once_with(panel, allow_rerender=False)
 

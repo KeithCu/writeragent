@@ -61,8 +61,8 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Programmatic RichText `TextField` over `response` placeholder | `create_sidebar_rich_text_control`, `RichTextControlListener`, [`panel_wiring.py`](../../plugin/chatbot/panel_wiring.py) |
 | Plain `response` / label hidden when rich control is active | `set_control_visible` in wiring callback |
 | Theme-aware **You:** / **Assistant:** colors | `get_theme_colors` in [`rich_text.py`](../../plugin/chatbot/rich_text.py) |
-| Chat typography (Liberation Sans 10pt, para side margins) | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN`, `apply_chat_char_props`, `configure_hidden_writer_for_chat` in [`rich_text.py`](../../plugin/chatbot/rich_text.py) |
-| Spellcheck off for hidden HTML import doc | `zxx` locale on Standard style in `configure_hidden_writer_for_chat` (`rich_text.py`) |
+| Chat typography (Liberation Sans 10pt, para side margins) | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN`, `apply_chat_char_props`, `configure_hidden_writer_for_chat` in [`rich_text_paste.py`](../../plugin/chatbot/rich_text_paste.py) |
+| Spellcheck off for hidden HTML import doc | `zxx` locale on Standard style in `configure_hidden_writer_for_chat` (`rich_text_paste.py`) |
 | List indent tightening after HTML import | `_tighten_list_indent` in `append_rich_text` (`rich_text.py`) |
 | Streaming plain append | `RichTextChatWidget.stream_session` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
@@ -71,7 +71,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | History reload paints `session.messages` | `RichTextChatWidget.render_session_history` → `paint_message_items` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
-| Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `rich_text.py` |
+| Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `tool_loop_actions.py` |
 | Legacy `AI:` label stripped on rich path | `strip_legacy_assistant_stream_chunk`, `strip_legacy_ai_label` |
 
 ---
@@ -182,7 +182,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | Send / stream / rerender | [`panel.py`](../../plugin/chatbot/panel.py) `SendButtonListener` via `rich_text_widget` |
 | Session clear / history render | [`panel_factory.py`](../../plugin/chatbot/panel_factory.py) via `rich_text_widget.render_session_history` |
 | Resize stretch | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) (`compute_chat_panel_layout`, `last_response_rect` → `sync_rich_control_bounds`) |
-| Stream finalize hook | [`tool_loop.py`](../../plugin/chatbot/tool_loop.py), [`send_handlers.py`](../../plugin/chatbot/send_handlers.py) → `finalize_sidebar_assistant_response` |
+| Stream finalize hook | [`tool_loop.py`](../../plugin/chatbot/tool_loop.py), [`send_handlers.py`](../../plugin/chatbot/send_handlers.py) → `finalize_sidebar_assistant_response` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) |
 | Config schema | [`module.yaml`](../../plugin/chatbot/module.yaml) `rich_text_control_sidebar` |
 
 ### Key APIs (`rich_text.py`)
@@ -192,7 +192,6 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN` | Single source of truth for sidebar chat typography |
 | `apply_chat_char_props` | Set Liberation Sans / weight / height on cursor, portion, or style |
 | `apply_rich_control_para_margins` | EditEngine horizontal inset for sidebar density |
-| `configure_hidden_writer_for_chat` | Standard style zero margins, `zxx` locale, font names on hidden import doc |
 | `append_rich_text` | HTML filter import + list tightening |
 | `get_theme_colors` | Theme-aware role colors |
 
@@ -228,6 +227,9 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `append_formatted_row` | Single message formatted copy (not the transcript source of truth) |
 | `append_formatted_rows` | Turn-end tail formatted copy |
 | `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
+| `configure_hidden_writer_for_chat` | Standard style zero margins, `zxx` locale, font names on hidden import doc |
+| `render_messages_to_hidden_doc` | Fill hidden Writer from message items |
+| `append_plain_transcript_row` | Write one stripped row to hidden Writer |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
 The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
@@ -330,9 +332,9 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document 
 
 ### Current state
 
-- **`rich_text.py`** — theme, typography, HTML import wrapper, list tightening, `finalize_sidebar_assistant_response`.
+- **`rich_text.py`** — theme, typography, HTML import wrapper, list tightening.
 - **`rich_text_control.py`** — `RichTextChatWidget`, lifecycle/layout, streaming, scroll.
-- **`rich_text_paste.py`** — hidden Writer import, direct copy, plain fallback.
+- **`rich_text_paste.py`** — hidden Writer import, configure/render helpers, direct copy, plain fallback.
 
 ### Shared hidden Writer factory
 

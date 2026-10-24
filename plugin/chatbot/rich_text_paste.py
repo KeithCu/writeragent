@@ -44,13 +44,15 @@ from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     ChatTheme,
     normalize_portion_font,
+    _append_rich_text_with_span,
     _role_prefix,
-    _span_matches_message,
     append_rich_text,
-    configure_hidden_writer_for_chat,
+    apply_chat_char_props,
     contains_html_tag,
-    render_messages_to_hidden_doc,
+    restore_writer_text,
+    span_matches_message,
     strip_legacy_ai_label,
+    writer_suffix,
 )
 from plugin.chatbot.rich_text_control import (
     _apply_sidebar_para_margins,
@@ -73,6 +75,7 @@ from plugin.calc.navigation import (
     render_calc_cell_refs,
 )
 from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
@@ -91,6 +94,34 @@ def create_hidden_html_writer(ctx: Any) -> Any | None:
     except Exception:
         log.exception("create_hidden_html_writer failed")
         return None
+
+
+def configure_hidden_writer_for_chat(doc: Any) -> None:
+    """Apply sidebar chat defaults on a hidden Writer doc (font, zero margins, no spellcheck)."""
+    import uno
+
+    style_families = doc.getStyleFamilies()
+    if style_families.hasByName("ParagraphStyles"):
+        para_styles = style_families.getByName("ParagraphStyles")
+        if para_styles.hasByName("Standard"):
+            std_para = para_styles.getByName("Standard")
+            std_para.ParaLeftMargin = 0
+            std_para.ParaRightMargin = 0
+            std_para.ParaFirstLineIndent = 0
+            std_para.ParaTopMargin = 0
+            std_para.ParaBottomMargin = 200
+            apply_chat_char_props(std_para)
+            no_lang = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
+            no_lang.Language = "zxx"
+            no_lang.Country = ""
+            std_para.CharLocale = no_lang
+            std_para.CharLocaleAsian = no_lang
+            std_para.CharLocaleComplex = no_lang
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    cursor.CharHeight = CHAT_FONT_HEIGHT
 
 
 def _is_writer_text_table(element: Any) -> bool:
@@ -499,6 +530,42 @@ def _replace_control_with_plain(
 def rows_need_hidden_writer(rows: Any) -> bool:
     """True when any message content has real HTML tags needing hidden Writer import."""
     return any(contains_html_tag(content or "") for _role, content in (rows or []))
+
+
+def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
+    """Write one stripped row. No HTML filter, so a tag cannot land in the doc."""
+    del style_window
+    text_obj = doc.getText()
+    cursor = text_obj.createTextCursor()
+    cursor.gotoEnd(False)
+    if text_obj.getString():
+        text_obj.insertString(cursor, "\n\n", False)
+    body = strip_html_tags(text or "")
+    text_obj.insertString(cursor, _role_prefix(role) + body, False)
+
+
+def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
+    """Fill *doc* from *items*. Each message is one edit against the previous body.
+
+    Snapshot the body, append, and if the new span is not that message,
+    put the body back and write the stripped message. The document stays a
+    paint of the list. A failed edit otherwise leaves partial tags that
+    are not in the message list.
+    """
+    text_obj = doc.getText()
+    for role, content in items:
+        content = content or ""
+        if role == "assistant":
+            content = strip_legacy_ai_label(content)
+        ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
+        if ok and span_matches_message(added, role, content):
+            continue
+        restore_writer_text(text_obj, previous)
+        append_plain_transcript_row(doc, content, role=role, style_window=style_window)
+        if not span_matches_message(writer_suffix(text_obj, previous), role, content):
+            # The plain row is the message text. If it still does not match,
+            # drop the span rather than keep text the list does not have.
+            restore_writer_text(text_obj, previous)
 
 
 def paint_message_items(
@@ -1111,7 +1178,7 @@ def append_formatted_row(
             )
             return True
         span = uno_probe(lambda: doc.getText().getString(), None)
-        if isinstance(span, str) and not _span_matches_message(span, role, text):
+        if isinstance(span, str) and not span_matches_message(span, role, text):
             log.warning("append_formatted_row: imported span does not match message role=%s", role)
             rollback_rich_insert(control, before)
             _plain_append_messages(

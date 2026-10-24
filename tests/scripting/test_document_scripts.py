@@ -1336,9 +1336,10 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
     attach_document_script(doc, "Regional", "doc-code")
 
     import plugin.scripting.document_scripts as ds
+    import plugin.scripting.domain_registry as dr
 
     real_load = ds._load_document_script_map
-    real_domain = ds._domain_template_entries
+    real_domain = dr.domain_template_entries
     load_counts = 0
     domain_counts = 0
 
@@ -1358,7 +1359,7 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.config.set_config"),
         patch("plugin.scripting.document_scripts._load_document_script_map", side_effect=counting_load),
-        patch("plugin.scripting.document_scripts._domain_template_entries", side_effect=counting_domain),
+        patch("plugin.scripting.document_scripts.domain_template_entries", side_effect=counting_domain),
     ):
         msg = build_scripts_list_message(
             ctx,
@@ -1396,7 +1397,7 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.config.set_config") as mock_set_config,
-        patch("plugin.scripting.document_scripts.get_picker_domains", return_value=[domain]),
+        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=[domain]),
     ):
         msg = build_scripts_list_message(
             ctx,

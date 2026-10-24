@@ -15,8 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shared rich-text formatting for the RichTextControl sidebar (hidden Writer HTML import).
 
-The hidden Writer document is a paint of the message list. ``render_messages_to_hidden_doc``
-fills a fresh document from that list. It does not splice a later message into a
+The hidden Writer document is a paint of the message list, configured and rendered
+by ``rich_text_paste``. It does not splice a later message into a
 document that already failed partway.
 """
 
@@ -120,34 +120,6 @@ def apply_rich_control_para_margins(cursor: Any) -> None:
         ("ParaFirstLineIndent", 0),
     ):
         _safe_set_prop(cursor, name, val)
-
-
-def configure_hidden_writer_for_chat(doc: Any) -> None:
-    """Apply sidebar chat defaults on a hidden Writer doc (font, zero margins, no spellcheck)."""
-    import uno
-
-    style_families = doc.getStyleFamilies()
-    if style_families.hasByName("ParagraphStyles"):
-        para_styles = style_families.getByName("ParagraphStyles")
-        if para_styles.hasByName("Standard"):
-            std_para = para_styles.getByName("Standard")
-            std_para.ParaLeftMargin = 0
-            std_para.ParaRightMargin = 0
-            std_para.ParaFirstLineIndent = 0
-            std_para.ParaTopMargin = 0
-            std_para.ParaBottomMargin = 200
-            apply_chat_char_props(std_para)
-            no_lang = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
-            no_lang.Language = "zxx"
-            no_lang.Country = ""
-            std_para.CharLocale = no_lang
-            std_para.CharLocaleAsian = no_lang
-            std_para.CharLocaleComplex = no_lang
-    text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-    cursor.CharHeight = CHAT_FONT_HEIGHT
 
 
 def strip_legacy_ai_label(text: str) -> str:
@@ -276,7 +248,7 @@ def restore_writer_text(text_obj: Any, previous: str) -> None:
     text_obj.setString(previous)
 
 
-def _writer_suffix(text_obj: Any, previous: str) -> str:
+def writer_suffix(text_obj: Any, previous: str) -> str:
     current = text_obj.getString() or ""
     if current.startswith(previous):
         return current[len(previous):]
@@ -289,7 +261,7 @@ def _role_prefix(role: str) -> str:
     return _("Assistant:") + " "
 
 
-def _span_matches_message(added: str, role: str, content: str) -> bool:
+def span_matches_message(added: str, role: str, content: str) -> bool:
     """True when *added* is the role label plus the message's visible words.
 
     The HTML filter does not reproduce the source character for character
@@ -318,42 +290,6 @@ def _span_matches_message(added: str, role: str, content: str) -> bool:
     visible_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", visible))
     spaced_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", spaced))
     return remainder_counter == visible_counter or remainder_counter == spaced_counter
-
-
-def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
-    """Write one stripped row. No HTML filter, so a tag cannot land in the doc."""
-    del style_window
-    text_obj = doc.getText()
-    cursor = text_obj.createTextCursor()
-    cursor.gotoEnd(False)
-    if text_obj.getString():
-        text_obj.insertString(cursor, "\n\n", False)
-    body = strip_html_tags(text or "")
-    text_obj.insertString(cursor, _role_prefix(role) + body, False)
-
-
-def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
-    """Fill *doc* from *items*. Each message is one edit against the previous body.
-
-    Snapshot the body, append, and if the new span is not that message,
-    put the body back and write the stripped message. The document stays a
-    paint of the list. A failed edit otherwise leaves partial tags that
-    are not in the message list.
-    """
-    text_obj = doc.getText()
-    for role, content in items:
-        content = content or ""
-        if role == "assistant":
-            content = strip_legacy_ai_label(content)
-        ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
-        if ok and _span_matches_message(added, role, content):
-            continue
-        restore_writer_text(text_obj, previous)
-        append_plain_transcript_row(doc, content, role=role, style_window=style_window)
-        if not _span_matches_message(_writer_suffix(text_obj, previous), role, content):
-            # The plain row is the message text. If it still does not match,
-            # drop the span rather than keep text the list does not have.
-            restore_writer_text(text_obj, previous)
 
 
 def _sidebar_import_html(text: str) -> str:
@@ -522,68 +458,3 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
     """
     ok, _prev, _added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
     return ok
-
-
-def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
-    """Re-import the last assistant message as HTML when rich sidebar is active.
-
-    Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``
-    after ``_assistant_stream_start_len``; rerender looks up the previous HTML
-    assistant message and ``truncate_control_from`` would delete that error line
-    (Packet F HTTP 429/500 looked like a leftover hello).
-
-    Skip rerender after Stop. The Stop path already stored the partial answer
-    and the ``[Stopped by user]`` row, then painted that list. A second paint
-    is not required. The old splice truncated the tail and pasted the answer
-    without the marker (Packet B1).
-
-    Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
-    ``tool_loop_state``) so this path does not paste the previous HTML assistant
-    over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
-    """
-    # Append a leftover unclosed tag when the rerender did not replace
-    # the control. The Error path clears the stripper without finalize(),
-    # and the default sidebar has the rich widget, so Stop and error would
-    # drop that tail. A successful rerender already replaced it from the
-    # session.
-    replaced = False
-    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
-        rerender = getattr(listener, "rerender_rich_text_session", None)
-        if callable(rerender):
-            replaced = rerender() is True
-    from plugin.chatbot.tool_loop_actions import TurnController, current_turn
-
-    turn = current_turn(listener)
-    if isinstance(turn, TurnController) and not turn.same_messages():
-        return
-    stripper = turn.stripper if isinstance(turn, TurnController) else None
-    if stripper is not None and isinstance(turn, TurnController):
-        leftover = turn.take_stripper_tail()
-        if leftover and not replaced:
-            listener._append_response(leftover, role="assistant")
-
-    # Append _STOP_LINE to the control for this stopped turn. Skipping
-    # rerender keeps the ramble from painting over the banner, and
-    # close_stopped only persisted the line on session.messages, so the
-    # control never drew [Stopped by user].
-    stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
-    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
-        if isinstance(turn, TurnController):
-            if getattr(turn, "_stop_banner_appended", False):
-                return
-            turn._stop_banner_appended = True
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
-
-        widget = getattr(listener, "rich_text_widget", None)
-        if widget is not None:
-            run_rich = getattr(listener, "_run_rich_ui", None)
-            if callable(run_rich):
-                run_rich(lambda: widget.append_chunk(_STOP_LINE))
-            else:
-                widget.append_chunk(_STOP_LINE)
-        else:
-            control = getattr(listener, "response_control", None)
-            if control is not None and control.getModel():
-                cur = get_control_text(control, default="") or ""
-                set_control_text(control, cur + _STOP_LINE)

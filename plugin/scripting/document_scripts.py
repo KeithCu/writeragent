@@ -36,6 +36,7 @@ from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
+    domain_template_entries,
     get_picker_domains,
     is_reserved_script_name,
     parse_picker_display_name,
@@ -491,30 +492,6 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     return (display_name, SCRIPT_ORIGIN_USER)
 
 
-def _domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]]:
-    """Return [(domain, {display_name: code})] for picker domains supporting *doc*."""
-    results: list[tuple[Any, dict[str, str]]] = []
-    for domain in get_picker_domains():
-        try:
-            if not domain.supports(doc):
-                continue
-        except Exception:
-            # Swallowed exception logged per AGENTS.md / cleanups
-            log.debug("domain %s supports() check failed", domain.origin, exc_info=True)
-            continue
-        try:
-            templates = domain.templates()
-        except Exception:
-            log.debug("picker templates failed for %s", domain.origin, exc_info=True)
-            continue
-        display_scripts = {
-            picker_display_name(domain.display_prefix, name): code
-            for name, code in templates.items()
-        }
-        results.append((domain, display_scripts))
-    return results
-
-
 def _picker_state_from_parts(
     user_scripts: dict[str, str],
     doc_scripts: dict[str, str],
@@ -554,7 +531,7 @@ def build_xdl_script_picker_state(
     """Return (dropdown_items, merged_scripts_by_display_key, origin_map)."""
     user_scripts = dict(saved_scripts) if isinstance(saved_scripts, dict) else {}
     doc_scripts = get_document_scripts(doc) if doc is not None else {}
-    domain_entries = _domain_template_entries(doc)
+    domain_entries = domain_template_entries(doc)
     return _picker_state_from_parts(user_scripts, doc_scripts, domain_entries)
 
 
@@ -637,7 +614,7 @@ def build_scripts_list_message(
         {"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts},
     ]
 
-    domain_entries = _domain_template_entries(doc)
+    domain_entries = domain_template_entries(doc)
     for domain, display_scripts in domain_entries:
         sections.append({
             "id": domain.origin,
@@ -652,18 +629,18 @@ def build_scripts_list_message(
     selection_doc = None if document_stale or doc is None else doc
 
     # What was wrong: sections came from one property read and one
-    # _domain_template_entries(doc) call, then resolve_run_script_selection
+    # domain_template_entries(doc) call, then resolve_run_script_selection
     # called build_xdl_script_picker_state, which read the property again and
     # expanded templates again.
     # How: picker_state existed to skip that rebuild, and this caller did not
     # pass it.
     # Why this fixes it: the non-stale path reuses loaded and domain_entries.
-    # The stale path still selects with {} and _domain_template_entries(None),
+    # The stale path still selects with {} and domain_template_entries(None),
     # not the section templates, so a template supported only by the stale
     # document is not stored as the selection.
     if selection_doc is None:
         picker_state = _picker_state_from_parts(
-            user_scripts, {}, _domain_template_entries(None)
+            user_scripts, {}, domain_template_entries(None)
         )
     else:
         doc_map = loaded if load_err is None else {}

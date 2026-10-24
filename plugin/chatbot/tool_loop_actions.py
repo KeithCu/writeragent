@@ -537,6 +537,69 @@ def current_turn(host: Any) -> TurnController | None:
     return None
 
 
+def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
+    """Re-import the last assistant message as HTML when rich sidebar is active.
+
+    Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``
+    after ``_assistant_stream_start_len``; rerender looks up the previous HTML
+    assistant message and ``truncate_control_from`` would delete that error line
+    (Packet F HTTP 429/500 looked like a leftover hello).
+
+    Skip rerender after Stop. The Stop path already stored the partial answer
+    and the ``[Stopped by user]`` row, then painted that list. A second paint
+    is not required. The old splice truncated the tail and pasted the answer
+    without the marker (Packet B1).
+
+    Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
+    ``tool_loop_state``) so this path does not paste the previous HTML assistant
+    over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
+    """
+    # Append a leftover unclosed tag when the rerender did not replace
+    # the control. The Error path clears the stripper without finalize(),
+    # and the default sidebar has the rich widget, so Stop and error would
+    # drop that tail. A successful rerender already replaced it from the
+    # session.
+    replaced = False
+    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
+        rerender = getattr(listener, "rerender_rich_text_session", None)
+        if callable(rerender):
+            replaced = rerender() is True
+
+    turn = current_turn(listener)
+    if isinstance(turn, TurnController) and not turn.same_messages():
+        return
+    stripper = turn.stripper if isinstance(turn, TurnController) else None
+    if stripper is not None and isinstance(turn, TurnController):
+        leftover = turn.take_stripper_tail()
+        if leftover and not replaced:
+            listener._append_response(leftover, role="assistant")
+
+    # Append _STOP_LINE to the control for this stopped turn. Skipping
+    # rerender keeps the ramble from painting over the banner, and
+    # close_stopped only persisted the line on session.messages, so the
+    # control never drew [Stopped by user].
+    stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
+    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
+        if isinstance(turn, TurnController):
+            if getattr(turn, "_stop_banner_appended", False):
+                return
+            turn._stop_banner_appended = True
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        widget = getattr(listener, "rich_text_widget", None)
+        if widget is not None:
+            run_rich = getattr(listener, "_run_rich_ui", None)
+            if callable(run_rich):
+                run_rich(lambda: widget.append_chunk(_STOP_LINE))
+            else:
+                widget.append_chunk(_STOP_LINE)
+        else:
+            control = getattr(listener, "response_control", None)
+            if control is not None and control.getModel():
+                cur = get_control_text(control, default="") or ""
+                set_control_text(control, cur + _STOP_LINE)
+
+
 def abort_turn(host: Any) -> None:
     """Stop, a mode change, or dispose. The host still names this turn until ``drop_turn``."""
     turn = current_turn(host)
