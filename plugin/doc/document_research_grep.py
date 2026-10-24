@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 from plugin.doc.document_research import (
     FileEntry,
     close_document_research_document,
+    file_entry_for_path,
     guess_doc_type_from_path,
     list_nearby_files,
     open_document_for_read,
@@ -29,7 +30,6 @@ from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import user_stopped_payload
-from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger(__name__)
 
@@ -43,26 +43,6 @@ DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
-
-
-def _file_entry_for_path(path: str) -> FileEntry:
-    norm = os.path.normpath(os.path.abspath(path))
-    entry = FileEntry(
-        path=norm,
-        name=os.path.basename(norm),
-        url=path_to_file_url(norm),
-        modified=0.0,
-        size_bytes=0,
-        doc_type_guess=guess_doc_type_from_path(norm),
-        is_open=False,
-    )
-    try:
-        st = os.stat(norm)
-        entry["modified"] = st.st_mtime
-        entry["size_bytes"] = st.st_size
-    except OSError:
-        pass
-    return entry
 
 
 def resolve_grep_candidates(
@@ -87,11 +67,11 @@ def resolve_grep_candidates(
         # document research already converts with uno.fileUrlToSystemPath.
         local_path = _system_path_from_url(raw)
         if local_path and os.path.isfile(local_path):
-            return [_file_entry_for_path(local_path)], False, None
+            return [file_entry_for_path(local_path)], False, None
         return [], False, f"No file matching {raw!r}"
 
     if raw and os.path.isabs(raw) and os.path.isfile(raw):
-        return [_file_entry_for_path(raw)], False, None
+        return [file_entry_for_path(raw)], False, None
 
     listing = list_nearby_files(
         ctx,

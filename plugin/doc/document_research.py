@@ -456,6 +456,27 @@ def _entries_from_open_only(
     return entries, truncated
 
 
+def file_entry_for_path(path: str) -> FileEntry:
+    """Build a FileEntry dict for a single file on disk."""
+    norm = os.path.normpath(os.path.abspath(path))
+    entry = FileEntry(
+        path=norm,
+        name=os.path.basename(norm),
+        url=path_to_file_url(norm),
+        modified=0.0,
+        size_bytes=0,
+        doc_type_guess=guess_doc_type_from_path(norm),
+        is_open=False,
+    )
+    try:
+        st = os.stat(norm)
+        entry["modified"] = st.st_mtime
+        entry["size_bytes"] = st.st_size
+    except OSError:
+        pass
+    return entry
+
+
 _USE_DEFAULT = object()
 
 

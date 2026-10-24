@@ -20,6 +20,7 @@ from plugin.doc.document_research import (
     _is_same_document,
     _system_path_from_url,
     close_document_research_document,
+    file_entry_for_path,
     get_document_directory,
     get_open_documents,
     get_work_directory,
@@ -46,6 +47,31 @@ def test_guess_doc_type_from_path():
     assert guess_doc_type_from_path("/tmp/photo.png") == "image"
     assert guess_doc_type_from_path("/tmp/readme.txt") == "writer"
     assert guess_doc_type_from_path("/tmp/notes.md") == "writer"
+
+
+def test_file_entry_for_path():
+    with tempfile.NamedTemporaryFile(suffix=".odt", delete=False) as f:
+        path = f.name
+        f.write(b"content")
+    try:
+        entry = file_entry_for_path(path)
+        norm = os.path.normpath(os.path.abspath(path))
+        assert entry["path"] == norm
+        assert entry["name"] == os.path.basename(norm)
+        assert entry["url"] == path_to_file_url(norm)
+        assert entry["doc_type_guess"] == "writer"
+        assert entry["size_bytes"] == 7
+        assert entry["modified"] > 0
+        assert entry["is_open"] is False
+    finally:
+        os.unlink(path)
+
+    missing_path = os.path.join(tempfile.gettempdir(), "nonexistent-doc.ods")
+    entry_missing = file_entry_for_path(missing_path)
+    assert entry_missing["size_bytes"] == 0
+    assert entry_missing["modified"] == 0.0
+    assert entry_missing["doc_type_guess"] == "calc"
+    assert entry_missing["is_open"] is False
 
 
 def test_path_to_file_url_uses_three_slashes_on_unix():
