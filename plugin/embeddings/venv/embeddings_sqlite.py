@@ -5,13 +5,14 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Unified per-folder corpus: chunks table + FTS5 external content + sqlite-vec vec0."""
+"""Unified per-folder corpus: chunks table + FTS5 external content + sqlite-vec vec0, plus path-level corpus access."""
 from __future__ import annotations
 
 import importlib
 import json
 import logging
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -869,25 +870,124 @@ def sync_file_paragraph_state_in_db(
     )
 
 
+def _open_index_db(db_path: Path) -> Any:
+    """Open corpus.db and ensure base schema (including indexed_* tables)."""
+    conn = connect_corpus_db(db_path)
+    ensure_schema(conn)
+    return conn
+
+
+def get_file_index_state(db_path: Path, doc_url: str) -> dict[str, float | int]:
+    """Return stored file_mtime, last_indexed_at, and paragraph count for *doc_url*."""
+    if not db_path.is_file():
+        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": 0}
+    conn = _open_index_db(db_path)
+    try:
+        return get_file_index_info(conn, doc_url)
+    finally:
+        conn.close()
+
+
+def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
+    """True when *file_mtime* is newer than the mtime stored for *doc_url*."""
+    if not db_path.is_file():
+        return True
+    conn = _open_index_db(db_path)
+    try:
+        return file_is_stale_in_db(conn, doc_url, file_mtime)
+    finally:
+        conn.close()
+
+
+def mark_file_indexed(db_path: Path, doc_url: str, file_mtime: float, *, indexed_at: float | None = None, paragraphs: dict[str, str] | None = None) -> None:
+    """Advance last_indexed_at/file_mtime for *doc_url* in corpus.db."""
+    ts = float(indexed_at if indexed_at is not None else time.time())
+    conn = _open_index_db(db_path)
+    try:
+        mark_file_indexed_in_db(conn, doc_url, file_mtime, indexed_at=ts, paragraphs=paragraphs)
+    finally:
+        conn.close()
+
+
+def get_all_indexed_urls(db_path: Path) -> list[str]:
+    """Return a list of all doc_url entries in corpus.db's indexed_files."""
+    if not db_path.is_file():
+        return []
+    conn = _open_index_db(db_path)
+    try:
+        return get_all_indexed_urls_in_db(conn)
+    finally:
+        conn.close()
+
+
+def remove_file_from_index(db_path: Path, doc_url: str) -> None:
+    """Remove a file's freshness metadata from corpus.db."""
+    if not db_path.is_file():
+        return
+    conn = _open_index_db(db_path)
+    try:
+        remove_file_from_index_in_db(conn, doc_url)
+    finally:
+        conn.close()
+
+
+def diff_chunk_rows(
+    db_path: Path,
+    doc_url: str,
+    chunks: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
+
+    ``doc_url`` is required so an empty extract still finds that document's
+    stored rows and returns them as deletes.
+    """
+    if not db_path.is_file():
+        from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
+
+        to_index = [chunk_to_index_row(c) for c in chunks if isinstance(c, ParagraphChunk)]
+        return to_index, []
+    conn = _open_index_db(db_path)
+    try:
+        return diff_chunk_rows_in_db(conn, doc_url, chunks)
+    finally:
+        conn.close()
+
+
+def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:
+    """Update paragraph hashes in corpus.db after a successful index pass."""
+    conn = _open_index_db(db_path)
+    try:
+        sync_file_paragraph_state_in_db(conn, doc_url, chunks, file_mtime, indexed_at=time.time())
+    finally:
+        conn.close()
+
+
 __all__ = [
     "connect_corpus_db",
     "corpus_chunk_count",
     "delete_by_chunk_locator",
     "delete_by_doc_para",
     "delete_paragraph_keys",
+    "diff_chunk_rows",
     "diff_chunk_rows_in_db",
     "ensure_schema",
+    "file_is_stale",
     "file_is_stale_in_db",
     "fts_corpus_search",
+    "get_all_indexed_urls",
     "get_all_indexed_urls_in_db",
     "get_file_index_info",
+    "get_file_index_state",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
+    "mark_file_indexed",
     "mark_file_indexed_in_db",
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
+    "remove_file_from_index",
     "remove_file_from_index_in_db",
+    "sync_file_paragraph_state",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",

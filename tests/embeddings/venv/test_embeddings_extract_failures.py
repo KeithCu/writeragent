@@ -13,12 +13,12 @@ def test_emptied_calc_retains_chunks(tmp_path: Path):
     write_budget_ods(ods)
 
     # fake DB path
-    from plugin.embeddings.embeddings_cache import corpus_db_path, _open_index_db
+    from plugin.embeddings.embeddings_cache import corpus_db_path
     db_path = corpus_db_path(str(tmp_path))
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # We want to test diff_chunk_rows_in_db when chunks == []
-    from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
+    from plugin.embeddings.venv.embeddings_sqlite import _open_index_db, diff_chunk_rows_in_db
     conn = _open_index_db(db_path)
     conn.execute("INSERT INTO chunks (doc_url, para_index, char_start, char_end, content_hash, body) VALUES (?, ?, ?, ?, ?, ?)", ("file:///fake.ods", 0, 0, 10, "abc", "bodytext"))
     conn.commit()

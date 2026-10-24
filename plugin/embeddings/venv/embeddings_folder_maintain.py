@@ -9,10 +9,24 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Literal
 
-from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, diff_chunk_rows, ensure_corpus_meta, file_is_stale, index_is_empty, mark_file_indexed, maybe_upgrade_legacy_index, needs_cold_rebuild, sync_file_paragraph_state, write_row_count_meta
+from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, ensure_corpus_meta, index_is_empty, maybe_upgrade_legacy_index, needs_cold_rebuild, write_row_count_meta
 from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
-from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema, insert_paragraph_rows, rebuild_fts_corpus_index, model_slug
+from plugin.embeddings.venv.embeddings_sqlite import (
+    connect_corpus_db,
+    corpus_chunk_count,
+    delete_paragraph_keys,
+    diff_chunk_rows,
+    ensure_schema,
+    file_is_stale,
+    get_all_indexed_urls,
+    insert_paragraph_rows,
+    mark_file_indexed,
+    model_slug,
+    rebuild_fts_corpus_index,
+    remove_file_from_index,
+    sync_file_paragraph_state,
+)
 from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION
 
@@ -143,8 +157,6 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
     total = len(files)
 
     current_urls = {entry.url for entry in files}
-    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
-
     indexed_urls = get_all_indexed_urls(db_path)
 
     for url in indexed_urls:

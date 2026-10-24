@@ -304,7 +304,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 
 | Module | Role |
 |--------|------|
-| [`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py) | Folder keys, paths, legacy store removal |
+| [`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py) | Folder keys, paths, legacy store removal, `corpus_meta.json` state |
 | [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) | Background enqueue + `_inflight` guard |
 | [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) | Folder scan + ODF/OOXML extract (no UNO) |
 | [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) | Document default + run-level BCP-47 from ODF/OOXML for prose sentence breaking |
@@ -312,7 +312,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick |
 | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool |
 | [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py) | Hybrid corpus search |
-| [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | `corpus.db` schema |
+| [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | `corpus.db` schema, DML, and indexed-file state access |
 | [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
 | [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: vec0 retrieve → MMR (vec-only) |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |

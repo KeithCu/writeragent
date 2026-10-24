@@ -353,7 +353,7 @@ def test_remove_path_directory_success_returns_true(tmp_path):
 
 
 def test_file_index_state_and_diff(tmp_path):
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, diff_chunk_rows, ensure_schema, upsert_chunk_with_vector
 
     db_path = tmp_path / "corpus.db"
     chunk = ParagraphChunk(
@@ -397,7 +397,7 @@ def test_file_index_state_and_diff(tmp_path):
     finally:
         conn.close()
 
-    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, "file:///a.odt", [chunk])
+    to_index, to_delete = diff_chunk_rows(db_path, "file:///a.odt", [chunk])
     assert len(to_index) == 1
     assert to_delete == [
         {

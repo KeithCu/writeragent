@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Per-folder corpus cache paths and host-side index state (sqlite-vec + JSON meta)."""
+"""Per-folder corpus cache paths, corpus_meta.json state, and legacy store cleanup."""
 
 from __future__ import annotations
 
@@ -188,114 +188,6 @@ def write_corpus_meta(meta_path: Path, **fields: str) -> None:
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
-
-
-def _open_index_db(db_path: Path) -> Any:
-    """Open corpus.db and ensure base schema (including indexed_* tables)."""
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema
-
-    conn = connect_corpus_db(db_path)
-    ensure_schema(conn)
-    return conn
-
-
-def get_file_index_state(db_path: Path, doc_url: str) -> dict[str, float | int]:
-    """Return stored file_mtime, last_indexed_at, and paragraph count for *doc_url*."""
-    from plugin.embeddings.venv.embeddings_sqlite import get_file_index_info
-
-    if not db_path.is_file():
-        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": 0}
-    conn = _open_index_db(db_path)
-    try:
-        return get_file_index_info(conn, doc_url)
-    finally:
-        conn.close()
-
-
-def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
-    """True when *file_mtime* is newer than the mtime stored for *doc_url*."""
-    from plugin.embeddings.venv.embeddings_sqlite import file_is_stale_in_db
-
-    if not db_path.is_file():
-        return True
-    conn = _open_index_db(db_path)
-    try:
-        return file_is_stale_in_db(conn, doc_url, file_mtime)
-    finally:
-        conn.close()
-
-
-def mark_file_indexed(db_path: Path, doc_url: str, file_mtime: float, *, indexed_at: float | None = None, paragraphs: dict[str, str] | None = None) -> None:
-    """Advance last_indexed_at/file_mtime for *doc_url* in corpus.db."""
-    from plugin.embeddings.venv.embeddings_sqlite import mark_file_indexed_in_db
-
-    ts = float(indexed_at if indexed_at is not None else time.time())
-    conn = _open_index_db(db_path)
-    try:
-        mark_file_indexed_in_db(conn, doc_url, file_mtime, indexed_at=ts, paragraphs=paragraphs)
-    finally:
-        conn.close()
-
-
-def get_all_indexed_urls(db_path: Path) -> list[str]:
-    """Return a list of all doc_url entries in corpus.db's indexed_files."""
-    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls_in_db
-
-    if not db_path.is_file():
-        return []
-    conn = _open_index_db(db_path)
-    try:
-        return get_all_indexed_urls_in_db(conn)
-    finally:
-        conn.close()
-
-
-def remove_file_from_index(db_path: Path, doc_url: str) -> None:
-    """Remove a file's freshness metadata from corpus.db."""
-    from plugin.embeddings.venv.embeddings_sqlite import remove_file_from_index_in_db
-
-    if not db_path.is_file():
-        return
-    conn = _open_index_db(db_path)
-    try:
-        remove_file_from_index_in_db(conn, doc_url)
-    finally:
-        conn.close()
-
-
-def diff_chunk_rows(
-    db_path: Path,
-    doc_url: str,
-    chunks: list[Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
-
-    ``doc_url`` is required so an empty extract still finds that document's
-    stored rows and returns them as deletes.
-    """
-    from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
-
-    if not db_path.is_file():
-        from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
-
-        to_index = [chunk_to_index_row(c) for c in chunks if isinstance(c, ParagraphChunk)]
-        return to_index, []
-    conn = _open_index_db(db_path)
-    try:
-        return diff_chunk_rows_in_db(conn, doc_url, chunks)
-    finally:
-        conn.close()
-
-
-def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:
-    """Update paragraph hashes in corpus.db after a successful index pass."""
-    from plugin.embeddings.venv.embeddings_sqlite import sync_file_paragraph_state_in_db
-
-    conn = _open_index_db(db_path)
-    try:
-        sync_file_paragraph_state_in_db(conn, doc_url, chunks, file_mtime, indexed_at=time.time())
-    finally:
-        conn.close()
 
 
 def ensure_corpus_meta(meta_path: Path, *, embedding_model: str, dim: int | None = None, chunk_count: int | None = None) -> None:

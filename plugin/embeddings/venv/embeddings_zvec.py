@@ -372,7 +372,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     # Purge deleted files
     current_urls = {entry.url for entry in files}
     db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
-    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls, remove_file_from_index
 
     indexed_urls = get_all_indexed_urls(Path(db_path))
 

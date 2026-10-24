@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.embeddings import embeddings_cache, embeddings_indexer
+from plugin.embeddings import embeddings_indexer
 from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
+from plugin.embeddings.venv import embeddings_sqlite
 
 
 def test_file_is_stale_when_no_rows(tmp_path):
     db_path = tmp_path / "corpus.db"
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 100.0) is True
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 100.0) is True
 
 
 def test_file_is_stale_when_mtime_newer(tmp_path):
@@ -43,14 +44,14 @@ def test_file_is_stale_when_mtime_newer(tmp_path):
         conn.commit()
     finally:
         conn.close()
-    embeddings_cache.mark_file_indexed(
+    embeddings_sqlite.mark_file_indexed(
         db_path,
         "file:///a.odt",
         50.0,
         indexed_at=50.0,
     )
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 100.0) is True
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 40.0) is False
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 100.0) is True
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 40.0) is False
 
 
 def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
@@ -86,12 +87,12 @@ def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
     finally:
         conn.close()
 
-    embeddings_cache.mark_file_indexed(db_path, "file:///a.odt", 50.0, indexed_at=1_000_000.0)
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 80.0) is True
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 50.0) is False
+    embeddings_sqlite.mark_file_indexed(db_path, "file:///a.odt", 50.0, indexed_at=1_000_000.0)
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 80.0) is True
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 50.0) is False
 
-    embeddings_cache.mark_file_indexed(db_path, "file:///a.odt", 200.0, indexed_at=10.0)
-    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 200.0) is False
+    embeddings_sqlite.mark_file_indexed(db_path, "file:///a.odt", 200.0, indexed_at=10.0)
+    assert embeddings_sqlite.file_is_stale(db_path, "file:///a.odt", 200.0) is False
 
 
 def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
@@ -142,7 +143,7 @@ def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
             file_mtime=1.0,
         ),
     ]
-    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, "file:///a.odt", chunks)
+    to_index, to_delete = embeddings_sqlite.diff_chunk_rows(db_path, "file:///a.odt", chunks)
     assert len(to_index) == 2
     assert to_delete == [
         {"doc_url": "file:///a.odt", "para_index": 2, "char_start": 0, "char_end": 4}
