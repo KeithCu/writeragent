@@ -5,12 +5,20 @@
 """PaddleOCR / PP-Structure backend for trusted vision helpers."""
 from __future__ import annotations
 
+import html as html_module
 import importlib
 import logging
 from collections.abc import Iterator
 from html.parser import HTMLParser
 from typing import Any
 
+from plugin.vision.venv.vision_html_export import (
+    _blocks_from_vision_result,
+    _tables_to_html,
+    _wrap_html_fragment,
+    prepare_html_for_lo_import,
+)
+from plugin.vision.venv.vision_layout_html import _HEADING_TYPES
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     bbox_to_xywh,
@@ -220,6 +228,15 @@ def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
     return regions, texts
 
 
+def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
+    """Minimal HTML from Paddle OCR line regions (reading order), css-inlined for LO."""
+    blocks = _blocks_from_vision_result({"regions": regions})
+    parts = [f"<p>{html_module.escape(b['text'])}</p>" for b in blocks if b.get("text")]
+    if not parts:
+        return ""
+    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
+
+
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     lang = str(params.get("lang") or "en").strip() or "en"
@@ -244,8 +261,6 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         log.exception("extract_text OCR failed")
         return error_result("VISION_ERROR", str(exc), helper=helper)
-
-    from plugin.vision.venv.vision_html_export import html_from_paddle_regions
 
     try:
         html = html_from_paddle_regions(regions)
@@ -670,6 +685,48 @@ def _run_pp_structure(engine: Any, image_array: Any) -> list[Any]:
     return _normalize_structure_pages(raw)
 
 
+def _is_table_markup(text: str) -> bool:
+    """True when block text is a raw ``<table>`` fragment, not prose."""
+    return "<table" in text.lower()
+
+
+def _is_heading(block_type: str) -> bool:
+    return block_type.strip().lower() in _HEADING_TYPES
+
+
+def html_from_paddle_structure(
+    blocks: list[dict[str, Any]],
+    tables: list[dict[str, Any]],
+) -> str:
+    """Build HTML from Paddle PP-Structure blocks and parsed tables, css-inlined for LO."""
+    parts: list[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = str(block.get("type") or "text").strip().lower()
+        text = str(block.get("text") or "").strip()
+        # Tables are appended from ``tables`` below. The old guard only
+        # skipped an empty ``text``, but PP-Structure stores the raw
+        # ``<table>`` HTML on the block (``_text_from_structure_res`` read
+        # the ``html`` key). That markup was escaped into a second ``<p>``
+        # (``&lt;table&gt;``) beside the real table. Skip table markup even
+        # when ``text`` is non-empty so insert_mode=html shows one table.
+        if block_type == "table" and (not text or _is_table_markup(text)):
+            continue
+        if not text:
+            continue
+        if _is_heading(block_type):
+            parts.append(f"<h2>{html_module.escape(text)}</h2>")
+        else:
+            parts.append(f"<p>{html_module.escape(text)}</p>")
+
+    parts.extend(_tables_to_html(tables))
+
+    if not parts:
+        return ""
+    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
+
+
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
     lang = str(params.get("lang") or "en").strip() or "en"
@@ -694,8 +751,6 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         log.exception("extract_structure failed")
         return error_result("VISION_ERROR", str(exc), helper=helper)
-
-    from plugin.vision.venv.vision_html_export import html_from_paddle_structure
 
     full_text = "\n".join(text_parts)
     try:

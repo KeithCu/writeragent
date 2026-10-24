@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from pytest import MonkeyPatch
 
 from plugin.vision.venv import vision_paddle as paddle_mod
+from plugin.vision.venv.vision_paddle import html_from_paddle_regions, html_from_paddle_structure
 
 _TABLE_HTML = "<html><body><table><tr><th>Item</th><th>Qty</th></tr><tr><td>Widget</td><td>2</td></tr></table></body></html>"
 
@@ -381,3 +382,65 @@ def test_get_paddle_ocr_constructor_error(monkeypatch: MonkeyPatch):
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
     assert "PaddleOCR constructor failed" in result["message"]
+
+
+def test_html_from_paddle_regions_escapes_and_wraps():
+    with patch(
+        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_regions([{"text": "Line & one"}, {"text": "Line two"}])
+    assert "<p>Line &amp; one</p>" in html
+    assert "<p>Line two</p>" in html
+    assert "Arial" in html
+
+
+def test_html_from_paddle_structure_table_and_heading():
+    with patch(
+        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_structure(
+            [{"type": "section_header", "text": "Title", "box": [0, 0, 0, 0]}],
+            [{"columns": ["A", "B"], "rows": [["1", "2"]]}],
+        )
+    assert "<h2>Title</h2>" in html
+    assert "<table" in html
+    assert "<thead>" in html
+    assert "<th>A</th>" in html
+    assert "<td>1</td>" in html
+    assert 'border="1"' in html
+
+
+def test_html_from_paddle_structure_skips_escaped_table_paragraph():
+    """Raw PP-Structure ``<table>`` block text must not sit beside the real table."""
+    raw_table = "<table><tr><td>Widget</td><td>2</td></tr></table>"
+    with patch(
+        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_structure(
+            [
+                {"type": "text", "text": "Invoice"},
+                {"type": "table", "text": raw_table, "box": [0, 0, 10, 10]},
+            ],
+            [{"columns": ["Item", "Qty"], "rows": [["Widget", "2"]]}],
+        )
+    assert "Invoice" in html
+    assert html.lower().count("<table") == 1
+    assert "&lt;table" not in html.lower()
+    assert "<td>Widget</td>" in html
+
+
+def test_html_from_paddle_structure_keeps_plain_table_text():
+    with patch(
+        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_structure(
+            [{"type": "table", "text": "See totals"}],
+            [{"columns": ["A"], "rows": [["1"]]}],
+        )
+    assert "See totals" in html
+    assert html.lower().count("<table") == 1
+    assert "&lt;table" not in html.lower()

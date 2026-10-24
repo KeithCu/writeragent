@@ -11,6 +11,7 @@ from dataclasses import astuple, dataclass
 from io import BytesIO
 from typing import Any, Literal
 
+from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     css_inline_unavailable_result,
@@ -28,6 +29,7 @@ __all__ = [
     "_cell_text",
     "_store_converter",
     "_text_score_for_cache",
+    "export_docling_to_html",
     "extract_structure",
     "extract_text",
 ]
@@ -595,6 +597,31 @@ def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, An
     )
 
 
+def export_docling_to_html(document: Any, params: dict[str, Any]) -> str:
+    """Return rich HTML from a DoclingDocument (bold, tables, headings), css-inlined for LO."""
+    del params  # reserved for future Docling HTML export options
+
+    if hasattr(document, "export_to_html"):
+        docling_doc_mod = importlib.import_module("docling_core.types.doc")
+        image_ref_mode = docling_doc_mod.ImageRefMode
+        # PLACEHOLDER: do not embed source/figure PNGs back into Writer (EMBEDDED
+        # dumps data:image payloads that StarWriter inserts as extra graphics).
+        # formula_to_mathml=True (Docling default): FormulaItem LaTeX → <math>
+        # so Writer can create native Math objects. Leftover $$…$$ is converted
+        # later in prepare_html_for_lo_import.
+        raw = str(
+            document.export_to_html(
+                image_mode=image_ref_mode.PLACEHOLDER,
+                formula_to_mathml=True,
+                split_page_view=False,
+            )
+            or ""
+        )
+        return prepare_html_for_lo_import(raw)
+    log.warning("Docling document %r lacks export_to_html; returning empty HTML", type(document).__name__)
+    return ""
+
+
 def _run_docling_conversion(
     image: Any,
     params: dict[str, Any],
@@ -604,8 +631,6 @@ def _run_docling_conversion(
     # (bad parameters, pydantic validation) are INVALID_PARAMS.
     try:
         document = _convert_image_bytes(image, params)
-        from plugin.vision.venv.vision_html_export import export_docling_to_html
-
         html = export_docling_to_html(document, params)
         _doc_dict, regions, blocks, tables, text_parts = _map_docling_document(document)
         return None, document, html, regions, blocks, tables, text_parts

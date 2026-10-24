@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.vision.venv import vision_docling as docling_mod
-from plugin.vision.venv.vision_docling import extract_structure, extract_text
+from plugin.vision.venv.vision_docling import export_docling_to_html, extract_structure, extract_text
 
 
 def _require_installed_od_docling() -> None:
@@ -54,7 +55,7 @@ def _mock_document(*, texts=None, tables=None, markdown=None):
 
 
 @patch(
-    "plugin.vision.venv.vision_html_export.export_docling_to_html",
+    "plugin.vision.venv.vision_docling.export_docling_to_html",
     return_value="<p><strong>Line A</strong></p>",
 )
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
@@ -72,7 +73,7 @@ def test_extract_text_maps_docling_document(mock_convert, _mock_html):
 
 
 @patch(
-    "plugin.vision.venv.vision_html_export.export_docling_to_html",
+    "plugin.vision.venv.vision_docling.export_docling_to_html",
     return_value="<h2>Title</h2><table></table>",
 )
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
@@ -134,7 +135,7 @@ def test_extract_structure_maps_table_cell_spans():
         ],
     )
     with patch(
-        "plugin.vision.venv.vision_html_export.export_docling_to_html",
+        "plugin.vision.venv.vision_docling.export_docling_to_html",
         return_value="<table></table>",
     ), patch("plugin.vision.venv.vision_docling._convert_image_bytes", return_value=mock_convert_doc):
         result = extract_structure(b"png", {})
@@ -515,7 +516,7 @@ def test_cell_text_empty_returns_empty_string():
     assert docling_mod._cell_text(cell) == ""
 
 
-@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<p>Doc</p>")
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>Doc</p>")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_includes_table_text_and_omits_mean_confidence(mock_convert, _mock_html):
     # What was wrong: extract_text took full_text only from paragraphs, omitting table text,
@@ -545,3 +546,29 @@ def test_extract_text_includes_table_text_and_omits_mean_confidence(mock_convert
     assert "ColA\tColB" in result["full_text"]
     assert "ValA\tValB" in result["full_text"]
     assert "mean_confidence" not in result["metrics"]
+
+
+def test_export_docling_to_html_default():
+    doc = MagicMock()
+    doc.export_to_html.return_value = "<p><strong>Hi</strong></p>"
+    fake = MagicMock()
+    fake.ImageRefMode.PLACEHOLDER = "placeholder"
+    with patch("plugin.vision.venv.vision_docling.importlib.import_module", return_value=fake), patch(
+        "plugin.vision.venv.vision_docling.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        out = export_docling_to_html(doc, {})
+    assert "strong" in out
+    doc.export_to_html.assert_called_once_with(
+        image_mode=fake.ImageRefMode.PLACEHOLDER,
+        formula_to_mathml=True,
+        split_page_view=False,
+    )
+
+
+def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
+    obj = object()
+    with caplog.at_level(logging.WARNING):
+        out = export_docling_to_html(obj, {})
+    assert out == ""
+    assert "lacks export_to_html" in caplog.text

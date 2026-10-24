@@ -12,7 +12,7 @@ import pytest
 
 from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv import vision_paddle as paddle_mod
-from plugin.vision.venv.vision import run_vision
+from plugin.vision.venv.vision import apply_structured_insert_html, run_vision
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def _mock_docling_document(*, texts=None, tables=None, markdown=None):
     return doc
 
 
-@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<p>Hello</p><p>World</p>")
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>Hello</p><p>World</p>")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_default_maps_regions(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document()
@@ -74,7 +74,7 @@ def test_extract_text_docling_default_maps_regions(mock_convert, _mock_html):
     assert result["metrics"]["ocr_backend"] == "rapidocr"
 
 
-@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="")
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_empty_adds_warning(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document(texts=[], markdown="")
@@ -210,7 +210,7 @@ def _sample_structure_page():
     ]
 
 
-@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<table></table>")
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<table></table>")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_structure_docling_default(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document(
@@ -387,3 +387,30 @@ def test_run_vision_unknown_engine_returns_invalid_params():
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAMS"
     assert "Unknown vision engine" in result["message"]
+
+
+def test_apply_structured_insert_html_replaces_html_in_worker():
+    result = {
+        "status": "ok",
+        "helper": "extract_structure",
+        "html": "<p>docling export</p>",
+        "blocks": [
+            {"type": "text", "text": "Left", "box": [10, 100, 180, 20]},
+            {"type": "text", "text": "Right", "box": [420, 102, 180, 20]},
+        ],
+    }
+    with patch(
+        "plugin.vision.venv.vision_html_export.structured_html_from_vision_result",
+        return_value="<table><tr><td>Left</td><td>Right</td></tr></table>",
+    ):
+        out = apply_structured_insert_html(result, {"insert_mode": "structured"})
+    assert out["html"].startswith("<table>")
+    assert out["html"] != result["html"]
+    assert out["html_docling"] == "<p>docling export</p>"
+    assert result["html"] == "<p>docling export</p>"  # input dict not mutated
+
+
+def test_apply_structured_insert_html_skips_html_mode():
+    result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
+    out = apply_structured_insert_html(result, {"insert_mode": "html"})
+    assert out is result

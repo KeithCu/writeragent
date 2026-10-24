@@ -8,15 +8,11 @@ from __future__ import annotations
 
 import functools
 import html as html_module
-import importlib
 import logging
 import os
 import re
 import sys
 from typing import Any
-
-from plugin.vision.venv.vision_layout_html import _HEADING_TYPES
-from plugin.vision.vision_common import DEFAULT_VISION_INSERT_MODE
 
 log = logging.getLogger(__name__)
 
@@ -435,31 +431,6 @@ def _wrap_html_fragment(body: str) -> str:
     )
 
 
-def export_docling_to_html(document: Any, params: dict[str, Any]) -> str:
-    """Return rich HTML from a DoclingDocument (bold, tables, headings), css-inlined for LO."""
-    del params  # reserved for future Docling HTML export options
-
-    if hasattr(document, "export_to_html"):
-        docling_doc_mod = importlib.import_module("docling_core.types.doc")
-        image_ref_mode = docling_doc_mod.ImageRefMode
-        # PLACEHOLDER: do not embed source/figure PNGs back into Writer (EMBEDDED
-        # dumps data:image payloads that StarWriter inserts as extra graphics).
-        # formula_to_mathml=True (Docling default): FormulaItem LaTeX → <math>
-        # so Writer can create native Math objects. Leftover $$…$$ is converted
-        # later in prepare_html_for_lo_import.
-        raw = str(
-            document.export_to_html(
-                image_mode=image_ref_mode.PLACEHOLDER,
-                formula_to_mathml=True,
-                split_page_view=False,
-            )
-            or ""
-        )
-        return prepare_html_for_lo_import(raw)
-    log.warning("Docling document %r lacks export_to_html; returning empty HTML", type(document).__name__)
-    return ""
-
-
 def _blocks_from_vision_result(result: dict[str, Any]) -> list[dict[str, Any]]:
     blocks = result.get("blocks")
     if isinstance(blocks, list) and blocks:
@@ -476,24 +447,6 @@ def _blocks_from_vision_result(result: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         out.append({"type": "text", "text": text, "box": region.get("box") or [0, 0, 0, 0]})
     return out
-
-
-def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
-    """Minimal HTML from Paddle OCR line regions (reading order), css-inlined for LO."""
-    blocks = _blocks_from_vision_result({"regions": regions})
-    parts = [f"<p>{html_module.escape(b['text'])}</p>" for b in blocks if b.get("text")]
-    if not parts:
-        return ""
-    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
-
-
-def _is_table_markup(text: str) -> bool:
-    """True when block text is a raw ``<table>`` fragment, not prose."""
-    return "<table" in text.lower()
-
-
-def _is_heading(block_type: str) -> bool:
-    return block_type.strip().lower() in _HEADING_TYPES
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -594,39 +547,6 @@ def _tables_to_html(tables: list[dict[str, Any]] | None) -> list[str]:
     return out
 
 
-def html_from_paddle_structure(
-    blocks: list[dict[str, Any]],
-    tables: list[dict[str, Any]],
-) -> str:
-    """Build HTML from Paddle PP-Structure blocks and parsed tables, css-inlined for LO."""
-    parts: list[str] = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            continue
-        block_type = str(block.get("type") or "text").strip().lower()
-        text = str(block.get("text") or "").strip()
-        # Tables are appended from ``tables`` below. The old guard only
-        # skipped an empty ``text``, but PP-Structure stores the raw
-        # ``<table>`` HTML on the block (``_text_from_structure_res`` read
-        # the ``html`` key). That markup was escaped into a second ``<p>``
-        # (``&lt;table&gt;``) beside the real table. Skip table markup even
-        # when ``text`` is non-empty so insert_mode=html shows one table.
-        if block_type == "table" and (not text or _is_table_markup(text)):
-            continue
-        if not text:
-            continue
-        if _is_heading(block_type):
-            parts.append(f"<h2>{html_module.escape(text)}</h2>")
-        else:
-            parts.append(f"<p>{html_module.escape(text)}</p>")
-
-    parts.extend(_tables_to_html(tables))
-
-    if not parts:
-        return ""
-    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
-
-
 def structured_html_from_vision_result(result: dict[str, Any]) -> str:
     """Build bbox layout HTML from blocks/regions; must run in the user venv (needs css-inline)."""
     from plugin.vision.venv.vision_layout_html import html_from_layout_blocks
@@ -639,25 +559,3 @@ def structured_html_from_vision_result(result: dict[str, Any]) -> str:
     if not body.strip():
         return ""
     return prepare_html_for_lo_import(_wrap_html_fragment(body))
-
-
-def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
-    """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
-    if result.get("status") != "ok":
-        return result
-    helper = str(result.get("helper") or "")
-    if helper not in ("extract_text", "extract_structure"):
-        return result
-    mode = str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
-    if mode != "structured":
-        return result
-    html = structured_html_from_vision_result(result)
-    if not html.strip():
-        return result
-    updated = dict(result)
-    # Calc structured insert falls back to HTML when the cell grid is empty.
-    # Overwriting html used to make that fallback the bbox fragment, not Docling.
-    if "html_docling" not in updated:
-        updated["html_docling"] = result.get("html")
-    updated["html"] = html
-    return updated

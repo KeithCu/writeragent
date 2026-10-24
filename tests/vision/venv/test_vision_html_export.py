@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from unittest.mock import MagicMock, patch
 
@@ -14,14 +13,10 @@ import pytest
 
 from plugin.vision.vision_common import CSS_INLINE_INSTALL_CMD
 from plugin.vision.venv.vision_html_export import (
-    apply_structured_insert_html,
     augment_lo_body_paragraph_styles,
     augment_lo_heading_styles,
     augment_lo_table_styles,
     convert_latex_delimiters_to_mathml,
-    export_docling_to_html,
-    html_from_paddle_regions,
-    html_from_paddle_structure,
     prepare_html_for_lo_import,
     promote_table_header_rows,
 )
@@ -85,34 +80,6 @@ def test_prepare_html_for_lo_import_applies_heading_and_body_augment():
     assert "font-family: Arial" in out
 
 
-def test_html_from_paddle_regions_escapes_and_wraps():
-    with patch(
-        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
-        side_effect=lambda html: html,
-    ):
-        html = html_from_paddle_regions([{"text": "Line & one"}, {"text": "Line two"}])
-    assert "<p>Line &amp; one</p>" in html
-    assert "<p>Line two</p>" in html
-    assert "Arial" in html
-
-
-def test_html_from_paddle_structure_table_and_heading():
-    with patch(
-        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
-        side_effect=lambda html: html,
-    ):
-        html = html_from_paddle_structure(
-            [{"type": "section_header", "text": "Title", "box": [0, 0, 0, 0]}],
-            [{"columns": ["A", "B"], "rows": [["1", "2"]]}],
-        )
-    assert "<h2>Title</h2>" in html
-    assert "<table" in html
-    assert "<thead>" in html
-    assert "<th>A</th>" in html
-    assert "<td>1</td>" in html
-    assert 'border="1"' in html
-
-
 def test_html_table_from_columns_rows_emits_spans():
     from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
 
@@ -149,95 +116,8 @@ def test_html_table_from_columns_rows_clamps_huge_spans():
     assert "<table" in html
 
 
-def test_export_docling_to_html_default():
-    doc = MagicMock()
-    doc.export_to_html.return_value = "<p><strong>Hi</strong></p>"
-    fake = MagicMock()
-    fake.ImageRefMode.PLACEHOLDER = "placeholder"
-    with patch("plugin.vision.venv.vision_html_export.importlib.import_module", return_value=fake), patch(
-        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
-        side_effect=lambda html: html,
-    ):
-        out = export_docling_to_html(doc, {})
-    assert "strong" in out
-    doc.export_to_html.assert_called_once_with(
-        image_mode=fake.ImageRefMode.PLACEHOLDER,
-        formula_to_mathml=True,
-        split_page_view=False,
-    )
-
-
-def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
-    obj = object()
-    with caplog.at_level(logging.WARNING):
-        out = export_docling_to_html(obj, {})
-    assert out == ""
-    assert "lacks export_to_html" in caplog.text
-
-
 def test_css_inline_install_cmd():
     assert "css-inline" in CSS_INLINE_INSTALL_CMD
-
-
-def test_apply_structured_insert_html_replaces_html_in_worker():
-    result = {
-        "status": "ok",
-        "helper": "extract_structure",
-        "html": "<p>docling export</p>",
-        "blocks": [
-            {"type": "text", "text": "Left", "box": [10, 100, 180, 20]},
-            {"type": "text", "text": "Right", "box": [420, 102, 180, 20]},
-        ],
-    }
-    with patch(
-        "plugin.vision.venv.vision_html_export.structured_html_from_vision_result",
-        return_value="<table><tr><td>Left</td><td>Right</td></tr></table>",
-    ):
-        out = apply_structured_insert_html(result, {"insert_mode": "structured"})
-    assert out["html"].startswith("<table>")
-    assert out["html"] != result["html"]
-    assert out["html_docling"] == "<p>docling export</p>"
-    assert result["html"] == "<p>docling export</p>"  # input dict not mutated
-
-
-def test_apply_structured_insert_html_skips_html_mode():
-    result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
-    out = apply_structured_insert_html(result, {"insert_mode": "html"})
-    assert out is result
-
-
-def test_html_from_paddle_structure_skips_escaped_table_paragraph():
-    """Raw PP-Structure ``<table>`` block text must not sit beside the real table."""
-    raw_table = "<table><tr><td>Widget</td><td>2</td></tr></table>"
-    with patch(
-        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
-        side_effect=lambda html: html,
-    ):
-        html = html_from_paddle_structure(
-            [
-                {"type": "text", "text": "Invoice"},
-                {"type": "table", "text": raw_table, "box": [0, 0, 10, 10]},
-            ],
-            [{"columns": ["Item", "Qty"], "rows": [["Widget", "2"]]}],
-        )
-    assert "Invoice" in html
-    assert html.lower().count("<table") == 1
-    assert "&lt;table" not in html.lower()
-    assert "<td>Widget</td>" in html
-
-
-def test_html_from_paddle_structure_keeps_plain_table_text():
-    with patch(
-        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
-        side_effect=lambda html: html,
-    ):
-        html = html_from_paddle_structure(
-            [{"type": "table", "text": "See totals"}],
-            [{"columns": ["A"], "rows": [["1"]]}],
-        )
-    assert "See totals" in html
-    assert html.lower().count("<table") == 1
-    assert "&lt;table" not in html.lower()
 
 
 def test_extension_root_is_three_parents_above_venv_dir(tmp_path, monkeypatch):

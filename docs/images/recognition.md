@@ -188,7 +188,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`_get_graphic_object`](../../plugin/writer/images/images.py) |
 | Run Python vision fast path | [`python_runner.py`](../../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
-| HTML export (Docling / Paddle) | [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) — `export_docling_to_html`, `prepare_html_for_lo_import` (**css-inline** required; heading/body/table/MathML augment) |
+| HTML export (Docling / Paddle) | [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (`export_docling_to_html`), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (`html_from_paddle_regions`, `html_from_paddle_structure`), [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (`prepare_html_for_lo_import`, **css-inline** required; heading/body/table/MathML augment) |
 | Script picker (Writer + Calc) | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_VISION`, `_vision_script_section` |
 | Monaco built-in guards | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`analysis_client.py`](../../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
@@ -345,7 +345,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 | [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `resolve_vision_image_bytes`, `export_graphic_object_to_bytes` reuse from [`image_tools.py`](../../plugin/writer/images/image_tools.py) |
 | [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | `[Vision] extract_structure`; default params `lang`, `image_name` |
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `insert_vision_result`, `vision_html_from_result` |
-| [`plugin/vision/venv/vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) | Docling `export_to_html` / Paddle HTML builders |
+| [`plugin/vision/venv/vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) | Shared HTML prep for LO import; Docling export in [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py), Paddle HTML builders in [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) |
 | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | `insert_vision_html_into_calc` (rich HTML in cell below anchor) |
 | [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py) | `export_graphic_to_bytes`, `export_graphic_object_to_bytes` |
 

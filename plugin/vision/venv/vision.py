@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from plugin.vision.vision_common import (
+    DEFAULT_VISION_INSERT_MODE,
     HELPER_NAMES,
     IMPLEMENTED_HELPERS,
     VISION_IMAGE_MAX_BYTES,
@@ -23,7 +24,7 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-__all__ = ["run_vision"]
+__all__ = ["apply_structured_insert_html", "run_vision"]
 
 
 def _run_paddle_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +118,30 @@ def _dispatch_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[st
     return _apply_paddle_fallback(result, helper, image, params)
 
 
+def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
+    if result.get("status") != "ok":
+        return result
+    helper = str(result.get("helper") or "")
+    if helper not in ("extract_text", "extract_structure"):
+        return result
+    mode = str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
+    if mode != "structured":
+        return result
+    from plugin.vision.venv.vision_html_export import structured_html_from_vision_result
+
+    html = structured_html_from_vision_result(result)
+    if not html.strip():
+        return result
+    updated = dict(result)
+    # Calc structured insert falls back to HTML when the cell grid is empty.
+    # Overwriting html used to make that fallback the bbox fragment, not Docling.
+    if "html_docling" not in updated:
+        updated["html_docling"] = result.get("html")
+    updated["html"] = html
+    return updated
+
+
 def run_vision(
     spec: dict[str, Any] | str,
     image: Any,
@@ -148,8 +173,6 @@ def run_vision(
 
     try:
         result = _dispatch_helper(helper, image, params)
-        from plugin.vision.venv.vision_html_export import apply_structured_insert_html
-
         return apply_structured_insert_html(result, params)
     except Exception as exc:
         log.exception("Vision helper %s failed", helper)
