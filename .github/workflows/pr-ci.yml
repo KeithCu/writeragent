@@ -87,6 +87,15 @@ jobs:
           sudo add-apt-repository -y ppa:libreoffice/ppa
           sudo apt-get update
           # libreoffice-dev ships unoidl-write; make build-core / rdb-core needs it.
+          # The download normally takes under a minute. PR CI 40094662438 drew a slow
+          # mirror connection (265 MB at 200 kB/s, 22 min) and the job hit its 30 min cap.
+          # apt has no minimum-speed abort, so cap each download try and retry on a fresh
+          # connection. Finished .debs stay in the apt cache, so a retry only fetches the rest.
+          for attempt in 1 2 3; do
+            sudo timeout 300 apt-get install -y --download-only -o Acquire::Retries=3 \
+              libreoffice libreoffice-dev python3-uno gettext && break
+            echo "apt download attempt $attempt did not finish in 5 min; retrying"
+          done
           sudo apt-get install -y libreoffice libreoffice-dev python3-uno gettext
           # Visible Writer for make test-mock-sidebar (testing_runner requires DISPLAY).
           if [ "${{ inputs.test_mock_sidebar }}" = "true" ]; then
