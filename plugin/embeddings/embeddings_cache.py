@@ -390,6 +390,31 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
     return chunk_count_from_meta(meta_path) <= 0
 
 
+def ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_path: Any) -> str | None:
+    """Path to search, or None when that store is not built yet.
+
+    create_parent=True runs only after the probe says the store is populated.
+    An empty store must not create the parent directory as a side effect of the check.
+    """
+    if mode == "zvec":
+        if not listing_root:
+            return None
+        probe = zvec_collection_path(listing_root, create_parent=False)
+        if not zvec_collection_looks_populated(probe):
+            return None
+        return str(zvec_collection_path(listing_root, create_parent=True))
+    if mode == "lancedb":
+        if not listing_root:
+            return None
+        probe = lancedb_collection_path(listing_root, create_parent=False)
+        if not lancedb_collection_looks_populated(probe):
+            return None
+        return str(lancedb_collection_path(listing_root, create_parent=True))
+    if index_is_empty(meta_path, db_path):
+        return None
+    return str(db_path)
+
+
 def model_matches_index(meta_path: Path, embedding_model: str) -> bool:
     """False when stored embedding_model differs (requires cold rebuild)."""
     meta = read_corpus_meta(meta_path)

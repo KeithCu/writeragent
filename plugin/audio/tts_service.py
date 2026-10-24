@@ -23,6 +23,7 @@ from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
     ensure_kokoro_misaki,
+    kokoro_g2p_lang,
     kokoro_lang_uses_misaki,
 )
 from plugin.audio.kokoro_pool import (
@@ -47,7 +48,6 @@ from plugin.audio.tts_voices import (
     clean_provider_name,
     clean_voice_name,
     get_scoped_tts_voice,
-    kokoro_g2p_lang,
     parse_tts_speed,
 )
 from plugin.framework import config

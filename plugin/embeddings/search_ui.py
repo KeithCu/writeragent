@@ -47,43 +47,6 @@ def format_cache_age(age_secs: float) -> str:
     return _("{0}d ago").format(int(age_secs // 86400))
 
 
-def _ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_path: Any) -> str | None:
-    """Path to search, or None when that store is not built yet.
-
-    create_parent=True runs only after the probe says the store is populated.
-    An empty store must not create the parent directory as a side effect of the check.
-    """
-    if mode == "zvec":
-        from plugin.embeddings.embeddings_cache import (
-            zvec_collection_looks_populated,
-            zvec_collection_path,
-        )
-
-        if not listing_root:
-            return None
-        probe = zvec_collection_path(listing_root, create_parent=False)
-        if not zvec_collection_looks_populated(probe):
-            return None
-        return str(zvec_collection_path(listing_root, create_parent=True))
-    if mode == "lancedb":
-        from plugin.embeddings.embeddings_cache import (
-            lancedb_collection_looks_populated,
-            lancedb_collection_path,
-        )
-
-        if not listing_root:
-            return None
-        probe = lancedb_collection_path(listing_root, create_parent=False)
-        if not lancedb_collection_looks_populated(probe):
-            return None
-        return str(lancedb_collection_path(listing_root, create_parent=True))
-    from plugin.embeddings.embeddings_cache import index_is_empty
-
-    if index_is_empty(meta_path, db_path):
-        return None
-    return str(db_path)
-
-
 class SearchDialog:
     """Modeless dialog to let users run search_nearby_files queries directly."""
 
@@ -292,7 +255,7 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
-                from plugin.embeddings.embeddings_cache import query_blocked_for_model
+                from plugin.embeddings.embeddings_cache import query_blocked_for_model, ready_search_path
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
@@ -315,7 +278,7 @@ class SearchDialog:
                     return
 
                 mode = _folder_search_mode()
-                search_path = _ready_search_path(mode, listing_root, meta_path, db_path)
+                search_path = ready_search_path(mode, listing_root, meta_path, db_path)
                 model = ""
                 if search_path is not None:
                     model = get_embedding_model()

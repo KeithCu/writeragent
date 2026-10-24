@@ -13,7 +13,8 @@ import sys
 from typing import Any, Callable
 
 from plugin.audio.tts_models import _notify_tts_status
-from plugin.audio.tts_voices import _resolve_tts_voice
+from plugin.audio.tts_voices import clean_voice_name, is_kokoro_voice_id
+from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE, KOKORO_OPENAI_ALIASES
 from plugin.framework.client.http_security import public_target
 from plugin.framework.i18n import _
 
@@ -27,6 +28,7 @@ __all__ = [
     "_pcm_rate_from_content_type",
     "_pcm_s16le_to_wav",
     "_post_audio_speech",
+    "_resolve_tts_voice",
     "_sniff_audio_format",
     "_speak_endpoint",
     "_speech_failure_message",
@@ -197,6 +199,19 @@ def _post_audio_speech(
 def _default_endpoint_format() -> str:
     """First response_format to ask for. Windows plays WAV with SoundPlayer."""
     return "wav" if sys.platform == "win32" else "mp3"
+
+
+def _resolve_tts_voice(model: str, voice: str) -> str:
+    """Ensure voice name is compatible with the target model."""
+    voice = clean_voice_name(voice)
+    if not voice:
+        voice = "alloy"
+    if "kokoro" in model.lower():
+        v_low = voice.lower()
+        if is_kokoro_voice_id(v_low):
+            return voice
+        return KOKORO_OPENAI_ALIASES.get(v_low, KOKORO_FALLBACK_VOICE)
+    return voice
 
 
 def _download_endpoint_speech(

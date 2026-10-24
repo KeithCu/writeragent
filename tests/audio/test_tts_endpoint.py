@@ -15,6 +15,7 @@ from plugin.audio.tts_endpoint import (
     _pcm_rate_from_content_type,
     _pcm_s16le_to_wav,
     _post_audio_speech,
+    _resolve_tts_voice,
     _speak_endpoint,
 )
 from plugin.audio.tts_service import _release_temp
@@ -31,6 +32,19 @@ def _speech_http_error(code: int, body: str):
     from plugin.framework.errors import NetworkError
 
     return NetworkError(body, code="HTTP_ERROR", details={"status": code, "url": "https://openrouter.ai/api/v1/audio/speech"})
+
+
+def test_resolve_tts_voice():
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "nova") == "af_sky"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "alloy") == "af_sky"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "shimmer") == "af_sarah"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "echo") == "am_adam"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "af_bella") == "af_bella"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "am_adam") == "am_adam"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "if_sara") == "if_sara"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "pf_dora") == "pf_dora"
+    assert _resolve_tts_voice("openai/tts-1", "nova") == "nova"
+    assert _resolve_tts_voice("openai/tts-1", "alloy") == "alloy"
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")

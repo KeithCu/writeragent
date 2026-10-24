@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Any
 
+from plugin.audio.kokoro_g2p import KOKORO_VOICE_PREFIX_TO_LANG
 from plugin.audio.voice_catalog import (
     DEFAULT_VOICE_FOR_FAMILY,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
@@ -36,7 +37,6 @@ __all__ = [
     "get_voice_catalog",
     "get_voice_family",
     "is_kokoro_voice_id",
-    "kokoro_g2p_lang",
     "parse_tts_speed",
     "set_scoped_tts_voice",
     "settings_voice_options",
@@ -45,31 +45,10 @@ __all__ = [
     "voice_options_for_provider",
 ]
 
-# Single source of truth for Kokoro voice prefixes and their G2P language codes
-KOKORO_VOICE_PREFIX_TO_LANG: dict[str, str] = {
-    "a": "en-us",
-    "b": "en-gb",
-    "e": "es",
-    "f": "fr-fr",
-    "h": "hi",
-    "i": "it",
-    "j": "ja",
-    "p": "pt-br",
-    "z": "zh",
-}
-
-
 def is_kokoro_voice_id(voice: str) -> bool:
     """True if voice starts with a known Kokoro prefix (e.g. af_, jf_, bm_)."""
     clean = (voice or "").strip().lower()
     return len(clean) >= 3 and clean[0] in KOKORO_VOICE_PREFIX_TO_LANG and clean[1:3] in ("f_", "m_")
-
-
-def _kokoro_lang_for_voice(voice: str) -> str:
-    """Determine the Kokoro phonemizer language code from voice prefix."""
-    clean = (voice or "").lower().strip()
-    prefix = clean[:1]
-    return KOKORO_VOICE_PREFIX_TO_LANG.get(prefix, "en-us")
 
 
 # English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
@@ -79,23 +58,6 @@ TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
 def tts_test_sample() -> str:
     """Localized sample sentence for Settings → Speech → Test voice."""
     return _("Hello, I'm your LibreOffice WriterAgent.")
-
-
-def _text_is_latin_script(text: str) -> bool:
-    """True when all alphabetic characters fall in basic Latin through Latin Extended-B."""
-    return all(ord(char) < 0x0250 or not char.isalpha() for char in text)
-
-
-def kokoro_g2p_lang(text: str, voice: str = "") -> str:
-    """Phonemizer code for one Kokoro utterance. The voice id is not changed."""
-    if not voice:
-        return "en-us"
-    target = _kokoro_lang_for_voice(voice)
-    if target in ("en-us", "en-gb"):
-        return target
-    if target in ("ja", "zh", "hi") and _text_is_latin_script(text):
-        return "en-us"
-    return target
 
 
 def _normalize_voice_family(family: str) -> str:
@@ -575,16 +537,3 @@ def parse_tts_speed(val: Any) -> float:
         return max(0.25, min(5.0, speed))
     except (ValueError, TypeError):
         return 1.0
-
-
-def _resolve_tts_voice(model: str, voice: str) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by tts_endpoint.py
-    """Ensure voice name is compatible with the target model."""
-    voice = clean_voice_name(voice)
-    if not voice:
-        voice = "alloy"
-    if "kokoro" in model.lower():
-        v_low = voice.lower()
-        if is_kokoro_voice_id(v_low):
-            return voice
-        return _KOKORO_OPENAI_ALIASES.get(v_low, _KOKORO_FALLBACK_VOICE)
-    return voice

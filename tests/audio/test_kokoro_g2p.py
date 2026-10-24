@@ -13,7 +13,9 @@ from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
     TTS_INSTALL_CMD,
+    _kokoro_lang_for_voice,
     ensure_kokoro_misaki,
+    kokoro_g2p_lang,
     kokoro_lang_uses_misaki,
     kokoro_misaki_install_hint,
     kokoro_misaki_packages,
@@ -456,3 +458,35 @@ def test_ensure_kokoro_misaki_cancelled_skips_install():
         )
     assert ready is None
     run.assert_not_called()
+
+
+def test_kokoro_g2p_lang_english_on_non_english_voice():
+    english = "Hello, I'm your LibreOffice WriterAgent."
+    assert kokoro_g2p_lang(english, "jf_alpha") == "en-us"
+    assert kokoro_g2p_lang(english, "zf_xiaobei") == "en-us"
+    assert kokoro_g2p_lang(english, "hf_alpha") == "en-us"
+    assert kokoro_g2p_lang("hello", "af_bella") == "en-us"
+    assert kokoro_g2p_lang(english, "bf_emma") == "en-gb"
+    assert kokoro_g2p_lang("Café au lait", "ff_siwis") == "fr-fr"
+    assert kokoro_g2p_lang("Bonjour, je suis WriterAgent.", "ff_siwis") == "fr-fr"
+    assert kokoro_g2p_lang("Hola, ¿cómo estás?", "ef_dora") == "es"
+    assert kokoro_g2p_lang("Ciao, come stai?", "if_sara") == "it"
+    assert kokoro_g2p_lang("Olá, tudo bem?", "pf_dora") == "pt-br"
+    assert kokoro_g2p_lang("こんにちは、WriterAgent です。", "jf_alpha") == "ja"
+    assert kokoro_g2p_lang("你好", "zf_xiaobei") == "zh"
+    assert kokoro_g2p_lang("नमस्ते", "hf_alpha") == "hi"
+
+
+def test_kokoro_lang_for_voice():
+    assert _kokoro_lang_for_voice("af_bella") == "en-us"
+    assert _kokoro_lang_for_voice("am_adam") == "en-us"
+    assert _kokoro_lang_for_voice("bf_emma") == "en-gb"
+    assert _kokoro_lang_for_voice("bm_george") == "en-gb"
+    assert _kokoro_lang_for_voice("ef_dora") == "es"
+    assert _kokoro_lang_for_voice("em_alex") == "es"
+    assert _kokoro_lang_for_voice("ff_siwis") == "fr-fr"
+    assert _kokoro_lang_for_voice("if_sara") == "it"
+    assert _kokoro_lang_for_voice("jf_alpha") == "ja"
+    assert _kokoro_lang_for_voice("zf_xiaobei") == "zh"
+    assert _kokoro_lang_for_voice("hf_alpha") == "hi"
+    assert _kokoro_lang_for_voice("pf_dora") == "pt-br"

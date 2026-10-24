@@ -8,16 +8,13 @@ from unittest.mock import patch
 
 from plugin.audio.tts_voices import (
     TTS_TEST_SAMPLE,
-    _kokoro_lang_for_voice,
     _preferred_harvested_voice,
-    _resolve_tts_voice,
     clean_provider_name,
     clean_voice_name,
     get_default_voice_for_locale,
     get_scoped_tts_voice,
     get_voice_catalog,
     get_voice_family,
-    kokoro_g2p_lang,
     parse_tts_speed,
     set_scoped_tts_voice,
     settings_voice_options,
@@ -34,19 +31,6 @@ from plugin.audio.voice_catalog import (
     voice_short_name,
 )
 from plugin.framework.client import model_fetcher as cfg
-
-
-def test_resolve_tts_voice():
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "nova") == "af_sky"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "alloy") == "af_sky"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "shimmer") == "af_sarah"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "echo") == "am_adam"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "af_bella") == "af_bella"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "am_adam") == "am_adam"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "if_sara") == "if_sara"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "pf_dora") == "pf_dora"
-    assert _resolve_tts_voice("openai/tts-1", "nova") == "nova"
-    assert _resolve_tts_voice("openai/tts-1", "alloy") == "alloy"
 
 
 def test_clean_provider_and_voice_names():
@@ -325,42 +309,10 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
     assert any(row["value"] == "alloy" for row in openai)
 
 
-def test_kokoro_g2p_lang_english_on_non_english_voice():
-    english = "Hello, I'm your LibreOffice WriterAgent."
-    assert kokoro_g2p_lang(english, "jf_alpha") == "en-us"
-    assert kokoro_g2p_lang(english, "zf_xiaobei") == "en-us"
-    assert kokoro_g2p_lang(english, "hf_alpha") == "en-us"
-    assert kokoro_g2p_lang("hello", "af_bella") == "en-us"
-    assert kokoro_g2p_lang(english, "bf_emma") == "en-gb"
-    assert kokoro_g2p_lang("Café au lait", "ff_siwis") == "fr-fr"
-    assert kokoro_g2p_lang("Bonjour, je suis WriterAgent.", "ff_siwis") == "fr-fr"
-    assert kokoro_g2p_lang("Hola, ¿cómo estás?", "ef_dora") == "es"
-    assert kokoro_g2p_lang("Ciao, come stai?", "if_sara") == "it"
-    assert kokoro_g2p_lang("Olá, tudo bem?", "pf_dora") == "pt-br"
-    assert kokoro_g2p_lang("こんにちは、WriterAgent です。", "jf_alpha") == "ja"
-    assert kokoro_g2p_lang("你好", "zf_xiaobei") == "zh"
-    assert kokoro_g2p_lang("नमस्ते", "hf_alpha") == "hi"
-
-
 def test_tts_test_sample_uses_gettext():
     with patch("plugin.audio.tts_voices._", return_value="Bonjour, je suis WriterAgent.") as mock_gettext:
         assert tts_test_sample() == "Bonjour, je suis WriterAgent."
         mock_gettext.assert_called_once_with(TTS_TEST_SAMPLE)
-
-
-def test_kokoro_lang_for_voice():
-    assert _kokoro_lang_for_voice("af_bella") == "en-us"
-    assert _kokoro_lang_for_voice("am_adam") == "en-us"
-    assert _kokoro_lang_for_voice("bf_emma") == "en-gb"
-    assert _kokoro_lang_for_voice("bm_george") == "en-gb"
-    assert _kokoro_lang_for_voice("ef_dora") == "es"
-    assert _kokoro_lang_for_voice("em_alex") == "es"
-    assert _kokoro_lang_for_voice("ff_siwis") == "fr-fr"
-    assert _kokoro_lang_for_voice("if_sara") == "it"
-    assert _kokoro_lang_for_voice("jf_alpha") == "ja"
-    assert _kokoro_lang_for_voice("zf_xiaobei") == "zh"
-    assert _kokoro_lang_for_voice("hf_alpha") == "hi"
-    assert _kokoro_lang_for_voice("pf_dora") == "pt-br"
 
 
 def test_module_yaml_voice_options_use_catalog_provider():

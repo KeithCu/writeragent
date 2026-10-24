@@ -153,6 +153,44 @@ def _get_misaki_g2p(lang: str) -> Any:
     return inst
 
 
+# Single source of truth for Kokoro voice prefixes and their G2P language codes
+KOKORO_VOICE_PREFIX_TO_LANG: dict[str, str] = {
+    "a": "en-us",
+    "b": "en-gb",
+    "e": "es",
+    "f": "fr-fr",
+    "h": "hi",
+    "i": "it",
+    "j": "ja",
+    "p": "pt-br",
+    "z": "zh",
+}
+
+
+def _kokoro_lang_for_voice(voice: str) -> str:
+    """Determine the Kokoro phonemizer language code from voice prefix."""
+    clean = (voice or "").lower().strip()
+    prefix = clean[:1]
+    return KOKORO_VOICE_PREFIX_TO_LANG.get(prefix, "en-us")
+
+
+def _text_is_latin_script(text: str) -> bool:
+    """True when all alphabetic characters fall in basic Latin through Latin Extended-B."""
+    return all(ord(char) < 0x0250 or not char.isalpha() for char in text)
+
+
+def kokoro_g2p_lang(text: str, voice: str = "") -> str:
+    """Phonemizer code for one Kokoro utterance. The voice id is not changed."""
+    if not voice:
+        return "en-us"
+    target = _kokoro_lang_for_voice(voice)
+    if target in ("en-us", "en-gb"):
+        return target
+    if target in ("ja", "zh", "hi") and _text_is_latin_script(text):
+        return "en-us"
+    return target
+
+
 def kokoro_lang_uses_misaki(lang: str) -> bool:
     """True when this Kokoro lang code must be phonemized with Misaki."""
     return lang in _LANG_SPECS

@@ -10,8 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from plugin.embeddings.embeddings_cache import ready_search_path
 from plugin.embeddings.search_ui import (
-    SearchDialog, format_cache_age, show_search_dialog, _ready_search_path,
+    SearchDialog,
+    format_cache_age,
+    show_search_dialog,
 )
 
 
@@ -350,7 +353,7 @@ class TestSearchDialog:
         with patch(f"plugin.embeddings.embeddings_cache.{path_name}", side_effect=_path) as path:
             with patch(f"plugin.embeddings.embeddings_cache.{populated_name}", return_value=populated):
                 with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=empty_index):
-                    got = _ready_search_path(mode, listing_root, Path("/meta"), Path("/db"))
+                    got = ready_search_path(mode, listing_root, Path("/meta"), Path("/db"))
 
         if expected is None:
             assert got is None
