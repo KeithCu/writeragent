@@ -379,6 +379,34 @@ def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) 
     return out
 
 
+def resolve_work_spans(
+    a_doc_id: str,
+    loc_key: str,
+    a_text: str,
+    n_start: int,
+    n_suggested_end: int,
+    paragraph_spans: list[tuple[int, int, str]],
+) -> list[tuple[int, int, str]]:
+    """Active-window spans from the already-split, threshold-filtered paragraph.
+
+    One BreakIterator pass happens in ``doProofreading``; this only overlap-filters
+    (or returns all spans when ``n_start == 0``). ``raw_candidates`` is the
+    post-threshold paragraph count.
+    """
+    work_spans = active_spans_from_paragraph(paragraph_spans, a_text, n_start, n_suggested_end)
+    if not work_spans:
+        grammar_obs(
+            "do_proofreading_skip",
+            reason="no_eligible_sentences_or_incomplete_short",
+            doc_id=a_doc_id,
+            n_start_lo=n_start,
+            raw_candidates=len(paragraph_spans),
+            grammar_bcp47=loc_key,
+        )
+        return []
+    return work_spans
+
+
 # ---------------------------------------------------------------------------
 # Map wrong/correct pairs to absolute offsets in the proofread buffer
 # ---------------------------------------------------------------------------

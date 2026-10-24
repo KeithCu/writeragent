@@ -131,7 +131,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
-from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
+from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, enqueue_misses
 from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
 
@@ -534,7 +534,7 @@ class TestTypingIntegration:
 
     def test_enqueue_misses_persists_identity(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()
-        pr._enqueue_misses("test-doc", "en-US", [(0, 10, "Some text.")], "custom-prov", "custom-ident")
+        enqueue_misses(mock_queue_fixture, pr.ctx, "test-doc", "en-US", [(0, 10, "Some text.")], "custom-prov", "custom-ident")
 
         mock_queue_fixture.enqueue.assert_called_once()
         item = mock_queue_fixture.enqueue.call_args[0][0]
@@ -596,7 +596,7 @@ class TestTypingIntegration:
     ) -> None:
         """Characterization: unexpected errors in span resolution return an empty result, not a crash."""
         pr = _make_proofreader()
-        with patch.object(pr, "_resolve_work_spans", side_effect=RuntimeError("span resolution failed")):
+        with patch("plugin.writer.locale.ai_grammar_proofreader.resolve_work_spans", side_effect=RuntimeError("span resolution failed")):
             res = pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
         assert res.aErrors == ()
         mock_queue_fixture.enqueue.assert_not_called()
@@ -872,7 +872,7 @@ class TestTypingIntegration:
             patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
             patch(
                 "plugin.framework.queue_executor.execute_on_main_thread",
-                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+                side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=mock_model) as mock_bind,
             patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-1"),
@@ -896,7 +896,7 @@ class TestTypingIntegration:
             patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
             patch(
                 "plugin.framework.queue_executor.execute_on_main_thread",
-                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+                side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch(
                 "plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound",
@@ -926,7 +926,7 @@ class TestTypingIntegration:
             patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
             patch(
                 "plugin.framework.queue_executor.execute_on_main_thread",
-                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+                side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=None) as mock_bind,
             patch(
@@ -1675,7 +1675,7 @@ def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(
     with (
         patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-reset"),
         patch.object(pr, "_try_harper_fast_path") as mock_harper,
-        patch.object(pr, "_enqueue_misses") as mock_enqueue,
+        patch("plugin.writer.locale.ai_grammar_proofreader.enqueue_misses") as mock_enqueue,
     ):
         pr.resetIgnoreRules()
         # Broadcasts PROOFREAD_AGAIN to listeners
@@ -1721,7 +1721,7 @@ def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock
 
 def test_bind_timeout_backs_off() -> None:
     pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._run_on_main_thread", side_effect=TimeoutError()) as mock_run:
+    with patch("plugin.writer.locale.ai_grammar_proofreader.run_on_main", side_effect=TimeoutError()) as mock_run:
         pr._ensure_document_bound("doc-timeout")
         assert mock_run.call_count == 1
         assert "doc-timeout" in pr._failed_bind_deadlines

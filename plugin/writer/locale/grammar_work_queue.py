@@ -87,6 +87,10 @@ from . import (
     grammar_proofread_locale,
 )
 from .grammar_obs import emit_grammar_status, grammar_obs
+from .grammar_proofread_locale import (
+    grammar_inflight_key,
+    looks_complete_sentence,
+)
 from .grammar_proofread_text import slice_preview_debug
 
 
@@ -185,6 +189,50 @@ _ENQUEUE_SEQ_COUNTER = itertools.count(1)
 def next_enqueue_seq() -> int:
     """Monotonic generation stamp for ``GrammarWorkItem.enqueue_seq`` (supersede / stale detection)."""
     return next(_ENQUEUE_SEQ_COUNTER)
+
+
+def enqueue_misses(
+    queue: Any,
+    ctx: Any,
+    a_doc_id: str,
+    loc_key: str,
+    uncached_spans: list[tuple[int, int, str]],
+    provider: str = "",
+    checker_identity: str = "",
+    paragraph_text: str = "",
+) -> None:
+    """Enqueue uncached sentences for background processing."""
+    for sent_start, sent_end, sent_text in uncached_spans:
+        seq = next_enqueue_seq()
+        complete_sentence = looks_complete_sentence(sent_text)
+        inflight_key = grammar_inflight_key(a_doc_id, loc_key, sent_text, complete_sentence)
+        grammar_obs(
+            "do_proofreading_enqueue",
+            doc_id=a_doc_id,
+            grammar_bcp47=loc_key,
+            inflight_key=inflight_key,
+            enqueue_seq=seq,
+            n_start=sent_start,
+            n_end=sent_end,
+            slice_len=len(sent_text),
+            partial_sentence_arg=not complete_sentence,
+        )
+        emit_grammar_status("start", sent_text, result="queued")
+        queue.enqueue(
+            GrammarWorkItem(
+                ctx=ctx,
+                text=sent_text,
+                grammar_bcp47=loc_key,
+                partial_sentence=not complete_sentence,
+                doc_id=a_doc_id,
+                inflight_key=inflight_key,
+                enqueue_seq=seq,
+                provider=provider,
+                n_start=sent_start,
+                checker_identity=checker_identity,
+                paragraph_text=paragraph_text,
+            )
+        )
 
 
 @dataclass(frozen=True)

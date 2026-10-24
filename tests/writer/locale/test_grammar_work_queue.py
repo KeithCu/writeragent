@@ -14,6 +14,7 @@ from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
     deduplicate_grammar_batch,
+    enqueue_misses,
     filter_stale_and_group,
     inflight_superseded,
     record_enqueue_latest,
@@ -613,5 +614,32 @@ def test_drain_batch_accumulation_matches_deduplicate() -> None:
     for a, b in zip(dict_result, dedup_result):
         assert a.inflight_key == b.inflight_key
         assert a.enqueue_seq == b.enqueue_seq
+
+
+def test_enqueue_misses() -> None:
+    queue = MagicMock()
+    ctx = MagicMock()
+    uncached = [(0, 14, "Sentence one. "), (14, 27, "Sentence two.")]
+    enqueue_misses(
+        queue,
+        ctx,
+        "doc1",
+        "en-US",
+        uncached,
+        provider="custom-prov",
+        checker_identity="custom-ident",
+        paragraph_text="Sentence one. Sentence two.",
+    )
+    assert queue.enqueue.call_count == 2
+    item1 = queue.enqueue.call_args_list[0][0][0]
+    item2 = queue.enqueue.call_args_list[1][0][0]
+    assert item1.text == "Sentence one. "
+    assert item1.provider == "custom-prov"
+    assert item1.checker_identity == "custom-ident"
+    assert item1.doc_id == "doc1"
+    assert item1.grammar_bcp47 == "en-US"
+    assert item2.text == "Sentence two."
+    assert item2.provider == "custom-prov"
+
 
 

@@ -800,3 +800,23 @@ def test_normalize_errors_anchor_only_calls_break_iterator_once() -> None:
             assert mock_get_bi.call_count == 1
 
 
+def test_resolve_work_spans() -> None:
+    text = "Sentence one. Sentence two."
+    spans = [(0, 14, "Sentence one. "), (14, 27, "Sentence two.")]
+    res = gt.resolve_work_spans("doc1", "en-US", text, 14, 27, spans)
+    assert res == [(14, 27, "Sentence two.")]
+
+    with patch("plugin.writer.locale.grammar_proofread_text.grammar_obs") as mock_obs:
+        res_empty = gt.resolve_work_spans("doc1", "en-US", text, 50, 60, spans)
+        assert res_empty == []
+        mock_obs.assert_called_once_with(
+            "do_proofreading_skip",
+            reason="no_eligible_sentences_or_incomplete_short",
+            doc_id="doc1",
+            n_start_lo=50,
+            raw_candidates=len(spans),
+            grammar_bcp47="en-US",
+        )
+
+
+

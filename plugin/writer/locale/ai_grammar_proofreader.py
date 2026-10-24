@@ -73,27 +73,25 @@ from plugin.framework.grammar_rule_ids import (
 )
 from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
-    grammar_inflight_key,
-    looks_complete_sentence,
     uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (
     NormalizedProofError,
     Utf16OffsetMap,
-    active_spans_from_paragraph,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
     filter_sentence_spans_for_thresholds,
     reconcile_active_and_paragraph_spans,
+    resolve_work_spans,
     slice_preview_debug,
 )
 from plugin.writer.locale.grammar_work_queue import (
-    GrammarWorkItem,
     emit_grammar_status,
+    enqueue_misses,
     grammar_obs,
     grammar_queue,
-    next_enqueue_seq,
 )
+from plugin.framework.queue_executor import run_on_main
 from plugin.framework.thread_guard import background_if_dummy_thread
 
 BIND_RETRY_SEC: float = 1.5
@@ -114,16 +112,6 @@ def _clear_grammar_disabled_notice() -> None:
     global _GRAMMAR_DISABLED_NOTICE_EMITTED
     with _GRAMMAR_DISABLED_NOTICE_LOCK:
         _GRAMMAR_DISABLED_NOTICE_EMITTED = False
-
-
-def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Run *fn* on the LO UI thread (XProofreader hooks run on linguistic workers)."""
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
-
-    if on_main_thread():
-        return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, **kwargs)
 
 
 _TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
@@ -608,7 +596,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def _ensure_document_bound_on_main(self, doc_id: str) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
-        # get_runtime_uid is main-thread-only, so this runs via _run_on_main_thread.
+        # get_runtime_uid is main-thread-only, so this runs via run_on_main.
         with self._bind_lock:
             if doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs:
                 return
@@ -648,7 +636,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     should_hop = True
         if should_hop:
             try:
-                _run_on_main_thread(self._ensure_document_bound_on_main, doc_id)
+                run_on_main(self._ensure_document_bound_on_main, doc_id)
             except TimeoutError:
                 with self._bind_lock:
                     self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -701,34 +689,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         grammar_obs("do_proofreading_entry", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=slice_preview_debug(a_text))
         return grammar_bcp47
-
-    def _resolve_work_spans(
-        self,
-        a_doc_id: str,
-        loc_key: str,
-        a_text: str,
-        n_start: int,
-        n_suggested_end: int,
-        paragraph_spans: list[tuple[int, int, str]],
-    ) -> list[tuple[int, int, str]]:
-        """Active-window spans from the already-split, threshold-filtered paragraph.
-
-        One BreakIterator pass happens in ``doProofreading``; this only overlap-filters
-        (or returns all spans when ``n_start == 0``). ``raw_candidates`` is the
-        post-threshold paragraph count.
-        """
-        work_spans = active_spans_from_paragraph(paragraph_spans, a_text, n_start, n_suggested_end)
-        if not work_spans:
-            grammar_obs(
-                "do_proofreading_skip",
-                reason="no_eligible_sentences_or_incomplete_short",
-                doc_id=a_doc_id,
-                n_start_lo=n_start,
-                raw_candidates=len(paragraph_spans),
-                grammar_bcp47=loc_key,
-            )
-            return []
-        return work_spans
 
     def _process_cache_hits(
         self,
@@ -827,38 +787,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
         return True
 
-    def _enqueue_misses(
-        self,
-        a_doc_id: str,
-        loc_key: str,
-        uncached_spans: list[tuple[int, int, str]],
-        provider: str = "",
-        checker_identity: str = "",
-        paragraph_text: str = "",
-    ) -> None:
-        """Enqueue uncached sentences for background processing."""
-        for sent_start, sent_end, sent_text in uncached_spans:
-            seq = next_enqueue_seq()
-            complete_sentence = looks_complete_sentence(sent_text)
-            inflight_key = grammar_inflight_key(a_doc_id, loc_key, sent_text, complete_sentence)
-            grammar_obs("do_proofreading_enqueue", doc_id=a_doc_id, grammar_bcp47=loc_key, inflight_key=inflight_key, enqueue_seq=seq, n_start=sent_start, n_end=sent_end, slice_len=len(sent_text), partial_sentence_arg=not complete_sentence)
-            emit_grammar_status("start", sent_text, result="queued")
-            grammar_queue.enqueue(
-                GrammarWorkItem(
-                    ctx=self.ctx,
-                    text=sent_text,
-                    grammar_bcp47=loc_key,
-                    partial_sentence=not complete_sentence,
-                    doc_id=a_doc_id,
-                    inflight_key=inflight_key,
-                    enqueue_seq=seq,
-                    provider=provider,
-                    n_start=sent_start,
-                    checker_identity=checker_identity,
-                    paragraph_text=paragraph_text,
-                )
-            )
-
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
         return False
@@ -908,7 +836,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     self._last_paragraph_spans = paragraph_spans
 
                 # 2. Active window: overlap-filter those spans (n_start==0 keeps all).
-                active_spans = self._resolve_work_spans(
+                active_spans = resolve_work_spans(
                     aDocumentIdentifier,
                     loc_key,
                     aText,
@@ -986,7 +914,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     if is_harper and self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, provider, checker_identity):
                         result_source = "harper_fast"
                     else:
-                        self._enqueue_misses(aDocumentIdentifier, loc_key, uncached_active_spans, provider, checker_identity, paragraph_text=aText)
+                        enqueue_misses(grammar_queue, self.ctx, aDocumentIdentifier, loc_key, uncached_active_spans, provider, checker_identity, paragraph_text=aText)
                         log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
                         result_source = "enqueue"
 
@@ -1034,22 +962,22 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
             del aLocale
-            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            doc_id = run_on_main(self._resolve_doc_id_for_ignore)
             if not doc_id:
                 log.warning("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
                 raise RuntimeError("ignoreRule failed: no active document found")
-            _run_on_main_thread(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
+            run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
             raise
 
     def resetIgnoreRules(self) -> None:
         try:
-            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            doc_id = run_on_main(self._resolve_doc_id_for_ignore)
             if not doc_id:
                 log.warning("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
                 raise RuntimeError("resetIgnoreRules failed: no active document found")
-            _run_on_main_thread(_reset_ignore_rules_on_main, self.ctx, doc_id)
+            run_on_main(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
