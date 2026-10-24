@@ -306,7 +306,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     dict is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
     The native dialog runs only :func:`_run_prepared_rps` off the UNO thread.
     """
-    from plugin.calc.analysis_runner import calc_selection_to_a1
+    from plugin.calc.bridge import calc_selection_to_a1
     from plugin.calc.python.formula_edit import parse_data_binding_text
     from plugin.calc.calc_addin_data import _resolve_python_data
 
@@ -598,7 +598,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
     save_ok_text = _("Script saved.")
     initial_binding = ""
     if is_calc(doc):
-        from plugin.calc.analysis_runner import calc_selection_to_a1
+        from plugin.calc.bridge import calc_selection_to_a1
 
         initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = is_calc(doc) and script_header_needs_data_binding(initial_code, doc=doc)

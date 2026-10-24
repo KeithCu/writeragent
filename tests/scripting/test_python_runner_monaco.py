@@ -293,7 +293,7 @@ def test_run_python_monaco_writer_skips_calc_selection_import():
     doc = MagicMock()
 
     with patch.object(pr, "is_calc", return_value=False):
-        with patch("plugin.calc.analysis_runner.calc_selection_to_a1") as mock_sel:
+        with patch("plugin.calc.bridge.calc_selection_to_a1") as mock_sel:
             with patch.object(pr, "launch_monaco_editor", return_value=True):
                 ok = pr._run_python_monaco(
                     ctx,

@@ -1002,7 +1002,7 @@ Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/
 
 | File | Role |
 |------|------|
-| [`calc/analysis_runner.py`](../../plugin/calc/analysis_runner.py) | Range resolve + trusted analysis invoke |
+| [`calc/analysis_runner.py`](../../plugin/calc/analysis_runner.py) | Trusted analysis invoke |
 | [`calc/analysis_egress.py`](../../plugin/calc/analysis_egress.py) | Analysis results → sheet |
 | [`calc/viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) | Auto-chart after viz |
 | [`calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) | Auto-chart after forecast |

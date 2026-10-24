@@ -7,7 +7,7 @@
 
 from unittest.mock import MagicMock
 
-from plugin.calc.bridge import CalcBridge
+from plugin.calc.bridge import CalcBridge, calc_selection_to_a1
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 import pytest
 
@@ -256,5 +256,49 @@ def test_resolve_range_or_address_qualified_missing_does_not_fall_back_to_global
     bridge.resolve_range_or_address("Data.Missing")
     # Must NOT return or call global named range for "Missing"
     doc.NamedRanges.getByName.assert_not_called()
+
+
+def test_calc_selection_to_a1_none_or_non_calc():
+    assert calc_selection_to_a1(None) is None
+
+    writer_doc = MagicMock()
+    writer_doc.supportsService.return_value = False
+    assert calc_selection_to_a1(writer_doc) is None
+
+
+def test_calc_selection_to_a1_no_controller_or_selection():
+    calc_doc = MagicMock()
+    calc_doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    calc_doc.getCurrentController.return_value = None
+    assert calc_selection_to_a1(calc_doc) is None
+
+    controller = MagicMock()
+    controller.getSelection.return_value = None
+    calc_doc.getCurrentController.return_value = controller
+    assert calc_selection_to_a1(calc_doc) is None
+
+    no_addr_selection = MagicMock(spec=[])
+    controller.getSelection.return_value = no_addr_selection
+    assert calc_selection_to_a1(calc_doc) is None
+
+
+def test_calc_selection_to_a1_valid():
+    calc_doc = MagicMock()
+    calc_doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    controller = MagicMock()
+    selection = MagicMock()
+    addr = MagicMock()
+    addr.StartColumn = 0
+    addr.StartRow = 0
+    addr.EndColumn = 2
+    addr.EndRow = 5
+    selection.getRangeAddress.return_value = addr
+    controller.getSelection.return_value = selection
+    active_sheet = _sheet("Sheet1")
+    controller.getActiveSheet.return_value = active_sheet
+    calc_doc.getCurrentController.return_value = controller
+    calc_doc.getSheets.return_value = MagicMock()
+
+    assert calc_selection_to_a1(calc_doc) == "Sheet1.A1:C6"
 
 

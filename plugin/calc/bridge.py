@@ -27,11 +27,14 @@ from typing import Any, NamedTuple
 
 from plugin.framework.errors import UnoObjectError, uno_read
 from plugin.calc.address_utils import (
+    format_range_address,
     parse_address,
     parse_range_string,
+    qualify_a1,
     split_sheet_and_name,
     split_sheet_prefix,
 )
+from plugin.doc.doc_type import is_calc
 
 log = logging.getLogger("writeragent.calc")
 
@@ -220,3 +223,25 @@ class CalcBridge:
             return self.get_cell(sheet, col, row)
         except ValueError:
             return sheet.getCellRangeByName(address)
+
+
+def calc_selection_to_a1(doc: Any) -> str | None:
+    """Format the current Calc selection as a sheet-qualified A1 address."""
+    if doc is None or not is_calc(doc):
+        return None
+
+    def _get() -> str | None:
+        controller = doc.getCurrentController()
+        if controller is None:
+            return None
+        selection = controller.getSelection()
+        if selection is None or not hasattr(selection, "getRangeAddress"):
+            return None
+        addr = selection.getRangeAddress()
+        bridge = CalcBridge(doc)
+        sheet = bridge.get_active_sheet()
+        sheet_name = str(sheet.getName())
+        cell_part = format_range_address(addr, collapse_single=True)
+        return qualify_a1(sheet_name, cell_part)
+
+    return uno_read(_get, None)
