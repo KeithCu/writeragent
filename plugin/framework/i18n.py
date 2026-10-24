@@ -34,7 +34,7 @@ import logging
 import os
 from typing import Any, Optional
 
-from plugin.framework.constants import get_locales_dir
+from plugin.framework.constants import get_plugin_dir
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, deal, str_bounded
 
 log = logging.getLogger("writeragent.i18n")
@@ -47,6 +47,11 @@ _DEFAULT_LOCALE = "en_US"
 _translation: Optional[gettext.NullTranslations] = None
 # LO UI locale tag used for the loaded catalog (for fluff-word cache keys).
 _active_locale: str = _DEFAULT_LOCALE
+
+
+def get_locales_dir() -> str:
+    """Absolute path to gettext ``locales/`` (sibling of ``plugin/`` in repo and in the .oxt bundle)."""
+    return os.path.join(os.path.dirname(get_plugin_dir()), "locales")
 
 
 def reset_i18n() -> None:

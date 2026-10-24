@@ -11,7 +11,7 @@ import sys
 
 from plugin.framework.config import _build_validated_config_export
 from plugin.framework.config_schema import WriterAgentConfig
-from plugin.framework.constants import get_locales_dir
+from plugin.framework.i18n import get_locales_dir
 
 # PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
 PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
@@ -323,7 +323,7 @@ class TestI18n:
     def test_days_ago_translation_across_all_locales(self):
         """Verify that all 35 compiled locales contain a valid translation for '{0}d ago'."""
         import os
-        from plugin.framework.constants import get_locales_dir
+        from plugin.framework.i18n import get_locales_dir
 
         localedir = get_locales_dir()
         locale_dirs = [
