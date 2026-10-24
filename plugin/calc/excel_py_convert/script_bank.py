@@ -319,7 +319,7 @@ def is_py_code_bank_sheet(
     return False
 
 
-def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # imported by apply_calc.py
+def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by apply_calc.py
     expected_def = bank_defined_name_for(code_sheet)
     named_ranges = getattr(doc, "NamedRanges", None)
     if named_ranges is not None:
