@@ -1451,7 +1451,7 @@ def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
     return None
 
 
-def _peek_live_ollama_num_ctx(client: Any) -> int | None:  # pyright: ignore[reportUnusedFunction]
+def peek_live_ollama_num_ctx(client: Any) -> int | None:
     """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises.
 
     ``query_ollama_runtime_num_ctx`` POSTs ``/api/show`` (10s) while

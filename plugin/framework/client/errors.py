@@ -165,7 +165,7 @@ def is_image_unsupported_error(e: Any) -> bool:
     return ("image" in msg or "vision" in msg) and ("not supported" in msg or "unsupported" in msg)
 
 
-def _stream_error_message(chunk: dict[str, Any]) -> str | None:  # pyright: ignore[reportUnusedFunction]
+def stream_error_message(chunk: dict[str, Any]) -> str | None:
     """Provider error carried inside an HTTP 200 SSE object, or None.
 
     ``error: null`` and an empty error object are not failures. A real
@@ -181,102 +181,6 @@ def _stream_error_message(chunk: dict[str, Any]) -> str | None:  # pyright: igno
     if event_type == "error" or (isinstance(event_type, str) and event_type.endswith("_error")):
         return str(event_type)
     return None
-
-
-# We match structured codes first and only narrow phrases here, not bare
-# "too many" / "unavailable", because those also match fatal errors such as
-# "too many tokens" (context overflow) or "model unavailable", which a retry
-# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
-_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
-
-# Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
-# Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
-# Bugfix: previously _OVERLOAD_STATUS_RE matched any bare \b(?:429|503)\b, which caused non-overload
-# errors like "limit is 503 tokens" to be wrongly identified as overload and retried until timeout.
-# We fix this by checking structured error codes (including OpenRouter error.code) and explicit
-# HTTP status indicators first, while the text fallback matches only phrases.
-_HTTP_STATUS_OVERLOAD_RE = re.compile(
-    r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
-    re.IGNORECASE,
-)
-
-
-def _error_code_is_overload(value: Any) -> bool:
-    """True when a structured provider code is itself an overload signal."""
-    if isinstance(value, bool) or value is None:
-        return False
-    if isinstance(value, int):
-        return value in (429, 503, 529)
-    if isinstance(value, float):
-        return value in (429.0, 503.0, 529.0)
-    text = str(value).strip().lower()
-    if not text:
-        return False
-    if text in {"429", "503", "529"}:
-        return True
-    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
-
-
-def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
-    """Prefer error.code / type / status over scanning the message text."""
-    if any(_error_code_is_overload(chunk.get(key)) for key in ("code", "status")):
-        return True
-    err = chunk.get("error")
-    if isinstance(err, dict):
-        if any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status")):
-            return True
-        metadata = err.get("metadata")
-        if isinstance(metadata, dict) and any(_error_code_is_overload(metadata.get(key)) for key in ("code", "status", "http_status")):
-            return True
-    elif _error_code_is_overload(err):
-        return True
-    return False
-
-
-def _text_is_overload(message: Any, *, status_code: int | None = None) -> bool:  # pyright: ignore[reportUnusedFunction]
-    """Check if an error indicates an overload/rate-limit condition.
-
-    Checks HTTP status / structured error code (including OpenRouter error.code
-    in the body) first; the text fallback matches only phrases like 'overloaded' /
-    'rate limit', no bare 429/503.
-    """
-    if isinstance(message, dict):
-        return _structured_error_is_overload(message)
-    if status_code is not None and _error_code_is_overload(status_code):
-        return True
-    if not message or not isinstance(message, str):
-        return False
-
-    # Check for embedded JSON with structured error code (e.g. OpenRouter error payload)
-    if "{" in message and "}" in message:
-        try:
-            start = message.find("{")
-            end = message.rfind("}")
-            parsed = json.loads(message[start : end + 1])
-            if isinstance(parsed, dict) and _structured_error_is_overload(parsed):
-                return True
-        except (ValueError, TypeError):
-            pass
-
-    # Check for explicit HTTP status indicator in text (e.g. "HTTP 429", "status 503")
-    if _HTTP_STATUS_OVERLOAD_RE.search(message):
-        return True
-
-    # Text fallback: matches only phrases like 'overloaded'/'rate limit', no bare 429/503
-    low = message.lower()
-    return any(marker in low for marker in _OVERLOAD_TEXT_MARKERS)
-
-
-def _stream_error_is_overload(chunk: dict[str, Any]) -> bool:  # pyright: ignore[reportUnusedFunction]
-    """True when a mid-stream error is worth one retry before any UI text.
-
-    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
-    Otherwise explicit HTTP status or phrases match; bare numbers like 503 tokens do not.
-    """
-    if _structured_error_is_overload(chunk):
-        return True
-    message = _stream_error_message(chunk) or ""
-    return _text_is_overload(message)
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
@@ -323,7 +227,7 @@ def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[
     # images, and STT must do the same, or that body looks like a finished
     # reply and chat_completion_sync returns "". finish_reason=length with
     # empty content is a different, documented case.
-    stream_err = _stream_error_message(parsed)
+    stream_err = stream_error_message(parsed)
     if stream_err is not None:
         # The stream loop redacts an echoed API key. Sync chat, images, and
         # STT must do the same, or HTTP 200 raises the raw provider string.

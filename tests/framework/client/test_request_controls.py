@@ -6,6 +6,8 @@ from plugin.framework.client.request_controls import (
     OPENROUTER_FREE_MIN_GAP_SEC,
     LocalHttpsCertificateFallback,
     RequestPacer,
+    _structured_error_is_overload,
+    _text_is_overload,
     backoff_delay_sec,
     claim_host_send_slot,
     clear_host_gap,
@@ -23,6 +25,7 @@ from plugin.framework.client.request_controls import (
     reset_host_pacing_for_tests,
     reset_local_unverified_hosts_for_tests,
     retry_after_exceeds_cap,
+    stream_error_is_overload,
     wait_abortable,
     wait_host_gap,
 )
@@ -275,3 +278,57 @@ def test_local_https_certificate_fallback_logs_warning(caplog):
     with caplog.at_level(logging.WARNING):
         fallback.enable_if_applicable("localhost", ssl.SSLCertVerificationError("self-signed certificate"))
     assert any(rec.levelno == logging.WARNING and "Local HTTPS certificate verification failed for localhost" in rec.message for rec in caplog.records)
+
+
+def test_overload_detection_prefers_code_and_word_boundary():
+    """429/503 inside a larger number is not overload. A structured code is."""
+    assert stream_error_is_overload({"error": {"message": "Requested 4290 tokens"}}) is False
+    assert stream_error_is_overload({"error": {"message": "code 5031"}}) is False
+    assert stream_error_is_overload({"error": {"code": "context_length_exceeded", "message": "Requested 4290 tokens"}}) is False
+    assert stream_error_is_overload({"error": {"message": "HTTP 429"}}) is True
+    assert stream_error_is_overload({"error": {"message": "status 503"}}) is True
+    assert stream_error_is_overload({"error": {"code": 429, "message": "slow down"}}) is True
+    assert stream_error_is_overload({"error": {"code": "503", "message": "down"}}) is True
+    assert stream_error_is_overload({"error": {"type": "overloaded_error", "message": "Overloaded"}}) is True
+    assert stream_error_is_overload({"error": {"code": "rate_limit_exceeded", "message": "slow down"}}) is True
+    assert stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
+    assert _text_is_overload("limit is 503 tokens") is False
+    assert _text_is_overload('{"error": {"code": 429, "message": "rate limit reached"}}') is True
+    assert _text_is_overload('{"error": {"code": 503, "message": "down"}}') is True
+    assert _text_is_overload('{"error": {"code": 400, "message": "limit is 503 tokens"}}') is False
+
+
+class TestOverloadDetection:
+    """Overload detection prefers HTTP status / structured error code over text fallback."""
+
+    def test_text_is_overload_bare_503_tokens_not_overload(self):
+        assert _text_is_overload("limit is 503 tokens") is False
+        assert _text_is_overload("context limit is 503 tokens") is False
+        assert _text_is_overload("Requested 4290 tokens") is False
+        assert _text_is_overload("code 5031") is False
+
+    def test_text_is_overload_http_status_detected(self):
+        assert _text_is_overload("HTTP 429") is True
+        assert _text_is_overload("status 503") is True
+        assert _text_is_overload("HTTP status 429") is True
+        assert _text_is_overload("error code 503") is True
+
+    def test_text_is_overload_phrases_detected(self):
+        assert _text_is_overload("Server is overloaded, try again later") is True
+        assert _text_is_overload("Rate limit exceeded") is True
+        assert _text_is_overload("Too Many Requests") is True
+        assert _text_is_overload("Service Unavailable") is True
+
+    def test_text_is_overload_openrouter_json_body(self):
+        # OpenRouter error.code in body string
+        assert _text_is_overload('{"error": {"code": 429, "message": "Provider rate limit reached"}}') is True
+        assert _text_is_overload('{"error": {"code": 503, "message": "Service temporarily unavailable"}}') is True
+        assert _text_is_overload('{"error": {"code": 400, "message": "limit is 503 tokens"}}') is False
+
+    def test_structured_error_is_overload(self):
+        assert _structured_error_is_overload({"error": {"code": 429}}) is True
+        assert _structured_error_is_overload({"error": {"code": 503}}) is True
+        assert _structured_error_is_overload({"error": {"type": "overloaded_error"}}) is True
+        assert _structured_error_is_overload({"error": {"code": "rate_limit_exceeded"}}) is True
+        assert _structured_error_is_overload({"error": {"code": 400, "message": "limit is 503 tokens"}}) is False
+        assert stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
