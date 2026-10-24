@@ -19,7 +19,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.constants import truncate_chat_context
@@ -940,6 +943,49 @@ class DrawBridge:
         # Callers outside this package require an int. A total miss still
         # reports 0; an empty page and a missing getNumber() no longer do.
         return 0
+
+
+def resolve_page_and_bridge(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, Any]:
+    bridge = DrawBridge(ctx.doc)
+    idx = kwargs.get("page")
+    actual_idx = idx if idx is not None else ctx.active_page_index
+    if actual_idx is None:
+        actual_idx = bridge.get_active_page_index()
+    return bridge, actual_idx
+
+
+def resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | None = None) -> tuple[Any | None, Any, str | None]:
+    if bridge is None:
+        target_bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
+    else:
+        target_bridge = bridge
+        idx = kwargs.get("page")
+        actual_idx = idx if idx is not None else ctx.active_page_index
+        if actual_idx is None:
+            actual_idx = target_bridge.get_active_page_index()
+    try:
+        page = target_bridge.get_pages().getByIndex(actual_idx)
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return None, actual_idx, "Invalid page index: %s" % actual_idx
+    if page is None:
+        return None, actual_idx, "No draw page available."
+    return page, actual_idx, None
+
+
+def mutation_page(ctx: ToolContext, page_index: Any) -> Any:
+    """Page upsert uses: explicit index, else chat active_page_index, else the controller.
+
+    Connect, group, and delete used ``get_active_page()`` and ignored
+    ``ctx.active_page_index``, so a turn could create on one page and
+    connect or delete on another. ``get_slide_for_tool`` re-raises dispose.
+    """
+    bridge = DrawBridge(ctx.doc)
+    actual = page_index if page_index is not None else ctx.active_page_index
+    if actual is None:
+        actual = bridge.get_active_page_index()
+    return DrawBridge.get_slide_for_tool(ctx.doc, actual)
 
 
 _NOTES_SHAPE_TYPE = "com.sun.star.presentation.NotesShape"

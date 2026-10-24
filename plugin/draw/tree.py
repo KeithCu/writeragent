@@ -480,10 +480,9 @@ class GetDrawTree(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-        from plugin.draw.shapes import _resolve_page_and_bridge
+        from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
 
-        _bridge, actual_idx = _resolve_page_and_bridge(ctx, kwargs)
+        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
 
         try:
             page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)

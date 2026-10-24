@@ -237,8 +237,8 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
+    from plugin.draw.bridge import resolve_shape_page
     from plugin.draw.layout import coerce_int
-    from plugin.draw.shapes import _resolve_shape_page
 
     rows = cast("int", kwargs.get("rows"))
     columns = cast("int", kwargs.get("columns"))
@@ -246,7 +246,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     if rows < 1 or columns < 1:
         return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
 
-    page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+    page, actual_idx, err = resolve_shape_page(ctx, kwargs)
     if err or page is None:
         return {"status": "error", "message": err or "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
 

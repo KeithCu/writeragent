@@ -176,13 +176,13 @@ class FillDrawFields(ToolDrawShapeBase):
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_draw_tree"])
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.shapes import _resolve_shape_page
+        from plugin.draw.bridge import resolve_shape_page
 
         fields = kwargs["fields"]
         if not fields:
             return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
 
-        page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
 

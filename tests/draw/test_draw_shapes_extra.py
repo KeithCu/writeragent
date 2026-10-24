@@ -279,7 +279,7 @@ def test_connect_shapes_failure_removes_connector_and_raises():
     page = MagicMock()
     connector = MagicMock()
     connector.setPropertyValue.side_effect = ValueError("bad end shape")
-    with patch("plugin.draw.shapes._mutation_page", return_value=page), patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+    with patch("plugin.draw.bridge.mutation_page", return_value=page), patch("plugin.draw.shapes.DrawShapes") as ds_cls:
         ds_cls.return_value.safe_create_shape.return_value = (connector, False, None)
         with pytest.raises(ValueError, match="bad end shape"):
             ConnectShapes().execute(MagicMock(), start=0, end=1)

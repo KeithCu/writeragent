@@ -170,37 +170,6 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         return False, f"{type(ex).__name__}: {ex}"
 
 
-def _resolve_page_and_bridge(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, Any]:
-    from plugin.draw.bridge import DrawBridge
-
-    bridge = DrawBridge(ctx.doc)
-    idx = kwargs.get("page")
-    actual_idx = idx if idx is not None else ctx.active_page_index
-    if actual_idx is None:
-        actual_idx = bridge.get_active_page_index()
-    return bridge, actual_idx
-
-
-def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | None = None) -> tuple[Any | None, Any, str | None]:
-    if bridge is None:
-        target_bridge, actual_idx = _resolve_page_and_bridge(ctx, kwargs)
-    else:
-        target_bridge = bridge
-        idx = kwargs.get("page")
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = target_bridge.get_active_page_index()
-    try:
-        page = target_bridge.get_pages().getByIndex(actual_idx)
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return None, actual_idx, "Invalid page index: %s" % actual_idx
-    if page is None:
-        return None, actual_idx, "No draw page available."
-    return page, actual_idx, None
-
-
 class GetDrawSummary(_AnyDocumentShapeTool):
     name: str | None = "shape_summary"
     intent: str | None = "edit"
@@ -208,9 +177,9 @@ class GetDrawSummary(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
 
-        _bridge, actual_idx = _resolve_page_and_bridge(ctx, kwargs)
+        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         try:
             page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
         except IndexError:
@@ -551,12 +520,12 @@ class UpsertShape(_AnyDocumentShapeTool):
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import DrawBridge, resolve_shape_page
         from com.sun.star.awt import Point, Size
 
         action = kwargs["action"]
         bridge = DrawBridge(ctx.doc)
-        page, actual_idx, err = _resolve_shape_page(ctx, kwargs, bridge=bridge)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs, bridge=bridge)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
 
@@ -674,27 +643,12 @@ class UpsertShape(_AnyDocumentShapeTool):
         return self._tool_error("Unknown action: '%s'. Must be 'create' or 'edit'" % action)
 
 
-def _mutation_page(ctx: ToolContext, page_index: Any) -> Any:
-    """Page upsert uses: explicit index, else chat active_page_index, else the controller.
-
-    Connect, group, and delete used ``get_active_page()`` and ignored
-    ``ctx.active_page_index``, so a turn could create on one page and
-    connect or delete on another. ``get_slide_for_tool`` re-raises dispose.
-    """
-    from plugin.draw.bridge import DrawBridge
-
-    bridge = DrawBridge(ctx.doc)
-    actual = page_index if page_index is not None else ctx.active_page_index
-    if actual is None:
-        actual = bridge.get_active_page_index()
-    return DrawBridge.get_slide_for_tool(ctx.doc, actual)
-
-
 def _resolve_mutation_page(tool: ToolBase, ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
+    from plugin.draw.bridge import mutation_page
     from plugin.framework.errors import ToolExecutionError
 
     try:
-        return _mutation_page(ctx, kwargs.get("page")), None
+        return mutation_page(ctx, kwargs.get("page")), None
     except ToolExecutionError as exc:
         return None, tool._tool_error(str(exc))
 
@@ -869,6 +823,7 @@ class AlignShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.bridge import resolve_shape_page
         from plugin.draw.layout import align_boxes
 
         indices = kwargs["indices"]
@@ -877,7 +832,7 @@ class AlignShapes(ToolDrawShapeBase):
         alignment = kwargs["alignment"]
         if len(indices) < 2:
             return self._tool_error("At least two shape indices are required to align.")
-        page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
         # A bad index and align_boxes ValueError propagate. The old catch
@@ -909,6 +864,7 @@ class DistributeShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.bridge import resolve_shape_page
         from plugin.draw.layout import distribute_boxes
 
         indices = kwargs["indices"]
@@ -917,7 +873,7 @@ class DistributeShapes(ToolDrawShapeBase):
         axis = kwargs["axis"]
         if len(indices) < 3:
             return self._tool_error("At least three shape indices are required to distribute.")
-        page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
         # Same as align: do not catch. A closed document must reach execute_safe.
@@ -965,6 +921,7 @@ class CreateDiagram(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.bridge import resolve_shape_page
         from plugin.draw.layout import diagram_node_boxes
 
         nodes = kwargs["nodes"]
@@ -977,7 +934,7 @@ class CreateDiagram(ToolDrawShapeBase):
         if any(not nid for nid in ids):
             return self._tool_error("Each node needs an id.")
 
-        page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
         connections = kwargs.get("connections") or []
