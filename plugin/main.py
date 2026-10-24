@@ -29,7 +29,6 @@ if _ext_root not in sys.path:
 import enum
 import logging
 import threading
-import types
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
@@ -125,35 +124,6 @@ class BootstrapState(enum.Enum):
 _bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
 _bootstrap_error: BaseException | None = None
 _terminate_listener: Any | None = None
-
-
-class _MainModule(types.ModuleType):
-    @property
-    def _initialized(self) -> bool:
-        return _bootstrap_state is BootstrapState.INITIALIZED
-
-    @_initialized.setter
-    def _initialized(self, value: bool) -> None:
-        global _bootstrap_state
-        if value:
-            _bootstrap_state = BootstrapState.INITIALIZED
-        elif _bootstrap_state is BootstrapState.INITIALIZED:
-            _bootstrap_state = BootstrapState.UNINITIALIZED
-
-    @property
-    def _bootstrapping(self) -> bool:
-        return _bootstrap_state is BootstrapState.BOOTSTRAPPING
-
-    @_bootstrapping.setter
-    def _bootstrapping(self, value: bool) -> None:
-        global _bootstrap_state
-        if value:
-            _bootstrap_state = BootstrapState.BOOTSTRAPPING
-        elif _bootstrap_state is BootstrapState.BOOTSTRAPPING:
-            _bootstrap_state = BootstrapState.UNINITIALIZED
-
-
-sys.modules[__name__].__class__ = _MainModule
 
 
 def _install_terminate_listener(ctx: Any) -> None:
@@ -560,7 +530,7 @@ def _tests_bundled() -> bool:
             import importlib.util
 
             _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.conftest") is not None
-        except (ImportError, ValueError, AttributeError):  # Narrowed: purely inspect spec
+        except Exception:
             _TESTS_AVAILABLE = False
     return bool(_TESTS_AVAILABLE)
 
@@ -825,7 +795,8 @@ def notify_menu_update() -> None:
                 # How it happened: post_to_main_thread omitted bound_scope, inheriting the worker thread's copied contextvar.
                 # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
                 post_to_main_thread(_prune_failed_status_listeners, list(failed), bound_scope=None)
-            except (RuntimeError, TimeoutError):  # Narrowed: post_to_main_thread failure modes
+            except Exception:
+                # UNO boundary: notify_menu_update post to main thread
                 log.exception("notify_menu_update: failed to post listener prune")
     if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
         # Update icons in a background thread (avoids blocking UI)

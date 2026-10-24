@@ -56,6 +56,7 @@ _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
 import plugin.main as main
+from plugin.main import BootstrapState
 from plugin.doc.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.event_bus import EventBus
@@ -70,9 +71,7 @@ from plugin.framework.main_shared import (
 @pytest.fixture(autouse=True)
 def _isolate_main_state():
     """Isolate global state in plugin.main across tests."""
-    prev_state = getattr(main, "_bootstrap_state", None)
-    prev_init = main._initialized
-    prev_bootstrapping = getattr(main, "_bootstrapping", False)
+    prev_state = main._bootstrap_state
     prev_services = main._services
     prev_tools = main._tools
     prev_modules = list(main._modules)
@@ -83,10 +82,7 @@ def _isolate_main_state():
     try:
         yield
     finally:
-        if prev_state is not None:
-            main._bootstrap_state = prev_state
-        main._initialized = prev_init
-        main._bootstrapping = prev_bootstrapping
+        main._bootstrap_state = prev_state
         main._services = prev_services
         main._tools = prev_tools
         main._modules[:] = prev_modules
@@ -121,19 +117,17 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
-    main._initialized = False
-    main._bootstrapping = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
     main._bootstrap_error = None
 
     main.bootstrap(fake_ctx)
     assert called_reentrant is True
-    assert main._bootstrapping is False
-    assert main._initialized is True
+    assert main._bootstrap_state is BootstrapState.INITIALIZED
 
 
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
-    """When load_modules raises, _initialized resets to False so bootstrap can be retried."""
+    """When load_modules raises, _bootstrap_state resets to UNINITIALIZED so bootstrap can be retried."""
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
@@ -141,7 +135,7 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     monkeypatch.setattr(main, "_register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
     main._bootstrap_error = None
 
@@ -157,18 +151,18 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 
     # First call: load_modules raises
     main.bootstrap(MagicMock())
-    assert main._initialized is False
+    assert main._bootstrap_state is BootstrapState.UNINITIALIZED
     assert isinstance(main._bootstrap_error, RuntimeError)
 
     # Second call: retry succeeds
     fail = False
     main.bootstrap(MagicMock())
-    assert main._initialized is True
+    assert main._bootstrap_state is BootstrapState.INITIALIZED
     assert main._bootstrap_error is None
 
 
 def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
-    """When start_background raises after modules are loaded, _initialized stays True."""
+    """When start_background raises after modules are loaded, _bootstrap_state stays INITIALIZED."""
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
@@ -177,7 +171,7 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     monkeypatch.setattr(main, "_register_core_handlers", core_handlers_mock)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
     main._bootstrap_error = None
 
@@ -186,11 +180,11 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [mock_mod])
 
     main.bootstrap(MagicMock())
-    assert main._initialized is True
+    assert main._bootstrap_state is BootstrapState.INITIALIZED
     assert isinstance(main._bootstrap_error, RuntimeError)
     core_handlers_mock.assert_called_once()
 
-    # Next call returns early because _initialized is True
+    # Next call returns early because _bootstrap_state is INITIALIZED
     with patch("plugin.framework.module_base.ModuleLoader.load_modules") as mock_load:
         main.bootstrap(MagicMock())
         mock_load.assert_not_called()
@@ -214,17 +208,17 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
             "plugin.framework.uno_context.get_desktop",
             MagicMock(side_effect=AssertionError("get_desktop must not be called")),
         )
-        main._initialized = False
+        main._bootstrap_state = BootstrapState.UNINITIALIZED
         main._modules = []
         main._bootstrap_error = None
         main.bootstrap(fake_ctx)
-        assert main._initialized is True
+        assert main._bootstrap_state is BootstrapState.INITIALIZED
 
         # Without eval harness, _install_terminate_listener is called
         os.environ.pop("WRITERAGENT_EVAL_HARNESS", None)
         mock_install = MagicMock()
         monkeypatch.setattr(main, "_install_terminate_listener", mock_install)
-        main._initialized = False
+        main._bootstrap_state = BootstrapState.UNINITIALIZED
         main._modules = []
         main._bootstrap_error = None
         main.bootstrap(fake_ctx)
@@ -238,7 +232,7 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
 
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
     """_dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
-    main._initialized = True
+    main._bootstrap_state = BootstrapState.INITIALIZED
     main._bootstrap_error = RuntimeError("fatal startup error")
 
     # Handled command does not raise WriterAgentException
@@ -266,7 +260,7 @@ def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
 
 def test_bootstrap_off_main_thread_raises_bootstrap_off_thread():
     """Calling bootstrap off-thread when uninitialized raises BOOTSTRAP_OFF_THREAD."""
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     caught: list[Exception] = []
 
     def run_boot():
@@ -282,12 +276,12 @@ def test_bootstrap_off_main_thread_raises_bootstrap_off_thread():
     assert len(caught) == 1
     assert isinstance(caught[0], WriterAgentException)
     assert caught[0].code == "BOOTSTRAP_OFF_THREAD"
-    assert main._initialized is False
+    assert main._bootstrap_state is BootstrapState.UNINITIALIZED
 
 
 def test_get_tools_off_main_thread_when_initialized():
     """get_tools off-thread succeeds when bootstrap is already initialized."""
-    main._initialized = True
+    main._bootstrap_state = BootstrapState.INITIALIZED
     mock_tools = MagicMock()
     main._tools = mock_tools
 
@@ -306,7 +300,7 @@ def test_get_tools_off_main_thread_when_initialized():
 def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(monkeypatch):
     """get_tools and get_services raise BOOTSTRAP_FAILED if bootstrap leaves them None."""
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._tools = None
     main._services = None
 
@@ -343,7 +337,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn, *a, **kw: bg_calls.append(fn))
     monkeypatch.setattr("plugin.framework.queue_executor.QueueExecutor.execute", lambda fn, *a, **kw: main_calls.append(fn))
 
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._bootstrap_error = None
     main.bootstrap(MagicMock())
 
@@ -376,7 +370,7 @@ def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
 
 def test_dispatch_command_module_on_action_propagates():
     """Module on_action exceptions are not caught in _dispatch_command and propagate."""
-    main._initialized = True
+    main._bootstrap_state = BootstrapState.INITIALIZED
     mock_mod = MagicMock()
     mock_mod.name = "mod_prefix"
     mock_mod.on_action.side_effect = RuntimeError("module on_action exploded")

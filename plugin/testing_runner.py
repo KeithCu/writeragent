@@ -1845,7 +1845,7 @@ def run_all_tests(ctx: Any) -> str:
     # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
     # …); if the first suite only pulled in a partial UNO graph, a later suite's
     # first ``get_tools()`` could otherwise see an empty registry or hit import
-    # edge cases. Extension startup already sets ``_initialized``; this is a
+    # edge cases. Extension startup already sets ``_bootstrap_state``; this is a
     # no-op then.
     try:
         _rebootstrap_ctx(ctx)

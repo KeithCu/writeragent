@@ -33,6 +33,7 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.chatbot import panel_voice as panel_voice_module
+from plugin.main import BootstrapState
 from tests.harness.strip_bundle import is_release_build, module_source_contains
 
 
@@ -395,12 +396,18 @@ class TestSendDispose:
             assert not _live_bus_callbacks(local_bus, "mcp:request")
 
     @pytest.mark.parametrize(
-        ("initialized", "py_main", "expected"),
-        [(True, False, False), (False, True, False), (False, False, True)],
+        ("bootstrap_state", "py_main", "expected"),
+        [
+            (BootstrapState.INITIALIZED, False, False),
+            (BootstrapState.UNINITIALIZED, True, False),
+            (BootstrapState.UNINITIALIZED, False, True),
+        ],
     )
-    def test_mcp_subscribe_must_defer_decision(self, initialized: bool, py_main: bool, expected: bool) -> None:
+    def test_mcp_subscribe_must_defer_decision(
+        self, bootstrap_state: BootstrapState, py_main: bool, expected: bool
+    ) -> None:
         fake_main = MagicMock()
-        fake_main._initialized = initialized
+        fake_main._bootstrap_state = bootstrap_state
         with (
             patch.dict(sys.modules, {"plugin.main": fake_main}),
             patch("plugin.framework.thread_guard.on_python_main_thread", return_value=py_main),

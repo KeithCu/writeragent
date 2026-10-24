@@ -186,6 +186,7 @@ class TestModuleConfigProxy():
 def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     """Production bootstrap must make public config flags available."""
     import plugin.main as main
+    from plugin.main import BootstrapState
     from plugin.framework.config_schema import get_config_schema
     from plugin.framework.errors import ConfigError
     from plugin.framework.event_bus import EventBus
@@ -201,13 +202,13 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: EventBus())
 
     previous = (
-        main._initialized,
+        main._bootstrap_state,
         main._services,
         main._tools,
         list(main._modules),
         getattr(main, "_bootstrap_error", None),
     )
-    main._initialized = False
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._services = None
     main._tools = None
     main._modules = []
@@ -226,7 +227,7 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
         with pytest.raises(ConfigAccessError, match="cannot read private"):
             config.get("mcp.cors_allow_private_origins", caller_module="chatbot")
     finally:
-        main._initialized, main._services, main._tools = previous[0], previous[1], previous[2]
+        main._bootstrap_state, main._services, main._tools = previous[0], previous[1], previous[2]
         main._modules[:] = previous[3]
         main._bootstrap_error = previous[4]
 

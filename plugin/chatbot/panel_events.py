@@ -57,9 +57,10 @@ class PanelEventsController:
         main_mod = sys.modules.get("plugin.main")
         if main_mod is not None:
             bootstrap_state = getattr(main_mod, "_bootstrap_state", None)
-            if bootstrap_state is not None and getattr(bootstrap_state, "name", None) == "INITIALIZED":
+            bootstrap_enum = getattr(main_mod, "BootstrapState", None)
+            if bootstrap_enum is not None and bootstrap_state is bootstrap_enum.INITIALIZED:
                 return False
-            if getattr(main_mod, "_initialized", False) is True:
+            if getattr(bootstrap_state, "name", None) == "INITIALIZED":
                 return False
         return not on_python_main_thread()
 
