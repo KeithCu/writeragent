@@ -77,7 +77,8 @@ def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
         write_dag_formulas_xlsx,
         write_excel_python_xlsx,
     )
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx, load_excel_model
+    from plugin.calc.excel_py_convert.auto_open import has_excel_python_xlsx
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import load_excel_model
     from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag
     from plugin.calc.excel_py_convert.to_excel import convert_dag_report_to_excel
 

@@ -22,7 +22,6 @@ from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
-from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
@@ -47,7 +46,6 @@ CODE_SHEET_NOTE = (
 )
 
 _RE_A1 = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
-_A1_SPAN_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 _SAFE_SHEET = re.compile(r"[^\w]+", re.UNICODE)
 # Binding-only sandbox xl accepts "%Pn%" strings (same as excel_xl.make_xl).
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
@@ -101,28 +99,6 @@ def resolve_bank_cell_reference(
     except ValueError:
         return None
     return lookup_fn(sheet, a1)
-
-
-def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
-    """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
-    raw = (ref or "").replace("$", "").strip()
-    if "!" in raw:
-        raw = raw.split("!", 1)[1].strip()
-    if not raw:
-        return None
-    if ":" not in raw:
-        m = _A1_SPAN_CELL_RE.match(raw)
-        if not m:
-            return None
-        c, r = letters_to_col_index(m.group(1)), int(m.group(2))
-        return ((c, r), (c, r))
-    left, right = raw.split(":", 1)
-    m1, m2 = _A1_SPAN_CELL_RE.match(left.strip()), _A1_SPAN_CELL_RE.match(right.strip())
-    if not m1 or not m2:
-        return None
-    c1, r1 = letters_to_col_index(m1.group(1)), int(m1.group(2))
-    c2, r2 = letters_to_col_index(m2.group(1)), int(m2.group(2))
-    return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
 
 
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:

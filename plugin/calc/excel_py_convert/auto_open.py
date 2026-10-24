@@ -16,6 +16,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import logging
 import threading
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,31 @@ def _xlsx_doc_path(doc: Any, *, must_exist: bool = False) -> tuple[str, Path] | 
     return path_str, path
 
 
+def has_excel_python_xlsx(path: str | Path) -> bool:
+    """True when *path* is an ``.xlsx`` with ``pythonScripts`` and/or ``_xlws.PY`` cells.
+
+    Peeks the ZIP on disk (stock Calc import may have dropped these parts from the
+    in-memory model). Safe to call on any path; returns False on I/O/parse errors.
+    """
+    path = Path(path)
+    if path.suffix.lower() != ".xlsx" or not path.is_file():
+        return False
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = zf.namelist()
+            if any(n == "xl/pythonScripts.xml" or n.startswith("xl/pythonScripts/") for n in names):
+                return True
+            for name in names:
+                if not name.startswith("xl/worksheets/") or not name.endswith(".xml"):
+                    continue
+                data = zf.read(name)
+                if b"_xlws.PY" in data or b"_xlws.py" in data:
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 @contextmanager
 def _busy_path(path_str: str):
     with _lock:
@@ -120,8 +146,6 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
     if resolved is None:
         return False
     path_str, path = resolved
-
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
 
     if not has_excel_python_xlsx(path):
         return False
@@ -188,7 +212,6 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
             return False
         try:
             from plugin.calc.excel_py_convert.convert import convert_uno_doc_to_excel, write_excel_python_xlsx
-            from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
 
             report = convert_uno_doc_to_excel(doc)
             if not report.ok:

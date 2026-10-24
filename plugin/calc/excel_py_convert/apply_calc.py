@@ -52,8 +52,7 @@ def _clear_range_object(rng: Any) -> None:
 def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
     if not array_ref:
         return
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_row
-    from plugin.calc.excel_py_convert.script_bank import a1_span_bounds
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_row, a1_span_bounds
 
     bounds = a1_span_bounds(array_ref)
     if bounds is None:

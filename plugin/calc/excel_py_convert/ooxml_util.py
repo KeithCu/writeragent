@@ -161,6 +161,11 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
     return out[:insert_pos] + insert + out[insert_pos:]
 
 
+def sheet_rels_path(part_name: str) -> str:
+    p = Path(part_name)
+    return str(p.parent / "_rels" / f"{p.name}.rels").replace("\\", "/")
+
+
 def resolve_rel_target(rels_path: str, target: str) -> str:
     """Resolve a Relationship Target to a package-relative path (forward slashes).
 

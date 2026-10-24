@@ -12,6 +12,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
+from plugin.calc.excel_py_convert.auto_open import has_excel_python_xlsx
 from plugin.calc.excel_py_convert.convert import convert_to_excel, write_dag_formulas_xlsx, write_excel_python_xlsx
 from plugin.calc.excel_py_convert.models import (
     ConvertedCell,
@@ -27,7 +28,7 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     xml_namespace_lock,
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
-    has_excel_python_xlsx,
+    a1_span_bounds,
     load_excel_model,
     parse_xlws_py_formula,
     shift_xlws_py_dep,
@@ -35,7 +36,6 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import resolve_dep
 from plugin.calc.excel_py_convert.script_bank import (
-    a1_span_bounds,
     formula_for_converted_cell,
 )
 from plugin.calc.excel_py_convert.to_dag import (

@@ -28,13 +28,14 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     rewrite_zip,
     serialize_xml_preserving_namespaces,
     shared_strings,
+    sheet_rels_path,
     workbook_sheets,
     xml_namespace_lock,
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     _col_row,
     _shared_formula_map,
-    _sheet_rels_path,
+    a1_span_bounds,
     col_index_to_letters,
     shift_xlws_py_formula,
 )
@@ -44,7 +45,6 @@ from plugin.calc.excel_py_convert.script_bank import (
     CODE_SHEET_NOTE_CELL,
     CODE_SHEET_PREFIX,
     is_py_code_bank_sheet,
-    a1_span_bounds,
     bank_defined_name_for,
     collect_script_bank,
     defined_name_targets_sheet,
@@ -742,7 +742,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                 drop_rids.add(s.rel_id)
                 drop_titles.add(s.title)
 
-        drop_sheet_rels = {_sheet_rels_path(p) for p in drop_parts}
+        drop_sheet_rels = {sheet_rels_path(p) for p in drop_parts}
 
         # 3. Pre-parse and patch worksheet roots
         patched: dict[str, ET.Element] = {}

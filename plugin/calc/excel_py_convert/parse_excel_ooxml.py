@@ -19,10 +19,12 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     find_child,
     local_name,
     parse_rels_with_types,
+    sheet_rels_path,
     workbook_sheets,
 )
 
 _RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
+_A1_SPAN_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
@@ -49,6 +51,28 @@ def _col_row(a1: str) -> tuple[int, int]:
         return 0, 0
     col = letters_to_col_index(m.group(1))
     return int(m.group(2)), col
+
+
+def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
+    raw = (ref or "").replace("$", "").strip()
+    if "!" in raw:
+        raw = raw.split("!", 1)[1].strip()
+    if not raw:
+        return None
+    if ":" not in raw:
+        m = _A1_SPAN_CELL_RE.match(raw)
+        if not m:
+            return None
+        c, r = letters_to_col_index(m.group(1)), int(m.group(2))
+        return ((c, r), (c, r))
+    left, right = raw.split(":", 1)
+    m1, m2 = _A1_SPAN_CELL_RE.match(left.strip()), _A1_SPAN_CELL_RE.match(right.strip())
+    if not m1 or not m2:
+        return None
+    c1, r1 = letters_to_col_index(m1.group(1)), int(m1.group(2))
+    c2, r2 = letters_to_col_index(m2.group(1)), int(m2.group(2))
+    return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
 
 
 def split_top_level_args(tail: str) -> list[str]:
@@ -278,11 +302,6 @@ def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
     return out
 
 
-def _sheet_rels_path(part_name: str) -> str:
-    p = Path(part_name)
-    return str(p.parent / "_rels" / f"{p.name}.rels").replace("\\", "/")
-
-
 def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
     """Return Sheet!A1:B2 with quoting when the sheet name needs it."""
     ref = ref.replace("$", "")
@@ -479,7 +498,7 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
                     anchors[k] = v
                 else:
                     anchors.setdefault(k, v)
-            for _rid, rtype, target in parse_rels_with_types(zf, _sheet_rels_path(sh.part_name)):
+            for _rid, rtype, target in parse_rels_with_types(zf, sheet_rels_path(sh.part_name)):
                 if not _rel_type_is_table(rtype) and "tables/table" not in target:
                     continue
                 parsed = _parse_table_ref(zf, target, sh.title)
@@ -490,31 +509,6 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
             if not c.row or not c.col:
                 c.row, c.col = _col_row(c.cell)
         return ExcelWorkbookModel(scripts=scripts, cells=cells, sheets=sheets, tables=tables, anchor_snapshots=anchors, source_path=str(path), issues=issues)
-
-
-def has_excel_python_xlsx(path: str | Path) -> bool:
-    """True when *path* is an ``.xlsx`` with ``pythonScripts`` and/or ``_xlws.PY`` cells.
-
-    Peeks the ZIP on disk (stock Calc import may have dropped these parts from the
-    in-memory model). Safe to call on any path; returns False on I/O/parse errors.
-    """
-    path = Path(path)
-    if path.suffix.lower() != ".xlsx" or not path.is_file():
-        return False
-    try:
-        with zipfile.ZipFile(path, "r") as zf:
-            names = zf.namelist()
-            if any(n == "xl/pythonScripts.xml" or n.startswith("xl/pythonScripts/") for n in names):
-                return True
-            for name in names:
-                if not name.startswith("xl/worksheets/") or not name.endswith(".xml"):
-                    continue
-                data = zf.read(name)
-                if b"_xlws.PY" in data or b"_xlws.py" in data:
-                    return True
-    except Exception:
-        return False
-    return False
 
 
 def load_excel_model(path: str | Path) -> ExcelWorkbookModel:

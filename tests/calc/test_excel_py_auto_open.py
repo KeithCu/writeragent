@@ -11,12 +11,12 @@ from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_d
 from plugin.calc.excel_py_convert.auto_open import (
     _CONVERTED_PROP,
     _doc_from_event,
+    has_excel_python_xlsx,
     install_excel_py_auto_convert,
     maybe_convert_excel_py_document,
     maybe_export_excel_py_on_save,
 )
 from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
 from tests.testing_utils import CalcDocStub
 
 
@@ -528,7 +528,7 @@ def test_maybe_export_writes_native_package(tmp_path: Path):
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
         patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as write_xlsx,
-        patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
+        patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
     ):
         assert maybe_export_excel_py_on_save(MagicMock(), doc) is True
         write_xlsx.assert_called_once()
@@ -773,7 +773,7 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
 
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
+        patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
     ):
         result = maybe_convert_excel_py_document(doc)
@@ -847,7 +847,7 @@ def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
 
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.parse_excel_ooxml.has_excel_python_xlsx", return_value=True),
+        patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
         patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
