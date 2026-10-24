@@ -37,26 +37,13 @@ from plugin.calc.excel_py_convert.to_dag import (
     format_python_syntax_issue,
 )
 from plugin.calc.python.formula_edit import parse_python_formula
-from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
+from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 
-_PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
 _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$")
 
 # (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
 DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
-
-
-_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
-
-
-def _xml_text_escape(text: str) -> str:
-    """Escape &, <, >, and CR for XML text nodes, rejecting characters outside XML 1.0."""
-    raw = text or ""
-    if _INVALID_XML_CHARS_RE.search(raw):
-        raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
-    escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return escaped.replace("\r", "&#13;")
 
 
 def _p_token(index: int) -> str:
@@ -85,18 +72,6 @@ def _data_header_modes(bindings: Sequence[BindingInfo], n: int) -> list[HeaderMo
     return modes
 def _omit_modes(n: int) -> list[HeaderMode]:
     return ["omit" for _unused in range(max(n, 0))]
-
-
-def _node_span(node: ast.AST, src: str, line_starts: list[int]) -> tuple[int, int]:
-    lineno = getattr(node, "lineno", None)
-    col = getattr(node, "col_offset", None)
-    end_lineno = getattr(node, "end_lineno", lineno)
-    end_col = getattr(node, "end_col_offset", col)
-    if lineno is None or col is None or end_lineno is None or end_col is None:
-        return -1, -1
-    start = ast_source_offset(src, lineno, col, line_starts=line_starts)
-    end = ast_source_offset(src, end_lineno, end_col, line_starts=line_starts)
-    return start, end
 
 
 def _collect_legacy_spans(
@@ -173,7 +148,7 @@ def _collect_legacy_spans(
                                 issues.append(f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
                                 fatal = True
                             else:
-                                start, end = _node_span(node, src, line_starts)
+                                start, end = node_span(node, src, line_starts)
                                 if start >= 0 and end > start:
                                     spans.append((start, end, _xl_expr(idx, "true")))
                             continue
@@ -209,7 +184,7 @@ def _collect_legacy_spans(
                             issues.append(f"to_pandas pattern references index {tp_idx} but only {len(deps)} deps")
                             fatal = True
                         else:
-                            start, end = _node_span(node, src, line_starts)
+                            start, end = node_span(node, src, line_starts)
                             if start >= 0 and end > start:
                                 spans.append((start, end, _xl_expr(tp_idx, header_mode)))
                         continue
@@ -228,7 +203,7 @@ def _collect_legacy_spans(
                         issues.append(f"{node.value.id}[{sub_idx}] with only {len(deps)} deps")
                         fatal = True
                     else:
-                        start, end = _node_span(node, src, line_starts)
+                        start, end = node_span(node, src, line_starts)
                         if start >= 0 and end > start:
                             hm: HeaderMode = modes[sub_idx] if sub_idx < len(modes) else "omit"
                             spans.append((start, end, _xl_expr(sub_idx, hm)))
@@ -240,7 +215,7 @@ def _collect_legacy_spans(
             # Tip: bare ``data`` is a CalcRange only for a single formula arg; with several args it is the ranges list.
             if len(deps) == 1:
                 handled.add(id(node))
-                start, end = _node_span(node, src, line_starts)
+                start, end = node_span(node, src, line_starts)
                 if start >= 0 and end > start:
                     hm0: HeaderMode = modes[0] if modes else "omit"
                     spans.append((start, end, _xl_expr(0, hm0)))
@@ -348,15 +323,6 @@ def xlws_py_formula(script_index: int, return_type: int, data_args: Sequence[str
     parts = [str(int(script_index)), str(int(return_type))]
     parts.extend(excel_dep_ref(a) for a in data_args if a)
     return "_xlfn._xlws.PY(" + ",".join(parts) + ")"
-
-
-def python_scripts_xml(scripts: Sequence[str]) -> bytes:
-    """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
-    chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
-    for body in scripts:
-        chunks.append(f"  <pythonScript><code>{_xml_text_escape(body or '')}</code></pythonScript>\n")
-    chunks.append("</pythonScripts>\n")
-    return "".join(chunks).encode("utf-8")
 
 
 def assign_script_bank(cells: Sequence[ConvertedCell]) -> tuple[list[str], list[ConvertedCell]]:

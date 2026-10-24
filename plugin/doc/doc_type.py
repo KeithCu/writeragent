@@ -154,6 +154,14 @@ def doc_type_title_for_label(label: str | None) -> str:
     return _LABEL_TO_TITLE.get(norm, "Unknown")
 
 
+def agent_label_for_doc_type(doc_type: str | None) -> str | None:
+    """Sidebar / agent display label (Writer, Calc, Draw) or None for unknown/empty."""
+    if not doc_type:
+        return None
+    title = doc_type_title_for_label(doc_type)
+    return None if title == "Unknown" else title
+
+
 def agent_label_for_context(ctx: Any) -> str:
     """Writer / Calc / Draw label used to validate specialized domain names."""
     raw = (getattr(ctx, "doc_type", None) or "").strip().lower()

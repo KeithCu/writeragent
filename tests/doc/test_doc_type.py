@@ -16,6 +16,7 @@ from plugin.doc.doc_type import (
     WEB_DOCUMENT_SERVICE,
     WRITER_DOCUMENT_SERVICE,
     agent_label_for_context,
+    agent_label_for_doc_type,
     doc_type_family_label,
     doc_type_label_for_enum,
     doc_type_of,
@@ -52,6 +53,17 @@ def test_doc_type_label_and_title_helpers():
     assert doc_type_title_for_label("impress") == "Draw"
     assert doc_type_title_for_label("draw") == "Draw"
     assert doc_type_title_for_label("calc") == "Calc"
+
+
+def test_agent_label_for_doc_type():
+    assert agent_label_for_doc_type("writer") == "Writer"
+    assert agent_label_for_doc_type("calc") == "Calc"
+    assert agent_label_for_doc_type("draw") == "Draw"
+    assert agent_label_for_doc_type("impress") == "Draw"
+    assert agent_label_for_doc_type("unknown") is None
+    assert agent_label_for_doc_type("") is None
+    assert agent_label_for_doc_type(None) is None
+
 
 
 def test_agent_label_from_doc_type():

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared AST edits for statement stripping (release strip).
+"""Shared AST edits for statement stripping (release strip) and AST rewriting.
 
-No plugin module imports this. ``scripts/strip_code.py`` does, at build time.
 Used by [`scripts/strip_code.py`](../../scripts/strip_code.py) to remove
 assert statements, ``grammar_obs(...)``, logger ``.debug``/``.info``, and most
 ``print``/``pprint`` statements from production bundles.
+Also exports AST offset and span helpers to runtime conversion modules.
 
 Rules (one source of truth):
 
@@ -325,4 +325,18 @@ def ast_source_offset(
     while col > 0 and col < len(raw) and (raw[col] & 0xC0) == 0x80:
         col -= 1
     return line_start + len(raw[:col].decode("utf-8"))
+
+
+def node_span(node: ast.AST, src: str, line_starts: list[int]) -> tuple[int, int]:
+    """Map an AST node's position to [start, end) character offsets in *src*."""
+    lineno = getattr(node, "lineno", None)
+    col = getattr(node, "col_offset", None)
+    end_lineno = getattr(node, "end_lineno", lineno)
+    end_col = getattr(node, "end_col_offset", col)
+    if lineno is None or col is None or end_lineno is None or end_col is None:
+        return -1, -1
+    start = ast_source_offset(src, lineno, col, line_starts=line_starts)
+    end = ast_source_offset(src, end_lineno, end_col, line_starts=line_starts)
+    return start, end
+
 

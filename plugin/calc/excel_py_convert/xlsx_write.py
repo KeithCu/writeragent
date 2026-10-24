@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 import zipfile
 
@@ -54,7 +54,6 @@ from plugin.calc.excel_py_convert.script_bank import (
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
     deps_for_xlws_export,
-    python_scripts_xml,
     xlws_py_formula,
 )
 
@@ -644,6 +643,28 @@ def _require_workbook_sheets(zin: zipfile.ZipFile) -> list[SheetInfo]:
     if "xl/_rels/workbook.xml.rels" not in names:
         raise ValueError("package missing required part: xl/_rels/workbook.xml.rels")
     return workbook_sheets(zin)
+
+
+_PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
+_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
+
+
+def _xml_text_escape(text: str) -> str:
+    """Escape &, <, >, and CR for XML text nodes, rejecting characters outside XML 1.0."""
+    raw = text or ""
+    if _INVALID_XML_CHARS_RE.search(raw):
+        raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
+    escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return escaped.replace("\r", "&#13;")
+
+
+def python_scripts_xml(scripts: Sequence[str]) -> bytes:
+    """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
+    chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
+    for body in scripts:
+        chunks.append(f"  <pythonScript><code>{_xml_text_escape(body or '')}</code></pythonScript>\n")
+    chunks.append("</pythonScripts>\n")
+    return "".join(chunks).encode("utf-8")
 
 
 def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path) -> None:

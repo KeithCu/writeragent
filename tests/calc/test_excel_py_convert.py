@@ -49,10 +49,10 @@ from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
     convert_dag_formula_to_excel,
     expand_placeholders_to_literals,
-    python_scripts_xml,
     rewrite_dag_code_to_excel,
     xlws_py_formula,
 )
+from plugin.calc.excel_py_convert.xlsx_write import python_scripts_xml
 from plugin.calc.python.formula_edit import (
     escape_code_for_excel_formula,
     escape_code_for_formula,
