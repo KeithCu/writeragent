@@ -99,7 +99,7 @@ UNTOUCHED_HELPERS_SEND = [
     "_direct_image_source_arg",
     "_SendWorkerQueue",
     "_send_worker_queues",
-    "_turn_session_or_stop",
+    "turn_session_or_stop",
     "_reset_active_run_flags",
 ]
 

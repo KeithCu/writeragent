@@ -131,7 +131,7 @@ def render_calc_cell_refs(text: str) -> str:
     return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
 
 
-def _cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:  # pyright: ignore[reportUnusedFunction]
+def cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     links: list[tuple[str, str]] = []
     for _role, content in rows:
         rendered = render_calc_cell_refs(content) if content else content

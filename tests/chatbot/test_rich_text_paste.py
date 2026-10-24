@@ -635,7 +635,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
-             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as mock_rollback, \
+             patch("plugin.chatbot.rich_text_paste.rollback_rich_insert") as mock_rollback, \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
             append_formatted_rows(ctx, control, [("assistant", "<p>Hi</p><script>alert(1)</script>")])
@@ -672,7 +672,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True), \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(False, "failed")), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10), \
-             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as mock_rollback, \
+             patch("plugin.chatbot.rich_text_paste.rollback_rich_insert") as mock_rollback, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
             ok = append_formatted_row(ctx, control, "<p>hello</p>", role="assistant")
 
@@ -719,7 +719,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True), \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as mock_rollback, \
+             patch("plugin.chatbot.rich_text_paste.rollback_rich_insert") as mock_rollback, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
             ok = append_formatted_row(ctx, control, "<p>hello world</p>", role="assistant")
 
@@ -1031,7 +1031,7 @@ class TestPaintMessageItems:
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
              patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
-             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"), \
+             patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             items = [("user", "hello"), ("assistant", "<p><b>bold</b></p>")]
             paint_message_items(ctx, control, items)
@@ -1087,7 +1087,7 @@ def _body_paragraph(text: str):
     portion = MagicMock()
     portion.getString.return_value = text
     portion.CharColor = -1
-    # Compared with <= after _normalize_portion_font lost its try.
+    # Compared with <= after normalize_portion_font lost its try.
     portion.CharFontName = ""
     portion.CharHeight = 10.0
     portion.CharWeight = 100.0
@@ -1657,7 +1657,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
             patch("plugin.chatbot.rich_text_paste.clear_control"),
             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)),
-            patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"),
+            patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"),
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
         ):
             assert paint_message_items(ctx, control, [("assistant", "<p>Hi</p>")]) is True

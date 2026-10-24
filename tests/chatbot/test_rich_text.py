@@ -705,14 +705,14 @@ class TestChatTypography:
             CHAT_FONT_HEIGHT,
             CHAT_FONT_NAME,
             CHAT_FONT_WEIGHT,
-            _normalize_portion_font,
+            normalize_portion_font,
         )
 
         portion = MagicMock()
         portion.CharFontName = "Times New Roman"
         portion.CharHeight = 18.0
         portion.CharWeight = 0.0
-        _normalize_portion_font(portion)
+        normalize_portion_font(portion)
         assert portion.CharFontName == CHAT_FONT_NAME
         assert portion.CharFontNameAsian == CHAT_FONT_NAME
         assert portion.CharFontNameComplex == CHAT_FONT_NAME

@@ -552,7 +552,7 @@ def session_for_turn(host: Any) -> Any:
     return None
 
 
-def _turn_session_or_stop(host: Any) -> Any:  # pyright: ignore[reportUnusedFunction]
+def turn_session_or_stop(host: Any) -> Any:
     """The session for this send. None when the turn is already over.
 
     ``_do_send`` starts the turn before this runs. A direct call with no

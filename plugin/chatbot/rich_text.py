@@ -97,7 +97,7 @@ def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
 
 
-def _normalize_portion_font(portion: Any) -> None:  # pyright: ignore[reportUnusedFunction]
+def normalize_portion_font(portion: Any) -> None:
     """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
     font = getattr(portion, "CharFontName", "") or ""
     if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):

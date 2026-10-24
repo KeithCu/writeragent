@@ -361,7 +361,7 @@ class RichTextChatWidget:
         if not self._append_to_plain_tail(old_tail, new_tail, open_content=open_content):
             # Not an append: cut the plain tail at the end of the prefix and
             # write it again. The prefix is not cleared.
-            _rollback_rich_insert(self.control, self._formatted_len)
+            rollback_rich_insert(self.control, self._formatted_len)
             _plain_append_messages(
                 self.control, new_tail, self.ctx, self.style_window,
                 auto_scroll=True, restore_focus=self.restore_focus,
@@ -483,7 +483,7 @@ class RichTextChatWidget:
         log_rich_scroll("turn_end_tail", control=self.control, rows=len(items), tail_rows=len(tail), cut=self._formatted_len)
         # Cut the plain tail and append the same rows formatted. The
         # transcript above the cut is not wiped and refilled.
-        _rollback_rich_insert(self.control, self._formatted_len)
+        rollback_rich_insert(self.control, self._formatted_len)
         if tail:
             _ensure_message_separator(self.control)
             append_formatted_rows(
@@ -494,7 +494,7 @@ class RichTextChatWidget:
         # turn) then a formatted refill left the same stale layout as a full
         # repaint: an 80px gap under the reply at Ready. One reformat per turn,
         # outside the stream drain, so it settles before the next send.
-        _force_rich_full_reformat(self.control)
+        force_rich_full_reformat(self.control)
         _scroll_rich_to_tail(self.control, self.ctx, restore_focus=self.restore_focus)
         self._set_formatted_state(items)
         return True
@@ -665,7 +665,7 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
         peer.invalidate(0)
 
 
-def _force_rich_full_reformat(control: Any) -> None:
+def force_rich_full_reformat(control: Any) -> None:
     """Make the RichTextControl EditEngine lay out the whole control again.
 
     After clear_control and a bulk refill, the EditEngine draws a layout
@@ -1466,7 +1466,7 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
         log.exception("truncate_control_from failed")
 
 
-def _rollback_rich_insert(control: Any, before: int | None) -> None:
+def rollback_rich_insert(control: Any, before: int | None) -> None:
     """Undo a separator or partial copy that did not finish as a full insert.
 
     The separator (and any partial copy) must not stay in the control

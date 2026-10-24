@@ -81,7 +81,7 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
 
     panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
     with (
-        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
     ):
@@ -104,7 +104,7 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
 
     panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
     with (
-        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch("plugin.mcp.is_mcp_server_running", return_value=True),
     ):
@@ -786,7 +786,7 @@ def test_acp_approval_default_and_dead_turn():
     turn_session = mock.MagicMock()
 
     with mock.patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
-         mock.patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=turn_session), \
+         mock.patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=turn_session), \
          mock.patch.object(host, "_run_unified_worker_drain_loop") as mock_loop:
 
         with mock.patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
@@ -834,7 +834,7 @@ def test_acp_approval_auto_approve_when_configured():
     turn_session = mock.MagicMock()
 
     with mock.patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
-         mock.patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=turn_session), \
+         mock.patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=turn_session), \
          mock.patch.object(host, "_run_unified_worker_drain_loop") as mock_loop:
 
         with mock.patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
@@ -2102,13 +2102,13 @@ def test_direct_image_stop_finalizes_with_stop_line():
 
 def test_run_deep_web_research_leak_fix():
     panel = DummyChatbotPanel()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
         panel._run_deep_web_research("query", MagicMock())
     assert not getattr(panel, "_active_run_deep_research", False)
 
 def test_mode_flags_stuck_fix():
     panel = DummyChatbotPanel()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
         panel._run_librarian("query", MagicMock())
         assert panel._active_mode == ""
         panel._run_brainstorming("query", MagicMock())
@@ -2122,7 +2122,7 @@ def test_execute_agent_backend_effect_errors():
     panel = DummyChatbotPanel()
     mock_turn = MagicMock()
     mock_turn.refresh_document_context.side_effect = Exception("Doc ctx error")
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
          patch("plugin.chatbot.send_handlers.defer_until_drain_done") as mock_defer:
         interpreter = MagicMock()
         current_state = SendHandlerState(handler_type="agent", status="ready")
@@ -2145,7 +2145,7 @@ def test_approval_dialog_wrapping():
     with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")):
         # Call the effect which will trigger the fake drain
         panel.stop_requested = False
-        with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()), \
+        with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()), \
              patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
              patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"), \
              patch("plugin.chatbot.send_handlers.as_bool", return_value=True):
@@ -2167,7 +2167,7 @@ def test_approval_dialog_submit_false_on_error():
 
     panel._run_unified_worker_drain_loop = capture_drain
 
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()), \
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()), \
          patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
          patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"):
          panel._execute_agent_backend_effect("query", MagicMock(), "writer", MagicMock(), MagicMock())
@@ -2250,7 +2250,7 @@ def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():
     """_do_send_direct_image must return early without spawning image worker if turn is aborted."""
     panel = DummyChatbotPanel()
     panel._execute_direct_image_effect = MagicMock()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
         panel._do_send_direct_image("draw a cat", MagicMock())
 
     panel._execute_direct_image_effect.assert_not_called()
@@ -2260,7 +2260,7 @@ def test_execute_direct_image_effect_aborted_turn_returns_early():
     """_execute_direct_image_effect returns early if turn is aborted before execution."""
     panel = DummyChatbotPanel()
     panel._run_unified_worker_drain_loop = MagicMock()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
         panel._execute_direct_image_effect("draw a cat", MagicMock(), MagicMock(), MagicMock())
 
     panel._run_unified_worker_drain_loop.assert_not_called()
@@ -2297,7 +2297,7 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
 
     panel._run_unified_worker_drain_loop = fake_drain
     with (
-        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", side_effect=get_backend),
         patch("plugin.chatbot.send_handlers.get_config", side_effect=get_config),
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
@@ -2341,7 +2341,7 @@ def test_stale_active_run_flag_does_not_hijack_web_research():
     panel._run_unified_worker_drain_loop = fake_drain
 
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
-        with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn):
+        with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn):
             panel._run_web_research("test query", MagicMock())
 
     assert not getattr(panel, "_active_run_librarian", False)
@@ -2355,7 +2355,7 @@ def test_active_run_flags_reset_on_interpret_exception():
     """Active run flags are reset in finally block even if effect execution raises."""
     panel = DummyChatbotPanel()
     mock_turn = MagicMock()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
          patch("plugin.chatbot.send_handlers.next_state") as mock_next_state:
         mock_step = MagicMock()
         mock_eff = MagicMock()

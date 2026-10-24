@@ -44,7 +44,7 @@ from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, Sta
 from plugin.chatbot.tool_loop import _PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
-    _turn_session_or_stop,
+    turn_session_or_stop,
     abort_turn,
     current_turn,
     persist_assistant_on_turn,
@@ -507,7 +507,7 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         # Store the user row once here, before the append, like web
         # research; the fold then sees it and only paints. The StartEvent
         # user append already folds the prompt into the session, and the
@@ -525,7 +525,7 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
         # The user row was stored by _do_send_direct_image before StartEvent.
@@ -672,7 +672,7 @@ class SendHandlersMixin:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
 
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
 
@@ -816,7 +816,7 @@ class SendHandlersMixin:
         # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
         self._panel._librarian_suggested_user_name = get_suggested_user_name(self._panel.ctx)
 
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
         self._panel._active_mode = CHAT_MODE_LIBRARIAN
@@ -848,7 +848,7 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
         self._panel._active_mode = mode
@@ -884,7 +884,7 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        turn_session = _turn_session_or_stop(self._panel)
+        turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
 

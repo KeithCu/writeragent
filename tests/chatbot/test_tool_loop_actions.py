@@ -1783,15 +1783,15 @@ def test_interpreter_handles_tool_running_and_result_effects():
 
 
 def test_turn_session_or_stop():
-    from plugin.chatbot.tool_loop_actions import _turn_session_or_stop, abort_turn
+    from plugin.chatbot.tool_loop_actions import turn_session_or_stop, abort_turn
 
     class Host:
         def __init__(self):
             self.session = MagicMock()
 
     host = Host()
-    session = _turn_session_or_stop(host)
+    session = turn_session_or_stop(host)
     assert session is host.session
 
     abort_turn(host)
-    assert _turn_session_or_stop(host) is None
+    assert turn_session_or_stop(host) is None

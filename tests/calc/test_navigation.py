@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from plugin.calc.navigation import (
     WRITERAGENT_CELL_URL_PREFIX,
     _accessible_text,
-    _cell_links_for_rows,
+    cell_links_for_rows,
     _char_index_at_point,
     _click_text_index,
     cell_link_registry,
@@ -76,7 +76,7 @@ def test_cell_links_for_rows():
         ("assistant", '<a href="cell://Sheet1.B2">B2</a> and <a href="cell://C3">C3</a>'),
         ("user", ""),
     ]
-    assert _cell_links_for_rows(rows) == [
+    assert cell_links_for_rows(rows) == [
         ("B2", "Sheet1.B2"),
         ("C3", "C3"),
     ]
