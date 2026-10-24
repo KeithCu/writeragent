@@ -48,6 +48,7 @@ from plugin.framework.errors import (
     is_tool_document_disposed,
     make_tool_error,
     resolve_exception_message,
+    safe_json_loads,
 )
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread, on_main_thread
@@ -241,6 +242,19 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
             return True
         # Unknown names (``"str"``) used to accept any value. They match nothing.
     return False
+
+
+def field_from_tool_arguments(arguments: Any, field: str) -> Any:
+    """Read *field* from tool arguments (dict or JSON string), or None."""
+    if arguments is None:
+        return None
+    if isinstance(arguments, dict):
+        return arguments.get(field)
+    if isinstance(arguments, str):
+        data = safe_json_loads(arguments)
+        if isinstance(data, dict):
+            return data.get(field)
+    return None
 
 
 class _ToolErrorMixin:

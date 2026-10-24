@@ -29,7 +29,7 @@ from plugin.chatbot import smol_examples
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError, format_error_payload, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.tool import prepare_tool_call
+from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -450,9 +450,8 @@ def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
         nonlocal document_open_step_index
         if step.name == "delegate_read_document" and chat_append_callback:
             from plugin.chatbot.web_research_chat import document_open_step_chat_text
-            from plugin.doc.specialized_base import _field_from_tool_arguments
 
-            path_or_name = _field_from_tool_arguments(step.arguments, "path_or_name")
+            path_or_name = field_from_tool_arguments(step.arguments, "path_or_name")
             chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
             document_open_step_index += 1
         if append_thinking_callback:

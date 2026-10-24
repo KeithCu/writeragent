@@ -154,6 +154,23 @@ def doc_type_title_for_label(label: str | None) -> str:
     return _LABEL_TO_TITLE.get(norm, "Unknown")
 
 
+def agent_label_for_context(ctx: Any) -> str:
+    """Writer / Calc / Draw label used to validate specialized domain names."""
+    raw = (getattr(ctx, "doc_type", None) or "").strip().lower()
+    titled = doc_type_title_for_label(raw)
+    if raw and titled != "Unknown":
+        return titled
+    services = getattr(ctx, "uno_services_supported", None) or ()
+    blob = " ".join(str(svc) for svc in services)
+    if "SpreadsheetDocument" in blob:
+        return "Calc"
+    if "PresentationDocument" in blob or "DrawingDocument" in blob:
+        return "Draw"
+    if "TextDocument" in blob:
+        return "Writer"
+    return "Writer"
+
+
 # @main_thread_only MUST be the outer decorator here so off-main
 # thread calls raise thread violation errors immediately instead
 # of being swallowed by @safe_uno_call.

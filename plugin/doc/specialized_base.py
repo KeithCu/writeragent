@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.errors import is_real_disposal, safe_json_loads
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.errors import is_real_disposal
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -91,21 +91,8 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         return False
 
 
-def _field_from_tool_arguments(arguments: Any, field: str) -> Any:
-    """Read *field* from tool arguments (dict or JSON string), or None."""
-    if arguments is None:
-        return None
-    if isinstance(arguments, dict):
-        return arguments.get(field)
-    if isinstance(arguments, str):
-        data = safe_json_loads(arguments)
-        if isinstance(data, dict):
-            return data.get(field)
-    return None
-
-
 def _path_or_name_from_tool_arguments(arguments: Any) -> str:
-    val = _field_from_tool_arguments(arguments, "path_or_name")
+    val = field_from_tool_arguments(arguments, "path_or_name")
     return str(val) if val is not None else ""
 
 
@@ -167,7 +154,7 @@ class DelegateToSpecializedBase(ToolBase):
     _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research", "vision"})
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
-        domain = _field_from_tool_arguments(arguments, "domain")
+        domain = field_from_tool_arguments(arguments, "domain")
         # Bugfix: Model or client passed a non-string domain (e.g. a nested dict or list) in tool
         # arguments. When document_mutation_gate._tool_needs_document_mutation_gate checked
         # requires_document_lock prior to schema validation, `domain in self._READ_ONLY_DOMAINS`

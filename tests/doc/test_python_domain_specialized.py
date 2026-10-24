@@ -11,7 +11,6 @@ from plugin.calc.sheets import ListSheets
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.python_domain_specialized import (
     DelegateToolDomains,
-    agent_label_for_context,
     allowed_specialized_domains,
     gather_domain_tools,
     normalize_domain_list,
@@ -229,15 +228,6 @@ def test_validate_domains_by_app():
     assert message is None
     message, code = validate_requested_domains(["ppt-master"], "Draw")
     assert code == "UNKNOWN_SPECIALIZED_DOMAIN"
-
-
-def test_agent_label_from_doc_type():
-    registry = ToolRegistry(services={})
-    assert agent_label_for_context(_ctx(registry, "writer", "com.sun.star.text.TextDocument")) == "Writer"
-    assert agent_label_for_context(_ctx(registry, "calc", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
-    assert agent_label_for_context(_ctx(registry, "impress", "com.sun.star.presentation.PresentationDocument")) == "Draw"
-    assert agent_label_for_context(_ctx(registry, "", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
-    assert agent_label_for_context(_ctx(registry, "", "")) == "Writer"
 
 
 def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():

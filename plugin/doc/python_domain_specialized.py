@@ -33,7 +33,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.doc.doc_type import doc_type_title_for_label
+from plugin.doc.doc_type import agent_label_for_context
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -48,23 +48,6 @@ _VENV_SCRIPT_TOOL = "run_venv_python_script"
 # Other domains (footnotes, sheets, …) keep their ToolBase tools.
 _SCRIPT_PLACEMENT_DOMAINS = frozenset({"shapes"})
 _SCRIPT_PLACEMENT_LLM_KEEP = frozenset({"shape_summary"})
-
-
-def agent_label_for_context(ctx: ToolContext) -> str:
-    """Writer / Calc / Draw label used to validate specialized domain names."""
-    raw = (getattr(ctx, "doc_type", None) or "").strip().lower()
-    titled = doc_type_title_for_label(raw)
-    if raw and titled != "Unknown":
-        return titled
-    services = getattr(ctx, "uno_services_supported", None) or ()
-    blob = " ".join(str(svc) for svc in services)
-    if "SpreadsheetDocument" in blob:
-        return "Calc"
-    if "PresentationDocument" in blob or "DrawingDocument" in blob:
-        return "Draw"
-    if "TextDocument" in blob:
-        return "Writer"
-    return "Writer"
 
 
 def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozenset[str]:

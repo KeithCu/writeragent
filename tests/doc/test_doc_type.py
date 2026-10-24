@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for plugin.doc.doc_type."""
 
+import types
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +15,7 @@ from plugin.doc.doc_type import (
     TEXT_DOCUMENT_SERVICE,
     WEB_DOCUMENT_SERVICE,
     WRITER_DOCUMENT_SERVICE,
+    agent_label_for_context,
     doc_type_family_label,
     doc_type_label_for_enum,
     doc_type_title_for_label,
@@ -49,6 +51,20 @@ def test_doc_type_label_and_title_helpers():
     assert doc_type_title_for_label("impress") == "Draw"
     assert doc_type_title_for_label("draw") == "Draw"
     assert doc_type_title_for_label("calc") == "Calc"
+
+
+def test_agent_label_from_doc_type():
+    def _ctx(doc_type: str, svc: str):
+        return types.SimpleNamespace(
+            doc_type=doc_type,
+            uno_services_supported=(svc,) if svc else (),
+        )
+
+    assert agent_label_for_context(_ctx("writer", "com.sun.star.text.TextDocument")) == "Writer"
+    assert agent_label_for_context(_ctx("calc", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
+    assert agent_label_for_context(_ctx("impress", "com.sun.star.presentation.PresentationDocument")) == "Draw"
+    assert agent_label_for_context(_ctx("", "com.sun.star.sheet.SpreadsheetDocument")) == "Calc"
+    assert agent_label_for_context(_ctx("", "")) == "Writer"
 
 
 class _ServiceModel:
