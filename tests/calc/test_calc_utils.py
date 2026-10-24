@@ -12,6 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.calc.calc_utils import (
+    EMPTY,
+    FORMULA,
+    TEXT,
+    VALUE,
+    _cell_type_name,
     cell_value_and_type,
     get_cell_geometry,
     get_cell_geometry_target,
@@ -247,4 +252,24 @@ class TestCellValueAndType:
         val, type_name = cell_value_and_type(cell)
         assert val == 99.0
         assert type_name == "value"
+
+
+class TestCellTypeName:
+    """_cell_type_name maps UNO cell content types to lowercase strings."""
+
+    def test_empty_type(self):
+        assert _cell_type_name(EMPTY) == "empty"
+
+    def test_value_type(self):
+        assert _cell_type_name(VALUE) == "value"
+
+    def test_text_type(self):
+        assert _cell_type_name(TEXT) == "text"
+
+    def test_formula_type(self):
+        assert _cell_type_name(FORMULA) == "formula"
+
+    def test_unknown_type(self):
+        assert _cell_type_name(999) == "unknown"
+        assert _cell_type_name("invalid") == "unknown"
 

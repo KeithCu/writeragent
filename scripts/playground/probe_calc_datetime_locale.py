@@ -83,7 +83,7 @@ def enum_name(v) -> str:
 
 
 def category(fmt_type) -> str:
-    """Mirror plugin/calc/inspector.py::_format_category_from_type, plus extras it lacks."""
+    """Mirror plugin/calc/datetime_wire.py::_format_category_from_type, plus extras it lacks."""
     base = as_int(fmt_type) & ~NF_DEFINED
     if base == NF_DURATION & ~NF_DEFINED or base == NF_DURATION:
         return "DURATION"
@@ -102,7 +102,7 @@ def category(fmt_type) -> str:
 
 def plugin_category(fmt_type):
     """The real production classifier, so we test what actually ships."""
-    from plugin.calc.inspector import _format_category_from_type
+    from plugin.calc.datetime_wire import _format_category_from_type
 
     return _format_category_from_type(as_int(fmt_type))
 

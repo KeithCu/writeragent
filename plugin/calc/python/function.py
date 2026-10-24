@@ -24,8 +24,14 @@ from com.sun.star.util import XModifyListener
 
 from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
-from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
-from plugin.calc.inspector import _format_category_from_type
+from plugin.calc.datetime_wire import (
+    _format_category_from_type,
+    coalesce_temporal_apply_rects,
+    duration_serial_from_iso,
+    match_iso_duration,
+    match_iso_temporal,
+    should_preserve_temporal_format,
+)
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import best_effort, format_error_message, uno_probe

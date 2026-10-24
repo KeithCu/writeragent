@@ -49,8 +49,15 @@ else:
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, CellRect, result_range, returns_array
 from plugin.calc.formula_fill import expand_single_formula
-from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
-from plugin.calc.inspector import _format_category_from_type
+from plugin.calc.datetime_wire import (
+    _format_category_from_type,
+    coalesce_temporal_apply_rects,
+    duration_serial_from_iso,
+    is_compatible_temporal_template,
+    match_iso_duration,
+    match_iso_temporal,
+    should_preserve_temporal_format,
+)
 from plugin.framework.errors import CalcError, safe_json_loads, is_disposed_exception, uno_probe
 from plugin.framework.uno_context import get_ctx
 

@@ -133,7 +133,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
    timestamp = NullDate + timedelta(seconds=round(serial_value * 86400))
    ```
 
-   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/inspector.py](../../plugin/calc/inspector.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py).
+   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py).
 
 **Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. The field is for observation and inheritance checks only — models must not hardcode locale letters into `queryKey` (§6), and after S26 they have no LLM `number_format` re-apply path on `set_style`.
 
@@ -275,7 +275,7 @@ The algorithm looks at three pieces of information only — no display-string co
    
    Take this from the **gate**, never from the format key Calc detected. Detection may return an `en-US` AM/PM time key even when the input was a datetime; that must not reclassify the write.
 
-2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`_format_category_from_type`](../../plugin/calc/inspector.py):
+2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`_format_category_from_type`](../../plugin/calc/datetime_wire.py):
    - DATE → `"date"`
    - TIME → `"time"` (this includes both clock times and elapsed `[HH]:MM` styles — Calc does not report `DURATION` on those formats; see §1.1 / §8.3)
    - DATE\|TIME → `"datetime"`
@@ -347,7 +347,7 @@ At format-apply time, for each gated cell already converted to a serial:
 | Destination | cell’s current `NumberFormat` key → `Type` via `formats.getByKey` (cache per key for the invocation) |
 
 ```text
-dest_category = _format_category_from_type(Type)       # plugin/calc/inspector.py; None → non-temporal
+dest_category = _format_category_from_type(Type)       # plugin/calc/datetime_wire.py; None → non-temporal
 is_midnight   = round(serial * 86400) % 86400 == 0    # exact day at read-path second precision
 
 preserve when:
@@ -363,7 +363,7 @@ preserve when:
 
 Otherwise → **apply** inherited column template key if P1 finds one, else `detected_key` (for duration into non-temporal with no template: formatindex 43).
 
-Reuse [`_format_category_from_type`](../../plugin/calc/inspector.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off) for the destination side of M1 — wire `"duration"` is read-path only. Use integer-second rounding for midnight so the predicate handles negative serials and matches `_iso8601_from_serial`; do not invent a second NullDate-based check or a separate floating-point epsilon.
+Reuse [`_format_category_from_type`](../../plugin/calc/datetime_wire.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off) for the destination side of M1 — wire `"duration"` is read-path only. Use integer-second rounding for midnight so the predicate handles negative serials and matches `_iso8601_from_serial`; do not invent a second NullDate-based check or a separate floating-point epsilon.
 
 ##### Why not “same category only”?
 

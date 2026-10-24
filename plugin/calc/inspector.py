@@ -20,55 +20,23 @@
 Ported from core/calc_inspector.py for the plugin framework.
 """
 
-import datetime
 import logging
 from typing import Any
 
 from plugin.calc.address_utils import index_to_column, split_sheet_prefix
-from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
-from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_value_and_type
+from plugin.calc.datetime_wire import (
+    _format_category_from_type,
+    _iso8601_from_serial,
+    is_elapsed_format_string,
+    iso_duration_from_serial,
+)
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, _cell_type_name, cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
 from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
 
 log = logging.getLogger("writeragent.calc")
 
 _CELL_FLAG_DATETIME = 2
-_NUMBER_FORMAT_DEFINED = 1
-_NUMBER_FORMAT_DATE = 2
-_NUMBER_FORMAT_TIME = 4
-
-
-def _format_category_from_type(format_type: Any) -> str | None:
-    """Map a UNO NumberFormat.Type to the date/time category exposed to tools."""
-    try:
-        base_type = int(format_type) & ~_NUMBER_FORMAT_DEFINED
-    except (TypeError, ValueError):
-        return None
-    if base_type == (_NUMBER_FORMAT_DATE | _NUMBER_FORMAT_TIME):
-        return "datetime"
-    if base_type == _NUMBER_FORMAT_DATE:
-        return "date"
-    if base_type == _NUMBER_FORMAT_TIME:
-        return "time"
-    return None
-
-
-def _iso8601_from_serial(value: float, category: str, null_date: Any) -> str:
-    """Convert a Calc day serial to ISO 8601 using the document's configured epoch."""
-    base = datetime.datetime(int(null_date.Year), int(null_date.Month), int(null_date.Day))
-    # Round to whole seconds so IEEE float noise does not leak as microseconds.
-    converted = base + datetime.timedelta(seconds=round(float(value) * 86400.0))
-    if category == "date":
-        return converted.date().isoformat()
-    if category == "time":
-        # Clock times only. Elapsed formats (serials >= 1.0 under [HH]:…) are classified
-        # as "duration" before this helper and emit via iso_duration_from_serial.
-        # Calc TIME vs datetime edit/display heuristic:
-        # https://lists.freedesktop.org/archives/libreoffice/2018-July/080606.html
-        return converted.time().isoformat()
-    if category == "datetime":
-        return converted.isoformat(timespec="seconds")
-    raise ValueError(f"Unsupported date/time format category: {category}")
 
 
 class CellInspector:
@@ -84,19 +52,6 @@ class CellInspector:
         self.bridge = bridge
 
     # ── Internal helpers ───────────────────────────────────────────────
-
-    @staticmethod
-    def _cell_type_name(cell_type: Any) -> str:
-        """Return a human-readable name for a UNO cell content type."""
-        if cell_type == EMPTY:
-            return "empty"
-        if cell_type == VALUE:
-            return "value"
-        if cell_type == TEXT:
-            return "text"
-        if cell_type == FORMULA:
-            return "formula"
-        return "unknown"
 
     @staticmethod
     def _safe_prop(cell: Any, name: str, default: Any = None) -> Any:
@@ -376,7 +331,7 @@ class CellInspector:
                     col_letter = index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
 
-                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": self._cell_type_name(cell_type)}
+                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": _cell_type_name(cell_type)}
                     if null_date is not None and isinstance(value, (int, float)):
                         category = self._category_for_position(format_rows, row, col)
                         if category is not None:

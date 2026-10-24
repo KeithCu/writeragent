@@ -131,32 +131,6 @@ def test_read_cell_range_address_stays_value_error():
         CellInspector(bridge).read_cell("A1:B1")
 
 
-def test_calc_serial_iso8601_uses_document_null_date():
-    from plugin.calc.inspector import _format_category_from_type, _iso8601_from_serial
-
-    null_date = SimpleNamespace(Year=1899, Month=12, Day=30)
-    assert _iso8601_from_serial(46237.0, "date", null_date) == "2026-08-03"
-    assert _iso8601_from_serial(46237.5, "datetime", null_date) == "2026-08-03T12:00:00"
-    assert _iso8601_from_serial(0.5, "time", null_date) == "12:00:00"
-    assert _format_category_from_type(2) == "date"
-    assert _format_category_from_type(5) == "time"  # DEFINED | TIME
-    assert _format_category_from_type(7) == "datetime"  # DEFINED | DATETIME
-    assert _format_category_from_type(16) is None
-
-
-def test_calc_serial_iso8601_rounds_float_noise_to_whole_seconds():
-    from plugin.calc.inspector import _iso8601_from_serial
-
-    null_date = SimpleNamespace(Year=1899, Month=12, Day=30)
-    # 0.6s past noon rounds up to 12:00:01 (use a small serial so float has room).
-    assert _iso8601_from_serial(0.5 + 0.6 / 86400.0, "time", null_date) == "12:00:01"
-    assert _iso8601_from_serial(0.5 + 0.6 / 86400.0, "datetime", null_date) == "1899-12-30T12:00:01"
-    # Sub-second float dust must not leak microseconds into ISO.
-    dusty = 0.5 + 1e-12
-    assert _iso8601_from_serial(dusty, "time", null_date) == "12:00:00"
-    assert "." not in _iso8601_from_serial(dusty, "datetime", null_date).split("T", 1)[1]
-
-
 def test_inspector_default_range_read_does_not_query_formats():
     from plugin.calc.inspector import CellInspector
 

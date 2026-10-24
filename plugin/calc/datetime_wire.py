@@ -22,9 +22,10 @@ so the wire stays ``PT30H`` rather than ``P1DT6H``.
 
 from __future__ import annotations
 
+import datetime
 import re
 from datetime import timedelta
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from isodate import parse_duration
 
@@ -45,6 +46,43 @@ _TIME_RE = re.compile(rf"^{_TIME_PART}$")
 _DATETIME_RE = re.compile(rf"^{_DATE_PART}[T ]{_TIME_PART}$")
 # Strict time-only duration: PT + at least one integer H/M/S. No Y/M/W/D, fractions, or sign.
 _DURATION_RE = re.compile(r"^PT(?=\d+[HMS])(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
+
+_NUMBER_FORMAT_DEFINED = 1
+_NUMBER_FORMAT_DATE = 2
+_NUMBER_FORMAT_TIME = 4
+
+
+def _format_category_from_type(format_type: Any) -> str | None:  # pyright: ignore[reportUnusedFunction]
+    """Map a UNO NumberFormat.Type to the date/time category exposed to tools."""
+    try:
+        base_type = int(format_type) & ~_NUMBER_FORMAT_DEFINED
+    except (TypeError, ValueError):
+        return None
+    if base_type == (_NUMBER_FORMAT_DATE | _NUMBER_FORMAT_TIME):
+        return "datetime"
+    if base_type == _NUMBER_FORMAT_DATE:
+        return "date"
+    if base_type == _NUMBER_FORMAT_TIME:
+        return "time"
+    return None
+
+
+def _iso8601_from_serial(value: float, category: str, null_date: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Convert a Calc day serial to ISO 8601 using the document's configured epoch."""
+    base = datetime.datetime(int(null_date.Year), int(null_date.Month), int(null_date.Day))
+    # Round to whole seconds so IEEE float noise does not leak as microseconds.
+    converted = base + datetime.timedelta(seconds=round(float(value) * 86400.0))
+    if category == "date":
+        return converted.date().isoformat()
+    if category == "time":
+        # Clock times only. Elapsed formats (serials >= 1.0 under [HH]:…) are classified
+        # as "duration" before this helper and emit via iso_duration_from_serial.
+        # Calc TIME vs datetime edit/display heuristic:
+        # https://lists.freedesktop.org/archives/libreoffice/2018-July/080606.html
+        return converted.time().isoformat()
+    if category == "datetime":
+        return converted.isoformat(timespec="seconds")
+    raise ValueError(f"Unsupported date/time format category: {category}")
 
 
 def is_elapsed_format_string(format_string: object) -> bool:
