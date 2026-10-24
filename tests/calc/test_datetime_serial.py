@@ -20,6 +20,7 @@ from plugin.calc.datetime_wire import (
     horizontal_apply_runs,
     is_elapsed_format_string,
     is_midnight_serial,
+    iso_duration_from_serial,
     match_iso_duration,
     match_iso_temporal,
     merge_vertical_apply_rects,
@@ -28,7 +29,6 @@ from plugin.calc.datetime_wire import (
     should_preserve_temporal_format,
     time_day_fraction,
 )
-from plugin.calc.inspector import iso_duration_from_serial
 
 
 @pytest.mark.parametrize(

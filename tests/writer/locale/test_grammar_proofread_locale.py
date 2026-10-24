@@ -253,5 +253,18 @@ def test_filter_sentence_spans_for_thresholds() -> None:
     assert filtered[2][2] == "This is an incomplete but very long fragment"
 
 
+def test_uno_locales_for_tags() -> None:
+    mock_uno = MagicMock()
+    mock_uno.createUnoStruct.side_effect = lambda t, **kwargs: (t, kwargs)
+    with patch.dict("sys.modules", {"uno": mock_uno}):
+        locales = gl.uno_locales_for_tags(["en-US", "de-DE"])
+        assert len(locales) == 2
+        assert locales[0] == ("com.sun.star.lang.Locale", {"Language": "en", "Country": "US", "Variant": ""})
+        assert locales[1] == ("com.sun.star.lang.Locale", {"Language": "de", "Country": "DE", "Variant": ""})
+
+    with patch.dict("sys.modules", {"uno": None}):
+        assert gl.uno_locales_for_tags(["en-US"]) == ()
+
+
 
 

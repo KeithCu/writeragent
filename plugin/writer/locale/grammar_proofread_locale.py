@@ -20,6 +20,8 @@ import logging
 import re
 from typing import Any, Sequence
 
+from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
+
 _log = logging.getLogger("writeragent.grammar")
 
 
@@ -237,6 +239,21 @@ The 'results' array must have exactly the same number of elements as the input s
 def fingerprint_for_text(text: str) -> str:
     """Truncate to 24 hex characters (96 bits) for stable collision-resistant sentence caching."""
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()[:24]
+
+
+def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
+    """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
+    import importlib
+
+    try:
+        uno_mod = importlib.import_module("uno")
+    except ImportError:
+        return ()
+    out: list[Any] = []
+    for tag in tags:
+        la, ctry = bcp47_to_uno_lang_country(tag)
+        out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------

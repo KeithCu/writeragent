@@ -1044,37 +1044,6 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return entries
 
 
-def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx: Any = None) -> str:
-    """Extra per-domain usage hints for direct callers (beyond catalog descriptions).
-
-    Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
-    """
-    if domain == "footnotes":
-        return ("For footnotes_insert: if the task quotes or names the document anchor "
-                "(e.g. a sentence), pass that exact string as insert_after so the "
-                "note is placed after that text.")
-    if domain == "charts":
-        if agent_label == "Calc":
-            return "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
-        if agent_label is None:
-            return ("For charts: in Calc you MUST pass an explicit data range (e.g. "
-                    "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
-                    "`headers` and `rows` parameters.")
-        return ("When creating or editing a chart in Writer or Draw/Impress, you MUST "
-                "specify both the `headers` and `rows` parameters.")
-    if domain == "images":
-        return images_specialized_sub_agent_hint().strip()
-    if domain == "python":
-        if agent_label is None:
-            return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "
-                    "cell values as `data`; in Writer or Draw/Impress it does not inject "
-                    "spreadsheet data -- use document tools for content.")
-        return (python_specialized_sub_agent_hint(agent_label) or "").strip()
-    if domain == "document_research":
-        return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
-    return ""
-
-
 def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []

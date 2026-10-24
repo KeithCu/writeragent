@@ -35,8 +35,8 @@ from plugin.writer.locale.ai_grammar_proofreader import (
 )
 from plugin.framework.grammar_rule_ids import (
     normalize_uno_locale_to_bcp47,
-    uno_locales_for_tags,
 )
+from plugin.writer.locale.grammar_proofread_locale import uno_locales_for_tags
 
 log = logging.getLogger("writeragent.grammar")
 

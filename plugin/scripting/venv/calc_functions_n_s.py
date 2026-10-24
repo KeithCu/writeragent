@@ -73,6 +73,7 @@ __all__ = [
     "sech",
     "seriessum",
     "skew",
+    "slope",
     "small",
     "sort",
     "sortby",
@@ -854,6 +855,19 @@ def skew(*args: Any) -> float:
     acc = float(np.sum(((arr - mean) / s) ** 3))
     res = n * acc / ((n - 1) * (n - 2))
     return float(res) if math.isfinite(res) else float("nan")
+
+
+def slope(data_y: Any, data_x: Any) -> float:
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
+        return float("nan")
+    y, x = cleaned
+    if len(y) < 2:
+        return float("nan")
+    mx, my = np.mean(x), np.mean(y)
+    ss_xy = np.sum((x - mx) * (y - my))
+    ss_xx = np.sum((x - mx) ** 2)
+    return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
 
 
 def small(r: Any, k: Any) -> float:

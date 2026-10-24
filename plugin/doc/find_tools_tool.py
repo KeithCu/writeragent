@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.doc.doc_type import agent_label_for_doc_type
-from plugin.framework.prompts import get_domain_guidance, get_specialized_domain_catalog
+from plugin.framework.prompts import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolContext
 
 _FINISH_TOOL = "specialized_workflow_finished"
@@ -44,6 +44,41 @@ def _doc_filter(doc: Any) -> dict[str, Any]:
     ``filter_doc_type=False`` to list the whole catalog instead.
     """
     return {} if doc is not None else {"filter_doc_type": False}
+
+
+def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx: Any = None) -> str:
+    """Extra per-domain usage hints for direct callers (beyond catalog descriptions).
+
+    Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
+    """
+    if domain == "footnotes":
+        return ("For footnotes_insert: if the task quotes or names the document anchor "
+                "(e.g. a sentence), pass that exact string as insert_after so the "
+                "note is placed after that text.")
+    if domain == "charts":
+        if agent_label == "Calc":
+            return "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+        if agent_label is None:
+            return ("For charts: in Calc you MUST pass an explicit data range (e.g. "
+                    "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
+                    "`headers` and `rows` parameters.")
+        return ("When creating or editing a chart in Writer or Draw/Impress, you MUST "
+                "specify both the `headers` and `rows` parameters.")
+    if domain == "images":
+        from plugin.framework.prompts import images_specialized_sub_agent_hint
+
+        return images_specialized_sub_agent_hint().strip()
+    if domain == "python":
+        if agent_label is None:
+            return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "
+                    "cell values as `data`; in Writer or Draw/Impress it does not inject "
+                    "spreadsheet data -- use document tools for content.")
+        from plugin.framework.prompts import python_specialized_sub_agent_hint
+        return (python_specialized_sub_agent_hint(agent_label) or "").strip()
+    if domain == "document_research":
+        from plugin.framework.prompts import get_document_research_workflow_hint
+        return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
+    return ""
 
 
 def sidebar_only_tool_names(

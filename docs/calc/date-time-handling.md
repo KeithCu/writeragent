@@ -133,7 +133,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
    timestamp = NullDate + timedelta(seconds=round(serial_value * 86400))
    ```
 
-   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py) (`iso8601_from_serial`); elapsed detection, duration parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py), while duration emit (`iso_duration_from_serial`) lives in [plugin/calc/inspector.py](../../plugin/calc/inspector.py).
+   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py) (`iso8601_from_serial`); elapsed detection, duration parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py), while duration emit (`iso_duration_from_serial`) lives in [plugin/calc/datetime_wire.py](../../plugin/calc/datetime_wire.py).
 
 **Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. The field is for observation and inheritance checks only — models must not hardcode locale letters into `queryKey` (§6), and after S26 they have no LLM `number_format` re-apply path on `set_style`.
 
@@ -148,7 +148,7 @@ Because elapsed formats classify as `"time"` (§1.1), routing them through `iso8
 | `1.25` | `[HH]:MM:SS` | `30:00:00` | `06:00:00` | `"PT30H"`, `type: "duration"` |
 | `0.333…` | `[HH]:MM:SS` | `08:00:00` | `08:00:00` | `"PT8H"`, `type: "duration"` |
 
-The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed units; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/inspector.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate) from [`requirements-vendor.txt`](../requirements-vendor.txt) → `plugin/lib/` (build + hot-deploy overlay; without it `datetime_wire` fails to import and `write_formula_range` never registers), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination.
+The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed units; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate) from [`requirements-vendor.txt`](../requirements-vendor.txt) → `plugin/lib/` (build + hot-deploy overlay; without it `datetime_wire` fails to import and `write_formula_range` never registers), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination.
 
 ---
 
@@ -710,7 +710,7 @@ if not any(c in val for c in ("-", ":")):
     return None  # Skip regexes for plain text, numbers, and prose
 ```
 
-Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses vendored `isodate.parse_duration`; emit uses [`iso_duration_from_serial`](../../plugin/calc/inspector.py) so 30 hours stays `PT30H` (not `P1DT6H`).
+Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses vendored `isodate.parse_duration`; emit uses [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) so 30 hours stays `PT30H` (not `P1DT6H`).
 
 The gate regexes live in [`datetime_wire.py`](../../plugin/calc/datetime_wire.py) (`_DATE_RE`, `_TIME_RE`, `_DATETIME_RE`, `_DURATION_RE`) — prefer that source over copying them here.
 

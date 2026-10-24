@@ -16,7 +16,8 @@
 """Pure helpers for Calc date/time LLM wire contract (gate, preserve, elapsed, format runs).
 
 No UNO imports — unit-testable. See docs/calc/date-time-handling.md.
-Duration parse uses vendored ``isodate``; emit formatting lives in ``plugin.calc.inspector``.
+Duration parse uses vendored ``isodate``; emit is a thin hours-may-exceed-24 formatter
+so the wire stays ``PT30H`` rather than ``P1DT6H``.
 """
 
 from __future__ import annotations
@@ -82,6 +83,28 @@ def iso8601_from_serial(value: float, category: str, null_date: Any) -> str:
     if category == "datetime":
         return converted.isoformat(timespec="seconds")
     raise ValueError(f"Unsupported date/time format category: {category}")
+
+
+def iso_duration_from_serial(serial: float) -> str:
+    """Emit compact ``PTnHnMnS`` with hours allowed to exceed 24 (not ``P1DT6H``).
+
+    Negative serials are out of scope for the wire contract (gate rejects ``-PT…``);
+    raise rather than silently emitting a positive duration.
+    """
+    value = float(serial)
+    if value < 0:
+        raise ValueError(f"negative duration serial is out of scope: {serial!r}")
+    total = round(value * 86400.0)
+    hours, rem = divmod(total, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = ["PT"]
+    if hours:
+        parts.append(f"{hours}H")
+    if minutes:
+        parts.append(f"{minutes}M")
+    if seconds or not (hours or minutes):
+        parts.append(f"{seconds}S")
+    return "".join(parts)
 
 
 def is_elapsed_format_string(format_string: object) -> bool:

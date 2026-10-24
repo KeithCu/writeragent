@@ -70,11 +70,11 @@ from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ign
 from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     normalize_uno_locale_to_bcp47,
-    uno_locales_for_tags,
 )
 from plugin.writer.locale import grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
     filter_sentence_spans_for_thresholds,
+    uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (
     NormalizedProofError,
