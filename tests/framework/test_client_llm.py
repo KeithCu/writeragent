@@ -2109,7 +2109,7 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
     assert err.value.code == "HTTP_ERROR"
     assert err.value.details["status"] == 500
-    from plugin.framework.client.llm_client import _redact_secret_from_log_text
+    from plugin.framework.client.errors import _redact_secret_from_log_text
 
     expected_user = _redact_secret_from_log_text(
         _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
@@ -2186,7 +2186,7 @@ def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_c
     }
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
     with patch(
-        "plugin.framework.client.llm_client._peek_live_ollama_num_ctx",
+        "plugin.framework.client.model_fetcher._peek_live_ollama_num_ctx",
         return_value=4096,
     ):
         err = _raise_http_error(ollama, 500, "Internal Server Error", body, err_json)
@@ -3099,8 +3099,7 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
 
 
 def test_peek_ollama_num_ctx_reads_show_cache_without_http():
-    from plugin.framework.client import llm_client as llm_mod
-    from plugin.framework.client.model_fetcher import _ollama_show_cache
+    from plugin.framework.client.model_fetcher import _ollama_show_cache, _peek_live_ollama_num_ctx
     from plugin.framework.url_utils import normalize_endpoint_url
 
     endpoint = "http://127.0.0.1:11434"
@@ -3113,8 +3112,8 @@ def test_peek_ollama_num_ctx_reads_show_cache_without_http():
     client._endpoint.return_value = endpoint
     try:
         with patch("plugin.framework.client.model_fetcher.query_ollama_show") as show:
-            assert llm_mod._peek_live_ollama_num_ctx(client) == 4096
-            assert llm_mod._peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
+            assert _peek_live_ollama_num_ctx(client) == 4096
+            assert _peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
         show.assert_not_called()
     finally:
         _ollama_show_cache.pop(cache_key, None)
@@ -3150,7 +3149,7 @@ def test_request_json_200_resets_free_gap_to_floor(client):
 
 def test_overload_detection_prefers_code_and_word_boundary():
     """429/503 inside a larger number is not overload. A structured code is."""
-    from plugin.framework.client.llm_client import _stream_error_is_overload
+    from plugin.framework.client.errors import _stream_error_is_overload, _text_is_overload
 
     assert _stream_error_is_overload({"error": {"message": "Requested 4290 tokens"}}) is False
     assert _stream_error_is_overload({"error": {"message": "code 5031"}}) is False
@@ -3161,6 +3160,27 @@ def test_overload_detection_prefers_code_and_word_boundary():
     assert _stream_error_is_overload({"error": {"code": "503", "message": "down"}}) is True
     assert _stream_error_is_overload({"error": {"type": "overloaded_error", "message": "Overloaded"}}) is True
     assert _stream_error_is_overload({"error": {"code": "rate_limit_exceeded", "message": "slow down"}}) is True
+    assert _stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
+    assert _text_is_overload("limit is 503 tokens") is False
+    assert _text_is_overload('{"error": {"code": 429, "message": "rate limit reached"}}') is True
+    assert _text_is_overload('{"error": {"code": 503, "message": "down"}}') is True
+    assert _text_is_overload('{"error": {"code": 400, "message": "limit is 503 tokens"}}') is False
+
+
+def test_stream_503_tokens_limit_is_not_an_overload_retry(client, _fast_retry_waits):
+    """An error message 'limit is 503 tokens' without structured 503 code is not retried."""
+    payload = json.dumps({"error": {"message": "limit is 503 tokens"}}).encode()
+    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "STREAM_ERROR"
+    assert "503" in str(err.value)
+    assert mock_https.call_count == 1
+    _fast_retry_waits["transport"].assert_not_called()
+    bad.read.assert_not_called()
 
 
 def test_stream_4290_tokens_is_not_an_overload_retry(client, _fast_retry_waits):

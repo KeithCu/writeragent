@@ -42,7 +42,6 @@ from __future__ import annotations
 import collections
 import json
 import logging
-import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
@@ -67,8 +66,18 @@ from plugin.framework.errors import NetworkError, WriterAgentException, is_dispo
 from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
-from .errors import _format_http_error_response, append_zai_unknown_model_hint
-from .http_security import redact_secrets
+from . import model_fetcher
+from .errors import (
+    _format_http_error_response,
+    _log_chat_request_body_diag,
+    _log_http_500_request_diag,
+    _parse_provider_envelope,
+    _path_without_query,
+    _redact_secret_from_log_text,
+    _stream_error_is_overload,
+    _stream_error_message,
+    append_zai_unknown_model_hint,
+)
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json
 from .request_controls import RETRY_MAX_ATTEMPTS, backoff_delay_sec, clear_host_gap, emit_retry_status, remember_host_gap, request_model_from_body, wait_abortable
 from .stream_normalizer import (
@@ -98,260 +107,6 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     if isinstance(choices, list) and choices:
         return True
     return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
-
-
-def _stream_error_message(chunk: dict[str, Any]) -> str | None:
-    """Provider error carried inside an HTTP 200 SSE object, or None.
-
-    ``error: null`` and an empty error object are not failures. A real
-    ``{"type":"error"}`` or a non-empty top-level ``error`` object is.
-    """
-    err = chunk.get("error")
-    if isinstance(err, dict) and err:
-        message = err.get("message") or err.get("type") or "stream error"
-        return str(message)
-    if isinstance(err, str) and err.strip():
-        return err.strip()
-    event_type = chunk.get("type")
-    if event_type == "error" or (isinstance(event_type, str) and event_type.endswith("_error")):
-        return str(event_type)
-    return None
-
-
-# We match structured codes first and only narrow phrases here, not bare
-# "too many" / "unavailable", because those also match fatal errors such as
-# "too many tokens" (context overflow) or "model unavailable", which a retry
-# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
-_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
-# 429/503 must be a whole token. "4290 tokens" is a context size, not HTTP 429.
-_OVERLOAD_STATUS_RE = re.compile(r"\b(?:429|503)\b")
-
-
-def _error_code_is_overload(value: Any) -> bool:
-    """True when a structured provider code is itself an overload signal."""
-    if isinstance(value, bool) or value is None:
-        return False
-    if isinstance(value, int):
-        return value in (429, 503)
-    if isinstance(value, float):
-        return value in (429.0, 503.0)
-    text = str(value).strip().lower()
-    if not text:
-        return False
-    if text in {"429", "503"}:
-        return True
-    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
-
-
-def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
-    """Prefer error.code / type / status over scanning the message text."""
-    err = chunk.get("error")
-    if not isinstance(err, dict):
-        return False
-    return any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status"))
-
-
-def _text_is_overload(message: str) -> bool:
-    low = message.lower()
-    if any(marker in low for marker in _OVERLOAD_TEXT_MARKERS):
-        return True
-    return _OVERLOAD_STATUS_RE.search(low) is not None
-
-
-def _stream_error_is_overload(chunk: dict[str, Any]) -> bool:
-    """True when a mid-stream error is worth one retry before any UI text.
-
-    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
-    Otherwise 429 and 503 match only on a word boundary.
-    """
-    if _structured_error_is_overload(chunk):
-        return True
-    message = _stream_error_message(chunk) or ""
-    return _text_is_overload(message)
-
-
-def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
-    """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
-    if not body:
-        return {}
-    try:
-        payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
-    except (ValueError, TypeError, UnicodeDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _request_payload_byte_length(body: Any) -> int:
-    """Byte length of the encoded request body for size diagnostics."""
-    if isinstance(body, (bytes, bytearray)):
-        return len(body)
-    if isinstance(body, str):
-        return len(body.encode("utf-8"))
-    return 0
-
-
-def _redact_secret_from_log_text(text: str, secret: str) -> str:
-    """Remove a configured credential from a log string. Empty secret is a no-op."""
-    return redact_secrets(text, [secret] if secret else None)
-
-
-def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
-    """Parse an HTTP 200 provider body as a JSON object.
-
-    ``safe_json_loads`` without ``strict=True`` repairs truncated model text,
-    so a cut-off envelope such as
-    ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
-    finished reply. A JSON array was not ``None``, then ``.get`` ran outside
-    the request ``try``. Provider envelopes are not model text.
-    ``parse_strict_json`` is ``json.loads`` only, and only a dict is a response.
-    """
-    parsed = parse_strict_json(raw)
-    if not isinstance(parsed, dict):
-        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
-    # The stream loop raises on {"error": ...} inside HTTP 200. Sync chat,
-    # images, and STT must do the same, or that body looks like a finished
-    # reply and chat_completion_sync returns "". finish_reason=length with
-    # empty content is a different, documented case.
-    stream_err = _stream_error_message(parsed)
-    if stream_err is not None:
-        # The stream loop redacts an echoed API key. Sync chat, images, and
-        # STT must do the same, or HTTP 200 raises the raw provider string.
-        # The caller passes the key. Do not retry a finished body.
-        stream_err = _redact_secret_from_log_text(stream_err, api_key)
-        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
-    return parsed
-
-
-def _full_url_for_request_path(endpoint: str, path: str) -> str:
-    """Join stored endpoint host with relative API path for debug logs.
-
-    Query string is dropped so a leftover ``?key=`` never appears in logs
-    (Google image used to put the API key on the URL).
-    """
-    if not path or not str(path).startswith("/"):
-        return path
-    try:
-        parsed = urllib.parse.urlparse(endpoint or "")
-        if parsed.scheme and parsed.netloc:
-            path_only = urllib.parse.urlparse(str(path)).path or str(path)
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path_only, "", "", ""))
-    except ValueError:
-        pass
-    return path
-
-
-def _path_without_query(path: str) -> str:
-    """Request path for logs. A leftover ``?key=`` must not be printed."""
-    if not path or "?" not in path:
-        return path
-    return path.split("?", 1)[0]
-
-
-def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
-    """Log wire-level chat fields (no secrets) for provider debugging."""
-    payload = _chat_request_payload_from_body(body)
-    api_key = str(client.config.get("api_key") or "").strip()
-    n_tools = len(tools) if isinstance(tools, list) else len(payload.get("tools") or [])
-    log.debug("Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s", payload.get("model"), payload.get("stream"), n_tools, _full_url_for_request_path(client._endpoint(), path), bool(api_key), len(api_key))
-
-
-def _prompt_char_count(messages: Any) -> int:
-    """Sum of message text lengths for 500 diagnostics. Never logs the text."""
-    if not isinstance(messages, list):
-        return 0
-    total = 0
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        content = message.get("content")
-        if isinstance(content, str):
-            total += len(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    total += len(part["text"])
-                elif isinstance(part, str):
-                    total += len(part)
-    return total
-
-
-def _exit_code_from_provider_body(err_body: str) -> str | None:
-    """Best-effort native exit code from an Ollama / llama-server 500 body."""
-    if not err_body:
-        return None
-    matched = re.search(r"0x[0-9a-fA-F]+", err_body)
-    if matched:
-        return matched.group(0)
-    matched = re.search(r"exit status ([^:\s]+)", err_body, flags=re.IGNORECASE)
-    if matched:
-        return matched.group(1)
-    return None
-
-
-# Do not store a miss in _ollama_show_cache: that cache is also the vision
-# lookup, and a down server would then stick "no vision" for the process.
-
-
-def _peek_live_ollama_num_ctx(client: Any) -> int | None:
-    """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises.
-
-    ``query_ollama_runtime_num_ctx`` POSTs ``/api/show`` (10s) while
-    ``llm_request_lane`` is still held on the HTTP 500 path. Format the 500
-    from the body we already have. Read num_ctx only when a previous probe
-    filled the show cache. Do not start a new HTTP call here.
-    """
-    try:
-        if client._get_provider() != "ollama":
-            return None
-        model_name = str(client.config.get("model") or "").strip()
-        if not model_name:
-            return None
-        endpoint = str(client._endpoint() or "")
-        from plugin.framework.client.model_fetcher import _ollama_show_cache
-        from plugin.framework.url_utils import normalize_endpoint_url
-
-        cache_key = f"{normalize_endpoint_url(endpoint)}@{model_name}"
-        cached = _ollama_show_cache.get(cache_key)
-        if not isinstance(cached, dict):
-            return None
-        num_ctx = cached.get("num_ctx")
-        if isinstance(num_ctx, int) and num_ctx > 0:
-            return num_ctx
-        return None
-    except Exception:
-        log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
-        return None
-
-
-def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:
-    """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
-
-    Local llama-server / Ollama 500 bodies are often opaque. This is the
-    request *shape* (counts, host/path, model) so a debug log can be compared
-    with the reporter's server log without dumping the prompt or tool schemas.
-    Extra fields (n_ctx, prompt_chars, exit_code, max_tokens) stay on this
-    same line — do not thin the PR 571 fields when adding overflow context.
-    The raw provider body stays on the separate ``Provider API Error 500`` line.
-    """
-    payload = _chat_request_payload_from_body(body)
-    messages = payload.get("messages")
-    tools = payload.get("tools")
-    log.error(
-        "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s n_ctx=%s prompt_chars=%s max_tokens=%s exit_code=%r",
-        client._get_provider(),
-        payload.get("model"),
-        _full_url_for_request_path(client._endpoint(), path),
-        response.status,
-        getattr(response, "reason", ""),
-        payload.get("stream"),
-        len(messages) if isinstance(messages, list) else 0,
-        len(tools) if isinstance(tools, list) else 0,
-        _request_payload_byte_length(body),
-        n_ctx,
-        _prompt_char_count(messages),
-        payload.get("max_tokens"),
-        _exit_code_from_provider_body(err_body),
-    )
 
 
 from .openai_shim import get_provider_shim_class
@@ -429,7 +184,7 @@ class LlmClient:
         # query and redact any echoed secret before logging.
         safe_path = _redact_secret_from_log_text(_path_without_query(path), api_key)
         log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), safe_path, request_model)
-        n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
+        n_ctx = model_fetcher._peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
         err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)

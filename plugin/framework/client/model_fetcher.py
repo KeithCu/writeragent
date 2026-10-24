@@ -1463,6 +1463,34 @@ def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
     return None
 
 
+def _peek_live_ollama_num_ctx(client: Any) -> int | None:  # pyright: ignore[reportUnusedFunction]
+    """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises.
+
+    ``query_ollama_runtime_num_ctx`` POSTs ``/api/show`` (10s) while
+    ``llm_request_lane`` is still held on the HTTP 500 path. Format the 500
+    from the body we already have. Read num_ctx only when a previous probe
+    filled the show cache. Do not start a new HTTP call here.
+    """
+    try:
+        if client._get_provider() != "ollama":
+            return None
+        model_name = str(client.config.get("model") or "").strip()
+        if not model_name:
+            return None
+        endpoint = str(client._endpoint() or "")
+        cache_key = f"{normalize_endpoint_url(endpoint)}@{model_name}"
+        cached = _ollama_show_cache.get(cache_key)
+        if not isinstance(cached, dict):
+            return None
+        num_ctx = cached.get("num_ctx")
+        if isinstance(num_ctx, int) and num_ctx > 0:
+            return num_ctx
+        return None
+    except Exception:
+        log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
+        return None
+
+
 def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None = None, *, api_key_override: str | None = None) -> int | None:
     """Already-memoized /v1/models window for ``model_id``, or None. Does not HTTP.
 
