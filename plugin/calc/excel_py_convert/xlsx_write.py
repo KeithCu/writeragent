@@ -43,6 +43,7 @@ from plugin.calc.excel_py_convert.script_bank import (
     CODE_SHEET_NOTE,
     CODE_SHEET_NOTE_CELL,
     CODE_SHEET_PREFIX,
+    _is_py_code_bank_sheet,
     a1_span_bounds,
     bank_defined_name_for,
     collect_script_bank,
@@ -523,43 +524,6 @@ def _patch_content_types(data: bytes, drop_parts: set[str] | None = None) -> byt
             attrib={"PartName": "/xl/pythonScripts.xml", "ContentType": "application/xml"},
         )
     return serialize_xml_preserving_namespaces(root, ns_map)
-
-
-def _is_py_code_bank_sheet(
-    zin: zipfile.ZipFile,
-    sh_title: str,
-    sh_part_name: str,
-    defined_names: list[tuple[str, str]],
-    shared_strings: list[str],
-) -> bool:
-    """True if sh_title is a script bank sheet (has defined name or ZZ1 == CODE_SHEET_NOTE)."""
-    if any(defined_name_targets_sheet(name, val, sh_title) for name, val in defined_names):
-        return True
-    try:
-        ws_bytes = zin.read(sh_part_name)
-        ws_root = ET.fromstring(ws_bytes)
-    except Exception:
-        return False
-    for c in find_all(ws_root, "c"):
-        if (c.attrib.get("r") or "").replace("$", "").upper() == CODE_SHEET_NOTE_CELL:
-            is_el = find_child(c, "is")
-            if is_el is not None:
-                txt = "".join(is_el.itertext()).strip()
-                if txt == CODE_SHEET_NOTE:
-                    return True
-            t = (c.attrib.get("t") or "").lower()
-            v = find_child(c, "v")
-            if v is not None and v.text:
-                if t == "s":
-                    try:
-                        idx = int(v.text)
-                        if idx < len(shared_strings) and shared_strings[idx] == CODE_SHEET_NOTE:
-                            return True
-                    except (ValueError, IndexError):
-                        pass
-                elif v.text.strip() == CODE_SHEET_NOTE:
-                    return True
-    return False
 
 
 _WORKBOOK_AFTER_CALC_PR = (

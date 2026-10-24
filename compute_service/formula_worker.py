@@ -26,7 +26,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
-from compute_service.json_forward import dumps_response, validate_execute_response, validate_session_id
+from compute_service.json_forward import _json_forward_envelope, validate_execute_response, validate_session_id
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
@@ -142,29 +142,6 @@ def _load_request_data(req: dict[str, Any]) -> Any:
         except Exception as exc:
             raise ValueError(f"Invalid data_json: {exc}") from exc
     raise ValueError("data_json must be bytes")
-
-
-def _json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False) -> dict[str, Any]:
-    """Pickle envelope: small status for host logs + result_json bytes to forward."""
-    if session_reset:
-        res["session_reset"] = True
-    try:
-        result_json = dumps_response(res)
-    except (TypeError, ValueError) as exc:
-        fallback: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {exc}"}
-        if req_id is not None:
-            fallback["id"] = req_id
-        if session_reset:
-            fallback["session_reset"] = True
-        result_json = dumps_response(fallback)
-        out: dict[str, Any] = {"id": req_id, "status": "error", "result_json": result_json}
-        if session_reset:
-            out["session_reset"] = True
-        return out
-    out = {"id": req_id, "status": res.get("status"), "result_json": result_json}
-    if session_reset:
-        out["session_reset"] = True
-    return out
 
 
 def main() -> int:

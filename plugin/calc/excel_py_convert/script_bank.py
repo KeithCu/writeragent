@@ -18,12 +18,16 @@ from __future__ import annotations
 import ast
 import logging
 import re
+from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 from typing import TYPE_CHECKING, Any, Callable
 
+from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
 from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
+    import zipfile
+
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
 
 log = logging.getLogger(__name__)
@@ -275,6 +279,43 @@ def defined_name_targets_sheet(name: str, val: str, sheet_title: str) -> bool:
         token = token.replace("''", "'")
         if token.lower() == target_l:
             return True
+    return False
+
+
+def _is_py_code_bank_sheet(  # pyright: ignore[reportUnusedFunction]
+    zin: zipfile.ZipFile,
+    sh_title: str,
+    sh_part_name: str,
+    defined_names: list[tuple[str, str]],
+    shared_strings: list[str],
+) -> bool:
+    """True if sh_title is a script bank sheet (has defined name or ZZ1 == CODE_SHEET_NOTE)."""
+    if any(defined_name_targets_sheet(name, val, sh_title) for name, val in defined_names):
+        return True
+    try:
+        ws_bytes = zin.read(sh_part_name)
+        ws_root = ET.fromstring(ws_bytes)
+    except Exception:
+        return False
+    for c in find_all(ws_root, "c"):
+        if (c.attrib.get("r") or "").replace("$", "").upper() == CODE_SHEET_NOTE_CELL:
+            is_el = find_child(c, "is")
+            if is_el is not None:
+                txt = "".join(is_el.itertext()).strip()
+                if txt == CODE_SHEET_NOTE:
+                    return True
+            t = (c.attrib.get("t") or "").lower()
+            v = find_child(c, "v")
+            if v is not None and v.text:
+                if t == "s":
+                    try:
+                        idx = int(v.text)
+                        if idx < len(shared_strings) and shared_strings[idx] == CODE_SHEET_NOTE:
+                            return True
+                    except (ValueError, IndexError):
+                        pass
+                elif v.text.strip() == CODE_SHEET_NOTE:
+                    return True
     return False
 
 

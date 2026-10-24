@@ -170,6 +170,29 @@ def dumps_response(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
+def _json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    """Pickle envelope: small status for host logs + result_json bytes to forward."""
+    if session_reset:
+        res["session_reset"] = True
+    try:
+        result_json = dumps_response(res)
+    except (TypeError, ValueError) as exc:
+        fallback: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {exc}"}
+        if req_id is not None:
+            fallback["id"] = req_id
+        if session_reset:
+            fallback["session_reset"] = True
+        result_json = dumps_response(fallback)
+        out: dict[str, Any] = {"id": req_id, "status": "error", "result_json": result_json}
+        if session_reset:
+            out["session_reset"] = True
+        return out
+    out = {"id": req_id, "status": res.get("status"), "result_json": result_json}
+    if session_reset:
+        out["session_reset"] = True
+    return out
+
+
 def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
     """Materialize ``result_json`` for pool tests / callers that want a dict.
 
