@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.constants import get_locales_dir
+from plugin.framework.i18n import get_locales_dir
 from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,

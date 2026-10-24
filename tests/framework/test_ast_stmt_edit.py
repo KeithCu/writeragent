@@ -178,3 +178,24 @@ def test_ast_source_offset_with_form_feed_and_u2028() -> None:
     assert ast_source_offset(src_ff, 2, 4) == len('s = "hello\x0cworld"\n') + 4
     assert ast_source_offset(src_u2028, 2, 4) == len('s = "hello\u2028world"\n') + 4
 
+
+def test_node_span_valid_and_missing_positions() -> None:
+    from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
+
+    src = "a = 1\nb = foo(x)\n"
+    tree = ast.parse(src)
+    starts = line_starts_exact(src)
+
+    # First stmt: "a = 1"
+    start, end = node_span(tree.body[0], src, starts)
+    assert src[start:end] == "a = 1"
+
+    # Second stmt: "b = foo(x)"
+    start, end = node_span(tree.body[1], src, starts)
+    assert src[start:end] == "b = foo(x)"
+
+    # Node missing position attributes returns (-1, -1)
+    empty_node = ast.Constant(value=42)
+    assert node_span(empty_node, src, starts) == (-1, -1)
+
+

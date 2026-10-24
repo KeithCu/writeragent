@@ -28,7 +28,6 @@ from plugin.notebook.notebook_controls import (
     _insert_code_input_in_flow,
     _max_field_height_units,
     _page_style,
-    _resolve_para_style,
     _text_area_width_units,
     _text_width_from_style,
 )
@@ -43,6 +42,7 @@ from plugin.notebook.writer_importer import (
     _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _create_import_para_style,
+    _resolve_para_style,
     _decode_notebook_image,
     _ensure_notebook_import_styles,
     output_para_style,

@@ -97,6 +97,23 @@ def test_focus_preserved_swallows_restore_exceptions():
     failing_callback.assert_called_once()
 
 
+def test_pump_vcl_events():
+    from plugin.framework.vcl_pumping import pump_vcl_events
+
+    assert pump_vcl_events(None) is False
+
+    no_pe2i = object()
+    assert pump_vcl_events(no_pe2i) is False
+
+    toolkit = MagicMock()
+    assert pump_vcl_events(toolkit) is True
+    toolkit.processEventsToIdle.assert_called_once()
+
+    failing_toolkit = MagicMock()
+    failing_toolkit.processEventsToIdle.side_effect = RuntimeError("VCL error")
+    assert pump_vcl_events(failing_toolkit) is False
+
+
 def test_process_events_to_idle_calls_toolkit():
     from plugin.framework.async_drain_guard import reset_suppressed_vcl_pump_count
     from plugin.framework.vcl_pumping import process_events_to_idle

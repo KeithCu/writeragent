@@ -7,7 +7,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.uno_context import menu_icon_filesystem_paths
+from plugin.framework.menu_icon_dpi import menu_icon_filesystem_paths
 from plugin.librepy.sidebar_menus import (
     invoke_action_handler,
     librepy_hamburger_actions,
@@ -292,7 +292,7 @@ def test_load_menu_graphic_caching_and_reset():
 
     with (
         patch("plugin.framework.uno_context.get_extension_url", return_value="vnd.sun.star.extension://test"),
-        patch("plugin.framework.uno_context.menu_icon_asset_url", return_value="vnd.sun.star.extension://test/assets/gear_16.png"),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_url", return_value="vnd.sun.star.extension://test/assets/gear_16.png"),
     ):
         # 1. First call loads and caches
         res1 = load_menu_graphic(ctx, "gear_16.png")

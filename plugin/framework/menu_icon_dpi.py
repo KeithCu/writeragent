@@ -18,6 +18,8 @@ import logging
 import os
 from typing import Any
 
+from plugin.framework.constants import get_plugin_dir
+
 log = logging.getLogger("writeragent.menu_icon_dpi")
 
 # 96 DPI in device pixels per meter (LO DeviceInfo convention).
@@ -307,10 +309,38 @@ def image_type_for_pixel_size(px: int) -> int:
     return int(ImageType.SIZE_DEFAULT)
 
 
+def menu_icon_asset_url(ext_url: str, icon_filename: str) -> str:
+    """Return GraphicProvider URL for a menu icon shipped in OXT assets/."""
+    return "%s/assets/%s" % (ext_url.rstrip("/"), icon_filename)
+
+
+def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
+    """Local PNG paths for menu icons (OXT layout first, then git checkout).
+
+    ``scripts/build_oxt.py`` remaps ``extension/assets/`` to ``assets/`` at the
+    bundle root. ``make release`` pytest/UNO runs against that tree, so looking
+    only under ``extension/assets/`` misses ``python_32.png`` and friends.
+
+    ``removeprefix("assets/")`` after ``lstrip("/")`` removes only a leading
+    assets/ prefix. ``replace("assets/", "")`` strips that substring
+    anywhere ("my_assets/x.png" becomes "my_x.png").
+    On Windows, ``os.path.join`` does not rewrite a "/" already inside the
+    next component, so "my_assets/icon.png" becomes
+    assets\\my_assets/icon.png and fails the endswith check
+    (GHA 37719557033). ``normpath`` the relative remainder so separators
+    match the platform.
+    """
+    clean = icon_filename.replace("\\", "/").lstrip("/").removeprefix("assets/")
+    # normpath("") is "."; an empty remainder must stay empty so the join
+    # remains under assets/ rather than collapsing to the assets directory.
+    if clean:
+        clean = os.path.normpath(clean)
+    root = os.path.dirname(get_plugin_dir())
+    return (os.path.join(root, "assets", clean), os.path.join(root, "extension", "assets", clean))
+
+
 def pick_shipped_icon(prefix: str, wanted_px: int, candidates: tuple[int, ...], fallback_px: int) -> str:
     """Pick closest existing icon matching *wanted_px* among *candidates*, or fallback."""
-    from plugin.framework.uno_context import menu_icon_filesystem_paths
-
     existing: list[int] = []
     for cand in candidates:
         name = f"{prefix}_{cand}.png"
@@ -351,5 +381,7 @@ __all__ = [
     "image_type_for_pixel_size",
     "menu_icon_filename",
     "menu_icon_asset_rel",
+    "menu_icon_asset_url",
+    "menu_icon_filesystem_paths",
     "pick_shipped_icon",
 ]

@@ -37,8 +37,8 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 from plugin.framework.queue_executor import run_on_main
-from plugin.framework.sidebar_column import property_arg, sidebar_column_width
-from plugin.framework.uno_context import get_extension_url, get_ctx
+from plugin.framework.sidebar_column import sidebar_column_width
+from plugin.framework.uno_context import get_ctx, get_extension_url, property_arg
 
 if TYPE_CHECKING:
     from com.sun.star.uno import XInterface

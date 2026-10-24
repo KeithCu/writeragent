@@ -28,7 +28,8 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, is_disposed_exception
-from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url
+from plugin.framework.menu_icon_dpi import menu_icon_asset_url
+from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model

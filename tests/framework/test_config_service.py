@@ -197,7 +197,7 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
-    monkeypatch.setattr(main, "_register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: EventBus())
 

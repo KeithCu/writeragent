@@ -1331,3 +1331,25 @@ class TestMalformedArchitectureHandling:
             res = fetch_available_models("http://127.0.0.1:58999")
             assert res == ["good", "bad-arch", "text-only"]
             assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+def test_peek_ollama_num_ctx_reads_show_cache_without_http():
+    from unittest.mock import MagicMock
+    from plugin.framework.client.model_fetcher import _ollama_show_cache, peek_live_ollama_num_ctx
+    from plugin.framework.url_utils import normalize_endpoint_url
+
+    endpoint = "http://127.0.0.1:11434"
+    model = "llama"
+    cache_key = f"{normalize_endpoint_url(endpoint)}@{model}"
+    _ollama_show_cache[cache_key] = {"capabilities": [], "num_ctx": 4096}
+    client = MagicMock()
+    client._get_provider.return_value = "ollama"
+    client.config = {"model": model}
+    client._endpoint.return_value = endpoint
+    try:
+        with patch("plugin.framework.client.model_fetcher.query_ollama_show") as show:
+            assert peek_live_ollama_num_ctx(client) == 4096
+            assert peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
+        show.assert_not_called()
+    finally:
+        _ollama_show_cache.pop(cache_key, None)

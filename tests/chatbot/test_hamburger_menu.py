@@ -203,7 +203,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         with (
-            patch("plugin.main._tests_bundled", return_value=False),
+            patch("plugin.framework.main_shared.tests_bundled", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
@@ -227,7 +227,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         with (
-            patch("plugin.main._tests_bundled", return_value=True),
+            patch("plugin.framework.main_shared.tests_bundled", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
@@ -278,7 +278,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         with (
-            patch("plugin.main._tests_bundled", return_value=True),
+            patch("plugin.framework.main_shared.tests_bundled", return_value=True),
             patch("plugin.main.get_menu_text", return_value="Toggle MCP Server"),
             patch("plugin.main._get_menu_icon", return_value="stopped"),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
