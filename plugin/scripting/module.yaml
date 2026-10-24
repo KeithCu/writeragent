@@ -113,7 +113,7 @@ config:
     default: false
     widget: checkbox
     label: Allow network access
-    helper: Lets Python open network connections with socket, http, urllib and ssl.
+    helper: Blocks network imports (socket, requests, http, urllib, ssl, …) unless checked.
     public: true
     inline: true
     x: 8
@@ -124,7 +124,7 @@ config:
     default: false
     widget: checkbox
     label: Allow file access
-    helper: Lets Python read, write, rename and delete files anywhere on this computer with open, pathlib, shutil, io, tempfile, glob and the file functions of os.
+    helper: Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the open() builtin) unless checked. Reads through pathlib, glob, io, and logging stay allowed.
     public: true
     inline: true
     x: 142
@@ -135,7 +135,7 @@ config:
     default: false
     widget: checkbox
     label: Allow OS access
-    helper: Gives Python the full os module (environment, processes, system info) and lets Python run other programs with subprocess and os.system. Includes file access.
+    helper: Allows raw os and subprocess (run other programs); includes file access.
     public: true
     x: 256
     width: 120

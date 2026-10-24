@@ -1409,7 +1409,7 @@ def _flatten_append_cell_slow(
             # Fraction. This branch runs only after an earlier cell set
             # has_non_numeric, and str() on those values made the same number
             # 1.25 or the text "1.25" / "1/4" depending on position. decimal
-            # and fractions are on the venv import whitelist, and a pandas
+            # and fractions are on the sandbox import policy, and a pandas
             # object column reaches this flatten without the pickle-leaf
             # coerce. Strings stay text (zip codes). A value ``float()``
             # rejects (huge Fraction, Python complex) is text via
@@ -2502,7 +2502,7 @@ def child_pack_result(
                 # The old gate was ``kind not in ("U", "S", "O")``. Complex
                 # (``c``) passed it and astype(float64) dropped the imaginary
                 # part. Void/structured raised inside the cast and dropped the
-                # cell. Same whitelist as the DataFrame path.
+                # cell. Same sandbox import policy as the DataFrame path.
                 wire_kind = kind if isinstance(kind, str) else None
                 if (
                     result.ndim in (1, 2)

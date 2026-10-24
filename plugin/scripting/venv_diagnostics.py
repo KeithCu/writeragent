@@ -27,8 +27,7 @@ from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_py
 
 log = logging.getLogger(__name__)
 
-# Vision stack (docs/images/recognition.md §7–§13): probed outside the AST sandbox because
-# docling/paddleocr/paddle are not whitelisted for LLM-submitted venv scripts.
+# Vision stack (docs/images/recognition.md §7–§13): heavy trusted-helper dependencies; probed outside the AST sandbox and not part of the curated extras.
 # Primary OCR: docling + rapidocr-paddle. Fallback: paddleocr + paddle.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage")
@@ -533,7 +532,7 @@ result = {'v': platform.python_version(), 'arch': platform.machine()}
 # inside their own try/except; do not switch them to __import__ or to one
 # try around every import.
 def _package_probe_script(module: str) -> str:
-    """Return a sandbox-safe one-import probe script for a whitelisted *module*."""
+    """Return a sandbox-safe one-import probe script for a supported *module*."""
     if module not in _ALLOWED_PROBE_MODULES:
         raise ValueError(f"unsupported probe module: {module}")
     import_stmt = f"import {module}"

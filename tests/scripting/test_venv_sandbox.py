@@ -1038,3 +1038,122 @@ def test_extra_modules_override_blocklist() -> None:
     res = run_sandboxed_code(code, sandbox_policy={"extra_modules": "subprocess, sys"})
     assert res.get("status") == "ok", res
     assert res.get("result") == 0
+
+
+@pytest.mark.parametrize(
+    "mod",
+    ["importlib", "builtins", "pickle", "subprocess", "pty", "marshal"],
+)
+def test_sandbox_runtime_default_blocks_host_escape(mod: str) -> None:
+    res = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "not allowed" in res.get("message", "").lower()
+
+
+def test_sandbox_runtime_blocks_internal_plugin_and_writeragent_framework() -> None:
+    for mod in ("plugin.framework.config", "writeragent.framework.config"):
+        res = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+        assert res["status"] == "error"
+        assert "not allowed" in res.get("message", "").lower()
+
+
+def test_sandbox_runtime_reexported_os_proxy() -> None:
+    # default: read-only _FileOsProxy (no system, remove forbidden)
+    res_def = run_sandboxed_code(
+        "from random import _os\nresult = (hasattr(_os, 'system'), hasattr(_os, 'remove'))",
+        sandbox_policy=None,
+    )
+    assert res_def["status"] == "ok"
+    assert res_def["result"] == [False, True]
+
+    res_remove_def = run_sandboxed_code(
+        "from random import _os\n_os.remove('nonexistent_file_xyz')",
+        sandbox_policy=None,
+    )
+    assert res_remove_def["status"] == "error"
+    assert "Forbidden access to function: remove" in res_remove_def.get("message", "")
+
+    # files=True: _FileOsProxy with writes (remove present, no system)
+    res_files = run_sandboxed_code(
+        "from random import _os\nresult = (hasattr(_os, 'system'), callable(_os.remove))",
+        sandbox_policy={"files": True},
+    )
+    assert res_files["status"] == "ok"
+    assert res_files["result"] == [False, True]
+
+    # os=True: raw os module (callable(_os.system) is True)
+    res_os = run_sandboxed_code(
+        "from random import _os\nresult = callable(_os.system)",
+        sandbox_policy={"os": True},
+    )
+    assert res_os["status"] == "ok"
+    assert res_os["result"] is True
+
+
+def test_sandbox_runtime_requests_network_gate() -> None:
+    res_def = run_sandboxed_code("import requests", sandbox_policy=None)
+    assert res_def["status"] == "error"
+    assert "not allowed" in res_def.get("message", "").lower()
+
+    res_net = run_sandboxed_code(
+        "import requests\nresult = bool(hasattr(requests, 'get'))",
+        sandbox_policy={"network": True},
+    )
+    assert res_net["status"] == "ok"
+    assert res_net["result"] is True
+
+
+def test_sandbox_runtime_pathlib_allowed_default_and_files() -> None:
+    res_def = run_sandboxed_code(
+        "import pathlib\nresult = pathlib.Path('.').exists()",
+        sandbox_policy=None,
+    )
+    assert res_def["status"] == "ok"
+    assert res_def["result"] is True
+
+    res_files = run_sandboxed_code(
+        "import pathlib\nresult = pathlib.Path('.').exists()",
+        sandbox_policy={"files": True},
+    )
+    assert res_files["status"] == "ok"
+    assert res_files["result"] is True
+
+
+@pytest.mark.parametrize(
+    "mod",
+    [
+        "io",
+        "logging",
+        "glob",
+        "zipfile",
+        "asyncio",
+        "inspect",
+        "sys",
+        "signal",
+        "concurrent.futures",
+    ],
+)
+def test_sandbox_runtime_safe_stdlib_allowed_by_default(mod: str) -> None:
+    res = run_sandboxed_code(f"import {mod}\nresult = True", sandbox_policy=None)
+    assert res["status"] == "ok"
+    assert res["result"] is True
+
+
+@pytest.mark.parametrize("mod", ["shutil", "tempfile", "sqlite3"])
+def test_sandbox_runtime_file_blocked_modules(mod: str) -> None:
+    res_def = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+    assert res_def["status"] == "error"
+    assert "not allowed" in res_def.get("message", "").lower()
+
+    res_files = run_sandboxed_code(f"import {mod}\nresult = True", sandbox_policy={"files": True})
+    assert res_files["status"] == "ok"
+    assert res_files["result"] is True
+
+
+def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
+    res = run_sandboxed_code(
+        "import importlib\nresult = bool(hasattr(importlib, 'import_module'))",
+        sandbox_policy={"extra_modules": "importlib"},
+    )
+    assert res["status"] == "ok"
+    assert res["result"] is True
