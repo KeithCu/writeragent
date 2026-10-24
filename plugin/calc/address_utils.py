@@ -283,17 +283,4 @@ def format_range_address(addr: Any, *, collapse_single: bool = False) -> str:
         addr.EndRow,
         collapse_single=collapse_single,
     )
-def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
-    """Sheet name (if any), column, and row where a generated report should start.
 
-    ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
-    ``.`` and ``!``. A last-dot split would hand ``'Q1.Sales'!B2`` to
-    ``parse_address`` still prefixed, and a range (``Sheet1.A1:Sheet1.C10``
-    or ``$A$1:$C$5``) would resolve to the end cell or a token
-    ``parse_address`` rejects. The write starts at the first cell, with
-    ``$`` locks removed.
-    """
-    sheet_name, cell_part = split_sheet_prefix(output_range)
-    anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
-    col, row = parse_address(anchor)
-    return sheet_name, col, row

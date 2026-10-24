@@ -1222,7 +1222,7 @@ class TestFormulaPoolSupervisor:
         here; pool execute() still rejects it before stdio.
         """
         from compute_service.formula_worker import _handle_request
-        from compute_service.json_forward import decode_worker_result
+        from compute_service.formula_pool import decode_worker_result
 
         pickled = decode_worker_result(_handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]}))
         assert pickled.get("status") == "ok"

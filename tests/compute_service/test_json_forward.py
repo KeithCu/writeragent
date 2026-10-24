@@ -13,11 +13,10 @@ from unittest.mock import patch
 import pytest
 
 from compute_service.config import ComputeSettings
-from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
+from compute_service.formula_pool import FormulaProcessPool, decode_worker_result, shutdown_formula_pool
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
-    decode_worker_result,
     dumps_response,
     MAX_META_BYTES,
     encode_multipart_execute,

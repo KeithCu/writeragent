@@ -26,7 +26,7 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, require_execute_wire, validate_session_id
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, require_execute_wire, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, MIN_REQUEST_SEC, PoolSingleton, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -52,6 +52,20 @@ class _Session:
     worker: BaseProcessWorker
     child: object | None
     last_active: float
+
+
+def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
+    """Materialize ``result_json`` for pool tests / callers that want a dict.
+
+    The HTTP server must not use this on the success path — it forwards the
+    raw bytes instead of re-dumping.
+    """
+    raw = res.get("result_json")
+    if isinstance(raw, (bytes, bytearray)):
+        parsed = json.loads(bytes(raw).decode("utf-8"))
+        if isinstance(parsed, dict):
+            return parsed
+    return res
 
 
 class FormulaProcessPool(BaseProcessPool):

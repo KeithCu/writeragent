@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, is_disposed_exception, uno_probe
 from plugin.framework.tool import ToolBaseDummy
-from plugin.calc.address_utils import parse_output_anchor
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet_and_cell
 from plugin.scripting.analysis import HELPER_NAMES
 
@@ -318,6 +318,22 @@ def extract_calc_data_tool_args(
     return helper, dr, data, params, headers, task_hint, output_range
 
 
+def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
+    """Sheet name (if any), column, and row where a generated report should start.
+
+    ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
+    ``.`` and ``!``. A last-dot split would hand ``'Q1.Sales'!B2`` to
+    ``parse_address`` still prefixed, and a range (``Sheet1.A1:Sheet1.C10``
+    or ``$A$1:$C$5``) would resolve to the end cell or a token
+    ``parse_address`` rejects. The write starts at the first cell, with
+    ``$`` locks removed.
+    """
+    sheet_name, cell_part = split_sheet_prefix(output_range)
+    anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
+    col, row = parse_address(anchor)
+    return sheet_name, col, row
+
+
 def write_anchor_result(
     ctx: ToolContext,
     result: dict[str, Any],
@@ -325,7 +341,6 @@ def write_anchor_result(
     insert_fn: Any,
 ) -> dict[str, Any]:
     """Write result to output anchor and record write errors without raising."""
-    from plugin.calc.address_utils import parse_output_anchor
     from plugin.framework.queue_executor import execute_on_main_thread
 
     def _write() -> None:

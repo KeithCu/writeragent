@@ -193,20 +193,6 @@ def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bo
     return out
 
 
-def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
-    """Materialize ``result_json`` for pool tests / callers that want a dict.
-
-    The HTTP server must not use this on the success path — it forwards the
-    raw bytes instead of re-dumping.
-    """
-    raw = res.get("result_json")
-    if isinstance(raw, (bytes, bytearray)):
-        parsed = json.loads(bytes(raw).decode("utf-8"))
-        if isinstance(parsed, dict):
-            return parsed
-    return res
-
-
 def is_multipart_content_type(content_type: str | None) -> bool:
     """True when the kit opted into the optional multipart ingress."""
     if not content_type:

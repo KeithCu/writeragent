@@ -12,8 +12,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.address_utils import parse_output_anchor as _output_anchor
-from plugin.calc.analysis import AnalyzeDataTool, GoalSeekTool, SolverTool, resolve_cell_address
+from plugin.calc.analysis import (
+    AnalyzeDataTool,
+    GoalSeekTool,
+    SolverTool,
+    parse_output_anchor as _output_anchor,
+    resolve_cell_address,
+)
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 
 
