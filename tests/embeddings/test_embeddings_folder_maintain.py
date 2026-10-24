@@ -82,7 +82,7 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
         patch.object(maintain, "_ingest_rows", side_effect=_fake_ingest_rows),
         patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=db_path),
-        patch.object(maintain, "_write_row_count_meta"),
+        patch.object(maintain, "write_row_count_meta"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -112,7 +112,7 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
         patch.object(maintain, "_ingest_rows") as ingest_mock,
         patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
-        patch.object(maintain, "_write_row_count_meta"),
+        patch.object(maintain, "write_row_count_meta"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -249,7 +249,7 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "_write_row_count_meta"),
+        patch.object(maintain, "write_row_count_meta"),
         patch.object(maintain, "_ingest_rows", return_value={"indexed": 2, "upserted": 2}) as ingest,
     ):
         maintain._incremental_refresh(
@@ -278,7 +278,7 @@ def test_incremental_skips_backfill_when_vectors_present(tmp_path):
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "_write_row_count_meta"),
+        patch.object(maintain, "write_row_count_meta"),
         patch.object(maintain, "_ingest_rows") as ingest,
     ):
         maintain._incremental_refresh(

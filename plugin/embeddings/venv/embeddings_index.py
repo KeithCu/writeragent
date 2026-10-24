@@ -266,16 +266,6 @@ def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, nea
     return res
 
 
-def maintain_folder_index(listing_root: str, embedding_model: str, mode: str = "auto", *, search_mode: str = "hybrid", heartbeat_fn: Any | None = None) -> dict[str, Any]:
-    """Folder corpus maintenance (ODF extract + corpus.db) — trusted RPC entry point."""
-    from typing import cast
-
-    from plugin.embeddings.venv.embeddings_folder_maintain import MaintainMode, maintain_folder_corpus
-
-    resolved_mode: MaintainMode = cast("MaintainMode", mode if mode in ("auto", "cold", "incremental") else "auto")
-    return maintain_folder_corpus(str(listing_root), embedding_model=str(embedding_model), search_mode=str(search_mode or "embeddings"), mode=resolved_mode, heartbeat_fn=heartbeat_fn)
-
-
 def collection_stats(db_path: str, meta_path: str, *, model_name: str = "") -> dict[str, Any]:
     """Return chunk count and corpus metadata for host empty/stale checks."""
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
@@ -318,4 +308,4 @@ def collection_stats(db_path: str, meta_path: str, *, model_name: str = "") -> d
     return {"chunk_count": count, "schema_version": meta.get("schema_version", ""), "embedding_model": meta.get("embedding_model", ""), "storage_backend": storage, "dim": int(meta.get("dim", "0") or 0)}
 
 
-__all__ = ["collection_stats", "delete_paragraphs", "embed_texts", "hybrid_search", "index_paragraphs", "knn_search", "maintain_folder_index"]
+__all__ = ["collection_stats", "delete_paragraphs", "embed_texts", "hybrid_search", "index_paragraphs", "knn_search"]

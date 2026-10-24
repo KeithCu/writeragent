@@ -41,6 +41,21 @@ def test_ensure_corpus_meta_writes_json(tmp_path):
     assert meta["storage_backend"] == embeddings_cache.STORAGE_BACKEND
 
 
+def test_write_row_count_meta(tmp_path):
+    listing = tmp_path / "project"
+    listing.mkdir()
+    embeddings_cache.write_row_count_meta(str(listing), 42, embedding_model="all-MiniLM-L6-v2", dim=384)
+    meta_path = embeddings_cache.corpus_meta_path(str(listing))
+    meta = embeddings_cache.read_corpus_meta(meta_path)
+    assert meta["schema_version"] == embeddings_cache.SCHEMA_VERSION
+    assert meta["storage_backend"] == "sqlite_vec"
+    assert meta["row_count"] == "42"
+    assert meta["chunk_count"] == "42"
+    assert meta["embedding_model"] == "all-MiniLM-L6-v2"
+    assert meta["dim"] == "384"
+    assert "updated_at" in meta
+
+
 def test_write_corpus_meta_atomic_behavior(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
 

@@ -309,6 +309,16 @@ def ensure_corpus_meta(meta_path: Path, *, embedding_model: str, dim: int | None
     write_corpus_meta(meta_path, **fields)
 
 
+def write_row_count_meta(listing_root: str, row_count: int, *, embedding_model: str = "", dim: int = 0) -> None:
+    """Record row and chunk counts into folder corpus metadata (sqlite-vec backend)."""
+    fields: dict[str, str] = {"schema_version": SCHEMA_VERSION, "storage_backend": STORAGE_BACKEND, "row_count": str(row_count), "chunk_count": str(row_count), "updated_at": str(time.time())}
+    if embedding_model:
+        fields["embedding_model"] = embedding_model
+    if dim > 0:
+        fields["dim"] = str(dim)
+    write_corpus_meta(corpus_meta_path(listing_root), **fields)
+
+
 def chunk_count_from_meta(meta_path: Path) -> int:
     meta = read_corpus_meta(meta_path)
     raw = meta.get("chunk_count", "0")

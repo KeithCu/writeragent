@@ -80,12 +80,16 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             model_name=str(params.get("model") or ""),
         )
     if helper == "maintain_folder_index":
-        from plugin.embeddings.venv.embeddings_index import maintain_folder_index
+        from typing import cast
 
+        from plugin.embeddings.venv.embeddings_folder_maintain import MaintainMode, maintain_folder_index
+
+        mode = str(params.get("mode") or "auto")
+        resolved_mode = cast("MaintainMode", mode if mode in ("auto", "cold", "incremental") else "auto")
         return maintain_folder_index(
             str(params.get("listing_root") or ""),
-            str(params.get("model") or ""),
-            str(params.get("mode") or "auto"),
+            embedding_model=str(params.get("model") or ""),
+            mode=resolved_mode,
             search_mode=str(params.get("search_mode") or "hybrid"),
             heartbeat_fn=heartbeat_fn,
         )

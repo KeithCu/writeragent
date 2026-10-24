@@ -7,10 +7,9 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any, Callable, Literal
 
-from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, diff_chunk_rows, ensure_corpus_meta, file_is_stale, index_is_empty, mark_file_indexed, maybe_upgrade_legacy_index, needs_cold_rebuild, sync_file_paragraph_state, write_corpus_meta
+from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, diff_chunk_rows, ensure_corpus_meta, file_is_stale, index_is_empty, mark_file_indexed, maybe_upgrade_legacy_index, needs_cold_rebuild, sync_file_paragraph_state, write_row_count_meta
 from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema, insert_paragraph_rows, rebuild_fts_corpus_index, model_slug
@@ -57,15 +56,6 @@ def _resolve_mode(listing_root: str, embedding_model: str, mode: MaintainMode, *
     return "incremental"
 
 
-def _write_row_count_meta(listing_root: str, row_count: int, *, embedding_model: str = "", dim: int = 0) -> None:
-    fields: dict[str, str] = {"schema_version": EMBEDDINGS_SCHEMA_VERSION, "storage_backend": "sqlite_vec", "row_count": str(row_count), "chunk_count": str(row_count), "updated_at": str(time.time())}
-    if embedding_model:
-        fields["embedding_model"] = embedding_model
-    if dim > 0:
-        fields["dim"] = str(dim)
-    write_corpus_meta(corpus_meta_path(listing_root), **fields)
-
-
 def _ingest_rows(
     listing_root: str, embedding_model: str, rows: list[dict[str, Any]], *, delete_keys: list[dict[str, Any]] | None = None, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings", fill_vector_gaps: bool = False, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None
 ) -> dict[str, Any]:
@@ -89,7 +79,7 @@ def _ingest_rows(
         delete_paragraph_keys(conn, list(delete_keys or []), with_fts=build_fts, with_vec=False)
         inserted = insert_paragraph_rows(conn, rows, with_fts=build_fts)
         count = corpus_chunk_count(conn)
-        _write_row_count_meta(listing_root, count)
+        write_row_count_meta(listing_root, count)
         return {"indexed": inserted, "dim": 0, "storage_backend": "sqlite_vec", "upserted": inserted}
     finally:
         conn.close()
@@ -140,7 +130,7 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
             row_count = corpus_chunk_count(conn)
         finally:
             conn.close()
-    _write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
 
@@ -246,7 +236,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
             row_count = corpus_chunk_count(conn)
         finally:
             conn.close()
-    _write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "incremental", "indexed_paragraphs": indexed, "deleted_paragraphs": deleted, "files_touched": files_touched, "files": total, "row_count": row_count}
 
