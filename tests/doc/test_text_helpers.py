@@ -12,7 +12,6 @@ from plugin.doc.text_helpers import (
     get_document_path,
     get_full_writer_text,
     get_string_without_tracked_deletions,
-    normalize_file_url,
     normalize_linebreaks,
 )
 from plugin.framework.errors import DocumentDisposedError
@@ -114,14 +113,6 @@ def test_normalize_linebreaks():
     assert normalize_linebreaks("\r\r") == "\n\n"
     assert normalize_linebreaks("") == ""
     assert normalize_linebreaks(None) == ""
-
-
-def test_normalize_file_url_repairs_legacy_urljoin_form():
-    assert normalize_file_url("file:/home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
-    assert normalize_file_url("file:///home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
-    assert normalize_file_url("  file:/tmp/a.odt  ") == "file:///tmp/a.odt"
-    assert normalize_file_url("private:factory/swriter") == "private:factory/swriter"
-    assert normalize_file_url("") == ""
 
 
 def test_get_document_path_repairs_legacy_file_url_and_rejects_non_file():
@@ -470,28 +461,6 @@ def test_char_offset_of_other_xtext_is_not_zero():
     model.getText.return_value = body
     assert _char_offset_of_position(model, _Pos(other), 10) == -1
     model.getText.return_value.createTextCursor.assert_not_called()
-
-
-def test_excerpt_overlap_other_xtext_is_false():
-    from plugin.doc.text_helpers import _writer_excerpt_overlaps_selection
-
-    class _Text(MagicMock):
-        pass
-
-    class _Pos:
-        def __init__(self, text):
-            self._text = text
-
-        def getText(self):
-            return self._text
-
-    body = _Text()
-    model = MagicMock()
-    model.getText.return_value = body
-    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=MagicMock()):
-        assert _writer_excerpt_overlaps_selection(
-            model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
-    model.getText.return_value.compareRegionStarts.assert_not_called()
 
 
 def test_with_view_cursor_does_not_jump_when_clone_fails():

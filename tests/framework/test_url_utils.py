@@ -11,6 +11,7 @@ from plugin.framework.url_utils import (
     is_pdf_url,
     matches_extension_dispatch_url,
     normalize_endpoint_url,
+    normalize_file_url,
     path_to_file_url,
 )
 
@@ -221,4 +222,14 @@ class TestUrlAccessors:
         assert is_pdf_url("https://example.com/doc.pdf?dl=1") is True
         assert is_pdf_url("https://example.com/doc.txt") is False
         assert is_pdf_url(None) is False
+
+
+class TestNormalizeFileUrl:
+    def test_repairs_legacy_urljoin_form(self):
+        assert normalize_file_url("file:/home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
+        assert normalize_file_url("file:///home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
+        assert normalize_file_url("  file:/tmp/a.odt  ") == "file:///tmp/a.odt"
+        assert normalize_file_url("private:factory/swriter") == "private:factory/swriter"
+        assert normalize_file_url("") == ""
+
 

@@ -21,10 +21,9 @@ from plugin.draw.designs import (
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
-    inherit_master_from_neighbor,
     resolve_design,
 )
-from plugin.draw.pages import AddSlide
+from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
 from plugin.framework.url_utils import path_to_file_url
 
 
@@ -334,7 +333,7 @@ def test_add_slide_reports_inherited_master():
     bridge.get_pages.return_value = pages
     with (
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.designs.inherit_master_from_neighbor", return_value="Metropolis"),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis"),
     ):
         out = AddSlide().execute(ctx)
     assert out["status"] == "ok"

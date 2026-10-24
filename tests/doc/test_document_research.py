@@ -29,10 +29,9 @@ from plugin.doc.document_research import (
     resolve_listing_directory,
     resolve_path_or_name,
 )
-from plugin.doc.text_helpers import normalize_file_url
 from plugin.framework import thread_guard as tg
 from plugin.framework.uno_listeners import ListenerBoundary
-from plugin.framework.url_utils import path_to_file_url
+from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 from tests.harness.strip_bundle import skip_if_release_build
 
 

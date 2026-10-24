@@ -33,6 +33,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import uno_same
+from plugin.framework import url_utils as _url_utils
 
 log = logging.getLogger(__name__)
 
@@ -501,22 +502,6 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
     return "".join(parts)
 
 
-def normalize_file_url(url: str) -> str:
-    """Repair ``file:/path`` URLs from the old ``urljoin('file:', ...)`` form.
-
-    That join wrongly yields ``file:/home/...`` (two slashes).
-    ``loadComponentFromURL`` and ``fileUrlToSystemPath`` need ``file:///home/...``.
-    Shared by ``get_document_path`` and document-research URL→path.
-    Sandbox / session_manager keep their own stdlib copies (no UNO, Windows).
-    """
-    raw = str(url).strip()
-    if raw.startswith("file:///"):
-        return raw
-    if raw.startswith("file:/") and not raw.startswith("file://"):
-        return "file://" + raw[len("file:") :]
-    return raw
-
-
 @main_thread_only
 def get_document_path(model: Any) -> str | None:
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
@@ -525,7 +510,7 @@ def get_document_path(model: Any) -> str | None:
         if not url:
             return None
         # Legacy urljoin produced file:/path; require file:// after that repair.
-        url = normalize_file_url(str(url))
+        url = _url_utils.normalize_file_url(str(url))
         if not url.startswith("file://"):
             return None
         return str(uno.fileUrlToSystemPath(url))
@@ -742,43 +727,6 @@ def get_full_writer_text(model: Any, max_chars: int) -> str:
     if doc_len > max_chars:
         excerpt += "\n\n[... document truncated ...]"
     return excerpt
-
-
-def _writer_excerpt_overlaps_selection(
-    model: Any,
-    excerpt_start: int,
-    excerpt_end: int,
-    sel_start_pos: Any,
-    sel_end_pos: Any,
-) -> bool:
-    """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
-    exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
-    if exc_cursor is None:
-        return False
-    if not _position_text_is_body(model, sel_start_pos, "Get selection text"):
-        # Different XText (table, frame, header). compareRegionStarts
-        # against the body raises and used to fail the whole chat context.
-        return False
-    text = safe_call(model.getText, "Get document text")
-    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
-    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
-    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
-        return False
-    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
-        return False
-    return True
-
-
-def _writer_selection_overlaps_windows(  # pyright: ignore[reportUnusedFunction]
-    model: Any,
-    windows: list[tuple[int, int]],
-    sel_start_pos: Any,
-    sel_end_pos: Any,
-) -> bool:
-    for win_start, win_end in windows:
-        if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
-            return True
-    return False
 
 
 @main_thread_only

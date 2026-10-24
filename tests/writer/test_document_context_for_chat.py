@@ -5,10 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_helpers import (
     _inject_markers_into_excerpt,
+    _writer_selection_overlaps_windows,
     get_document_context_for_chat,
     get_full_document_text,
 )
-from plugin.doc.text_helpers import _read_writer_text_slice, _writer_selection_overlaps_windows
+from plugin.doc.text_helpers import _read_writer_text_slice
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 import pytest
 

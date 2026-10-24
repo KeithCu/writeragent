@@ -172,6 +172,43 @@ def _with_math_ole_chat_hint(model: Any, body: str) -> str:
     )
 
 
+def _writer_excerpt_overlaps_selection(
+    model: Any,
+    excerpt_start: int,
+    excerpt_end: int,
+    sel_start_pos: Any,
+    sel_end_pos: Any,
+) -> bool:
+    """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
+    exc_cursor = _text_helpers.get_text_cursor_at_range(model, excerpt_start, excerpt_end)
+    if exc_cursor is None:
+        return False
+    if not _text_helpers._position_text_is_body(model, sel_start_pos, "Get selection text"):
+        # Different XText (table, frame, header). compareRegionStarts
+        # against the body raises and used to fail the whole chat context.
+        return False
+    text = safe_call(model.getText, "Get document text")
+    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
+    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
+    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
+        return False
+    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
+        return False
+    return True
+
+
+def _writer_selection_overlaps_windows(
+    model: Any,
+    windows: list[tuple[int, int]],
+    sel_start_pos: Any,
+    sel_end_pos: Any,
+) -> bool:
+    for win_start, win_end in windows:
+        if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
+            return True
+    return False
+
+
 @main_thread_only
 def get_document_context_for_chat(
     model: Any,
@@ -231,7 +268,7 @@ def get_document_context_for_chat(
             start_offset, end_offset = (0, 0)
             if include_selection:
                 sel_positions = _text_helpers._get_writer_selection_positions(model)
-                if sel_positions is not None and _text_helpers._writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
+                if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
                     start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))

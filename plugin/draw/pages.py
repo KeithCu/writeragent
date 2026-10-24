@@ -16,9 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Page/slide management tools for Draw/Impress documents."""
 
+import logging
 from typing import Any
 
+from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.uno_context import uno_same
+
+log = logging.getLogger("writeragent.draw.pages")
 
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
@@ -30,6 +35,59 @@ _DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.
 def _is_impress_doc(doc: Any) -> bool:
     """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
     return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
+
+
+def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
+    """Copy MasterPage from a slide that is not the new page.
+
+    ``insertNewByIndex`` can leave a factory Default master even when the deck
+    already has an assigned design master. Prefer the previous slide, then the
+    following one, so add_slide keeps the deck look.
+
+    ``add_slide(page=0)`` can pass ``insert_at=0`` while the new
+    page actually sits at index 1. The only candidate is then index
+    1, which is the new page, so the copy assigns that page's own
+    master. ``InsertSdPage`` cannot create a page at index 0, and a
+    neighbor chosen by integer index alone is the new page. Skip
+    the new page object (``uno_same``), not the integer
+    ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
+    the new page actually sits at 1. With placement fixed, index
+    0's neighbor is the previous first slide.
+    """
+    # pages.getCount() does not fail on a live deck. Returning "" hid a closed document.
+    count = int(pages.getCount())
+    if count < 2:
+        return ""
+
+    order: list[int] = []
+    if insert_at > 0:
+        order.append(insert_at - 1)
+    if insert_at + 1 < count:
+        order.append(insert_at + 1)
+    for i in range(count):
+        if i not in order:
+            order.append(i)
+    for ref_idx in order:
+        if ref_idx < 0 or ref_idx >= count:
+            continue
+        try:
+            ref = pages.getByIndex(ref_idx)
+            if uno_same(ref, new_page):
+                continue
+            master = ref.MasterPage
+            new_page.MasterPage = master
+            return master.Name if hasattr(master, "Name") else ""
+        except Exception as exc:
+            # Prefer the previous slide, then the following one. Returning
+            # here stopped on the first failure. is_real_disposal only:
+            # a live-doc RuntimeException must try the next neighbor.
+            # is_disposed_exception treats that name as disposal, and
+            # add_slide would then delete the new slide.
+            if is_real_disposal(exc):
+                raise
+            log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
+            continue
+    return ""
 
 
 class AddSlide(ToolBase):
@@ -86,8 +144,6 @@ class AddSlide(ToolBase):
             # Pass the landed index: page=0 used to claim insert_at=0 while the
             # new page sat at 1, so the "neighbor" was the new page itself.
             if is_impress:
-                from plugin.draw.designs import inherit_master_from_neighbor
-
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
                     result["master"] = inherited

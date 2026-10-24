@@ -109,7 +109,7 @@ def test_add_slide_reports_landed_index_for_page_zero():
     page.Layout = 20
     with (
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("plugin.draw.designs.inherit_master_from_neighbor", return_value="Designed") as inherit,
+        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Designed") as inherit,
     ):
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=2, page_count=3, landed=0)
         out = AddSlide().execute(ctx, page=0)
@@ -255,7 +255,7 @@ def test_add_slide_cleanup_reraises_dispose():
     page = MagicMock()
     with (
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
         bridge.get_pages.return_value.remove.side_effect = DisposedException("doc disposed")
@@ -269,7 +269,7 @@ def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
     page = MagicMock()
     with (
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
         bridge.get_pages.return_value.remove.side_effect = RuntimeError("remove failed")
@@ -357,7 +357,7 @@ def test_add_slide_skips_switch_when_post_insert_fails():
     page = MagicMock()
     with (
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
         bridge_cls.return_value = bridge

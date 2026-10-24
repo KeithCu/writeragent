@@ -268,7 +268,7 @@ There is **no** single shared converter. Live implementations:
 | `_file_url_for_path` | `writer/images/image_tools.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | `_file_url` | `writer/math/math_mml_convert.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
-| `normalize_file_url` | `text_helpers` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
+| `normalize_file_url` | `url_utils` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
 | `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
@@ -287,7 +287,7 @@ There is **no** single shared converter. Live implementations:
 |---------|--------|
 | `Path.as_uri()` sites (`document_research`, `embeddings_fs`, `format`) | **Landed** as `url_utils.path_to_file_url` (filesystem section). Same stdlib, no UNO, no `@deal`. |
 | `uno.systemPathToFileUrl` at GraphicProvider / `loadComponentFromURL` image/math sites | Optional later; behavior matches `Path.as_uri()` on POSIX. Leave until a Windows mismatch is proven. |
-| `get_document_path` vs `_system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `text_helpers.normalize_file_url`. Research still adds `abspath`. |
+| `get_document_path` vs `_system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `url_utils.normalize_file_url`. Research still adds `abspath`. |
 | sandbox / session_manager stdlib parsers | **Stay separate** — no UNO, Windows UNC/drive, off-main. |
 | `mail_merge._to_file_url` | Domain helper; can call a shared path→URL once one exists. |
 
@@ -297,7 +297,7 @@ There is **no** single shared converter. Live implementations:
 |--------|--------------------|----------------------|
 | `uno_context.normalize_doc_url` | strip; drop trailing `/` | Does not repair `file:/` vs `file:///`. |
 | `document_scripts_identity` | imports `normalize_doc_url` | URL-only; empty if untitled. |
-| `text_helpers.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
+| `url_utils.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
 | sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. Stay local (no UNO). |
 
 `resolve_document_by_url` compares `normalize_doc_url(model.getURL())` to the request. A request of `file:/home/a.odt` will **not** match an open `file:///home/a.odt` unless something else repaired it first. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
@@ -414,7 +414,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 |------|-------------------|-------|
 | `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
 | `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | **Landed.** Shared `url_utils.path_to_file_url` (filesystem section). Old copies deleted; no aliases. |
-| `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
+| `url_utils.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
 | Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. `resolve_document_by_url` still skips that fetched element, and stops when `nextElement` itself fails. |
 
 ### 3.2 Intentional splits (do not collapse)
@@ -454,7 +454,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **URL → path**
 
-`get_document_path` and `_system_path_from_url` both repair `file:/` via `text_helpers.normalize_file_url`. Research still applies `abspath` after conversion. Untitled / non-file URLs still return `None`.
+`get_document_path` and `_system_path_from_url` both repair `file:/` via `url_utils.normalize_file_url`. Research still applies `abspath` after conversion. Untitled / non-file URLs still return `None`.
 
 **Active document**
 
@@ -480,7 +480,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **Notebook markdown images**
 
-`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path`: `normalize_file_url` (`text_helpers`), then `uno.fileUrlToSystemPath`, falling back on `urllib.request.url2pathname(urllib.parse.unquote(urlparse(src).path))`.
+`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path`: `normalize_file_url` (`url_utils`), then `uno.fileUrlToSystemPath`, falling back on `urllib.request.url2pathname(urllib.parse.unquote(urlparse(src).path))`.
 
 ### 3.5 `uno_context.py` scope creep
 
@@ -512,7 +512,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 1. **Delete `document_scripts._normalize_doc_url`.** **Landed.** Callers import public `uno_context.normalize_doc_url`. Tests: `tests/doc/test_document.py`, `tests/scripting/test_document_scripts.py`.
 2. **UNO-free `path_to_file_url`.** **Landed** in `url_utils` filesystem / document `file:` section (not HTTP helpers, not `text_helpers`, not a new `file_urls.py`). `document_research`, `embeddings_fs`, and `format` import it; old copies deleted; no aliases. Tests: `tests/framework/test_url_utils.py`, `tests/doc/test_document_research.py`, `tests/embeddings/test_embeddings_fs.py`.
-3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `text_helpers.normalize_file_url`; `get_document_path` and `_system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
+3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `url_utils.normalize_file_url`; `get_document_path` and `_system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
 
 ### P2 — candidate unify after documenting behavior
 

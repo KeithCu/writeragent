@@ -389,59 +389,6 @@ def _blank_master_signal(masters: list[dict[str, Any]]) -> bool:
     return all(int(m.get("shape_count") or 0) < 3 for m in masters)
 
 
-def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
-    """Copy MasterPage from a slide that is not the new page.
-
-    ``insertNewByIndex`` can leave a factory Default master even when the deck
-    already has an assigned design master. Prefer the previous slide, then the
-    following one, so add_slide keeps the deck look.
-
-    ``add_slide(page=0)`` can pass ``insert_at=0`` while the new
-    page actually sits at index 1. The only candidate is then index
-    1, which is the new page, so the copy assigns that page's own
-    master. ``InsertSdPage`` cannot create a page at index 0, and a
-    neighbor chosen by integer index alone is the new page. Skip
-    the new page object (``uno_same``), not the integer
-    ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
-    the new page actually sits at 1. With placement fixed, index
-    0's neighbor is the previous first slide.
-    """
-    # pages.getCount() does not fail on a live deck. Returning "" hid a closed document.
-    count = int(pages.getCount())
-    if count < 2:
-        return ""
-
-    order: list[int] = []
-    if insert_at > 0:
-        order.append(insert_at - 1)
-    if insert_at + 1 < count:
-        order.append(insert_at + 1)
-    for i in range(count):
-        if i not in order:
-            order.append(i)
-    for ref_idx in order:
-        if ref_idx < 0 or ref_idx >= count:
-            continue
-        try:
-            ref = pages.getByIndex(ref_idx)
-            if uno_same(ref, new_page):
-                continue
-            master = ref.MasterPage
-            new_page.MasterPage = master
-            return master.Name if hasattr(master, "Name") else ""
-        except Exception as exc:
-            # Prefer the previous slide, then the following one. Returning
-            # here stopped on the first failure. is_real_disposal only:
-            # a live-doc RuntimeException must try the next neighbor.
-            # is_disposed_exception treats that name as disposal, and
-            # add_slide would then delete the new slide.
-            if is_real_disposal(exc):
-                raise
-            log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
-            continue
-    return ""
-
-
 def _close_hidden_doc(model: Any) -> None:
     """Close the Hidden .otp source. Prefer close(True); dispose only if close fails."""
     if model is None:

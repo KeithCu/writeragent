@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
 import uno
 
 from plugin.doc.doc_type import doc_type_family_label, get_document_type
-from plugin.doc.text_helpers import get_document_path, normalize_file_url
+from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
 from plugin.framework.uno_context import resolve_document_by_url
-from plugin.framework.url_utils import path_to_file_url
+from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase

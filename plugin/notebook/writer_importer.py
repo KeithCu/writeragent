@@ -1399,7 +1399,7 @@ def _split_markdown_image_src(raw: str) -> str:
 
 def _file_url_to_local_path(src: str) -> str:
     """Convert a file: URL to a local filesystem path with percent-decoding."""
-    from plugin.doc.text_helpers import normalize_file_url
+    from plugin.framework.url_utils import normalize_file_url
     from plugin.scripting.sandbox import _path_from_file_url
 
     norm = normalize_file_url(src)

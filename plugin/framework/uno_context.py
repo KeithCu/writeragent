@@ -458,7 +458,7 @@ def _doc_identity_url(url: Any) -> str:
     """
     raw = str(url or "").strip()
     if raw.startswith("file:"):
-        from plugin.doc.text_helpers import normalize_file_url
+        from plugin.framework.url_utils import normalize_file_url
 
         raw = normalize_file_url(raw)
     return normalize_doc_url(raw)
@@ -468,7 +468,7 @@ def normalize_doc_url(url: Any) -> str:
     """Normalize document URL for comparison (strip, optional trailing slash).
 
     Shared by resolve-by-URL, MCP doc keys, and document-script stale detection.
-    Does not repair ``file:/`` vs ``file:///`` — that is ``text_helpers.normalize_file_url``.
+    Does not repair ``file:/`` vs ``file:///`` — that is ``url_utils.normalize_file_url``.
     Resolve compares via :func:`_doc_identity_url`, which repairs first.
     """
     if not url:

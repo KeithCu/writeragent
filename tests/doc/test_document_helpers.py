@@ -563,3 +563,26 @@ def test_get_document_context_for_chat_writer_disposed():
     with patch("plugin.doc.text_helpers._writer_char_count", side_effect=DocumentDisposedError("stale")):
         with pytest.raises(DocumentDisposedError):
             get_document_context_for_chat(model, 1000, ctx=MagicMock())
+
+
+def test_excerpt_overlap_other_xtext_is_false():
+    from plugin.doc.document_helpers import _writer_excerpt_overlaps_selection
+
+    class _Text(MagicMock):
+        pass
+
+    class _Pos:
+        def __init__(self, text):
+            self._text = text
+
+        def getText(self):
+            return self._text
+
+    body = _Text()
+    model = MagicMock()
+    model.getText.return_value = body
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=MagicMock()):
+        assert _writer_excerpt_overlaps_selection(
+            model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
+    model.getText.return_value.compareRegionStarts.assert_not_called()
+

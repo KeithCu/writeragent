@@ -250,3 +250,20 @@ def path_to_file_url(path: str) -> str:
     for HTTP strings). UNO-free so embeddings extract can import this module.
     """
     return Path(os.path.abspath(path)).as_uri()
+
+
+def normalize_file_url(url: str) -> str:
+    """Repair ``file:/path`` URLs from the old ``urljoin('file:', ...)`` form.
+
+    That join wrongly yields ``file:/home/...`` (two slashes).
+    ``loadComponentFromURL`` and ``fileUrlToSystemPath`` need ``file:///home/...``.
+    Shared by ``get_document_path`` and document-research URL→path.
+    Sandbox / session_manager keep their own stdlib copies (no UNO, Windows).
+    """
+    raw = str(url).strip()
+    if raw.startswith("file:///"):
+        return raw
+    if raw.startswith("file:/") and not raw.startswith("file://"):
+        return "file://" + raw[len("file:") :]
+    return raw
+
