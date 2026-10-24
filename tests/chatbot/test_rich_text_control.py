@@ -453,14 +453,14 @@ class TestStripLegacyAiLabel:
 
 class TestSkipLegacyStreamChunk:
     def test_skips_ai_prefix(self):
-        from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+        from plugin.chatbot.panel import skip_legacy_assistant_stream_chunk
 
         assert skip_legacy_assistant_stream_chunk("\nAI: ")
         assert skip_legacy_assistant_stream_chunk("AI:")
         assert skip_legacy_assistant_stream_chunk("\n[Using chat model.]\n")
 
     def test_allows_real_content(self):
-        from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+        from plugin.chatbot.panel import skip_legacy_assistant_stream_chunk
 
         assert not skip_legacy_assistant_stream_chunk("Here is a real answer with tools.")
 
@@ -735,7 +735,7 @@ class TestRichTextChatWidget:
         mock_paint.assert_not_called()
 
     def test_skip_legacy_assistant_stream_chunk(self):
-        from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+        from plugin.chatbot.panel import skip_legacy_assistant_stream_chunk
 
         assert skip_legacy_assistant_stream_chunk(" AI") is False
         assert skip_legacy_assistant_stream_chunk("AI: yes") is False

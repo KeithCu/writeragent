@@ -48,7 +48,7 @@ from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import format_error_payload
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop, send_stopped
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 
@@ -60,11 +60,13 @@ from plugin.chatbot.tool_loop_actions import (
     abort_turn,
     build_tool_execute_fn,
     current_turn,
+    note_stop_partial,
     persist_assistant_on_turn,
     put_for_turn,
     running_turn,
     session_for_turn,
     spawn_queue,
+    take_stop_partial,
 )
 
 from plugin.chatbot.tool_loop_state import (
@@ -155,40 +157,6 @@ def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], No
     return wrapped
 
 
-def note_stop_partial(turn: Any, response: Any) -> None:
-    """Remember assistant text from a stopped round that had no tool calls.
-
-    The drain's stop callback takes no queue payload, so the text rides
-    on the turn. Partial ``tool_calls`` must not be executed, so a response
-    that includes them is not stored as the assistant message. Dropping the
-    worker text on ``STOPPED`` stores ``No response.`` after the sidebar
-    has already shown the tokens.
-    """
-    if not isinstance(turn, TurnController):
-        return
-    if isinstance(response, dict):
-        calls = response.get("tool_calls")
-        if isinstance(calls, list) and calls:
-            return
-        raw = response.get("content")
-        text = raw if isinstance(raw, str) else ""
-    elif isinstance(response, str):
-        text = response
-    else:
-        return
-    turn._stop_partial_text = text.strip()
-
-
-def take_stop_partial(turn: Any) -> str | None:
-    if not isinstance(turn, TurnController):
-        return None
-    fields = getattr(turn, "__dict__", None)
-    if not isinstance(fields, dict):
-        return None
-    text = fields.pop("_stop_partial_text", None)
-    return text if isinstance(text, str) else None
-
-
 def _compact_bound_session(
     session: Any,
     client: Any,
@@ -225,14 +193,6 @@ def _compact_bound_session(
         # The caller emits STOPPED through turn.put, which flushes.
         return False
     return True
-
-
-def _send_stopped(bound_scope: Any, stop_checker: Callable[[], bool], client: Any) -> bool:
-    if bound_scope is not None and bound_scope.is_cancelled():
-        return True
-    if stop_checker():
-        return True
-    return bool(getattr(client, "_stopped", False))
 
 
 class _PanelDescriptor:
@@ -603,7 +563,7 @@ class ToolCallingMixin:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return _send_stopped(bound_scope, stop_checker, client)
+            return send_stopped(bound_scope, stop_checker, client)
 
         def run() -> None:
             session = bound_session
@@ -695,7 +655,7 @@ class ToolCallingMixin:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return _send_stopped(bound_scope, stop_checker, client)
+            return send_stopped(bound_scope, stop_checker, client)
 
         def run_final() -> None:
             session = bound_session

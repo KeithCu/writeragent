@@ -273,6 +273,22 @@ def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -
     return text
 
 
+def skip_legacy_assistant_stream_chunk(text: str) -> bool:
+    """True for plain-sidebar ``AI:`` / status lines that RichTextControl replaces with ``Assistant:``."""
+    if not text:
+        return False
+    from plugin.chatbot.rich_text import strip_legacy_ai_label
+
+    stripped = text.strip()
+    # Only a label with nothing after it is skipped. panel._append_response
+    # runs this on every 250 ms batch before fold_chunk, so skipping a bare
+    # "AI" or any "AI:..." up to 12 chars drops model text from the screen
+    # and the session.
+    if stripped.startswith("[Using chat model"):
+        return True
+    return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
+
+
 class SendButtonListener(BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -712,7 +728,6 @@ class SendButtonListener(BaseActionListener):
         with suppress_disposed("_append_response", logger=log):
             widget = self.rich_text_widget
             if widget:
-                from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
                 from plugin.framework.logging import note_activity
 
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
@@ -774,7 +789,6 @@ class SendButtonListener(BaseActionListener):
 
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
-                from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
                 from plugin.framework.logging import note_activity
 
                 # A session list is the transcript. Hosts with no list (unit

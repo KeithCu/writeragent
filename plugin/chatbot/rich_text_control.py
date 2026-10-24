@@ -32,7 +32,6 @@ from plugin.chatbot.rich_text import (
     ChatTheme,
     apply_chat_char_props,
     apply_rich_control_para_margins,
-    strip_legacy_ai_label,
 )
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
@@ -745,20 +744,6 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
         CHAT_FONT_NAME,
         CHAT_FONT_HEIGHT,
     )
-
-
-def skip_legacy_assistant_stream_chunk(text: str) -> bool:
-    """True for plain-sidebar ``AI:`` / status lines that RichTextControl replaces with ``Assistant:``."""
-    if not text:
-        return False
-    stripped = text.strip()
-    # Only a label with nothing after it is skipped. panel._append_response
-    # runs this on every 250 ms batch before fold_chunk, so skipping a bare
-    # "AI" or any "AI:..." up to 12 chars drops model text from the screen
-    # and the session.
-    if stripped.startswith("[Using chat model"):
-        return True
-    return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
 
 
 def _set_model_property(model: Any, name: str, value: Any) -> bool:

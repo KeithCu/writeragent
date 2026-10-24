@@ -195,8 +195,7 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_i
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
 def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop import note_stop_partial
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn, note_stop_partial
 
     panel, session = setup_mock_panel()
     begin_send_turn(panel, "chat")

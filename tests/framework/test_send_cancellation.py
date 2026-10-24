@@ -11,7 +11,7 @@ from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.queue_executor import QueueExecutor, default_executor
-from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, wait_for_approval
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, send_stopped, wait_for_approval
 
 
 def test_wait_for_approval_set_event_wins_over_stop():
@@ -472,4 +472,28 @@ class TestSendCancellationHooksLocking:
         assert pre_registered.issubset(set(called)), (
             f"Some pre-registered hooks were lost: missing {pre_registered - set(called)}"
         )
+
+
+def test_send_stopped_predicates():
+    """send_stopped checks scope cancellation, stop_checker, and client stopped flag."""
+    scope = SendCancellation()
+    client = MagicMock()
+    client._stopped = False
+
+    # Initially not stopped
+    assert send_stopped(scope, lambda: False, client) is False
+
+    # Cancelled scope latches True
+    scope.cancel()
+    assert send_stopped(scope, lambda: False, client) is True
+
+    # Active stop_checker returns True even if scope is uncancelled or None
+    fresh_scope = SendCancellation()
+    assert send_stopped(fresh_scope, lambda: True, client) is True
+    assert send_stopped(None, lambda: True, client) is True
+
+    # Client _stopped flag latches True
+    client._stopped = True
+    assert send_stopped(fresh_scope, lambda: False, client) is True
+
 

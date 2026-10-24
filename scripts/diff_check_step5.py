@@ -104,8 +104,6 @@ UNTOUCHED_HELPERS_SEND = [
 ]
 
 UNTOUCHED_HELPERS_TOOL = [
-    "note_stop_partial",
-    "take_stop_partial",
     "_compact_bound_session",
     "_live_text",
 ]

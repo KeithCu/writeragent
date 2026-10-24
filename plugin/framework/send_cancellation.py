@@ -37,6 +37,7 @@ __all__ = [
     "capture_send_stop",
     "get_current_send_cancellation",
     "is_agent_active",
+    "send_stopped",
     "wait_for_approval",
 ]
 
@@ -215,6 +216,15 @@ def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
     scope = getattr(host, "_send_cancellation", None)
     checker = host.resolve_stop_checker()
     return scope, checker
+
+
+def send_stopped(bound_scope: Any, stop_checker: Callable[[], bool], client: Any) -> bool:
+    """True when send cancellation was requested via scope, stop_checker callback, or client latch."""
+    if bound_scope is not None and bound_scope.is_cancelled():
+        return True
+    if stop_checker():
+        return True
+    return bool(getattr(client, "_stopped", False))
 
 
 @contextmanager

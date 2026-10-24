@@ -489,6 +489,40 @@ def _discard_batcher(batcher: Any) -> None:
         discard()
 
 
+def note_stop_partial(turn: Any, response: Any) -> None:
+    """Remember assistant text from a stopped round that had no tool calls.
+
+    The drain's stop callback takes no queue payload, so the text rides
+    on the turn. Partial ``tool_calls`` must not be executed, so a response
+    that includes them is not stored as the assistant message. Dropping the
+    worker text on ``STOPPED`` stores ``No response.`` after the sidebar
+    has already shown the tokens.
+    """
+    if not isinstance(turn, TurnController):
+        return
+    if isinstance(response, dict):
+        calls = response.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            return
+        raw = response.get("content")
+        text = raw if isinstance(raw, str) else ""
+    elif isinstance(response, str):
+        text = response
+    else:
+        return
+    turn._stop_partial_text = text.strip()
+
+
+def take_stop_partial(turn: Any) -> str | None:
+    if not isinstance(turn, TurnController):
+        return None
+    fields = getattr(turn, "__dict__", None)
+    if not isinstance(fields, dict):
+        return None
+    text = fields.pop("_stop_partial_text", None)
+    return text if isinstance(text, str) else None
+
+
 # current_turn: host._turn while it is a TurnController, including after
 # abort, until drop_turn. Not a liveness check.
 # running_turn: that turn when it is still alive and can write.
