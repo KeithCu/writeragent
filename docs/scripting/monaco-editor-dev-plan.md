@@ -699,7 +699,7 @@ Feasibility analysis for replacing Monaco/pywebview with an embedded Writer docu
 
 - **Formula parser** ([`formula_edit.py`](../../plugin/calc/python/formula_edit.py)) — purely string-level `=PY()` decomposition/reconstruction. No changes needed.
 - **Cell resolution** (`editor.py`: `_get_active_calc_cell`, `_load_cell_editor_code`) — finding the active cell and extracting initial code.
-- **Save logic** (`editor.py`: `_apply_cell_save`, `_apply_formula_save`, `build_editor_formula_save`) — writing code back to the cell.
+- **Save logic** (`editor.py`: `_apply_cell_save`, `_apply_formula_save`; `formula_edit.py`: `build_editor_formula_save`) — writing code back to the cell.
 - **Auto-imports** (`venv_sandbox.py`: `apply_auto_imports`) — reusable with any completion backend.
 
 ### What gets eliminated

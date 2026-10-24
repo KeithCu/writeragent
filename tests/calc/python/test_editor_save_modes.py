@@ -9,10 +9,13 @@ from __future__ import annotations
 from plugin.calc.python.editor import (
     _apply_cell_save,
     _resolve_code_ref_cell,
-    build_editor_formula_save,
     editor_load_save_as_plain,
 )
-from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+from plugin.calc.python.formula_edit import (
+    build_editor_formula_save,
+    parse_python_formula,
+    py_code_arg_is_cell_ref,
+)
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub, CalcSheetStub
 
 

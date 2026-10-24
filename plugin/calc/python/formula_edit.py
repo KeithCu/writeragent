@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 from plugin.calc.python.formula_edit_contracts import (
     _DEAL_SHEET_TOKEN,
@@ -31,6 +31,7 @@ from plugin.framework.deal_shim import (
     inverse_ensure,
     str_bounded,
 )
+from plugin.framework.i18n import _
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -607,6 +608,18 @@ def rebuild_python_formula_with_data(code: str, data_args: list[str], *, parts: 
     prefix = parts.prefix if parts is not None and parts.prefix else f"={CALC_PYTHON_FN}("
     suffix = build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")
     return assemble_python_formula(prefix, escaped, suffix, quoted=True)
+
+
+def build_editor_formula_save(*, parsed_parts: PythonFormulaParts | None, new_code: str, cell_has_unparsed_python: bool, data_binding_text: str | None = None) -> str | dict[str, Any]:
+    """Build ``=PY("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
+    if data_binding_text is not None:
+        data_args = parse_data_binding_text(data_binding_text)
+        return rebuild_python_formula_with_data(new_code, data_args, parts=parsed_parts)
+    if parsed_parts is not None:
+        return rebuild_python_formula(parsed_parts, new_code)
+    if cell_has_unparsed_python:
+        return {"type": "error", "message": _('Could not preserve this cell\'s PY formula arguments (e.g. data ranges). Edit the formula in Calc, or use a quoted code string like =PY("code"; A1:B10).')}
+    return build_new_python_formula(new_code)
 
 
 def py_code_arg_is_cell_ref(code: str) -> bool:

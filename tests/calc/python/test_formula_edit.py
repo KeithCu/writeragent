@@ -324,7 +324,7 @@ def test_sanitize_dtype_float_with_control_chars():
 
 def test_monaco_save_round_trip_preserves_user_code():
     """Hand-written float("3.5"), int(-3.7), ax.text, np.float survive Monaco save roundtrip."""
-    from plugin.calc.python.editor import build_editor_formula_save
+    from plugin.calc.python.formula_edit import build_editor_formula_save
 
     code = 'x = float("3.5")\ny = int(-3.7)\nax.text(1, 2, "hi")\nnp.float64(1)'
     parts = parse_python_formula(f'=PY("{escape_code_for_formula(code)}")')
@@ -342,7 +342,7 @@ def test_assemble_python_formula():
 
 def test_dollar_sign_preserved_in_data_args():
     """$ is preserved in emitted data range tokens on rebuild and Monaco save."""
-    from plugin.calc.python.editor import build_editor_formula_save
+    from plugin.calc.python.formula_edit import build_editor_formula_save
 
     assert format_py_data_range("$A$1:$B$5") == "$A$1:$B$5"
     assert format_excel_data_range("$A$1:$B$5") == "$A$1:$B$5"

@@ -23,15 +23,13 @@ from typing import Any
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.python.formula_edit import (
     PythonFormulaParts,
-    build_new_python_formula,
+    build_editor_formula_save,
     cell_looks_python_like,
     format_data_binding_display,
     format_data_binding_text,
     parse_data_binding_text,
     parse_python_formula,
     py_formula_has_unquoted_code_ref,
-    rebuild_python_formula,
-    rebuild_python_formula_with_data,
 )
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
@@ -133,18 +131,6 @@ def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tupl
     if plain:
         return str(plain), None, None
     return "", None, None
-
-
-def build_editor_formula_save(*, parsed_parts: PythonFormulaParts | None, new_code: str, cell_has_unparsed_python: bool, data_binding_text: str | None = None) -> str | dict[str, Any]:
-    """Build ``=PY("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
-    if data_binding_text is not None:
-        data_args = parse_data_binding_text(data_binding_text)
-        return rebuild_python_formula_with_data(new_code, data_args, parts=parsed_parts)
-    if parsed_parts is not None:
-        return rebuild_python_formula(parsed_parts, new_code)
-    if cell_has_unparsed_python:
-        return {"type": "error", "message": _('Could not preserve this cell\'s PY formula arguments (e.g. data ranges). Edit the formula in Calc, or use a quoted code string like =PY("code"; A1:B10).')}
-    return build_new_python_formula(new_code)
 
 
 def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> bool:
