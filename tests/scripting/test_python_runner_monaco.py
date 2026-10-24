@@ -738,7 +738,11 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 scheduled["func"] = func
                                 return MagicMock()
 
-                            with patch.object(ui, "run_in_background", side_effect=_capture_background):
+                            # start_native_script_run moved to python_runner (#2164) and
+                            # spawns from there. Patching only ui left a real worker that
+                            # outlived this test and ran under a later test's mocks.
+                            with patch.object(ui, "run_in_background", return_value=MagicMock()), \
+                                 patch.object(pr, "run_in_background", side_effect=_capture_background):
                                 def fake_execute_dialog():
                                     assert code_edit.setFocus.called
                                     for listener in listeners:
@@ -755,7 +759,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 mock_save.assert_called_with("Universal Sample", "result = 42")
                                 # Run returns before the venv wait. The dialog event
                                 # thread must not call execute_and_insert_result.
-                                assert "func" in scheduled
+                                assert scheduled["func"].__name__ == "_native_script_run_worker"
                                 btn_run.setEnable.assert_any_call(False)
                                 instruction_lbl.setText.assert_any_call("Running...")
 
