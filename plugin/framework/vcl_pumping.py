@@ -72,6 +72,17 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
             log.debug("focus_preserved restore: %s", e)
 
 
+def pump_vcl_events(toolkit: Any) -> bool:
+    """Call toolkit.processEventsToIdle(); only used from approved pump entry points."""
+    if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
+        try:
+            toolkit.processEventsToIdle()
+            return True
+        except Exception:
+            log.debug("processEventsToIdle failed", exc_info=True)
+    return False
+
+
 @main_thread_only
 def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bool:
     """Drain the UI event queue *rounds* times via the approved VCL pump chokepoint.
@@ -85,7 +96,6 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
     from plugin.framework.async_drain_guard import get_drain_owner, note_suppressed_vcl_pump
-    from plugin.framework.queue_executor import _pump_vcl_events
     from plugin.framework.uno_context import get_toolkit
 
     # QueueExecutor.post can fall back onto the caller when AsyncCallback
@@ -111,7 +121,7 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
 
     pumped = False
     for _idx in range(max(1, rounds)):
-        if _pump_vcl_events(tk):
+        if pump_vcl_events(tk):
             pumped = True
     return pumped
 

@@ -856,17 +856,6 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
         _log_marshal(logging.DEBUG, "pump_main_thread_work_queue processed=%d %s", processed, executor=ex)
 
 
-def _pump_vcl_events(toolkit: Any) -> bool:
-    """Call toolkit.processEventsToIdle(); only used from approved pump entry points."""
-    if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
-        try:
-            toolkit.processEventsToIdle()
-            return True
-        except Exception:
-            log.debug("processEventsToIdle failed", exc_info=True)
-    return False
-
-
 def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
     """Idle tick for main-thread wait loops: drain QueueExecutor, then maybe pump VCL.
 
@@ -880,6 +869,7 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
         note_suppressed_vcl_pump,
         owner_may_pump_vcl,
     )
+    from plugin.framework.vcl_pumping import pump_vcl_events
 
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
     # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
@@ -889,4 +879,4 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
     if not owner_may_pump_vcl():
         note_suppressed_vcl_pump(get_drain_owner())
         return
-    _pump_vcl_events(toolkit)
+    pump_vcl_events(toolkit)
