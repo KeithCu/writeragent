@@ -1672,3 +1672,55 @@ def test_new_turn_starts_clean_without_copying_previous_turn_client():
     assert current_turn(host) is second_turn
     assert second_turn.active_client is None
     assert first_turn.active_client is client
+
+
+def test_turn_controller_can_write_guards():
+    from typing import Any
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.messages: list[Any] = []
+
+    class FakeHost:
+        def __init__(self, session: Any) -> None:
+            self.session = session
+            self._turn: Any = None
+
+    session = FakeSession()
+    host = FakeHost(session)
+    turn = TurnController(session, "chat")
+    host._turn = turn
+
+    # Normal turn can write
+    assert turn.can_write(host) is True
+
+    # Host is None or different
+    assert turn.can_write(None) is False
+    other_host = FakeHost(session)
+    assert turn.can_write(other_host) is False
+
+    # Closed by document prevents write
+    turn.closed_by_document = True
+    assert turn.can_write(host) is False
+    turn.closed_by_document = False
+    assert turn.can_write(host) is True
+
+    # None session prevents write
+    turn_no_sess = TurnController(None, "chat")
+    host_no_sess = FakeHost(None)
+    host_no_sess._turn = turn_no_sess
+    assert turn_no_sess.can_write(host_no_sess) is False
+
+    # Replaced messages list (e.g. Clear) prevents write
+    session.messages = []
+    assert turn.can_write(host) is False
+
+    # Aborting the turn still allows can_write (needed for Stop to persist stop line)
+    session2 = FakeSession()
+    host2 = FakeHost(session2)
+    turn2 = TurnController(session2, "chat")
+    host2._turn = turn2
+    turn2.abort()
+    assert turn2.alive is False
+    assert turn2.can_write(host2) is True

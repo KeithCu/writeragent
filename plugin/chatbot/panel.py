@@ -713,7 +713,7 @@ class SendButtonListener(BaseActionListener):
             if (
                 not isinstance(turn, TurnController)
                 or not turn.alive
-                or not turn.accepts_history(self)
+                or not turn.can_write(self)
                 or turn.session is not session
             ):
                 return
@@ -742,9 +742,8 @@ class SendButtonListener(BaseActionListener):
                     # new send dropped this turn must not fold into the next one.
                     if (
                         not isinstance(turn, TurnController)
-                        or current_turn(self) is not turn
                         or not turn.alive
-                        or not turn.same_messages()
+                        or not turn.can_write(self)
                     ):
                         return
                     if not turn.fold_chunk(self, clean_text, role):

@@ -309,10 +309,9 @@ class ToolCallingMixin:
         def set_active_domain(domain: Any, python_tool_domain: Any = None) -> None:
             # The tool callback runs later. A new send must not retarget the
             # domain onto the session that replaced this one.
-            if current_turn(self._panel) is not bound_turn or not isinstance(bound_turn, TurnController):
+            if not isinstance(bound_turn, TurnController) or not bound_turn.can_write(self._panel):
                 return
-            if not bound_turn.accepts_history(self._panel) or bound_turn.session is None:
-                return
+            assert bound_turn.session is not None
             session = bound_turn.session
             session.active_specialized_domain = domain
             session.python_tool_domain = python_tool_domain

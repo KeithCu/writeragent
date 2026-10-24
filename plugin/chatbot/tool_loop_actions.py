@@ -195,21 +195,24 @@ class TurnController:
         target.put(item)
         return True
 
-    def accepts_history(self, host: Any) -> bool:
-        """A transcript write is allowed only for the host's current turn.
+    def can_write(self, host: Any) -> bool:
+        """A transcript write is allowed only for the host's current turn when open and not closed by document.
 
         Stop has already aborted the turn. The close still stores here until
         a newer send replaces ``_turn`` or Clear replaces the list. A dead
         turn that is no longer current, or whose list identity changed, refuses.
         """
+        if self.closed_by_document or self.session is None:
+            return False
         if current_turn(host) is not self:
             return False
         return self.same_messages()
 
     def fold_chunk(self, host: Any, text: str, role: str = "assistant") -> bool:
         """Append *text* to this turn's list. Workers must not call this."""
-        if not text or not self.accepts_history(host) or self.session is None:
+        if not text or not self.can_write(host):
             return False
+        assert self.session is not None
         from plugin.chatbot.rich_text_paste import fold_transcript_chunk
 
         return fold_transcript_chunk(self.session, text, role)
@@ -221,8 +224,9 @@ class TurnController:
         tool_calls: Any = None,
         reasoning_replay: Any = None,
     ) -> None:
-        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
+        if not self.can_write(host):
             return
+        assert self.session is not None
         kwargs: dict[str, Any] = {}
         if tool_calls is not None:
             kwargs["tool_calls"] = tool_calls
@@ -231,8 +235,9 @@ class TurnController:
         self.session.add_assistant_message(content=content, **kwargs)
 
     def persist_tool(self, host: Any, call_id: str | None, content: Any) -> None:
-        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
+        if not self.can_write(host):
             return
+        assert self.session is not None
         self.session.add_tool_result(call_id, content)
 
     def take_stripper_tail(self) -> str:
@@ -258,8 +263,9 @@ class TurnController:
         tool call with no tool row gets one cancelled row, and the stop line
         is an ordinary assistant message. ``tool_calls`` are not removed.
         """
-        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
+        if not self.can_write(host):
             return
+        assert self.session is not None
         # A second call sees a finished stripper and a last row that is not
         # _open_transcript, so open_text() is empty and it stores another
         # "No response." plus another _STOP_LINE (including when the first
@@ -299,11 +305,11 @@ def _discard_batcher(batcher: Any) -> None:
 
 # current_turn: host._turn while it is a TurnController, including after
 # abort, until drop_turn. Not a liveness check.
-# running_turn: that turn when it is still alive and accepts history.
+# running_turn: that turn when it is still alive and can write.
 # Spawn and in-flight work. None after Stop, Clear, or a newer send.
-# session_for_turn: the session when this turn is still current and the
-# message list is the one it captured, including an aborted turn. Close,
-# TTS, and other transcript reads. None after Clear or a newer send.
+# session_for_turn: the session when this turn is still current and can write,
+# including an aborted turn. Close, TTS, and other transcript reads. None after
+# Clear or a newer send.
 def current_turn(host: Any) -> TurnController | None:
     turn = getattr(host, "_turn", None)
     if isinstance(turn, TurnController):
@@ -346,7 +352,7 @@ def begin_send_turn(host: Any, mode: str, model: Any = None) -> TurnController:
 def running_turn(host: Any) -> TurnController | None:
     """The live turn, or None once Stop, Clear, or a new send has ended it."""
     turn = current_turn(host)
-    if isinstance(turn, TurnController) and turn.alive and turn.accepts_history(host):
+    if isinstance(turn, TurnController) and turn.alive and turn.can_write(host):
         return turn
     return None
 
@@ -354,7 +360,8 @@ def running_turn(host: Any) -> TurnController | None:
 def session_for_turn(host: Any) -> Any:
     """The session this send bound. None when the turn is gone or the list changed."""
     turn = current_turn(host)
-    if isinstance(turn, TurnController) and turn.accepts_history(host):
+    if isinstance(turn, TurnController) and turn.can_write(host):
+        assert turn.session is not None
         return turn.session
     return None
 
