@@ -29,10 +29,8 @@ import threading
 from types import SimpleNamespace
 from typing import Any, Iterator
 
-import unohelper
-from com.sun.star.util import XModifyListener
-
 from plugin.framework.errors import uno_probe
+from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
 
@@ -424,7 +422,7 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     return listener
 
 
-class SheetModifyDispatcher(unohelper.Base, XModifyListener):
+class SheetModifyDispatcher(BaseModifyListener):
     """One ``XModifyListener`` per sheet. Schedules; does not own either job."""
 
     ctx: Any
@@ -434,6 +432,7 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
     doc_identity: str
 
     def __init__(self, ctx: Any, doc: Any, doc_key: str, sheet_name: str, doc_identity: str) -> None:
+        super().__init__()
         self.ctx = ctx
         self.doc = doc
         self.doc_key = doc_key

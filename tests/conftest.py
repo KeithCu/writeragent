@@ -15,7 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.harness.strip_bundle import asserts_stripped, requires_asserts
+from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noqa: F401
+
 
 
 
@@ -397,6 +398,7 @@ frame = _create_mock_module("com.sun.star.frame")
 setattr(frame, "DispatchDescriptor", MockBase)
 setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
+setattr(frame, "XTerminateListener", MockBase)
 
 # Shells and attributes that setup_uno_mocks() used to install per test module.
 # They live here so a module-level setup_uno_mocks() call is a no-op under pytest.

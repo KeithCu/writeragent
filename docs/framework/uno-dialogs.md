@@ -99,6 +99,8 @@ from plugin.framework.uno_listeners import (
     BaseTopWindowListener,   # override on_window_closing(self, rEvent)
     BaseDocumentEventListener,
     BaseActivationEventListener, # override on_active_spreadsheet_changed(self, aEvent) for Calc sheets
+    BaseModifyListener,      # override on_modified(self, aEvent) for document/sheet changes
+    BaseTerminateListener,   # override on_query_termination(self, Event), on_notify_termination(self, Event)
 )
 ```
 

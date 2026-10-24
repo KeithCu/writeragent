@@ -33,6 +33,7 @@ from plugin.chatbot.slash_commands import (
     slash_typed_prefix,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_probe
+from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
 
 log = logging.getLogger("writeragent.slash_popup")
 
@@ -1070,32 +1071,17 @@ class SlashPopupController:
         ctrl = self.control
         if ctrl is None or not hasattr(ctrl, "addMouseListener"):
             return
-        try:
-            import unohelper
-            from com.sun.star.awt import XMouseListener
-        except ImportError:
-            return
 
         host = self
 
-        class _Click(unohelper.Base, XMouseListener):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
+        class _Click(BaseMouseListener):
             def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 _ovlog("mousePressed y=%s", getattr(e, "Y", None))
-                return
 
             def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 y = int(getattr(e, "Y", -1) or -1)
                 _ovlog("mouseReleased y=%s open=%s", y, host._open)
                 host.accept_row_at_y(y)
-
-            def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-                return
-
-            def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-                return
 
         try:
             ctrl.addMouseListener(_Click())
@@ -1106,19 +1092,9 @@ class SlashPopupController:
 
     def _attach_keys(self) -> None:
         """Forward Esc/Enter/arrows when the list stole focus from Ask."""
-        try:
-            import unohelper
-            from com.sun.star.awt import XKeyListener
-        except ImportError:
-            _ovlog("key listener: no unohelper")
-            return
-
         host = self
 
-        class _Keys(unohelper.Base, XKeyListener):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
+        class _Keys(BaseKeyListener):
             def keyPressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 _ovlog(
                     "overlay/dialog keyPressed code=%s mods=%s",
@@ -1133,10 +1109,6 @@ class SlashPopupController:
                     with suppress_disposed("slash list Consume", logger=log):
                         if hasattr(e, "Consume"):
                             setattr(e, "Consume", True)
-                return
-
-            def keyReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-                return
 
         targets = (("overlay", self.control),)
         listener = _Keys()

@@ -51,6 +51,8 @@ _XMouseListener: Any = None
 _XFocusListener: Any = None
 _XMouseClickHandler: Any = None
 _XTopWindowListener: Any = None
+_XModifyListener: Any = None
+_XTerminateListener: Any = None
 _HAVE_UNO = False
 
 try:
@@ -70,6 +72,8 @@ try:
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
+    from com.sun.star.util import XModifyListener as _XModifyListener_impl
+    from com.sun.star.frame import XTerminateListener as _XTerminateListener_impl
 
     _unohelper = _unohelper_impl
     _XEventListener = _XEventListener_impl
@@ -85,6 +89,8 @@ try:
     _XFocusListener = _XFocusListener_impl
     _XMouseClickHandler = _XMouseClickHandler_impl
     _XTopWindowListener = _XTopWindowListener_impl
+    _XModifyListener = _XModifyListener_impl
+    _XTerminateListener = _XTerminateListener_impl
     _HAVE_UNO = True
 except ImportError:
     pass
@@ -133,6 +139,12 @@ if TYPE_CHECKING:
 
     class _XTopWindowListenerParent:
         pass
+
+    class _XModifyListenerParent:
+        pass
+
+    class _XTerminateListenerParent:
+        pass
 else:
 
     class _DummyBase:
@@ -177,6 +189,12 @@ else:
     class _DummyTopWindowListener:
         pass
 
+    class _DummyModifyListener:
+        pass
+
+    class _DummyTerminateListener:
+        pass
+
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
     _XActionListenerParent = _XActionListener if _HAVE_UNO else _DummyActionListener
@@ -191,6 +209,8 @@ else:
     _XFocusListenerParent = _XFocusListener if _HAVE_UNO else _DummyFocusListener
     _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
     _XTopWindowListenerParent = _XTopWindowListener if _HAVE_UNO else _DummyTopWindowListener
+    _XModifyListenerParent = _XModifyListener if _HAVE_UNO else _DummyModifyListener
+    _XTerminateListenerParent = _XTerminateListener if _HAVE_UNO else _DummyTerminateListener
 
 
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
@@ -618,6 +638,43 @@ class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
 
     def on_mouse_released(self, e: Any) -> bool:
         return False
+
+
+class BaseModifyListener(BaseListener, _XModifyListenerParent):
+    """Base listener for model/sheet/controller change notifications (XModifyListener).
+
+    Subclasses can either override ``on_modified(aEvent)`` or ``modified(aEvent)``.
+    Any unhandled exception is caught and logged via ``_catch_and_log``.
+    """
+
+    @_catch_and_log
+    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_modified(aEvent)
+
+    def on_modified(self, aEvent: Any) -> None:
+        pass
+
+
+class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
+    """Base listener for desktop termination events (XTerminateListener).
+
+    Override ``on_query_termination`` (or raise TerminationVetoException) and
+    ``on_notify_termination`` to clean up resources before LibreOffice quits.
+    """
+
+    @_catch_and_log
+    def queryTermination(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_query_termination(Event)
+
+    @_catch_and_log
+    def notifyTermination(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_notify_termination(Event)
+
+    def on_query_termination(self, Event: Any) -> None:
+        pass
+
+    def on_notify_termination(self, Event: Any) -> None:
+        pass
 
 
 def install_view_doc_listener(

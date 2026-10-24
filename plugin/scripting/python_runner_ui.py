@@ -24,19 +24,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
-import unohelper
-from com.sun.star.awt import XActionListener, XItemListener
-from plugin.framework.uno_listeners import BaseTopWindowListener
+from plugin.framework.uno_listeners import (
+    BaseActionListener,
+    BaseItemListener,
+    BaseTopWindowListener,
+)
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent
-    from com.sun.star.lang import EventObject
 
 
-class _ActionListener(unohelper.Base, XActionListener):
+class _ActionListener(BaseActionListener):
     _action_fn: Callable[[], Any]
 
     def __init__(self, action_fn: Callable[[], Any]) -> None:
+        super().__init__()
         self._action_fn = action_fn
 
     def actionPerformed(self, rEvent: ActionEvent) -> None:
@@ -44,9 +46,6 @@ class _ActionListener(unohelper.Base, XActionListener):
             self._action_fn()
         except Exception:
             log.exception("Action listener failed")
-
-    def disposing(self, Source: EventObject) -> None:
-        pass
 
 
 class ModelessWindowClosingListener(BaseTopWindowListener):
@@ -80,7 +79,7 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
         log.debug("%s: dispose failed", log_label, exc_info=True)
 
 
-def _action(fn: Callable[[], Any], name: str = "") -> XActionListener:
+def _action(fn: Callable[[], Any], name: str = "") -> _ActionListener:
     # The class name is how tests find a button listener (_RunListener, _SaveListener,
     # and the other _{Button}Listener names from btn_name[3:]).
     # tests/scripting/test_python_runner_ui.py and tests/scripting/test_python_runner_monaco.py
@@ -542,7 +541,7 @@ class NativePythonScriptDialog:
         owner = self
         doc = owner._doc
 
-        class _ScriptSelectListener(unohelper.Base, XItemListener):
+        class _ScriptSelectListener(BaseItemListener):
             def itemStateChanged(self, rEvent: ItemEvent) -> None:
                 try:
                     name = _picker_selected_name(select_ctrl)
@@ -553,9 +552,6 @@ class NativePythonScriptDialog:
                         code_ctrl.setText(t)
                 except Exception:
                     log.exception("Failed to change script selection")
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
 
         def _on_run() -> None:
             btn_run = None

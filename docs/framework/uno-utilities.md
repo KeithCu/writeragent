@@ -184,9 +184,15 @@ Empty defaults + `_catch_and_log` so Python exceptions do not leak into the C++ 
 | `BaseTextListener` | `XTextListener` |
 | `BaseKeyListener` | `XKeyListener` |
 | `BaseWindowListener` | `XWindowListener` |
+| `BaseTopWindowListener` | `XTopWindowListener` |
 | `BaseContainerListener` | `XContainerListener` |
 | `BaseDocumentEventListener` | `XDocumentEventListener` |
 | `BaseActivationEventListener` | Calc `XActivationEventListener` |
+| `BaseMouseListener` | `XMouseListener` |
+| `BaseFocusListener` | `XFocusListener` |
+| `BaseMouseClickHandler` | `XMouseClickHandler` |
+| `BaseModifyListener` | `XModifyListener` |
+| `BaseTerminateListener` | `XTerminateListener` |
 
 Dummy parents when PyUNO is absent (unit tests). Subclass overrides of UNO callbacks are wrapped by scanning base methods marked `_CATCH_LOGGED_ATTR`. There is no hand-maintained callback name list. New listeners should subclass these, not raw `unohelper.Base`.
 

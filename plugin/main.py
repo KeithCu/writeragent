@@ -133,12 +133,9 @@ def _install_terminate_listener(ctx: Any) -> None:
         if desktop is None:
             return
 
-        from com.sun.star.frame import XTerminateListener
+        from plugin.framework.uno_listeners import BaseTerminateListener
 
-        class _TerminateListener(unohelper.Base, XTerminateListener):
-            def queryTermination(self, Event: Any) -> None:
-                pass
-
+        class _TerminateListener(BaseTerminateListener):
             def notifyTermination(self, Event: Any) -> None:
                 try:
                     from plugin.audio.kokoro_pool import shutdown_kokoro_pool
@@ -158,9 +155,6 @@ def _install_terminate_listener(ctx: Any) -> None:
                     shutdown_all()
                 except Exception:
                     log.exception("Error shutting down managed subprocesses on desktop termination")
-
-            def disposing(self, Source: Any) -> None:
-                pass
 
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)

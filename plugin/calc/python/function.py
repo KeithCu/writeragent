@@ -19,8 +19,7 @@ import threading
 import time
 from typing import Any, ClassVar, Iterator, cast
 
-import unohelper
-from com.sun.star.util import XModifyListener
+from plugin.framework.uno_listeners import BaseModifyListener
 
 from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
@@ -769,7 +768,7 @@ def _cell_is_formula(cell: Any) -> bool:
     )
 
 
-class CalcSpillModifyListener(unohelper.Base, XModifyListener):
+class CalcSpillModifyListener(BaseModifyListener):
     """Orphaned-spill cleanup. Walks ``SPILL_REGISTRY`` only.
 
     Geometric repair must not piggyback on this walk (it does not scan
@@ -782,6 +781,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
     sheet_name: str
 
     def __init__(self, ctx: Any, doc_key: str, sheet_name: str) -> None:
+        super().__init__()
         self.ctx = ctx
         self.doc_key = doc_key
         self.sheet_name = sheet_name

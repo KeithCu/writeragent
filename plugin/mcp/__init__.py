@@ -27,7 +27,6 @@ from plugin.framework.module_base import ModuleBase
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
-    from com.sun.star.lang import EventObject
 from plugin.mcp.cors import reload_cors_policy_from_config
 from plugin.mcp.server import mcp_endpoint_url, format_mcp_start_failure, is_port_in_use_error
 from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label
@@ -531,9 +530,8 @@ class McpModule(ModuleBase):
         return msg
 
     def _action_server_status(self) -> None:
-        import unohelper
-        from com.sun.star.awt import XActionListener
         from plugin.chatbot.dialogs import CopyListener, load_writeragent_dialog, msgbox
+        from plugin.framework.uno_listeners import BaseActionListener
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
 
@@ -622,12 +620,9 @@ class McpModule(ModuleBase):
             if copy_btn is not None:
                 copy_btn.addActionListener(CopyListener(dlg, ctx, active_url))
 
-            class _OkListener(unohelper.Base, XActionListener):
+            class _OkListener(BaseActionListener):
                 def actionPerformed(self, rEvent: ActionEvent) -> None:
                     dlg.endDialog(1)
-
-                def disposing(self, Source: EventObject) -> None:
-                    pass
 
             ok_btn = dlg.getControl("OKBtn")
             if ok_btn is not None:

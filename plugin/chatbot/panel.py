@@ -74,7 +74,12 @@ from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
 # QueryTextListener - dynamic button toggling
 # ---------------------------------------------------------------------------
 
-from plugin.framework.uno_listeners import BaseActionListener, BaseKeyListener, BaseTextListener
+from plugin.framework.uno_listeners import (
+    BaseActionListener,
+    BaseKeyListener,
+    BaseMouseListener,
+    BaseTextListener,
+)
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.chatbot.send_state import (
     CancelRecordingEffect,
@@ -1928,12 +1933,6 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
     """Deliver Stop during stream even when ActionEvent is swallowed."""
     if stop_control is None or not hasattr(stop_control, "addMouseListener"):
         return
-    try:
-        import unohelper
-        from com.sun.star.awt import XMouseListener
-    except ImportError:
-        return
-
     # Detach the prior listener before attaching a new one. Repeated
     # attachments or stale sidebar instances otherwise retain mouse
     # listeners that strongly reference the send_listener.
@@ -1942,21 +1941,12 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
         with suppress_disposed("remove prior stop mouse listener", logger=log):
             stop_control.removeMouseListener(prior)
 
-    class _StopMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
-        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            return
-
+    class _StopMouse(BaseMouseListener):
         def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_pressed(send_listener)
 
-        def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            return
-
         def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_entered(send_listener)
-
-        def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            return
 
     try:
         listener = _StopMouse()
@@ -1999,12 +1989,6 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
     """Own Record press/hold/release so ActionEvent cannot double-start or instant-send."""
     if send_control is None or not hasattr(send_control, "addMouseListener"):
         return
-    try:
-        import unohelper
-        from com.sun.star.awt import XMouseListener
-    except ImportError:
-        return
-
     # Detach the prior listener before attaching a new one. Repeated
     # attachments or stale sidebar instances otherwise retain mouse
     # listeners that strongly reference the send_listener.
@@ -2013,21 +1997,12 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
         with suppress_disposed("remove prior record mouse listener", logger=log):
             send_control.removeMouseListener(prior)
 
-    class _RecordMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
-        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            return
-
+    class _RecordMouse(BaseMouseListener):
         def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_record_mouse_pressed(send_listener)
 
         def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_record_mouse_released(send_listener)
-
-        def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            return
 
     try:
         listener = _RecordMouse()

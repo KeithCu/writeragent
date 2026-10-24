@@ -15,12 +15,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-import unohelper
-from com.sun.star.awt import XActionListener
+from plugin.framework.uno_listeners import BaseActionListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
-    from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog, msgbox, set_control_enabled
 from plugin.doc.doc_type import is_writer
@@ -142,10 +140,11 @@ class TextAnalyticsDialog:
     def _wire(self, dlg: Any) -> None:
         owner = self
 
-        class _Btn(unohelper.Base, XActionListener):
+        class _Btn(BaseActionListener):
             _fn: Callable[[Any], Any]
 
             def __init__(self, fn: Callable[[Any], Any]) -> None:
+                super().__init__()
                 self._fn = fn
 
             def actionPerformed(self, rEvent: ActionEvent) -> None:
@@ -153,9 +152,6 @@ class TextAnalyticsDialog:
                     self._fn(dlg)
                 except Exception:
                     log.exception("Text analytics button failed")
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
 
         for btn_id, helper, uses_scope in _COMPUTE_BUTTONS:
             ctrl = dlg.getControl(btn_id)

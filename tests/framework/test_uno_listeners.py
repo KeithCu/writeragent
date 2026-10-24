@@ -16,6 +16,8 @@ from plugin.framework.uno_listeners import (
     BaseWindowListener,
     BaseTopWindowListener,
     BaseDocumentEventListener,
+    BaseModifyListener,
+    BaseTerminateListener,
     ListenerBoundary,
     install_view_doc_listener,
 )
@@ -602,6 +604,91 @@ def test_install_view_doc_listener_handles_broadcaster_failure() -> None:
     ctx.getServiceManager.side_effect = RuntimeError("Service manager unavailable")
     result = install_view_doc_listener(ctx, lambda c: None, "test_failure")
     assert result is None
+
+
+def test_base_modify_listener():
+    """Verify modify listener invokes the correct subclass callback and catches exceptions."""
+    class MyModifyListener(BaseModifyListener):
+        def __init__(self):
+            super().__init__()
+            self.called = False
+            self.event = None
+
+        def on_modified(self, aEvent):
+            self.called = True
+            self.event = aEvent
+
+    listener = MyModifyListener()
+    ev = MagicMock()
+    listener.modified(ev)
+    assert listener.called is True
+    assert listener.event == ev
+
+    # Direct override is discovered by __init_subclass__ and wrapped
+    class DirectOverrideModifyListener(BaseModifyListener):
+        def modified(self, aEvent):
+            raise RuntimeError("modify crash")
+
+    # Should catch and log, not raise
+    DirectOverrideModifyListener().modified(ev)
+
+
+@patch("plugin.framework.uno_listeners.log")
+def test_base_modify_listener_exceptions(mock_log):
+    class ErrorModifyListener(BaseModifyListener):
+        def on_modified(self, aEvent):
+            raise ValueError("bad modify value")
+
+    ErrorModifyListener().modified(MagicMock())
+    assert mock_log.exception.call_args[0][0] == "ErrorModifyListener ValueError in modified"
+
+
+def test_base_terminate_listener():
+    """Verify terminate listener invokes callbacks and preserves veto exceptions."""
+    class MyTerminateListener(BaseTerminateListener):
+        def __init__(self):
+            super().__init__()
+            self.query_called = False
+            self.notify_called = False
+
+        def on_query_termination(self, Event):
+            self.query_called = True
+
+        def on_notify_termination(self, Event):
+            self.notify_called = True
+
+    listener = MyTerminateListener()
+    ev = MagicMock()
+    listener.queryTermination(ev)
+    listener.notifyTermination(ev)
+    assert listener.query_called is True
+    assert listener.notify_called is True
+
+    # Termination veto is re-raised to the bridge
+    class TerminationVetoException(Exception):
+        pass
+
+    class VetoTerminateListener(BaseTerminateListener):
+        def on_query_termination(self, Event):
+            raise TerminationVetoException("app cannot terminate")
+
+    try:
+        VetoTerminateListener().queryTermination(ev)
+    except TerminationVetoException:
+        pass
+    else:
+        raise AssertionError("TerminationVetoException was swallowed by BaseTerminateListener")
+
+
+@patch("plugin.framework.uno_listeners.log")
+def test_base_terminate_listener_exceptions(mock_log):
+    class ErrorTerminateListener(BaseTerminateListener):
+        def on_notify_termination(self, Event):
+            raise RuntimeError("crash on notify")
+
+    ErrorTerminateListener().notifyTermination(MagicMock())
+    assert mock_log.exception.call_args[0][0] == "ErrorTerminateListener unhandled exception in notifyTermination"
+
 
 
 

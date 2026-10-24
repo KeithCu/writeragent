@@ -15,8 +15,7 @@ import threading
 from typing import Any
 
 import uno
-import unohelper
-from com.sun.star.util import XModifyListener
+from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger("writeragent.review_toolbar")
 
@@ -41,7 +40,7 @@ def _runtime_uid(model: Any) -> str | None:
     return uid if uid else None
 
 
-class _ReviewModifyListener(unohelper.Base, XModifyListener):
+class _ReviewModifyListener(BaseModifyListener):
     """Hides the toolbar after changes are resolved through LibreOffice's NATIVE UI (Edit ->
     Track Changes -> Accept All, the native context-menu Accept, etc.) -- paths that bypass the
     WriterAgent handlers. Cheap: while the toolbar is hidden (normal typing) it does nothing; it
@@ -50,6 +49,7 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
     _uid: str | None
 
     def __init__(self, uid: str | None) -> None:
+        super().__init__()
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature

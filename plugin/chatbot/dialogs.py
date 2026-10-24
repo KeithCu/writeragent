@@ -30,7 +30,7 @@ XDL loading rules (sidebar / extension dialogs):
 - Multi-page dialogs: ``dlg:page`` on controls + ``dlg.getModel().Step``;
   ``tabpagecontainer`` / ``tabpage`` fail silently.
 - ListBox/ComboBox: set ``StringItemList``, not only ``.Text``.
-- Tab listeners: subclass ``unohelper.Base`` + ``XActionListener`` (see
+- Tab listeners: subclass ``BaseActionListener`` (see
   ``TabListener`` in this module). Use AppFont for geometry; explicit layout.
 
 Usage from modules::
@@ -56,14 +56,11 @@ from __future__ import annotations
 import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
-import unohelper
 from plugin.framework.uno_listeners import BaseActionListener
-from com.sun.star.awt import XActionListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
-    from com.sun.star.lang import EventObject
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url
 from plugin.framework.i18n import _
@@ -198,7 +195,7 @@ def _run_text_dialog(
 
         _outcome: list[str | None] | None = None
 
-        class _OkListener(unohelper.Base, XActionListener):
+        class _OkListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 ec = dlg.getControl(edit_name)
@@ -206,17 +203,11 @@ def _run_text_dialog(
                 _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
                 dlg.endDialog(1)
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
+        class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
 
         run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
         if _outcome is None:
@@ -466,19 +457,17 @@ class CopyListener(BaseActionListener):
             self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
 
 
-class _DismissDialogListener(unohelper.Base, XActionListener):
+class _DismissDialogListener(BaseActionListener):
     """Dismiss a dialog with status code 1."""
 
     _dlg: Any
 
     def __init__(self, dialog: Any) -> None:
+        super().__init__()
         self._dlg = dialog
 
     def actionPerformed(self, rEvent: ActionEvent) -> None:
         self._dlg.endDialog(1)
-
-    def disposing(self, Source: EventObject) -> None:
-        pass
 
 
 # ── Message box with Copy button ─────────────────────────────────────
