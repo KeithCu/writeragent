@@ -169,7 +169,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | Chat / LLM | [`venv.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on the tool document (`ctx.doc`), not the front window, plus `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
 | Writer notebook | [`notebook_runner.py`](../../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
 | LLM prompts | [`import_policy.py`](../../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
-| LLM sandbox | [`sandbox.py`](../../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` whitelisted |
+| LLM sandbox | [`sandbox.py`](../../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` allowed (not on the sandbox blocklist) |
 | Settings Test | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries**; **Visualization Libraries** group (`matplotlib`, `seaborn`) when Viz helpers are used |
 | Tests | [`test_matplotlib_output.py`](../../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../../tests/calc/python/test_function.py), [`test_venv_python_image.py`](../../tests/calc/python/test_venv_image.py), [`test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py), [`test_viz.py`](../../tests/scripting/test_viz.py), [`test_plot_data.py`](../../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS venv path, trusted helpers |
 
@@ -491,7 +491,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 **Parser limits:** `e` is Euler's number unless it is the variable being differentiated or solved. Dunder names and non-decimal dots are rejected before parsing, because `parse_expr` uses `eval`. An integral SymPy leaves as `Integral(...)` returns `NO_CLOSED_FORM`. `solve_equation` rejects `!=`, `==`, and inequalities. Factorial equations need a space before `=` (`n! = 720`); SymPy may still have no algorithm for them. These helpers already use the 300s long trusted worker timeout (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`). A `parse_expr` result that is not a SymPy expression (a Python string, list, tuple, or dict, or `1.0.func`) is `PARSE_ERROR` with message `Not a math expression.` An unknown call such as `foo(x)` is `PARSE_ERROR` with message `Undefined function in expression: foo`. `Function` is not a parser name. `solve_equation` returns `NO_SOLUTION` (`No solution.`) when the solution set is empty (`exp(x)`, `1 = 0`). When `solve` lists no roots and the set is not empty (`x = x`, `0`, `x**x`), the result stays `status: ok` and `latex` is that set (`\mathbb{C}`, or the condition). `sin(x)` stays the explicit roots `0` and `pi`.
 
-**Out of scope (deferred):** SageMath backend, `sage` sandbox whitelist — [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
+**Out of scope (deferred):** SageMath backend, `sage` sandbox integration — [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
 
 ---
 

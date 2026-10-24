@@ -40,7 +40,7 @@ This page is the technical reference for WriterAgent's **host↔venv compute bri
 │                                │ length-prefixed Pickle5 │
 │                     ┌──────────▼───────────────────────┐ │
 │                     │  User venv Python (subprocess)   │ │
-│                     │  LocalPythonExecutor + whitelist │ │
+│                     │  LocalPythonExecutor + blocklist │ │
 │                     └──────────┬───────────────────────┘ │
 │                                │ result / stdout         │
 │                     ┌──────────▼───────────────────────┐ │
@@ -136,12 +136,12 @@ When executing Python code or transporting dense matrix data on Linux, the compu
 plugin/scripting/
 ├── venv_worker.py            # Path resolve, warm worker, run_code_in_user_venv
 ├── host_rpc.py               # venv → LO tool_call dispatch (Run Python Script / chat)
-├── sandbox.py                # Import whitelist, env scrub, Flatpak spawn, pipe sizing, path resolve
+├── sandbox.py                # Import blocklist, env scrub, Flatpak spawn, pipe sizing, path resolve
 ├── config_limits.py          # Timeout + max data cells from module.yaml
 ├── sandbox_cache.py          # AST policy + parse hot cache
 ├── venv/
 │   ├── worker_harness.py     # Stdin/stdout loop in venv (child entry)
-│   └── venv_sandbox.py       # LocalPythonExecutor + imports whitelist from sandbox.py
+│   └── venv_sandbox.py       # LocalPythonExecutor + imports blocklist from sandbox.py
 └── payload_codec.py          # split_grid / multi_data pack/unpack
 ```
 

@@ -170,7 +170,7 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
-- Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import whitelist, curated Docker image (pinned numpy/pandas/**Pillow**/…).
+- Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import blocklist (`policy_blocked_imports`/`DANGEROUS_MODULES`), curated Docker image (pinned numpy/pandas/**Pillow**/…).
 - Prefer an **in-process executor in the service** first (fewer hops). Add Pickle5 warm workers later only if the service host needs ABI isolation.
 
 ### C++ hooks (deliberately dumb)
@@ -250,7 +250,7 @@ JSON lists already convert to `sequence<sequence<double|Any>>` → `ScUnoAddInCa
 3. **Per-document / per-session isolation** — no shared kernel across tenants; shared kernel only within one document session if enabled.
 4. **Default deny** — no outbound network, no host mounts, scratch-only FS, hard CPU/RAM/wall-clock quotas.
 5. **Separate feature flag** from `enable_macros_execution`.
-6. **Import whitelist** inside the container ([`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/venv/venv_sandbox.py)) as defense-in-depth; OS isolation is the real boundary.
+6. **Import blocklist** inside the container (`policy_blocked_imports`/`DANGEROUS_MODULES` via [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py)) as defense-in-depth; OS isolation is the real boundary.
 
 ### Product matrix
 

@@ -461,7 +461,7 @@ Verification fixtures: [`tests/fixtures/ocr_verification_corpus/`](../../tests/f
 | **Tesseract** | Fast on clean scans; lower accuracy on invoices/tables/screenshots vs Paddle/Surya; separate OS binary |
 | **EasyOCR** | Stale maintenance; heavy PyTorch; outperformed by PaddleOCR/RapidOCR in 2025–2026 comparisons |
 
-OpenCV remains on the LLM sandbox whitelist for ad hoc scripts; **new trusted code should prefer scikit-image** for classical segmentation when needed.
+OpenCV is allowed by default in the LLM sandbox for ad hoc scripts; **new trusted code should prefer scikit-image** for classical segmentation when needed.
 
 ### 7.3 scikit-image — optional third tier
 
@@ -470,7 +470,7 @@ OpenCV remains on the LLM sandbox whitelist for ad hoc scripts; **new trusted co
 | One of the supported pair? | **No** — processing, not recognition |
 | Use inside trusted helpers? | **Yes**, optionally — morphology, watershed, `regionprops` |
 | Self-check? | Optional; graceful skip if absent (like `fg-data-profiling` for analysis) |
-| Sandbox whitelist? | Not required for trusted modules |
+| Sandbox blocklist? | Not required for trusted modules |
 
 ### 7.4 Alternative: Surya (single library)
 
@@ -759,7 +759,7 @@ pip install docling rapidocr-paddle numpy pillow onnxruntime
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
 
-**Self-check (shipped):** [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are intentionally absent from the LLM/venv AST whitelist per §15):
+**Self-check (shipped):** [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are not blocked but not part of curated extras, and probed via host subprocess per §15):
 
 | Probe | Report |
 |-------|--------|
@@ -793,10 +793,10 @@ Optional per-folder cache beside embeddings ([`../embeddings.md`](../embeddings.
 | Code path | Sandbox |
 |-----------|---------|
 | **Vision Helpers fast path** | Trusted `vision.py` only — same as analysis helpers |
-| LLM `run_venv_python_script` | AST whitelist — optional later |
+| LLM `run_venv_python_script` | AST blocklist/extras — optional later |
 | Subprocess | Always the real isolation boundary |
 
-Add `plugin.vision.venv.vision`, `plugin.vision.venv.vision_docling`, and `plugin.vision.venv.vision_paddle` to whitelist for stub import; **do not** add `docling` or `paddleocr` to LLM sandbox list — they stay inside trusted modules only.
+Add `plugin.vision.venv.vision`, `plugin.vision.venv.vision_docling`, and `plugin.vision.venv.vision_paddle` to public alias list for stub import; **do not** add `docling` or `paddleocr` to LLM sandbox extras — they stay inside trusted modules only.
 
 ---
 

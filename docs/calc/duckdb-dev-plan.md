@@ -3,7 +3,7 @@ name: DuckDB Calc Integration
 overview: Add DuckDB as a horizontal analytics layer in the user venv — SQL over folder files (CSV, Parquet, XLSX) and over live Calc ranges materialized via the existing split_grid → DataFrame bridge. Phased delivery; no venv↔LO tool RPC required for MVP.
 todos:
   - id: phase-a-spec
-    content: "Phase A: Spec + sandbox whitelist + Settings probe group + path policy for scoped_dir"
+    content: "Phase A: Spec + sandbox policy + Settings probe group + path policy for scoped_dir"
     status: completed
   - id: phase-a-venv
     content: "Phase A: Trusted venv module plugin/scripting/venv/duckdb_sql.py (folder read-only SQL)"
@@ -181,7 +181,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 ### Engineering
 
 - **Reuses shipped bridge:** `read_range` → `host_pack_data` → `child_unpack_data` → `coerce_to_dataframe` ([`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py), [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py)).
-- **Same execution shell as Analysis/Viz:** Warm venv worker, trusted module, no LLM-submitted arbitrary imports beyond whitelist.
+- **Same execution shell as Analysis/Viz:** Warm venv worker, trusted module, no LLM-submitted arbitrary imports beyond sandbox blocklist (duckdb is not blocked; prompt omits it).
 - **No ABI risk:** DuckDB runs in the child interpreter only.
 - **Build-on mountain:** Future Parquet export ([pyarrow](../enabling_numpy_in_libreoffice.md), deferred) makes DuckDB faster; shared-kernel session cache (Phase D) reuses one connection across `=PY()` cells.
 
@@ -422,7 +422,7 @@ Authoring: pass upstream ranges as data so Calc dirties the cell that re-registe
 | Risk | Mitigation |
 |------|------------|
 | Filesystem escape via SQL paths | Host passes `scoped_dir`; worker resolves and rejects paths outside prefix. Flat files are copied into memory under their basename. `FROM 'name.csv'` reads that table. The worker does not `chdir`. Persistent sessions jail on the first statement that knows a folder: `SET allowed_directories` to that realpath, then `SET enable_external_access=false`. The allowlist does nothing useful while external access is still true. No folder yet means external access stays on (regex only). DuckDB older than 1.3 cannot set the allowlist, so those persistent sessions are not jailed. Ephemeral connections materialize, then disable external access and lock configuration. |
-| Network exfil | Venv sandbox already blocks `requests`/`urllib`; DuckDB `httpfs` extension not whitelisted |
+| Network exfil | Venv sandbox blocks `requests`/`urllib` by default; DuckDB `httpfs` extension and library-level network are residuals of the import-level network flag |
 | Write/attach side effects | Deny-list at a statement boundary: `COPY`, `EXPORT`, `ATTACH`, `DETACH`, `INSTALL`, `FORCE INSTALL`, `LOAD`, `SET`, `PRAGMA`, `CALL`, `CREATE SECRET`, `RESET`, and `UPDATE EXTENSIONS`. In-memory `UPDATE` / `CREATE` / `INSERT` stay allowed. Path/URI escapes (`../`, absolute `/…`, `~/`, drive letters, `http(s)/s3/file/ftp`) fail with `READONLY_VIOLATION`. Do not use `duckdb.connect(read_only=True)` on `:memory:`. |
 | Huge memory | Ingress: `python_max_data_cells` fail-loud on preloaded grids (table name + cell count). Egress: `MAX_TABLE_ROWS=200` with `truncated`, `total_rows`, `row_cap`, `warning` / `flags` / `message`, and `tables[].truncated` so chat, RPS, and tools cannot mistake a partial grid for a complete result. |
 | Secrets in env | Existing `scrub_subprocess_env` in [`sandbox.py`](../../plugin/scripting/sandbox.py) |
@@ -503,7 +503,7 @@ No cloud telemetry required. Suggested signals:
 |------|--------|
 | 2026-06-18 | Initial plan from architecture research (Calc bridge, phased delivery, security). |
 | 2026-06-18 | **Decision:** sibling XLSX/XLS via LO Calc import → UNO range read (not DuckDB `read_xlsx`). |
-| 2026-06-18 | Phase A start: sandbox whitelist, Settings probe (Data Eng), trusted `query_folder_sql` + path guard, host facade + templates, document picker, basic Calc tool. Tests + docs updated. |
+| 2026-06-18 | Phase A start: sandbox policy, Settings probe (Data Eng), trusted `query_folder_sql` + path guard, host facade + templates, document picker, basic Calc tool. Tests + docs updated. |
 | 2026-06-18 | A+ polish: sibling .xlsx/.xls/.ods via `open_document_for_read` + `CellInspector` + preloaded grids; sheet#hint syntax; size limits; clean stem + orig basename registration + aliases; improved reader + tests. |
 | 2026-06-18 | Phase B: data_range support in tool for active sheet (registers as 'data' table, respects headers). Unified preloaded handling (structured for headers), template for query_sheet_sql, descriptions. |
 | 2026-06-18 | Phase C: multi-table 'tables' param (named ranges on active), files as dict for named flat+office. Worker supports flat_files dict for direct named registration (no chdir). Host prepares preloaded + flat_files. Tool + client updated. |

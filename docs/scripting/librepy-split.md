@@ -243,7 +243,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `run_code_in_user_venv`, `PythonWorkerManager`, warm worker, venv resolution |
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | Pickle5 frame read/write |
 | [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) | `split_grid` wire codec (host + child) |
-| [`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py) | `VENV_AUTHORIZED_IMPORTS`, `scrub_subprocess_env`, `resolve_venv_python` |
+| [`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py) | `VENV_AUTHORIZED_IMPORTS` (public alias list), `policy_blocked_imports`, `DANGEROUS_MODULES`, `scrub_subprocess_env`, `resolve_venv_python` |
 | [`plugin/scripting/config_limits.py`](../../plugin/scripting/config_limits.py) | Timeout defaults/min/max, warm/long-trusted budgets |
 | [`plugin/scripting/session_manager.py`](../../plugin/scripting/session_manager.py) | Shared-kernel workbook sessions, reset |
 | [`plugin/scripting/module.yaml`](../../plugin/scripting/module.yaml) | Config schema for Python settings |

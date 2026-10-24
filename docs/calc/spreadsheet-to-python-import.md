@@ -581,7 +581,7 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 |--------------|--------|
 | `=PY(…)` / `=PYTHON(…)` | Extract + normalize only |
 | `=PROMPT(…)` | **Skip** — LLM cell; user choice in dialog |
-| Add-in functions | **TODO** unless whitelisted |
+| Add-in functions | **TODO** unless allowed by the sandbox (blocked host escapes excluded) |
 
 ### 8.11 Operators (P1)
 
