@@ -21,10 +21,7 @@ Concurrency: ``ServiceRegistry`` (``services.document``, ``services.events``,
 …) is populated while the extension bootstraps on the UI thread, then
 read for the rest of the session. There is no lock. Do not call
 ``register`` from a background worker — you can race the dict and you
-will confuse shutdown order. ``initialize_all`` and ``shutdown_all``
-iterate a snapshot: a callback may ``register`` another service, and a
-live ``dict.items()`` walk raises ``RuntimeError`` outside the
-per-service try.
+will confuse shutdown order.
 """
 
 from __future__ import annotations
@@ -162,23 +159,6 @@ class ServiceRegistry:
 
     def __contains__(self, name: str) -> bool:
         return name in self._services
-
-    def _call_each(self, method_name: str, *args: Any) -> None:
-        for name, svc in list(self._services.items()):
-            func = getattr(svc, method_name, None)
-            if callable(func):
-                try:
-                    func(*args)
-                except Exception:
-                    log.exception("Service %s failed during %s", name, method_name)
-
-    def initialize_all(self, ctx: Any) -> None:
-        """Call ``initialize(ctx)`` on every service that supports it."""
-        self._call_each("initialize", ctx)
-
-    def shutdown_all(self) -> None:
-        """Call ``shutdown()`` on every service that supports it."""
-        self._call_each("shutdown")
 
     @property
     def service_names(self) -> list[str]:

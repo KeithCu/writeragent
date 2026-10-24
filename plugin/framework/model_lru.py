@@ -58,7 +58,8 @@ def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
     else); that still becomes a one-item list, matching the old
     ``update_lru_history`` compare.
     """
-    val_str = str(val).strip()
+    assert max_items >= 1, max_items
+    val_str = "" if val is None else str(val).strip()
     if not val_str:
         return None
     # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
@@ -67,10 +68,8 @@ def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
         return None
-    if val_str in lru:
-        lru.remove(val_str)
-    lru.insert(0, val_str)
-    new_lru = lru[:max_items]
+    new_lru = [val_str] + [x for x in dict.fromkeys(lru) if x != val_str]
+    new_lru = new_lru[:max_items]
     if isinstance(current, list) and current == new_lru:
         return None
     return new_lru

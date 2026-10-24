@@ -105,6 +105,7 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     from plugin.framework.config import get_config_str, get_current_endpoint, user_config_dir
     from plugin.framework.i18n import get_lo_locale
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
+    from plugin.framework.logging import get_debug_log_path
     from plugin.framework.uno_context import product_display_name, resolve_package_extension_id
     from plugin.version import EXTENSION_VERSION
 
@@ -143,9 +144,12 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     header = "\n".join(lines)
 
     rest_lines = []
-    log_dir = best_effort(user_config_dir, "bug_report: user_config_dir")
-    if log_dir:
-        log_path = os.path.join(log_dir, "writeragent_debug.log")
+    log_path = get_debug_log_path()
+    if not log_path:
+        log_dir = best_effort(user_config_dir, "bug_report: user_config_dir")
+        if log_dir:
+            log_path = os.path.join(log_dir, "writeragent_debug.log")
+    if log_path:
         rest_lines.extend(
             [
                 "### Debug log",
@@ -168,12 +172,6 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     )
     rest = "\n".join(rest_lines)
     return header, rest
-
-
-def collect_environment_block(ctx: Any | None = None) -> str:
-    """Plain-text environment block for a GitHub issue body."""
-    header, rest = _issue_sections(ctx)
-    return f"{header}\n\n{rest}"
 
 
 def _truncate_body(body: str) -> str:

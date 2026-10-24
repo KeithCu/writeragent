@@ -52,10 +52,12 @@ OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 def _split_suffix(model_id: str) -> tuple[str, str | None]:
     if ":" not in model_id:
         return model_id, None
-    base, suffix = model_id.rsplit(":", 1)
-    if not base or not suffix:
+    parts = model_id.split(":")
+    if any(not p for p in parts):
         return model_id, None
-    return base, suffix
+    kept = [parts[0]] + [p for p in parts[1:] if p not in OPENROUTER_DYNAMIC_SUFFIXES]
+    dropped = [p for p in parts[1:] if p in OPENROUTER_DYNAMIC_SUFFIXES]
+    return ":".join(kept), ":".join(dropped) or None
 
 
 @deal.pre(lambda model_id, catalog_ids=None: _deal_model_id_ok(model_id) and _deal_catalog_ids_ok(catalog_ids))
@@ -72,10 +74,9 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     catalog = set(catalog_ids) if catalog_ids is not None else None
     if catalog is not None and mid in catalog:
         return mid
-    base, suffix = _split_suffix(mid)
-    if suffix in OPENROUTER_DYNAMIC_SUFFIXES:
-        if catalog is None or base in catalog:
-            return base
+    base, routing = _split_suffix(mid)
+    if routing is not None and (catalog is None or base in catalog):
+        return base
     return mid
 
 

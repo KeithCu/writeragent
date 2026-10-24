@@ -1,15 +1,18 @@
 import datetime
 import email.utils
 import ssl
+import time
+from typing import Any
 
+from plugin.framework.client import request_controls
 from plugin.framework.client.request_controls import (
     OPENROUTER_FREE_MIN_GAP_SEC,
     LocalHttpsCertificateFallback,
     RequestPacer,
+    _reserve_host_send_slot,
     _structured_error_is_overload,
     _text_is_overload,
     backoff_delay_sec,
-    claim_host_send_slot,
     clear_host_gap,
     emit_retry_status,
     ensure_free_model_pacing,
@@ -19,7 +22,6 @@ from plugin.framework.client.request_controls import (
     pacing_key,
     parse_retry_after,
     parse_retry_after_ms,
-    remaining_host_gap,
     remember_host_gap,
     request_model_from_body,
     reset_host_pacing_for_tests,
@@ -29,6 +31,16 @@ from plugin.framework.client.request_controls import (
     wait_abortable,
     wait_host_gap,
 )
+
+
+def _remaining(key: str, now: Any = None) -> float:
+    current = (now or time.monotonic)()
+    with request_controls._host_gap_lock:
+        gap = request_controls._host_gap_sec.get(key, 0.0)
+        last = request_controls._host_last_sent.get(key)
+    if gap <= 0 or last is None:
+        return 0.0
+    return max(0.0, gap - (current - last))
 
 
 def setup_function() -> None:
@@ -161,19 +173,19 @@ def test_openrouter_free_floor_survives_clear_and_yields_to_larger_429():
     assert key == "openrouter.ai:free"
     mark_host_sent(key, monotonic=now)
     clock["t"] = 101.0
-    assert remaining_host_gap(key, monotonic=now) == OPENROUTER_FREE_MIN_GAP_SEC - 1.0
+    assert _remaining(key, now) == OPENROUTER_FREE_MIN_GAP_SEC - 1.0
     remember_host_gap(key, 10.0)
-    assert remaining_host_gap(key, monotonic=now) == 9.0
+    assert _remaining(key, now) == 9.0
     clear_host_gap(key)
-    assert remaining_host_gap(key, monotonic=now) == OPENROUTER_FREE_MIN_GAP_SEC - 1.0
+    assert _remaining(key, now) == OPENROUTER_FREE_MIN_GAP_SEC - 1.0
     clear_host_gap("openrouter.ai")
-    assert remaining_host_gap("openrouter.ai", monotonic=now) == 0.0
+    assert _remaining("openrouter.ai", now) == 0.0
 
 
 def test_free_pacing_not_seeded_off_openrouter():
     key = ensure_free_model_pacing("localhost", "llama3:free", port=11434)
     assert key == "localhost:11434"
-    assert remaining_host_gap(key) == 0.0
+    assert _remaining(key) == 0.0
 
 
 def test_request_model_from_body_reads_model_field():
@@ -182,35 +194,21 @@ def test_request_model_from_body_reads_model_field():
     assert request_model_from_body(b"not-json") is None
 
 
-def test_host_gap_claims_do_not_both_see_zero_wait():
-    """Two jobs must not both observe a zero gap and send together."""
-    remember_host_gap("example.com", 5.0)
-    mark_host_sent("example.com", monotonic=lambda: 100.0)
-    first = claim_host_send_slot("example.com", monotonic=lambda: 100.0)
-    second = claim_host_send_slot("example.com", monotonic=lambda: 100.0)
-    assert first == 5.0
-    assert second == 10.0
-    # The later reservation must survive the first job recording its real send.
-    mark_host_sent("example.com", monotonic=lambda: 105.0)
-    # 105 is earlier than the second reservation (110). A third caller still waits.
-    assert remaining_host_gap("example.com", monotonic=lambda: 105.0) == 10.0
-
-
 def test_host_gap_is_sticky_until_first_try_success():
     clock = {"t": 100.0}
 
     def now() -> float:
         return clock["t"]
 
-    assert remaining_host_gap("localhost", monotonic=now) == 0.0
+    assert _remaining("localhost", now) == 0.0
     mark_host_sent("localhost", monotonic=now)
     remember_host_gap("localhost", 5.0)
     clock["t"] = 102.0
-    assert remaining_host_gap("localhost", monotonic=now) == 3.0
+    assert _remaining("localhost", now) == 3.0
     remember_host_gap("localhost", 2.0)
-    assert remaining_host_gap("localhost", monotonic=now) == 3.0
+    assert _remaining("localhost", now) == 3.0
     clear_host_gap("localhost")
-    assert remaining_host_gap("localhost", monotonic=now) == 0.0
+    assert _remaining("localhost", now) == 0.0
 
 
 def test_emit_retry_status_skips_none():
@@ -242,16 +240,16 @@ def test_wait_host_gap_stop_rolls_back_reservation():
     remember_host_gap("localhost", 5.0)
     mark_host_sent("localhost", monotonic=lambda: 100.0)
     assert wait_host_gap("localhost", stop_checker=lambda: True, monotonic=lambda: 100.0) is False
-    assert claim_host_send_slot("localhost", monotonic=lambda: 100.0) == 5.0
+    assert _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0] == 5.0
 
 
 def test_wait_host_gap_stop_does_not_clobber_later_claim():
     remember_host_gap("localhost", 5.0)
     mark_host_sent("localhost", monotonic=lambda: 100.0)
-    first_wait = claim_host_send_slot("localhost", monotonic=lambda: 100.0)
+    first_wait = _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0]
     assert first_wait == 5.0
     assert wait_host_gap("localhost", stop_checker=lambda: True, monotonic=lambda: 100.0) is False
-    assert remaining_host_gap("localhost", monotonic=lambda: 100.0) == 10.0
+    assert _remaining("localhost", lambda: 100.0) == 10.0
 
 
 def test_wait_host_gap_status_callback():

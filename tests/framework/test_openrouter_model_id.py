@@ -33,6 +33,12 @@ def test_floor_and_exacto_resolve_to_base() -> None:
     assert resolve_openrouter_catalog_id("openai/gpt-oss-120b:floor", _CATALOG) == "openai/gpt-oss-120b"
     assert resolve_openrouter_catalog_id("openai/gpt-oss-120b:exacto", _CATALOG) == "openai/gpt-oss-120b"
 
+
+def test_multiple_routing_suffixes() -> None:
+    assert resolve_openrouter_catalog_id("openai/gpt-oss-120b:nitro:exacto", _CATALOG) == "openai/gpt-oss-120b"
+    assert resolve_openrouter_catalog_id("openai/gpt-oss-120b:floor:nitro", _CATALOG) == "openai/gpt-oss-120b"
+    assert resolve_openrouter_catalog_id("openai/gpt-oss-120b:free:nitro", _CATALOG) == "openai/gpt-oss-120b:free"
+
 def test_nitro_without_catalog_always_strips() -> None:
     assert resolve_openrouter_catalog_id("some/model:nitro", None) == "some/model"
 

@@ -2109,11 +2109,11 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
     assert err.value.code == "HTTP_ERROR"
     assert err.value.details["status"] == 500
-    from plugin.framework.client.errors import _redact_secret_from_log_text
+    from plugin.framework.client.http_security import redact_secrets
 
-    expected_user = _redact_secret_from_log_text(
+    expected_user = redact_secrets(
         _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
-        api_key,
+        [api_key],
     )
     assert str(err.value) == expected_user
     assert api_key not in str(err.value)

@@ -38,7 +38,7 @@ def _close_scratch_doc(doc: Any) -> None:
 
 @main_thread_only
 def clear_writer_body(doc: Any) -> bool:
-    """Empty *doc* of everything a template can put in it. True when something was removed.
+    """Empty *doc* of everything a template can put in it. True when the doc is clean afterwards.
 
     Not just the body text: a letterhead template is often an empty table or a logo
     anchored to the page, whose body string is "" -- testing the text alone left that
@@ -94,7 +94,20 @@ def clear_writer_body(doc: Any) -> bool:
         log.debug("clear_writer_body failed", exc_info=True)
     if removed:
         log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
-    return removed
+
+    for check in (
+        lambda: doc.getTextTables().getCount() == 0,
+        lambda: doc.getTextFrames().getCount() == 0,
+        lambda: doc.getDrawPage().getCount() == 0,
+        lambda: not (doc.getText().getString() or "").strip(),
+    ):
+        try:
+            if not check():
+                return False
+        except Exception as e:
+            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+            return False
+    return True
 
 
 def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
@@ -119,23 +132,10 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, 0, (hidden,))
     if doc is None:
         return None
-    # clear_writer_body logs and returns False on a non-disposal error.
-    # An already-empty body is False too, so only a leftover non-empty
-    # string is a failure. Returning the scratch Writer anyway would hand
-    # the caller the default-template text this function exists to drop.
-    # Disposal still raises.
     if not clear_writer_body(doc):
-        try:
-            leftover = doc.getText().getString()
-        except Exception as e:
-            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
-            log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
-            _close_scratch_doc(doc)
-            return None
-        if (leftover or "").strip():
-            log.debug("new_blank_writer: default template text survived clear_writer_body")
-            _close_scratch_doc(doc)
-            return None
+        log.debug("new_blank_writer: template content survived clear_writer_body")
+        _close_scratch_doc(doc)
+        return None
     # Other document lookups wrap the model so a later off-thread use is
     # caught by the dev thread guard. This factory used to return it raw.
     return _guard_returned_uno(doc)

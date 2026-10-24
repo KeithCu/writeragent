@@ -236,11 +236,6 @@ def _request_payload_byte_length(body: Any) -> int:
     return 0
 
 
-def _redact_secret_from_log_text(text: str, secret: str) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Remove a configured credential from a log string. Empty secret is a no-op."""
-    return redact_secrets(text, [secret] if secret else None)
-
-
 def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     """Parse an HTTP 200 provider body as a JSON object.
 
@@ -265,7 +260,7 @@ def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[
         # The stream loop redacts an echoed API key. Sync chat, images, and
         # STT must do the same, or HTTP 200 raises the raw provider string.
         # The caller passes the key. Do not retry a finished body.
-        stream_err = _redact_secret_from_log_text(stream_err, api_key)
+        stream_err = redact_secrets(stream_err, [api_key])
         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
     return parsed
 

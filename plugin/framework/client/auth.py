@@ -266,11 +266,13 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     # Plain dict only — isinstance(dict) is true for CrossHair AttrDict and .items() can crash.
     extra = auth_info.get("headers") or {}
     if type(extra) is dict:
+        existing = {h.lower() for h in headers}
         for k, v in extra.items():
             # Do not overwrite explicitly set auth headers.
-            if k in headers:
+            if str(k).lower() in existing:
                 continue
             headers[str(k)] = str(v)
+            existing.add(str(k).lower())
 
     # Legacy fallback for simple/manual endpoints: if an api_key exists and no
     # auth header was added (e.g. style='none' or unknown provider), add Bearer.
@@ -279,7 +281,7 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     # in LlmClient._headers.
     # Why this fixes it: Consolidate fallback here so all HTTP paths (chat, catalog
     # fetch, and /api/show probes) send the key. Null/empty keys remain header-less.
-    if api_key and "Authorization" not in headers and "x-api-key" not in headers:
+    if api_key and not ({"authorization", "x-api-key"} & {h.lower() for h in headers}):
         headers["Authorization"] = f"Bearer {api_key}"
 
     return headers

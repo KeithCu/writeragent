@@ -370,7 +370,7 @@ def mark_host_sent(host: str, *, monotonic: Callable[[], float] | None = None) -
         return
     now = (monotonic or time.monotonic)()
     with _host_gap_lock:
-        # claim_host_send_slot may already have reserved a later instant.
+        # _reserve_host_send_slot may already have reserved a later instant.
         # A slow send must not move that stamp backward and let another job in.
         prev = _host_last_sent.get(host)
         if prev is None or now > prev:
@@ -403,29 +403,6 @@ def _rollback_host_reservation(host: str, reserved_at: float, previous_last: flo
                 _host_last_sent[host] = previous_last
 
 
-def claim_host_send_slot(host: str, *, monotonic: Callable[[], float] | None = None) -> float:
-    """Reserve this caller's send time and return how long it must wait.
-
-    The reservation is ``now + wait``; ``mark_host_sent`` only moves it forward.
-    ``wait_host_gap`` rolls back when Stop aborts the wait and the stamp is still this reservation.
-    """
-    wait, _, _ = _reserve_host_send_slot(host, monotonic=monotonic)
-    return wait
-
-
-def remaining_host_gap(host: str, *, monotonic: Callable[[], float] | None = None) -> float:
-    """Read-only view of the remaining host gap without reserving a slot; senders use claim_host_send_slot."""
-    if not host:
-        return 0.0
-    now = (monotonic or time.monotonic)()
-    with _host_gap_lock:
-        gap = _host_gap_sec.get(host, 0.0)
-        last = _host_last_sent.get(host)
-    if gap <= 0 or last is None:
-        return 0.0
-    return max(0.0, gap - (now - last))
-
-
 def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, *, monotonic: Callable[[], float] | None = None) -> bool:
     """Wait out a learned per-host gap. False if Stop fired."""
     remaining, reserved_at, previous_last = _reserve_host_send_slot(host, monotonic=monotonic)
@@ -450,7 +427,7 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
     ok = wait_abortable(remaining, stop_checker, monotonic=monotonic)
     if not ok:
         # Bugfix: Stop during the wait left last_sent at now + wait, so the next caller
-        # waited an extra gap. claim_host_send_slot wrote the future stamp before the sleep;
+        # waited an extra gap. _reserve_host_send_slot wrote the future stamp before the sleep;
         # rollback restores the previous stamp only if nobody else has reserved past it.
         _rollback_host_reservation(host, reserved_at, previous_last)
         return False
@@ -462,7 +439,7 @@ class RequestPacer:
 
     Note: RequestPacer is per-transport (short 0.05s intervals on one client).
     Process-wide host pacing (for 429 cooldowns and OpenRouter :free 20 rpm rate limits)
-    is handled across clients by claim_host_send_slot / wait_host_gap.
+    is handled across clients by wait_host_gap.
     """
 
     min_interval_sec: float

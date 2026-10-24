@@ -31,11 +31,14 @@ class TestModelLru:
         assert lru_config_key("prompt_lru", "") == "prompt_lru"
 
     def test_next_lru_list_skips_blank_and_head_and_promotes(self):
+        assert next_lru_list(["a"], None, 10) is None
         assert next_lru_list(["first"], "  ", 10) is None
         assert next_lru_list(["first", "second"], "first", 10) is None
         assert next_lru_list(["first", "second"], "second", 10) == ["second", "first"]
         assert next_lru_list("", "new", 10) == ["new"]
         assert next_lru_list(["a", "b", "c"], "d", 3) == ["d", "a", "b"]
+        assert next_lru_list(["a", "b", "a"], "c", 10) == ["c", "a", "b"]
+        assert next_lru_list(["a", "b", "a"], "b", 10) == ["b", "a"]
 
     def test_update_lru_history(self):
         config_data = {}

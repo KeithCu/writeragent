@@ -129,6 +129,19 @@ def test_build_auth_headers_with_extra_headers():
     assert headers["x-custom-version"] == "1.0"
 
 
+def test_build_auth_headers_extra_headers_case_insensitive():
+    auth_info = {
+        "header_style": "bearer",
+        "api_key": "sk-test",
+        "headers": {"authorization": "Bearer other", "anthropic-version": "1"},
+    }
+    headers = build_auth_headers(auth_info)
+    assert headers == {
+        "Authorization": "Bearer sk-test",
+        "anthropic-version": "1",
+    }
+
+
 def test_build_auth_headers_empty_key():
     """Test building auth headers with an empty API key."""
     auth_info = {

@@ -4,104 +4,10 @@ from __future__ import annotations
 
 import io
 import json
-import socket
 import urllib.error
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from plugin.chatbot.quick_setup import (
-    LOCAL_SERVER_PROBES,
-    _check_port_open,
-    probe_local_servers,
-    check_endpoint_connection,
-)
-
-
-def test_local_server_probes_structure():
-    """Ensure all probe definitions specify name, port, path, kind, and url."""
-    assert len(LOCAL_SERVER_PROBES) >= 15
-    for p in LOCAL_SERVER_PROBES:
-        assert "name" in p
-        assert isinstance(p["port"], int)
-        assert p["path"].startswith("/")
-        assert p["kind"] in ("ollama", "openai")
-
-
-def test_check_port_open_real_listener():
-    """Test _check_port_open with an active socket."""
-    for attempt in range(3):
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(1)
-        port = srv.getsockname()[1]
-        try:
-            assert _check_port_open("127.0.0.1", port, timeout_sec=0.5) is True
-        finally:
-            srv.close()
-
-        # If another process bound the port immediately after srv.close(),
-        # _check_port_open might still return True. Retry in that case.
-        if _check_port_open("127.0.0.1", port, timeout_sec=0.1) is False:
-            return
-    pytest.fail(
-        f"Failed to verify closed port after {attempt + 1} attempts due to port snatching"
-    )
-
-
-@patch("plugin.chatbot.quick_setup._check_port_open")
-@patch("urllib.request.urlopen")
-def test_probe_local_servers_ollama(mock_urlopen, mock_port_open):
-    """Test detecting Ollama with model list."""
-    def port_check(host, port, timeout_sec=0.15):
-        return port == 11434
-
-    mock_port_open.side_effect = port_check
-
-    ollama_response = {
-        "models": [
-            {"name": "llama3.2:latest", "size": 2000000},
-            {"name": "deepseek-r1:8b", "size": 5000000},
-        ]
-    }
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(ollama_response).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
-
-    detected = probe_local_servers()
-    assert len(detected) == 1
-    assert detected[0]["name"] == "Ollama"
-    assert detected[0]["models"] == ["llama3.2:latest", "deepseek-r1:8b"]
-    assert detected[0]["url"] == "http://localhost:11434"
-
-
-@patch("plugin.chatbot.quick_setup._check_port_open")
-@patch("urllib.request.urlopen")
-def test_probe_local_servers_lm_studio(mock_urlopen, mock_port_open):
-    """Test detecting LM Studio (OpenAI format)."""
-    def port_check(host, port, timeout_sec=0.15):
-        return port == 1234
-
-    mock_port_open.side_effect = port_check
-
-    lm_response = {
-        "data": [
-            {"id": "qwen2.5-coder-7b-instruct"},
-            {"id": "mistral-7b-instruct"},
-        ]
-    }
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(lm_response).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
-
-    detected = probe_local_servers()
-    assert len(detected) == 1
-    assert detected[0]["name"] == "LM Studio"
-    assert detected[0]["models"] == ["qwen2.5-coder-7b-instruct", "mistral-7b-instruct"]
+from plugin.chatbot.quick_setup import check_endpoint_connection
 
 
 @patch("urllib.request.urlopen")

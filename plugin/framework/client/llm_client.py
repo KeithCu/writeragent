@@ -73,10 +73,10 @@ from .errors import (
     _log_http_500_request_diag,
     _parse_provider_envelope,
     _path_without_query,
-    _redact_secret_from_log_text,
     append_zai_unknown_model_hint,
     stream_error_message,
 )
+from .http_security import redact_secrets
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json
 from .request_controls import (
     RETRY_MAX_ATTEMPTS,
@@ -244,8 +244,8 @@ class LlmClient:
         # a provider (or proxy) reflected it in the error text.
         # A leftover ``?key=`` on the path must not land in the log. Strip the
         # query and redact any echoed secret before logging.
-        safe_path = _redact_secret_from_log_text(_path_without_query(path), api_key)
-        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), safe_path, request_model)
+        safe_path = redact_secrets(_path_without_query(path), [api_key])
+        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, redact_secrets(err_body, [api_key]), self._get_provider(), safe_path, request_model)
         n_ctx = None
         if response.status == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
@@ -767,7 +767,7 @@ class LlmClient:
                             # SSE error used to raise the raw provider string, which
                             # the sidebar and the debug log then showed.
                             api_key = str(self.config.get("api_key") or "").strip()
-                            stream_err = _redact_secret_from_log_text(stream_err, api_key)
+                            stream_err = redact_secrets(stream_err, [api_key])
                             if (not emitted_any) and stream_error_is_overload(chunk) and sends_left > 1:
                                 self._close_connection()
                                 sends_left -= 1
