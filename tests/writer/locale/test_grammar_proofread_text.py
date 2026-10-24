@@ -381,6 +381,72 @@ def test_split_abbreviation_not_sentence_boundary() -> None:
     assert len(sents) == 2, f"Expected 2 sentences, got {len(sents)}: {sents}"
 
 
+def test_word_before_period_is_abbrev() -> None:
+    # Basic CLDR-whitelisted abbreviations
+    assert gt.word_before_period_is_abbrev("Mr") == 2
+    assert gt.word_before_period_is_abbrev("Dr") == 2
+    assert gt.word_before_period_is_abbrev("approx") == 6
+    assert gt.word_before_period_is_abbrev("Inc.") > 0
+
+    # Normal words are NOT abbreviations (should return 0)
+    assert gt.word_before_period_is_abbrev("abc") == 0
+    assert gt.word_before_period_is_abbrev("hello") == 0
+    assert gt.word_before_period_is_abbrev("abcde") == 0
+    assert gt.word_before_period_is_abbrev("USA") == 0  # No dots, has vowel A
+
+    # Single-letter initials (return non-zero)
+    assert gt.word_before_period_is_abbrev("A") == 1
+    assert gt.word_before_period_is_abbrev("г") == 1
+
+    # Dots (internal punctuation/dots return non-zero)
+    assert gt.word_before_period_is_abbrev("U.S.A.") == 6
+    assert gt.word_before_period_is_abbrev("Ph.D.") == 5
+    assert gt.word_before_period_is_abbrev("e.g.") == 4
+    assert gt.word_before_period_is_abbrev("i.e.") == 4
+    assert gt.word_before_period_is_abbrev("a.m.") == 4
+
+    # Consonant-only checks (return non-zero)
+    assert gt.word_before_period_is_abbrev("ltd") == 3
+    assert gt.word_before_period_is_abbrev("vs") == 2
+    assert gt.word_before_period_is_abbrev("ст") == 2
+
+    # Numbers (pure digits with separators - 0 alpha chars, but returns 1 to indicate "treat as abbrev")
+    assert gt.word_before_period_is_abbrev("123") == 1
+    assert gt.word_before_period_is_abbrev("12345") == 1
+    assert gt.word_before_period_is_abbrev("1234567890") == 1
+    assert gt.word_before_period_is_abbrev("1,234") == 1
+    assert gt.word_before_period_is_abbrev("3.14") == 1
+
+    # Not abbreviations
+    assert gt.word_before_period_is_abbrev("department") == 0
+    assert gt.word_before_period_is_abbrev("O'Reilly") == 0
+    assert gt.word_before_period_is_abbrev("dn't") == 0
+    assert gt.word_before_period_is_abbrev("n't") == 0
+    assert gt.word_before_period_is_abbrev("can't") == 0
+    assert gt.word_before_period_is_abbrev("w/o") == 0
+    assert gt.word_before_period_is_abbrev("") == 0
+    assert gt.word_before_period_is_abbrev(".") == 0
+    assert gt.word_before_period_is_abbrev("...") == 0
+
+
+def test_word_before_period_is_abbrev_cldr_whitelist() -> None:
+    """Single whitelist is filtered CLDR; heuristics cover gaps (not LLM hand lists)."""
+    # CLDR-derived (must survive denylist filtering)
+    assert gt.word_before_period_is_abbrev("Prof.") > 0
+    assert gt.word_before_period_is_abbrev("Jan") > 0
+    assert gt.word_before_period_is_abbrev("ул") > 0
+    assert gt.word_before_period_is_abbrev("руб") > 0
+    # Consonant-only heuristic (not in CLDR whitelist)
+    assert gt.word_before_period_is_abbrev("bzw") > 0
+
+    # Ambiguous English sentence-enders from raw CLDR must NOT match
+    assert gt.word_before_period_is_abbrev("To") == 0
+    assert gt.word_before_period_is_abbrev("By") == 0
+    assert gt.word_before_period_is_abbrev("On") == 0
+    assert gt.word_before_period_is_abbrev("Go") == 0
+    assert gt.word_before_period_is_abbrev("All") == 0
+
+
 def test_split_into_sentences_terminates_when_bi_stuck_on_abbrev() -> None:
     # Regression: text like "...UNO. <content>" was observed in production to make
     # bi.endOfSentence return a position <= the abbreviation period the inner loop was

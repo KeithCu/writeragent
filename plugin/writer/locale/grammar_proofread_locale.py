@@ -6,7 +6,7 @@
 
 Shipped BCP-47 tags and UNO ``Locale`` ↔ canonical tag bridging live in ``plugin.framework.grammar_rule_ids``.
 This module holds English display names for prompts, **Unicode sentence-boundary**
-tables, scheduling thresholds, abbreviations, Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting,
+tables, scheduling thresholds, Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting,
 LLM worker caps/prompt, and JSON wire parsing.
 
 Must not import sibling grammar-processing modules under ``plugin.writer.locale``
@@ -18,13 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from typing import Any, Literal, Sequence
-
-from plugin.framework.grammar_rule_ids import (
-    bcp47_to_uno_lang_country,
-    normalize_detected_bcp47,
-)
-from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
+from typing import Any, Sequence
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -245,86 +239,6 @@ def fingerprint_for_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()[:24]
 
 
-def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: str, is_complete: bool) -> str:
-    """Queue supersede key: distinct per sentence when complete; stable per document when incomplete.
-
-    - Complete sentences use their text hash to avoid collisions across paragraphs.
-    - Incomplete sentences use a fixed 'INCOMPLETE' key to prevent typing floods.
-    """
-    if is_complete:
-        context = fingerprint_for_text(sent_text)
-    else:
-        context = "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
-    return f"{a_document_identifier}|{loc_key}|{context}"
-
-
-def normalize_reason(reason: str) -> str:
-    """Canonical/generalized representation of an error reason to group similar rules.
-
-    - Converts to lowercase.
-    - Strips punctuation and non-alphanumeric characters (keeping all word contents).
-    - Collapses spaces into a single-space separated canonical string.
-    """
-    if not reason:
-        return ""
-    s = reason.lower().strip()
-    # Strip non-alphanumeric characters (keeping word contents)
-    s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s)
-    return " ".join(s.split())
-
-
-GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
-
-
-def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
-    """Map a canonical BCP-47 tag to an ``icu4py`` ``SentenceBreaker`` locale (``@ss=standard``)."""
-    tag = normalize_detected_bcp47(bcp47) or str(bcp47 or "").strip()
-    if not tag:
-        return "en@ss=standard"
-    parts = tag.split("-")
-    lang = parts[0].lower()
-    if not lang:
-        return "en@ss=standard"
-    if lang == "en":
-        return "en@ss=standard"
-    country = parts[1].upper() if len(parts) > 1 else ""
-    if country:
-        return f"{lang}_{country}@ss=standard"
-    return f"{lang}@ss=standard"
-
-
-def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
-    """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
-    from plugin.framework.config import get_config
-
-    raw = get_config("doc.grammar_proofreader_detect_language")
-    if isinstance(raw, bool):
-        return "llm" if raw else "off"
-    if isinstance(raw, str):
-        v = raw.strip().lower()
-        if v in ("off", "llm", "langdetect"):
-            return v  # type: ignore[return-value]
-        if v in ("1", "true", "yes", "on"):
-            return "llm"
-    return "off"
-
-
-def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
-    """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
-    import importlib
-
-    try:
-        uno_mod = importlib.import_module("uno")
-    except ImportError:
-        return ()
-    out: list[Any] = []
-    for tag in tags:
-        la, ctry = bcp47_to_uno_lang_country(tag)
-        out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
-    return tuple(out)
-
-
-
 # ---------------------------------------------------------------------------
 # Unicode sentence terminals / trailing closers (STerm-style + Pe/Pf prose)
 # ---------------------------------------------------------------------------
@@ -419,68 +333,12 @@ def looks_complete_sentence(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Abbreviations before "." (BreakIterator sentence extension)
-# ---------------------------------------------------------------------------
-#
-# Current design (enough for shipped grammar locales — do not invent parallel tables):
-#   • One static whitelist = filtered Unicode CLDR SentenceBreak suppressions
-#     (en/de/es/fr/it/pt/ru only; generated into locale_abbrev.CLDR_ABBREVS).
-#   • Heuristics for everything else: pure numbers, single-letter initials,
-#     internal dots, consonant-only (Latin/Cyrillic/Greek vowels).
-# LO UNO BreakIterator does not apply ICU @ss=standard; embeddings already do.
-#
-# Future work: see docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
-#
-_ABBREV_VOWELS: frozenset[str] = frozenset("aeiouyаеёиоуыэюяαεηιουω")
-
-
-def word_before_period_is_abbrev(word: str) -> int:
-    """Returns >0 if word is an abbreviation or number (not a sentence terminator), else 0.
-
-    Checks pure numbers, single-letter initials, internal periods, the CLDR whitelist,
-    and consonant-only words across Latin, Cyrillic, and Greek alphabets.
-    """
-    if not word:
-        return 0
-
-    # 1. Pure numbers (e.g. "123", "1.23")
-    if all(ch.isdigit() or ch in ".,-" for ch in word) and any(ch.isdigit() for ch in word):
-        return 1
-
-    # Normalize: strip trailing periods and lowercase
-    w_norm = word.lower().rstrip(".")
-
-    # 2. Single-letter initials (e.g. "A.", "B.", "г.")
-    if len(w_norm) == 1 and w_norm.isalpha():
-        return len(word)
-
-    # 3. CLDR SentenceBreak suppressions whitelist
-    if w_norm in CLDR_ABBREVS:
-        return len(word)
-
-    # 4. Words with internal periods (e.g. "U.S.A.", "d.h.", "т.е.")
-    if "." in w_norm:
-        alpha_count = sum(1 for ch in w_norm if ch.isalpha())
-        if alpha_count >= 2:
-            return len(word)
-
-    # 5. Consonant-only check (no vowels in Latin, Cyrillic, or Greek)
-    # Must be a purely alphabetic word (no internal apostrophes/contractions like "dn't")
-    if w_norm.isalpha() and not any(ch in _ABBREV_VOWELS for ch in w_norm):
-        return len(word)
-
-    _log.debug("[grammar] obs word_before_period_is_abbrev REJECT word=%r", word)
-    return 0
-
-
-# ---------------------------------------------------------------------------
 # Thai / Lao / Khmer: whitespace-delimited chunks (no reliable sentence BI here)
 # ---------------------------------------------------------------------------
 
 GRAMMAR_WHITESPACE_SENTENCE_LOCALE_PREFIXES: tuple[str, ...] = ("th", "lo", "km")
 
 GRAMMAR_WHITESPACE_RUN_RE = re.compile(r"\s+")
-GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^a-z0-9\s]")
 
 
 def is_whitespace_sentence_locale(locale_key: str) -> bool:

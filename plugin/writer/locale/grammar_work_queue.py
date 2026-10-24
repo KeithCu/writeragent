@@ -88,7 +88,6 @@ from . import (
 )
 from .grammar_obs import emit_grammar_status, grammar_obs
 from .grammar_proofread_locale import (
-    grammar_inflight_key,
     looks_complete_sentence,
 )
 from .grammar_proofread_text import slice_preview_debug
@@ -117,6 +116,19 @@ class GrammarWorkItem:
 
 
 
+
+
+def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: str, is_complete: bool) -> str:
+    """Queue supersede key: distinct per sentence when complete; stable per document when incomplete.
+
+    - Complete sentences use their text hash to avoid collisions across paragraphs.
+    - Incomplete sentences use a fixed 'INCOMPLETE' key to prevent typing floods.
+    """
+    if is_complete:
+        context = grammar_proofread_locale.fingerprint_for_text(sent_text)
+    else:
+        context = "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
+    return f"{a_document_identifier}|{loc_key}|{context}"
 
 
 def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:

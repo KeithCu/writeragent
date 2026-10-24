@@ -17,9 +17,9 @@ from plugin.writer.locale.grammar_ignore_rules import (
     doc_ignored_rules,
     is_rule_ignored,
     make_rule_identifier,
+    normalize_reason,
     parse_prefixed_rule_identifier,
 )
-from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
 from plugin.writer.locale.ai_grammar_proofreader import _cached_errors_to_uno_tuple, WriterAgentAiGrammarProofreader
 

@@ -103,13 +103,6 @@ def test_normalize_german_regional(value, value_2, expected, value_3, value_4, e
     assert normalize_uno_locale_to_bcp47(_uno_locale(value, value_2)) == expected
     assert normalize_uno_locale_to_bcp47(_uno_locale(value_3, value_4)) == expected_2
 
-def test_bcp47_to_icu_sentence_breaker_locale() -> None:
-    assert gl.bcp47_to_icu_sentence_breaker_locale("en-US") == "en@ss=standard"
-    assert gl.bcp47_to_icu_sentence_breaker_locale("en-GB") == "en@ss=standard"
-    assert gl.bcp47_to_icu_sentence_breaker_locale("de-DE") == "de_DE@ss=standard"
-    assert gl.bcp47_to_icu_sentence_breaker_locale("ja-JP") == "ja_JP@ss=standard"
-    assert gl.bcp47_to_icu_sentence_breaker_locale("") == "en@ss=standard"
-
 def test_normalize_english_choices() -> None:
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "US")) == "en-US"
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "GB")) == "en-GB"
@@ -142,71 +135,6 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert gl.count_nonspace_chars("too short") < gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
     assert gl.count_nonspace_chars("this is long enough") >= gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
 
-def test_word_before_period_is_abbrev() -> None:
-    # Basic CLDR-whitelisted abbreviations
-    assert gl.word_before_period_is_abbrev("Mr") == 2
-    assert gl.word_before_period_is_abbrev("Dr") == 2
-    assert gl.word_before_period_is_abbrev("approx") == 6
-    assert gl.word_before_period_is_abbrev("Inc.") > 0
-
-    # Normal words are NOT abbreviations (should return 0)
-    assert gl.word_before_period_is_abbrev("abc") == 0
-    assert gl.word_before_period_is_abbrev("hello") == 0
-    assert gl.word_before_period_is_abbrev("abcde") == 0
-    assert gl.word_before_period_is_abbrev("USA") == 0  # No dots, has vowel A
-
-    # Single-letter initials (return non-zero)
-    assert gl.word_before_period_is_abbrev("A") == 1
-    assert gl.word_before_period_is_abbrev("г") == 1
-
-    # Dots (internal punctuation/dots return non-zero)
-    assert gl.word_before_period_is_abbrev("U.S.A.") == 6
-    assert gl.word_before_period_is_abbrev("Ph.D.") == 5
-    assert gl.word_before_period_is_abbrev("e.g.") == 4
-    assert gl.word_before_period_is_abbrev("i.e.") == 4
-    assert gl.word_before_period_is_abbrev("a.m.") == 4
-
-    # Consonant-only checks (return non-zero)
-    assert gl.word_before_period_is_abbrev("ltd") == 3
-    assert gl.word_before_period_is_abbrev("vs") == 2
-    assert gl.word_before_period_is_abbrev("ст") == 2
-
-    # Numbers (pure digits with separators - 0 alpha chars, but returns 1 to indicate "treat as abbrev")
-    assert gl.word_before_period_is_abbrev("123") == 1
-    assert gl.word_before_period_is_abbrev("12345") == 1
-    assert gl.word_before_period_is_abbrev("1234567890") == 1
-    assert gl.word_before_period_is_abbrev("1,234") == 1
-    assert gl.word_before_period_is_abbrev("3.14") == 1
-
-    # Not abbreviations
-    assert gl.word_before_period_is_abbrev("department") == 0
-    assert gl.word_before_period_is_abbrev("O'Reilly") == 0
-    assert gl.word_before_period_is_abbrev("dn't") == 0
-    assert gl.word_before_period_is_abbrev("n't") == 0
-    assert gl.word_before_period_is_abbrev("can't") == 0
-    assert gl.word_before_period_is_abbrev("w/o") == 0
-    assert gl.word_before_period_is_abbrev("") == 0
-    assert gl.word_before_period_is_abbrev(".") == 0
-    assert gl.word_before_period_is_abbrev("...") == 0
-
-
-def test_word_before_period_is_abbrev_cldr_whitelist() -> None:
-    """Single whitelist is filtered CLDR; heuristics cover gaps (not LLM hand lists)."""
-    # CLDR-derived (must survive denylist filtering)
-    assert gl.word_before_period_is_abbrev("Prof.") > 0
-    assert gl.word_before_period_is_abbrev("Jan") > 0
-    assert gl.word_before_period_is_abbrev("ул") > 0
-    assert gl.word_before_period_is_abbrev("руб") > 0
-    # Consonant-only heuristic (not in CLDR whitelist)
-    assert gl.word_before_period_is_abbrev("bzw") > 0
-
-    # Ambiguous English sentence-enders from raw CLDR must NOT match
-    assert gl.word_before_period_is_abbrev("To") == 0
-    assert gl.word_before_period_is_abbrev("By") == 0
-    assert gl.word_before_period_is_abbrev("On") == 0
-    assert gl.word_before_period_is_abbrev("Go") == 0
-    assert gl.word_before_period_is_abbrev("All") == 0
-
 
 def test_tricky_terminator_regex_escaping() -> None:
     """Test that _sterm_class handles tricky chars like ] - \\ ^."""
@@ -231,17 +159,6 @@ def test_fingerprint_for_text() -> None:
     assert len(fp2) == 24
     assert fp1 != fp2
     assert fp1 == gl.fingerprint_for_text(text1)
-
-
-def test_grammar_inflight_key_complete_uses_full_fingerprint() -> None:
-    text = "Hello world."
-    assert gl.grammar_inflight_key("doc1", "en-US", text, is_complete=True) == f"doc1|en-US|{gl.fingerprint_for_text(text)}"
-
-
-def test_grammar_inflight_key_incomplete_stable() -> None:
-    key = gl.grammar_inflight_key("doc1", "en-US", "H", is_complete=False)
-    assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
-    assert key == gl.grammar_inflight_key("doc1", "en-US", "Hello world", is_complete=False)
 
 
 @pytest.mark.parametrize("provider", ("harper", "languagetool", "vale"))

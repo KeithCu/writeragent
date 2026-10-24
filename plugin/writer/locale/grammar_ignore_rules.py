@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .grammar_proofread_cache import ignored_rules_snapshot
-from .grammar_proofread_locale import normalize_reason
 
 # The venv LanguageTool checker imports this leaf, not this module, because
 # this module imports grammar_proofread_cache, which imports config.
@@ -35,8 +35,26 @@ __all__ = [
     "is_prefixed_rule_ignored",
     "is_rule_ignored",
     "make_rule_identifier",
+    "normalize_reason",
     "parse_prefixed_rule_identifier",
 ]
+
+GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^a-z0-9\s]")
+
+
+def normalize_reason(reason: str) -> str:
+    """Canonical/generalized representation of an error reason to group similar rules.
+
+    - Converts to lowercase.
+    - Strips punctuation and non-alphanumeric characters (keeping all word contents).
+    - Collapses spaces into a single-space separated canonical string.
+    """
+    if not reason:
+        return ""
+    s = reason.lower().strip()
+    # Strip non-alphanumeric characters (keeping word contents)
+    s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s)
+    return " ".join(s.split())
 
 
 def canonical_rule_keys(rule_identifier: str) -> tuple[str, ...]:

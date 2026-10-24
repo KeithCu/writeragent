@@ -48,15 +48,14 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
     return "".join(chars)
 
 
-from .grammar_obs import grammar_obs
-
 from .grammar_ignore_rules import WA_G_RULE_PREFIX
+from .grammar_obs import grammar_obs
 from .grammar_proofread_locale import (
     GRAMMAR_WHITESPACE_RUN_RE,
     is_whitespace_sentence_locale,
     split_sentence_chunks_by_separator_regex,
-    word_before_period_is_abbrev,
 )
+from .locale_abbrev import CLDR_ABBREVS
 
 # ---------------------------------------------------------------------------
 # UTF-16 / Python code point offset conversion
@@ -165,6 +164,61 @@ def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
     while ws_end < len(text) and text[ws_end].isspace():
         ws_end += 1
     return ws_end
+
+
+# ---------------------------------------------------------------------------
+# Abbreviations before "." (BreakIterator sentence extension)
+# ---------------------------------------------------------------------------
+#
+# Current design (enough for shipped grammar locales — do not invent parallel tables):
+#   • One static whitelist = filtered Unicode CLDR SentenceBreak suppressions
+#     (en/de/es/fr/it/pt/ru only; generated into locale_abbrev.CLDR_ABBREVS).
+#   • Heuristics for everything else: pure numbers, single-letter initials,
+#     internal dots, consonant-only (Latin/Cyrillic/Greek vowels).
+# LO UNO BreakIterator does not apply ICU @ss=standard; embeddings already do.
+#
+# Future work: see docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
+#
+_ABBREV_VOWELS: frozenset[str] = frozenset("aeiouyаеёиоуыэюяαεηιουω")
+
+
+def word_before_period_is_abbrev(word: str) -> int:
+    """Returns >0 if word is an abbreviation or number (not a sentence terminator), else 0.
+
+    Checks pure numbers, single-letter initials, internal periods, the CLDR whitelist,
+    and consonant-only words across Latin, Cyrillic, and Greek alphabets.
+    """
+    if not word:
+        return 0
+
+    # 1. Pure numbers (e.g. "123", "1.23")
+    if all(ch.isdigit() or ch in ".,-" for ch in word) and any(ch.isdigit() for ch in word):
+        return 1
+
+    # Normalize: strip trailing periods and lowercase
+    w_norm = word.lower().rstrip(".")
+
+    # 2. Single-letter initials (e.g. "A.", "B.", "г.")
+    if len(w_norm) == 1 and w_norm.isalpha():
+        return len(word)
+
+    # 3. CLDR SentenceBreak suppressions whitelist
+    if w_norm in CLDR_ABBREVS:
+        return len(word)
+
+    # 4. Words with internal periods (e.g. "U.S.A.", "d.h.", "т.е.")
+    if "." in w_norm:
+        alpha_count = sum(1 for ch in w_norm if ch.isalpha())
+        if alpha_count >= 2:
+            return len(word)
+
+    # 5. Consonant-only check (no vowels in Latin, Cyrillic, or Greek)
+    # Must be a purely alphabetic word (no internal apostrophes/contractions like "dn't")
+    if w_norm.isalpha() and not any(ch in _ABBREV_VOWELS for ch in w_norm):
+        return len(word)
+
+    log.debug("[grammar] obs word_before_period_is_abbrev REJECT word=%r", word)
+    return 0
 
 
 def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.locale.grammar_proofread_locale import (
+from plugin.writer.locale.grammar_worker import (
     get_grammar_detect_language_mode,
 )
 

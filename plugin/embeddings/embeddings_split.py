@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework import grammar_rule_ids
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
@@ -381,19 +382,34 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
     return sentences or [(0, len(passage), passage)]
 
 
+def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
+    """Map a canonical BCP-47 tag to an ``icu4py`` ``SentenceBreaker`` locale (``@ss=standard``)."""
+    tag = grammar_rule_ids.normalize_detected_bcp47(bcp47) or str(bcp47 or "").strip()
+    if not tag:
+        return "en@ss=standard"
+    parts = tag.split("-")
+    lang = parts[0].lower()
+    if not lang:
+        return "en@ss=standard"
+    if lang == "en":
+        return "en@ss=standard"
+    country = parts[1].upper() if len(parts) > 1 else ""
+    if country:
+        return f"{lang}_{country}@ss=standard"
+    return f"{lang}@ss=standard"
+
+
 @deal.pre(
     lambda passage, locale_bcp47=None, *_unused, **__: _deal_passage_str_ok(passage)
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
     # crosshair: off
-    from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
     from plugin.writer.locale.grammar_proofread_locale import (
-        bcp47_to_icu_sentence_breaker_locale,
         is_whitespace_sentence_locale,
     )
 
-    canon = normalize_detected_bcp47(locale_bcp47) if locale_bcp47 else None
+    canon = grammar_rule_ids.normalize_detected_bcp47(locale_bcp47) if locale_bcp47 else None
     if canon and is_whitespace_sentence_locale(canon):
         sentences = _split_passage_whitespace_to_sentences(passage)
     elif canon:

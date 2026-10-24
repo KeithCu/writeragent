@@ -79,7 +79,7 @@ def _make_item(
 
 def test_mid_sentence_typing_dedup() -> None:
     """Incomplete sentences share a stable key and should supersede."""
-    from plugin.writer.locale.grammar_proofread_locale import grammar_inflight_key
+    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
     # All incomplete sentences in a doc share the same key
     key = grammar_inflight_key("doc1", "en-US", "H", is_complete=False)
     assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
@@ -212,7 +212,7 @@ def test_reverse_prefix_chain_executes_only_latest() -> None:
     ],
 )
 def test_two_sentences_same_document_distinct_inflight_keys_survive(value, value_2) -> None:
-    from plugin.writer.locale.grammar_proofread_locale import grammar_inflight_key
+    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
     s1 = value
     s2 = value_2
     key1 = grammar_inflight_key("doc1", "en-US", s1, is_complete=True)
@@ -226,6 +226,22 @@ def test_two_sentences_same_document_distinct_inflight_keys_survive(value, value
     ]
     result = deduplicate_grammar_batch(items)
     assert len(result) == 2
+
+
+def test_grammar_inflight_key_complete_uses_full_fingerprint() -> None:
+    from plugin.writer.locale.grammar_proofread_locale import fingerprint_for_text
+    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
+
+    text = "Hello world."
+    assert grammar_inflight_key("doc1", "en-US", text, is_complete=True) == f"doc1|en-US|{fingerprint_for_text(text)}"
+
+
+def test_grammar_inflight_key_incomplete_stable() -> None:
+    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
+
+    key = grammar_inflight_key("doc1", "en-US", "H", is_complete=False)
+    assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
+    assert key == grammar_inflight_key("doc1", "en-US", "Hello world", is_complete=False)
 
 def test_two_sentences_string_prefix_collision_both_survive() -> None:
     """Regression: ``deduplicate_grammar_batch`` must not apply text-prefix rules across *different* ``inflight_key`` values.

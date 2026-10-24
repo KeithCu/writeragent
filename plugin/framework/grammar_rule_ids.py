@@ -9,7 +9,7 @@ Stdlib only; must not import plugin.writer.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 WA_G_RULE_PREFIX = "wa_g_rule||"
 HARPER_RULE_PREFIX = "harper||"
@@ -126,6 +126,21 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
     if len(parts) < 2:
         return lang, ""
     return lang, parts[1]
+
+
+def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
+    """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
+    import importlib
+
+    try:
+        uno_mod = importlib.import_module("uno")
+    except ImportError:
+        return ()
+    out: list[Any] = []
+    for tag in tags:
+        la, ctry = bcp47_to_uno_lang_country(tag)
+        out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
+    return tuple(out)
 
 
 def _build_locale_maps() -> tuple[dict[tuple[str, str], str], dict[str, str]]:

@@ -21,7 +21,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, replace
-from typing import Any
+from typing import Any, Literal
 
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence, grammar_proofread_text
 from .grammar_obs import emit_grammar_status, grammar_obs
@@ -32,7 +32,13 @@ from plugin.framework.grammar_rule_ids import (
     normalize_detected_bcp47,
 )
 from .grammar_proofread_text import slice_preview_debug
-from .grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, next_enqueue_seq, grammar_queue
+from .grammar_work_queue import (
+    GrammarWorkItem,
+    GrammarWorkQueue,
+    grammar_inflight_key,
+    grammar_queue,
+    next_enqueue_seq,
+)
 
 from plugin.framework import config, llm_lanes, send_cancellation
 from plugin.framework.errors import best_effort
@@ -66,6 +72,23 @@ def get_grammar_provider() -> str:
     if val_str in ("llm", "languagetool", "vale", "harper"):
         return val_str
 
+    return "off"
+
+
+GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
+
+
+def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
+    """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
+    raw = config.get_config("doc.grammar_proofreader_detect_language")
+    if isinstance(raw, bool):
+        return "llm" if raw else "off"
+    if isinstance(raw, str):
+        v = raw.strip().lower()
+        if v in ("off", "llm", "langdetect"):
+            return v  # type: ignore[return-value]
+        if v in ("1", "true", "yes", "on"):
+            return "llm"
     return "off"
 
 
@@ -959,7 +982,7 @@ def requeue_individual_item(
     so a CharLocale cache hit cannot skip the retag.
     """
     sent_complete = (not item.partial_sentence) and grammar_proofread_locale.looks_complete_sentence(text)
-    requeue_inflight_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, new_bcp47, text, sent_complete)
+    requeue_inflight_key = grammar_inflight_key(item.doc_id, new_bcp47, text, sent_complete)
 
     if cache_placeholder:
         grammar_proofread_cache.cache_put_sentence(original_bcp47, text, [], ctx=ec.ctx, doc_id=item.doc_id)
@@ -1050,7 +1073,7 @@ def _retarget_item_locale(
     grammar_bcp47: str,
     ec: GrammarWorkerContext,
 ) -> GrammarWorkItem | None:
-    new_key = grammar_proofread_locale.grammar_inflight_key(
+    new_key = grammar_inflight_key(
         item.doc_id, target_bcp47, text, not item.partial_sentence
     )
     new_seq = next_enqueue_seq()
@@ -1168,7 +1191,7 @@ def run_llm_and_cache_batch(
             client = _get_or_create_thread_llm_client(config.get_api_config(), ctx)
 
         batch_size = 1 if local_provider else grammar_proofread_locale.grammar_batch_sentences(ctx)
-        detect_lang_mode = "off" if local_provider else grammar_proofread_locale.get_grammar_detect_language_mode(ctx)
+        detect_lang_mode = "off" if local_provider else get_grammar_detect_language_mode(ctx)
         detect_lang_enabled = detect_lang_mode != "off"
 
         ec = GrammarWorkerContext(

@@ -235,7 +235,7 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
 #### Sentence splitting and abbreviation handling
 
 - **Sentence splitting**: Uses LibreOffice's UNO `com.sun.star.i18n.BreakIterator` as the primary sentence boundary detector. This provides locale-aware sentence splitting for all supported scripts (Latin, Cyrillic, CJK, Arabic, etc.).
-- **Abbreviation detection**: Hybrid rule-based and whitelisted approach in [`word_before_period_is_abbrev()`](../../plugin/writer/locale/grammar_proofread_locale.py):
+- **Abbreviation detection**: Hybrid rule-based and whitelisted approach in [`word_before_period_is_abbrev()`](../../plugin/writer/locale/grammar_proofread_text.py):
   1. **Pure numbers**: Decides numbers like `123` or `1.23` are abbreviations to avoid splitting after them.
   2. **Single-letter initials**: Single letters (e.g. `A.`, `г.`) are treated as initials.
   3. **Internal periods**: Words with internal dots (e.g. `U.S.A.`, `т.е.`, `d.h.`) are matched.
@@ -252,7 +252,7 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
 4. **Locale-aware lookup (optional)**: Pass `locale_key` into `word_before_period_is_abbrev` only if the merged CLDR set causes cross-language false positives.
 5. **Out of scope for this list**: Dialogue `!`/`?` quote merging; making LO BreakIterator honor `@ss=standard` (embeddings already use ICU filters).
 
-Code pointer: [`CLDR_ABBREVS`](../../plugin/writer/locale/locale_abbrev.py) in `locale_abbrev.py` and [`word_before_period_is_abbrev`](../../plugin/writer/locale/grammar_proofread_locale.py) in `grammar_proofread_locale.py`.
+Code pointer: [`CLDR_ABBREVS`](../../plugin/writer/locale/locale_abbrev.py) in `locale_abbrev.py` and [`word_before_period_is_abbrev`](../../plugin/writer/locale/grammar_proofread_text.py) in `grammar_proofread_text.py`.
 
 <a id="dialogue-breakiterator-limitation"></a>
 

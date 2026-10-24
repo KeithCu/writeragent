@@ -190,3 +190,11 @@ def test_locale_runs_do_not_glue_across_boundaries(monkeypatch: pytest.MonkeyPat
     assert len(rows) == 2
     assert rows[0]["text"] == "Yes."
     assert rows[1]["text"] == "No."
+
+
+def test_bcp47_to_icu_sentence_breaker_locale() -> None:
+    assert split_mod.bcp47_to_icu_sentence_breaker_locale("en-US") == "en@ss=standard"
+    assert split_mod.bcp47_to_icu_sentence_breaker_locale("en-GB") == "en@ss=standard"
+    assert split_mod.bcp47_to_icu_sentence_breaker_locale("de-DE") == "de_DE@ss=standard"
+    assert split_mod.bcp47_to_icu_sentence_breaker_locale("ja-JP") == "ja_JP@ss=standard"
+    assert split_mod.bcp47_to_icu_sentence_breaker_locale("") == "en@ss=standard"
