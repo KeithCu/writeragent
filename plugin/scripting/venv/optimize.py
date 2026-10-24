@@ -13,13 +13,12 @@ from plugin.scripting.calc_functions_common import (
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
 from plugin.scripting.venv.coerce import (
-    _is_date_like_column_name,
+    auto_numeric,
     coerce_bool,
     coerce_optional_float,
     coerce_str_list,
     dispatch_common_kwargs,
     error_result as _error_result,
-    numeric_columns as _numeric_columns,
     ok_result as _ok_result,
     resolve_df as _resolve_df,
     run_trusted_spec,
@@ -27,61 +26,6 @@ from plugin.scripting.venv.coerce import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def _id_like(series: Any) -> bool:
-    import numpy as np
-    import pandas as pd
-
-    if len(series) < 2:
-        return False
-    if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
-        return False
-    try:
-        arr = series.to_numpy(dtype=float)
-        if not np.isfinite(arr).all():
-            return False
-        if not (arr % 1 == 0).all():
-            return False
-        if len(np.unique(arr)) != len(arr):
-            return False
-        diffs = np.diff(arr)
-        if (diffs > 0).all() or (diffs < 0).all():
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def _auto_numeric(
-    df: Any,
-    requested: list[str] | None,
-    flags: list[str] | None = None,
-) -> list[Any]:
-    if requested is not None:
-        return _numeric_columns(df, requested)
-    # What was wrong: numeric_columns stringifies labels, so column 0 became "0"
-    # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
-    # date and id columns were also silent, so a scheduling solve could drop a
-    # real cost column and still return status: ok.
-    # How it happened: resolve_df keeps a DataFrame's columns, and the auto path
-    # indexed with the stringified name. dropped_rows already appends to flags;
-    # this path did not.
-    # Why this change: select select_dtypes(include="number") labels as they are,
-    # and append one flag per skipped column when the caller passes a list.
-    cols = list(df.select_dtypes(include="number").columns)
-    kept: list[Any] = []
-    for col in cols:
-        name = str(col)
-        if _is_date_like_column_name(name):
-            if flags is not None:
-                flags.append(f"Skipped column {name} (looks like a date); pass the column list explicitly to include it.")
-        elif _id_like(df[col]):
-            if flags is not None:
-                flags.append(f"Skipped column {name} (looks like an id); pass the column list explicitly to include it.")
-        else:
-            kept.append(col)
-    return kept
 
 
 def _is_bound_scalar(x: Any) -> bool:
@@ -320,7 +264,7 @@ def optimize_portfolio(
 
     flags: list[str] = []
     try:
-        numeric_cols = _auto_numeric(df, returns_col_list, flags)
+        numeric_cols = auto_numeric(df, returns_col_list, flags)
     except ValueError as exc:
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 
@@ -446,7 +390,7 @@ def solve_scheduling_problem(
 
     flags: list[str] = []
     try:
-        numeric_cols = _auto_numeric(df, cost_cols_list, flags)
+        numeric_cols = auto_numeric(df, cost_cols_list, flags)
     except ValueError as exc:
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 

@@ -7,7 +7,7 @@
 The single conversion core is :func:`grid_to_dataframe` (also used by
 :meth:`plugin.scripting.calc_range.CalcRange.to_pandas`). Header policy is
 explicit via ``header_row``; string→number/date guessing is opt-in via
-``parse_strings``.
+``parse_strings``. Also holds numeric-column selection helpers.
 """
 
 from __future__ import annotations
@@ -698,6 +698,61 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
                 result.append(s)
         return result
     raise ValueError(f"{name} must be a column list, got {value!r}")
+
+
+def _id_like(series: Any) -> bool:
+    import numpy as np
+    import pandas as pd
+
+    if len(series) < 2:
+        return False
+    if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
+        return False
+    try:
+        arr = series.to_numpy(dtype=float)
+        if not np.isfinite(arr).all():
+            return False
+        if not (arr % 1 == 0).all():
+            return False
+        if len(np.unique(arr)) != len(arr):
+            return False
+        diffs = np.diff(arr)
+        if (diffs > 0).all() or (diffs < 0).all():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def auto_numeric(
+    df: Any,
+    requested: list[str] | None,
+    flags: list[str] | None = None,
+) -> list[Any]:
+    if requested is not None:
+        return numeric_columns(df, requested)
+    # What was wrong: numeric_columns stringifies labels, so column 0 became "0"
+    # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
+    # date and id columns were also silent, so a scheduling solve could drop a
+    # real cost column and still return status: ok.
+    # How it happened: resolve_df keeps a DataFrame's columns, and the auto path
+    # indexed with the stringified name. dropped_rows already appends to flags;
+    # this path did not.
+    # Why this change: select select_dtypes(include="number") labels as they are,
+    # and append one flag per skipped column when the caller passes a list.
+    cols = list(df.select_dtypes(include="number").columns)
+    kept: list[Any] = []
+    for col in cols:
+        name = str(col)
+        if _is_date_like_column_name(name):
+            if flags is not None:
+                flags.append(f"Skipped column {name} (looks like a date); pass the column list explicitly to include it.")
+        elif _id_like(df[col]):
+            if flags is not None:
+                flags.append(f"Skipped column {name} (looks like an id); pass the column list explicitly to include it.")
+        else:
+            kept.append(col)
+    return kept
 
 
 def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:

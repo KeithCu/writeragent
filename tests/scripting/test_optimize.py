@@ -346,7 +346,7 @@ def test_string_returns_col_is_not_characters():
 
 
 def test_auto_numeric_keeps_runtime_update_consolidated():
-    from plugin.scripting.venv.optimize import _auto_numeric
+    from plugin.scripting.venv.coerce import auto_numeric
 
     df = pd.DataFrame({
         "Runtime": [3.0, 1.0, 2.0],
@@ -355,7 +355,7 @@ def test_auto_numeric_keeps_runtime_update_consolidated():
         "Amount": [100.0, 50.0, 75.0],
         "Date": [45292.0, 45293.0, 45294.0],
     })
-    res = _auto_numeric(df, None)
+    res = auto_numeric(df, None)
     assert "Runtime" in res
     assert "Update" in res
     assert "Consolidated" in res
@@ -418,10 +418,10 @@ def test_skipped_columns_are_on_the_insufficient_data_error():
 
 
 def test_auto_numeric_integer_labels_do_not_key_error():
-    from plugin.scripting.venv.optimize import _auto_numeric
+    from plugin.scripting.venv.coerce import auto_numeric
 
     df = pd.DataFrame({0: [0.01, 0.02, -0.01], 1: [0.03, -0.02, 0.01]})
-    assert _auto_numeric(df, None) == [0, 1]
+    assert auto_numeric(df, None) == [0, 1]
     result = optimize_portfolio(df)
     assert result["status"] == "ok", result
     assert [row[0] for row in result["tables"][0]["rows"]] == [0, 1]

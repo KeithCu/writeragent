@@ -395,6 +395,27 @@ def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: 
     return False
 
 
+def record_table_deletions(session: Any, doc: Any, ctx: Any, doomed: list[tuple[Any, str]]) -> bool:
+    """Delete tables inside the caller's already-open review session.
+
+    Returns True when at least one deletion was a tracked change. Does not
+    open a second EditReviewSession: apply_document_content is already in
+    one, and nesting would tag the same redlines twice.
+    """
+    tracked = False
+    uno_ctx = ctx.ctx
+    for table, name in doomed:
+        nesting = _nesting_for(doc, name)
+
+        def _apply(table: Any = table, name: str = name, nesting: dict[str, Any] = nesting) -> None:
+            nonlocal tracked
+            if delete_writer_table(doc, uno_ctx, table, name, nesting):
+                tracked = True
+
+        session.record_mutation(_apply)
+    return tracked
+
+
 def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
     """Remove a TextTable from the XText that contains it (body or host cell).
 

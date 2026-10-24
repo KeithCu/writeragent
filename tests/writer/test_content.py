@@ -974,7 +974,7 @@ def test_emptied_table_delete_reraises_disposed():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
-         patch.object(ApplyDocumentContent, "_record_table_deletions",
+         patch("plugin.writer.apply_document_content.record_table_deletions",
                       side_effect=type("DisposedException", (Exception,), {})("gone")):
         with pytest.raises(Exception) as exc_info:
             ApplyDocumentContent().execute(

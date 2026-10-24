@@ -7,16 +7,13 @@ model is correct even if the initialize manual is stale (manual is sent once at 
 the mode later doesn't update it). No LibreOffice required."""
 from unittest.mock import patch
 
-
-from plugin.writer.apply_document_content import ApplyDocumentContent
+from plugin.writer.edit_review import annotate_review_status
 import pytest
-
-_tool = ApplyDocumentContent()
 
 
 def _annotate(mode, result):
-    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value=mode):
-        return _tool._annotate_review_status(object(), result)
+    with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
+        return annotate_review_status(object(), result)
 
 
 def test_off_mode_leaves_result_unchanged():

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.writer.edit_review import (
     EditReviewSession,
+    annotate_review_status,
     edit_review_wait_seconds,
     review_recording_enabled,
     get_agent_edit_review_mode,
@@ -44,6 +45,7 @@ from plugin.writer.edit_review import (
     close_surgical_context,
 )
 from plugin.writer.specialized.shapes import replace_text_in_shape
+from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
     DocumentDisposedError,
@@ -436,29 +438,6 @@ class ApplyDocumentContent(ToolBase):
             msg = "Outline hyperlink update failed; the text change could not be rolled back and may still be in the document (%s)." % error_exc
         return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
 
-    def _record_table_deletions(self, session: EditReviewSession, doc: Any, ctx: ToolContext,
-                                 doomed: list[tuple[Any, str]]) -> bool:
-        """Delete tables inside the caller's already-open review session.
-
-        Returns True when at least one deletion was a tracked change. Does not
-        open a second EditReviewSession: apply_document_content is already in
-        one, and nesting would tag the same redlines twice.
-        """
-        from plugin.writer.specialized.tables import _nesting_for, delete_writer_table
-
-        tracked = False
-        uno_ctx = ctx.ctx
-        for table, name in doomed:
-            nesting = _nesting_for(doc, name)
-
-            def _apply(table: Any = table, name: str = name, nesting: dict[str, Any] = nesting) -> None:
-                nonlocal tracked
-                if delete_writer_table(doc, uno_ctx, table, name, nesting):
-                    tracked = True
-
-            session.record_mutation(_apply)
-        return tracked
-
     def _finish_search_miss(
         self,
         ctx: ToolContext,
@@ -521,7 +500,7 @@ class ApplyDocumentContent(ToolBase):
                                   "formatting preserved)." % shape_name),
                       "replaced_count": 1, "review_bypassed": True},
                     None)
-                return self._annotate_review_status(ctx.ctx, result), session
+                return annotate_review_status(ctx.ctx, result), session
             return search_mod.build_search_not_found_response(shape_name=shape_name), session
         return search_mod.build_search_not_found_response(
             all_matches=all_matches, tracked_deletions=search_mod.document_has_tracked_deletions(doc)), session
@@ -634,30 +613,6 @@ class ApplyDocumentContent(ToolBase):
         except Exception:
             log.exception("apply_document_content: could not read review wait seconds")
             return 0
-
-    def _annotate_review_status(self, uno_ctx: Any, result: Any) -> dict[str, Any]:
-        """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
-        per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
-        review-modes topic, or the sidebar prompt) is stale — that text is static while the user
-        can toggle the mode mid-session. Only annotates the non-wait path:
-        with recording on but no blocking wait, the edit landed as a tracked change the agent must
-        not resolve and whose accept/reject outcome it will not be told."""
-        if not isinstance(result, dict) or result.get("status") != "ok":
-            return result
-        try:
-            mode = get_agent_edit_review_mode(uno_ctx)
-        except Exception:
-            return result
-        if mode not in ("record", "wait"):
-            return result  # off -> edit is live; nothing to add
-        result = dict(result)
-        result["review_mode"] = mode
-        result["pending_review"] = True
-        result["message"] = (result.get("message") or "") + (
-            " Applied as a tracked change pending the user's review — do not accept or reject it"
-            " yourself, and you will not be notified whether it is later accepted or rejected."
-        )
-        return result
 
     def _wait_enabled_globally(self) -> bool:
         """Config read without a tool context, for long_running/is_async (called by the
@@ -847,7 +802,7 @@ class ApplyDocumentContent(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Thin wrapper so every return path gets the read-only-attribute note, including the
-        # review-wait branch that does not go through _annotate_review_status.
+        # review-wait branch that does not go through annotate_review_status.
         return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -884,7 +839,7 @@ class ApplyDocumentContent(ToolBase):
                 else:
                     from plugin.framework.queue_executor import execute_on_main_thread
                     result, _unused = execute_on_main_thread(_do_edit, timeout=60.0)
-                return self._annotate_review_status(ctx.ctx, result)
+                return annotate_review_status(ctx.ctx, result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
@@ -1252,7 +1207,7 @@ class ApplyDocumentContent(ToolBase):
                             link_reports.extend(reports)
                         count += 1
                     if doomed:
-                        tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
+                        tracked_delete = record_table_deletions(session, doc, ctx, doomed)
                 applied_ok = True
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
@@ -1445,7 +1400,7 @@ class ApplyDocumentContent(ToolBase):
             # document as "Could not delete table". _execute still releases
             # the session.
             with session:
-                tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
+                tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete), session
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,

@@ -109,6 +109,31 @@ def flag_style_unreviewed(ctx: Any, result: dict[str, Any]) -> None:
         result["style_unreviewed"] = True
 
 
+def annotate_review_status(uno_ctx: Any, result: Any) -> dict[str, Any]:
+    """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
+    per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
+    review-modes topic, or the sidebar prompt) is stale — that text is static while the user
+    can toggle the mode mid-session. Only annotates the non-wait path:
+    with recording on but no blocking wait, the edit landed as a tracked change the agent must
+    not resolve and whose accept/reject outcome it will not be told."""
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return result
+    try:
+        mode = get_agent_edit_review_mode(uno_ctx)
+    except Exception:
+        return result
+    if mode not in ("record", "wait"):
+        return result  # off -> edit is live; nothing to add
+    result = dict(result)
+    result["review_mode"] = mode
+    result["pending_review"] = True
+    result["message"] = (result.get("message") or "") + (
+        " Applied as a tracked change pending the user's review — do not accept or reject it"
+        " yourself, and you will not be notified whether it is later accepted or rejected."
+    )
+    return result
+
+
 def edit_review_wait_seconds(ctx: Any) -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
     from plugin.framework.config import get_config_int_safe
