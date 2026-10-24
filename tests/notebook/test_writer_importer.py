@@ -838,7 +838,7 @@ def test_import_ipynb_to_writer_does_not_pump_vcl_idle(tmp_path, monkeypatch):
 
     flush = MagicMock()
     monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.writer_importer.flush_ui_idle", flush)
+    monkeypatch.setattr("plugin.notebook.notebook_runner.flush_ui_idle", flush)
     monkeypatch.setattr(
         "plugin.notebook.notebook_controls.wire_all_notebook_run_buttons",
         MagicMock(return_value=1),

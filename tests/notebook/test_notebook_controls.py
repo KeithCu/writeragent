@@ -334,7 +334,7 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view,
-        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
+        patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush_idle,
     ):
         first = wire_all_notebook_run_buttons(ctx, doc)
         second = wire_all_notebook_run_buttons(ctx, doc)

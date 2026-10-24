@@ -183,27 +183,6 @@ def _scroll_view_to_start(doc: Any) -> None:
     best_effort(scroll, "notebook import view_to_start failed")
 
 
-def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
-    """Pump VCL until idle. Do **not** call this after bulk notebook import.
-
-    ``ProcessEventsToIdle`` waits for ``SwViewShell::LayoutIdle``. With hundreds of
-    in-flow form controls that idle task re-arms a QTimer, so the pump never
-    returns (92% CPU livelock; py-spy + gdb on the numpy fixture).
-    """
-    if ctx is None:
-        return
-    t0 = time.monotonic()
-    try:
-        from plugin.framework.uno_context import process_events_to_idle
-
-        process_events_to_idle(ctx)
-    except Exception:
-        log.debug("processEventsToIdle failed", exc_info=True)
-        return
-    if log_phase:
-        log.info("notebook import %s elapsed_ms=%d", log_phase, _mono_ms(t0))
-
-
 @final
 class _RemoteImageBudget:
     """Per-import budget for remote image downloads on the UI thread."""
@@ -1372,6 +1351,24 @@ def _insert_image_in_flow(
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+
+def insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_before: int, text_cursor: Any | None = None) -> bool:
+    raw = payload.get("data")
+    if not isinstance(raw, (bytes, bytearray)):
+        return False
+    fmt = str(payload.get("format") or "png").lower()
+    if fmt == "svg":
+        mime = "image/svg+xml"
+    elif fmt in ("jpg", "jpeg"):
+        mime = "image/jpeg"
+    elif fmt == "webp":
+        mime = "image/webp"
+    elif fmt == "gif":
+        mime = "image/gif"
+    else:
+        mime = "image/png"
+    return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx, text_cursor=text_cursor)
 
 
 def _split_markdown_image_src(raw: str) -> str:

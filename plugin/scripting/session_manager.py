@@ -401,6 +401,11 @@ def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     return f"notebook:{_workbook_session_key(target)}"
 
 
+def ppt_master_session_id(doc: Any) -> str:
+    """Return ``ppt_master:…`` session ID for an Impress presentation."""
+    return f"ppt_master:{_workbook_session_key(doc)}"
+
+
 def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
     """Menubar path: reset shared Python namespace for the active Writer notebook document."""
     target = doc if doc is not None else _writer_document(ctx)

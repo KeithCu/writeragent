@@ -37,7 +37,8 @@ def _run_ppt_master_venv_agent(
     **kwargs: Any,
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
-    from plugin.ppt_master.venv.host import ppt_master_session_id, run_ppt_master_venv_turn
+    from plugin.ppt_master.venv.host import run_ppt_master_venv_turn
+    from plugin.scripting.session_manager import ppt_master_session_id
 
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)

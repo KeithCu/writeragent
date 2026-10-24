@@ -313,12 +313,12 @@ def test_run_cell_busy_guard_shares_url_key_across_wrappers():
     ],
 )
 def test_insert_run_image_svg_mime(value, value_2, expected):
-    from plugin.notebook.notebook_runner import _insert_run_image
+    from plugin.notebook.writer_importer import insert_run_image
 
     doc = MagicMock()
     payload = {"__wa_payload__": "image", "format": value, "data": value_2}
-    with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
-        assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
+    with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
+        assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
     insert_flow.assert_called_once()
     assert insert_flow.call_args.kwargs["mime"] == expected
 
@@ -1065,7 +1065,7 @@ def test_run_cells_sequence_in_registry_order():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush,
+        patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush,
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1095,7 +1095,7 @@ def test_run_from_here_start_index():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc, start_index=1)
 
@@ -1159,7 +1159,7 @@ def test_run_cells_stop_skips_remainder():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1194,7 +1194,7 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1231,7 +1231,7 @@ def test_run_cells_stop_from_menu_without_active_doc_skips_remainder():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1274,7 +1274,7 @@ def test_run_cells_stop_from_menu_distinct_wrapper_skips_remainder():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1299,7 +1299,7 @@ def _patch_run_cells(state, exec_side_effect, flush, pump):
             patch("plugin.notebook.notebook_runner.apply_run_result"),
             patch("plugin.notebook.notebook_runner.update_in_prompt"),
             patch("plugin.notebook.notebook_runner.save_registry"),
-            patch("plugin.notebook.writer_importer.flush_ui_idle", new=flush),
+            patch("plugin.notebook.notebook_runner.flush_ui_idle", new=flush),
             patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
             patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
         ):
@@ -1388,7 +1388,7 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1424,7 +1424,7 @@ def test_run_cells_skips_empty_and_continues():
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1462,7 +1462,7 @@ def test_run_cells_logs_missing_field_and_continues(caplog):
         patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1498,7 +1498,7 @@ def test_run_cells_error_continues_unless_stopped():
         patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
         patch("plugin.notebook.notebook_runner.msgbox") as boxed,
     ):
         result = run_cells(ctx, doc, start_index=0)
@@ -1530,7 +1530,7 @@ def _run_cells_with(exec_fn, apply_fn=None, doc=None):
         patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
         patch("plugin.notebook.notebook_runner.msgbox"),
     ):
         result = run_cells(ctx, doc, start_index=0)
@@ -1643,7 +1643,7 @@ def test_run_cells_does_not_pump_idle_during_execute():
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
-        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
+        patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush_idle,
         patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
@@ -1672,7 +1672,7 @@ def test_run_cells_between_cell_pump_under_drain_owner():
 
     with (
         patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
         patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
         patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
@@ -1683,7 +1683,7 @@ def test_run_cells_between_cell_pump_under_drain_owner():
     pumps.clear()
     with (
         patch("plugin.framework.async_drain_guard.get_drain_owner", return_value="owner"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
         patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
         patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
@@ -1715,7 +1715,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
         patch("plugin.notebook.notebook_runner.is_document_disposed", side_effect=[False, True]),
     ):
         result = run_cells(ctx, doc, start_index=0)
@@ -1791,7 +1791,7 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
         patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply_scoped),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
     ):
         result = run_cells(ctx, doc)
 

@@ -20,12 +20,6 @@ log = logging.getLogger(__name__)
 _PPT_MASTER_TURN_TIMEOUT_SEC = 1800
 
 
-def ppt_master_session_id(doc: Any) -> str:
-    from plugin.scripting.session_manager import _workbook_session_key
-
-    return f"ppt_master:{_workbook_session_key(doc)}"
-
-
 def run_ppt_master_venv_turn(
     uno_ctx: Any,
     *,

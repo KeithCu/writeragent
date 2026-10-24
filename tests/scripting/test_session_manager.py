@@ -644,7 +644,7 @@ def test_unsaved_session_id_starts_with_unsaved():
 
 def test_ppt_master_unsaved_decks_unique_session_id() -> None:
     from unittest.mock import MagicMock
-    from plugin.ppt_master.venv.host import ppt_master_session_id
+    from plugin.scripting.session_manager import ppt_master_session_id
 
     deck1 = MagicMock()
     deck1.getURL.return_value = ""

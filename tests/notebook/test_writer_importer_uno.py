@@ -534,7 +534,8 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     import re as _re
 
     from plugin.notebook.cell_registry import load_registry
-    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+    from plugin.notebook.notebook_runner import flush_ui_idle
+    from plugin.notebook.writer_importer import import_ipynb_to_writer
 
     stats = import_ipynb_to_writer(doc, str(_MEDIUM_IPYNB), ctx=ctx)
     flush_ui_idle(ctx)
@@ -740,7 +741,8 @@ def test_medium_run_in2_keeps_in3_controls(ctx, doc):
         wire_all_notebook_run_buttons,
     )
     from plugin.notebook.form_lookup import read_code_from_field
-    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+    from plugin.notebook.notebook_runner import flush_ui_idle
+    from plugin.notebook.writer_importer import import_ipynb_to_writer
 
     import_ipynb_to_writer(doc, str(_MEDIUM_IPYNB), ctx=ctx)
     flush_ui_idle(ctx)
@@ -909,10 +911,10 @@ _MD_LISTS_QUOTES_IPYNB = (
 @with_native_doc("writer", hidden=not show_window)
 def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     """Nested * / ol start=3 / blockquotes; In style must not KeepTogether-glue."""
+    from plugin.notebook.notebook_runner import flush_ui_idle
     from plugin.notebook.writer_importer import (
         _STYLE_NOTEBOOK_IN,
         import_ipynb_to_writer,
-        flush_ui_idle,
     )
 
     assert _MD_LISTS_QUOTES_IPYNB.is_file()

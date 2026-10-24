@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,8 +22,8 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
-from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
-from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _collapse_cr, _insert_image_in_flow, _strip_ansi, output_para_style
+from plugin.notebook.notebook_controls import _doc_key, _mono_ms, _resolve_para_style
+from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _collapse_cr, _strip_ansi, insert_run_image, output_para_style
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -726,24 +727,6 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
         _reanchor_output_bookmark(doc, cell)
 
 
-def _insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_before: int, text_cursor: Any | None = None) -> bool:
-    raw = payload.get("data")
-    if not isinstance(raw, (bytes, bytearray)):
-        return False
-    fmt = str(payload.get("format") or "png").lower()
-    if fmt == "svg":
-        mime = "image/svg+xml"
-    elif fmt in ("jpg", "jpeg"):
-        mime = "image/jpeg"
-    elif fmt == "webp":
-        mime = "image/webp"
-    elif fmt == "gif":
-        mime = "image/gif"
-    else:
-        mime = "image/png"
-    return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx, text_cursor=text_cursor)
-
-
 def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, display: str, output_style: str | None, notebook_in: str | None) -> None:
     """Insert *display* as its own paragraph under the code field; do not eat the next cell.
 
@@ -856,7 +839,7 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
             if _paragraph_has_frame(img_cursor) or _paragraph_string(img_cursor).strip():
                 text.insertControlCharacter(img_cursor, _PARAGRAPH_BREAK, False)
                 _enter_paragraph_after_break(img_cursor)
-            _insert_run_image(doc, img, ctx=ctx, images_before=0, text_cursor=img_cursor)
+            insert_run_image(doc, img, ctx=ctx, images_before=0, text_cursor=img_cursor)
 
 
 # ---------------------------------------------------------------------------
@@ -1112,6 +1095,27 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
     return len(cells)
 
 
+def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
+    """Pump VCL until idle. Do **not** call this after bulk notebook import.
+
+    ``ProcessEventsToIdle`` waits for ``SwViewShell::LayoutIdle``. With hundreds of
+    in-flow form controls that idle task re-arms a QTimer, so the pump never
+    returns (92% CPU livelock; py-spy + gdb on the numpy fixture).
+    """
+    if ctx is None:
+        return
+    t0 = time.monotonic()
+    try:
+        from plugin.framework.uno_context import process_events_to_idle
+
+        process_events_to_idle(ctx)
+    except Exception:
+        log.debug("processEventsToIdle failed", exc_info=True)
+        return
+    if log_phase:
+        log.info("notebook import %s elapsed_ms=%d", log_phase, _mono_ms(t0))
+
+
 def _pump_between_notebook_cells(ctx: Any) -> None:
     """Deliver a Stop click between cells.
 
@@ -1128,7 +1132,6 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
         from plugin.framework.async_drain_guard import get_drain_owner
         from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
         from plugin.framework.uno_context import get_toolkit
-        from plugin.notebook.writer_importer import flush_ui_idle
 
         pump_main_thread_work_queue(max_items=1)
         if get_drain_owner() is not None:
