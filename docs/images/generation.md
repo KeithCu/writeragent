@@ -114,7 +114,7 @@ The previous bug was OpenRouter-specific: a top-level `image_url` on `/api/v1/im
 
 ### How edit is routed today
 
-`image_generate` still extracts selection base64 and calls `ImageService.generate_image(..., source_image=b64)`. Then [`EndpointImageProvider.generate`](../../plugin/writer/images/image_utils.py):
+`image_generate` still extracts selection base64 and calls `ImageService.generate_image(..., source_image=b64)`. The selection PNG is capped at `IMAGE_DOWNLOAD_MAX_BYTES` (32 MB); a larger selection returns `INVALID_PARAMETER` before any base64 encoding. Then [`EndpointImageProvider.generate`](../../plugin/writer/images/image_utils.py):
 
 | Config | Path | Source image on the wire |
 |--------|------|--------------------------|

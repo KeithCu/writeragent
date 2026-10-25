@@ -1371,6 +1371,11 @@ def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
 
 def test_image_crop_rejects_non_positive_width_mm():
     ctx = TestingFactory.create_context(doc_type="writer")
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.getAllUndoActionTitles.return_value = []
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
     obj = MagicMock()
     size_mock = MagicMock(Width=1000, Height=500)
     with (
@@ -1411,17 +1416,19 @@ def test_image_crop_rejects_non_positive_width_mm():
 def test_image_crop_reports_frame_failures():
     ctx = TestingFactory.create_context(doc_type="writer")
     obj = MagicMock()
-    original_graphic = MagicMock()
-    original_crop = MagicMock()
     baked_graphic = MagicMock()
     size_mock = MagicMock(Width=1000, Height=500)
 
-    def _get_prop(target, prop, default=None):
-        if prop == "Graphic":
-            return original_graphic
-        if prop == "GraphicCrop":
-            return original_crop
-        return default
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    titles: list[str] = []
+
+    def _enter(title):
+        titles.insert(0, title)
+
+    undo_mgr.enterUndoContext.side_effect = _enter
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles)
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
@@ -1429,13 +1436,14 @@ def test_image_crop_reports_frame_failures():
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=baked_graphic) as mock_bake,
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
-        patch("plugin.writer.images.images.visual_helpers.safe_get_property", side_effect=_get_prop),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
         # GraphicCrop present, but safe_set_property returns False -> SET_CROP_FAILED
         obj.reset_mock()
         mock_bake.reset_mock()
+        undo_mgr.reset_mock()
+        titles.clear()
         with (
             patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
             patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
@@ -1444,37 +1452,48 @@ def test_image_crop_reports_frame_failures():
             assert res["status"] != "ok"
             assert res.get("code") == "SET_CROP_FAILED"
             mock_bake.assert_called_once()
-            graphic_calls = [c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]
-            assert len(graphic_calls) >= 2
-            assert graphic_calls[0][0][1] == baked_graphic
-            assert graphic_calls[-1][0][1] == original_graphic
+            undo_mgr.undo.assert_called_once()
+            assert len([c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]) == 1
 
         # Size write fails (both safe_set_property and safe_try_method return False) -> SET_SIZE_FAILED
         obj.reset_mock()
         mock_bake.reset_mock()
-        saved_crop_restored = []
-
-        def _mock_set_prop(target, prop, val):
-            if prop == "GraphicCrop":
-                if val == original_crop:
-                    saved_crop_restored.append(val)
-                return True
-            return False
-
+        undo_mgr.reset_mock()
+        titles.clear()
         with (
             patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
-            patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=_mock_set_prop),
+            patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=lambda target, prop, val: prop == "GraphicCrop"),
             patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=False),
         ):
             res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
             assert res["status"] != "ok"
             assert res.get("code") == "SET_SIZE_FAILED"
             mock_bake.assert_called_once()
-            graphic_calls = [c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]
-            assert len(graphic_calls) >= 2
-            assert graphic_calls[0][0][1] == baked_graphic
-            assert graphic_calls[-1][0][1] == original_graphic
-            assert original_crop in saved_crop_restored
+            undo_mgr.undo.assert_called_once()
+            assert len([c for c in obj.setPropertyValue.call_args_list if c[0][0] == "Graphic"]) == 1
+
+
+def test_image_crop_locked_undo_writes_nothing():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = True
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+    size_mock = MagicMock(Width=1000, Height=500)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
+        patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
+        patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
+        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
+        patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
+    ):
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        assert res["status"] != "ok"
+        assert res.get("code") == "UNDO_UNAVAILABLE"
+        obj.setPropertyValue.assert_not_called()
 
 
 def test_image_crop_and_info_unmeasurable_graphic():
@@ -1534,6 +1553,22 @@ def test_image_generate_invalid_source_image_parameter():
     res2 = ImageGenerate().execute(ctx, prompt="test", source_image="/tmp/pic.png")
     assert res2["status"] != "ok"
     assert res2.get("code") == "INVALID_PARAMETER"
+
+
+def test_image_generate_rejects_huge_selection_export():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    mock_obj = MagicMock()
+    with (
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=mock_obj),
+        patch("plugin.writer.images.images.IMAGE_DOWNLOAD_MAX_BYTES", 10),
+        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"x" * 11),
+        patch("plugin.writer.images.images.ImageService") as mock_svc,
+    ):
+        res = ImageGenerate().execute(ctx, prompt="p", source_image="selection")
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("details", {}).get("parameter") == "source_image"
+        mock_svc.assert_not_called()
 
 
 def test_image_list_at_page_never_calls_gotorange():
@@ -1748,7 +1783,7 @@ def test_image_set_properties_success_does_not_undo():
     undo_mgr.undo.assert_not_called()
 
 
-def test_image_set_properties_enter_fails_no_undo():
+def test_image_set_properties_enter_fails_is_undo_unavailable():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     psi = MagicMock()
@@ -1770,26 +1805,12 @@ def test_image_set_properties_enter_fails_no_undo():
         res = ImageSetProperties().execute(ctx, name="Pic", title="New Title")
 
     assert res["status"] != "ok"
-    assert res.get("code") == "SET_PROPERTIES_FAILED"
-    assert "could not be rolled back" in res.get("message", "")
+    assert res.get("code") == "UNDO_UNAVAILABLE"
+    graphic.setPropertyValue.assert_not_called()
     undo_mgr.undo.assert_not_called()
 
 
-def test_image_set_properties_compound_undo_grouping():
-    events: list[object] = []
-
-    class FakeUndo:
-        def __init__(self, doc, title):
-            events.append(("enter", title))
-            self.title = title
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            events.append(("exit", self.title))
-            return False
-
+def test_image_set_properties_single_undo_context():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     psi = MagicMock()
@@ -1797,20 +1818,29 @@ def test_image_set_properties_compound_undo_grouping():
     graphic.getPropertySetInfo.return_value = psi
     size_mock = MagicMock(Width=100, Height=100)
 
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.getAllUndoActionTitles.return_value = []
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
     with (
         patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, title="New Title")
 
     assert res["status"] == "ok"
-    assert ("enter", "WriterAgent: Set image properties") in events
-    assert ("exit", "WriterAgent: Set image properties") in events
+    undo_mgr.enterUndoContext.assert_called_once_with("WriterAgent: Set image properties")
+    undo_mgr.leaveUndoContext.assert_called_once()
 
 
 def test_image_set_properties_shape_without_size_property_uses_setsize():
     ctx = TestingFactory.create_context(doc_type="draw")
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.getAllUndoActionTitles.return_value = []
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
     graphic = MagicMock(spec=["getSize", "setSize", "getPropertySetInfo", "getPropertyValue", "setPropertyValue"])
     graphic.getSize.return_value = MagicMock(Width=2000, Height=1000)
     psi = MagicMock()
@@ -1822,7 +1852,6 @@ def test_image_set_properties_shape_without_size_property_uses_setsize():
         patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=True) as safe_try,
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", MagicMock()),
     ):
         res = ImageSetProperties().execute(ctx, name="DrawShape", width_mm=30)
 
@@ -1851,6 +1880,54 @@ def test_image_set_properties_draw_shape_unsupported_properties_rejected():
         assert res2["status"] != "ok"
         assert res2.get("code") == "UNSUPPORTED_DOC_TYPE"
         graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_set_properties_rejects_negative_crop():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageSetProperties().execute(ctx, name="Pic", crop_top_mm=-1)
+        assert res["status"] != "ok"
+        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("details", {}).get("parameter") == "crop_top_mm"
+        graphic.setPropertyValue.assert_not_called()
+
+        res_bool = ImageSetProperties().execute(ctx, name="Pic", crop_right_mm=True)
+        assert res_bool["status"] != "ok"
+        assert res_bool.get("code") == "INVALID_PARAMETER"
+        assert res_bool.get("details", {}).get("parameter") == "crop_right_mm"
+        graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.getAllUndoActionTitles.return_value = []
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
+
+    graphic = MagicMock()
+    psi = MagicMock()
+    psi.hasPropertyByName.return_value = True
+    graphic.getPropertySetInfo.return_value = psi
+
+    recorded_sizes: list[Any] = []
+
+    def _record_size(target, prop, val):
+        if prop == "Size":
+            recorded_sizes.append(val)
+        return True
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+        patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=_record_size),
+        patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
+    ):
+        res = ImageSetProperties().execute(ctx, name="Pic", width_mm=0.001)
+        assert res["status"] == "ok"
+        assert len(recorded_sizes) == 1
+        assert recorded_sizes[0].Width == 1
 
 
 def test_image_generate_temp_files_cleaned_up_after_insert():
@@ -2267,6 +2344,11 @@ def test_image_tools_calc_sheet_index_and_ambiguity():
     def _mock_get(context, doc, name, sheet_index=None):
         calls.append((name, sheet_index))
         return MagicMock()
+
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_mgr.getAllUndoActionTitles.return_value = []
+    ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
         patch("plugin.writer.images.images._get_graphic_object", side_effect=_mock_get),
