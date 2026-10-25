@@ -1,5 +1,7 @@
 """Unit and contract verification tests for the MCP Tunnel pure FSM (tunnel_state.py)."""
 
+import dataclasses
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -318,3 +320,11 @@ def test_hypothesis_state_transition_invariants(event_kind, current_status, retr
     # Invariant 3: RECONNECTING state always has desired_running == True
     if tr.state.status == TunnelStatus.RECONNECTING:
         assert tr.state.desired_running is True
+
+
+def test_state_repr_hides_provider_token():
+    state = TunnelState(provider_token="secret-token")
+    assert "secret-token" not in repr(state)
+    assert state.provider_token == "secret-token"
+    assert dataclasses.replace(state, provider_token="other").provider_token == "other"
+

@@ -47,7 +47,7 @@ class TunnelState(BaseState):
     status: TunnelStatus = TunnelStatus.STOPPED
     port: int = 18765
     provider: str = "cloudflare"
-    provider_token: str = ""
+    provider_token: str = dataclasses.field(default="", repr=False)
     public_url: Optional[str] = None
     retry_count: int = 0
     max_retries: int = DEFAULT_MAX_RETRIES
