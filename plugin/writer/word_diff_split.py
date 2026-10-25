@@ -70,11 +70,13 @@ divided by total affix and middle words) and is always mode="block".
 """
 
 import difflib
+import math
 from typing import Any, ClassVar
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
 
 _MAX_DIFF_WORDS = 4000
+_DEFAULT_THRESHOLD = 0.6
 
 __all__ = [
     "Token",
@@ -306,7 +308,7 @@ _deal_split_change_ok = _deal_split_change_ok_crosshair if UNDER_CROSSHAIR else 
 
 @deal.pre(lambda old, new, threshold=0.6: _deal_split_change_ok(old, new, threshold))
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
-def split_change(old: str, new: str, threshold: float = 0.6) -> SplitResult:
+def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 
     Args:
@@ -326,7 +328,9 @@ def split_change(old: str, new: str, threshold: float = 0.6) -> SplitResult:
     try:
         threshold = float(threshold)
     except (TypeError, ValueError):
-        threshold = 0.6
+        threshold = _DEFAULT_THRESHOLD
+    if not math.isfinite(threshold):
+        threshold = _DEFAULT_THRESHOLD
 
     # What was wrong: identical strings over the word cap fell back to a whole-block redline.
     # How it happened: _MAX_DIFF_WORDS cap was evaluated before checking if old == new.

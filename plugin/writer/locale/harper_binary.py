@@ -262,36 +262,6 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
         best_effort(lambda: tmp_binary.unlink() if tmp_binary.exists() else None, "[harper] temp binary unlink failed")
 
 
-# TEMP(2026-07): Remove after ~2026-09 — migrates Harper from profile bin/ to harper/.
-def _migrate_legacy_bin_install(user_config_dir: str, harper_dir: Path) -> None:
-    suffix = ".exe" if os.name == "nt" else ""
-    binary_name = f"harper-ls{suffix}"
-    if (harper_dir / binary_name).exists():
-        return
-
-    legacy_dir = Path(user_config_dir) / "bin"
-    legacy_binary = legacy_dir / binary_name
-    if not legacy_binary.is_file():
-        return
-
-    harper_dir.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(legacy_binary), str(harper_dir / binary_name))
-    for sidecar_name in ("harper-ls.version", _RELEASE_CACHE_FILENAME):
-        legacy_sidecar = legacy_dir / sidecar_name
-        if legacy_sidecar.is_file():
-            shutil.move(str(legacy_sidecar), str(harper_dir / sidecar_name))
-
-    try:
-        _remove_harper_archive_leftovers(legacy_dir)
-        tmp_download = legacy_dir / f".harper-ls{suffix}.download"
-        if tmp_download.is_file():
-            tmp_download.unlink()
-        if legacy_dir.is_dir() and not any(legacy_dir.iterdir()):
-            legacy_dir.rmdir()
-    except Exception as cleanup_err:
-        log.warning("[harper] Legacy bin/ cleanup incomplete: %s", cleanup_err)
-
-
 # TEMP(2026-08): Remove after ~2026-11 — one-shot cleanup of extract trees left under
 # harper/ by pre-tempdir installs (second ~50MB binary). New downloads do not create these.
 def _cleanup_harper_install_leftovers(harper_dir: Path) -> None:
@@ -311,8 +281,6 @@ def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str
         return sys_path
 
     harper_dir = _harper_install_dir(user_config_dir)
-    # TEMP(2026-07): Remove after ~2026-09 — migrates Harper from profile bin/ to harper/.
-    _migrate_legacy_bin_install(user_config_dir, harper_dir)
     # TEMP(2026-08): Remove after ~2026-11 — stale .untar/.unzip under harper/.
     _cleanup_harper_install_leftovers(harper_dir)
     suffix = ".exe" if os.name == "nt" else ""

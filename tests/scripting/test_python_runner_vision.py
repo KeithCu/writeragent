@@ -147,7 +147,7 @@ def test_execute_and_insert_vision_surfaces_no_image_selected(mock_resolve):
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
-    ):
+    ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[]):
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is False

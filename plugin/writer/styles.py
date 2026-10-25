@@ -764,7 +764,7 @@ class StyleList(ToolWriterStyleBase):
             in_use = style.isInUse()
             user_defined = style.isUserDefined()
             is_physical = _get_bool_prop(style, "IsPhysical", True)
-            is_hidden = _get_bool_prop(style, "IsHidden", False)
+            is_hidden = _get_bool_prop(style, "Hidden", False)
 
             # Filter logic (auto)
             if is_hidden:

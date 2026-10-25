@@ -39,7 +39,7 @@ __all__ = [
     "parse_prefixed_rule_identifier",
 ]
 
-GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^a-z0-9\s]")
+GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^\w\s]")
 
 
 def normalize_reason(reason: str) -> str:
@@ -53,7 +53,7 @@ def normalize_reason(reason: str) -> str:
         return ""
     s = reason.lower().strip()
     # Strip non-alphanumeric characters (keeping word contents)
-    s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s)
+    s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s).replace("_", "")
     return " ".join(s.split())
 
 

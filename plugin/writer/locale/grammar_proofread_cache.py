@@ -9,6 +9,7 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_checker_identity, grammar_registry
@@ -248,7 +249,7 @@ def cache_get_sentence(
         hit = grammar_registry.sentence_cache.get(key)
         if hit and hit.fingerprint == fp:
             grammar_registry.sentence_cache.move_to_end(key)
-            result = list(hit.errors)
+            result = copy.deepcopy(hit.errors)
 
     if result is not None:
         if ctx and doc_id:
