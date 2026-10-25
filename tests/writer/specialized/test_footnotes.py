@@ -22,6 +22,7 @@ setattr(sys.modules["com"], "sun", types.ModuleType("com.sun"))
 setattr(sys.modules["com"].sun, "star", star)
 
 # Now we can safely import our module
+from plugin.writer.search import escape_for_lo_regex
 from plugin.writer.specialized.footnotes import (
     FootnotesInsert, FootnotesList, FootnotesEdit, FootnotesDelete,
     FootnotesSettingsGet, FootnotesSettingsUpdate
@@ -94,7 +95,8 @@ def test_footnotes_insert_with_insert_after_text():
 
     assert res["status"] == "ok"
     doc.createSearchDescriptor.assert_called_once()
-    assert sd.SearchString == "This is a test."
+    assert sd.SearchRegularExpression is True
+    assert sd.SearchString == escape_for_lo_regex("This is a test.")
     assert sd.SearchCaseSensitive is True
     doc.findFirst.assert_called_once_with(sd)
     text_mock.createTextCursorByRange.assert_called_once_with(found_range)
@@ -102,6 +104,65 @@ def test_footnotes_insert_with_insert_after_text():
     doc.getCurrentController.assert_not_called()
     insert_surface.insertTextContent.assert_called_once_with(t_cursor, note, False)
     note.setString.assert_called_once_with("This sentence is only a test.")
+
+
+def test_footnotes_insert_after_wrapped_text_uses_the_chained_fallback():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    found_range = MagicMock()
+    text_mock = MagicMock()
+    t_cursor = MagicMock()
+    insert_surface = MagicMock()
+    found_range.getText.return_value = text_mock
+    text_mock.createTextCursorByRange.return_value = t_cursor
+    t_cursor.getText.return_value = insert_surface
+
+    doc.findFirst.side_effect = [None, found_range]
+
+    note = MagicMock()
+    note.getLabel.return_value = ""
+    doc.createInstance.return_value = note
+
+    tool = FootnotesInsert()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(
+        ctx,
+        note="footnote",
+        text="This sentence is only a test.",
+        insert_after="alpha\nbeta",
+    )
+
+    assert res["status"] == "ok"
+    assert sd.SearchString == escape_for_lo_regex("alpha beta")
+
+
+def test_footnotes_insert_failed_create_is_a_tool_error():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    ctrl = MagicMock()
+    v_cursor = MagicMock()
+    t_cursor = MagicMock()
+
+    ctrl.getViewCursor.return_value = v_cursor
+    v_cursor.getText.return_value.createTextCursorByRange.return_value = t_cursor
+
+    doc.getCurrentController.return_value = ctrl
+    doc.createInstance.return_value = None
+
+    tool = FootnotesInsert()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(ctx, note="footnote", text="My footnote text", label="*")
+
+    assert res["status"] == "error"
+    assert "Failed to create" in res["message"]
+    t_cursor.getText.return_value.insertTextContent.assert_not_called()
 
 
 def test_footnotes_insert_anchor_no_match():
@@ -209,7 +270,7 @@ def test_footnotes_delete():
     doc.supportsService.return_value = True
 
     supplier = MagicMock()
-    supplier.getCount.return_value = 1
+    supplier.getCount.side_effect = [1, 1, 0]
 
     note = MagicMock()
     anchor = MagicMock()
@@ -224,6 +285,57 @@ def test_footnotes_delete():
     res = tool.execute(ctx, note="footnote", index=0)
 
     assert res["status"] == "ok"
+    anchor.setString.assert_called_with("")
+
+
+def test_footnotes_delete_reports_a_tracked_deletion():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    doc.getPropertyValue.side_effect = lambda name: name == "RecordChanges"
+
+    supplier = MagicMock()
+    supplier.getCount.side_effect = [1, 1, 1]
+
+    note = MagicMock()
+    anchor = MagicMock()
+    note.getAnchor.return_value = anchor
+
+    supplier.getByIndex.return_value = note
+    doc.getFootnotes.return_value = supplier
+
+    tool = FootnotesDelete()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(ctx, note="footnote", index=0)
+
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert "marked for deletion" in res["message"]
+    anchor.setString.assert_called_with("")
+
+
+def test_footnotes_delete_unchanged_count_without_recording_is_an_error():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    doc.getPropertyValue.return_value = False
+
+    supplier = MagicMock()
+    supplier.getCount.side_effect = [1, 1, 1]
+
+    note = MagicMock()
+    anchor = MagicMock()
+    note.getAnchor.return_value = anchor
+
+    supplier.getByIndex.return_value = note
+    doc.getFootnotes.return_value = supplier
+
+    tool = FootnotesDelete()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(ctx, note="footnote", index=0)
+
+    assert res["status"] == "error"
+    assert "still in the document" in res["message"]
     anchor.setString.assert_called_with("")
 
 def test_invalid_note_type():

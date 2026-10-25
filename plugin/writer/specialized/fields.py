@@ -120,7 +120,8 @@ class FieldsList(ToolWriterFieldBase):
         service_props: dict[str, set[str]] = {}
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
             count = field_id
-            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
+            # Hash structure (service and location), not presentation text which can shift with repagination or ticking dates.
+            hasher.update(f"{service}|{location}\n".encode("utf-8"))
             try:
                 content = field.getPresentation(True)
             except Exception as e:
@@ -199,7 +200,8 @@ class FieldsDelete(ToolWriterFieldBase):
         fields_to_delete: list[tuple[int, Any, str]] = []
 
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
-            hasher.update(f"{service}|{presentation}|{location}\n".encode("utf-8"))
+            # Hash structure (service and location), not presentation text which can shift with repagination or ticking dates.
+            hasher.update(f"{service}|{location}\n".encode("utf-8"))
             if field_id in seen:
                 fields_to_delete.append((field_id, field, location))
 

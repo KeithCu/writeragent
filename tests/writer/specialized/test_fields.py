@@ -447,6 +447,26 @@ def test_fields_delete_with_matching_snapshot_succeeds(mock_ctx):
     anchor.setString.assert_called_with("")
 
 
+def test_fields_delete_snapshot_ignores_a_changed_presentation(mock_ctx):
+    field = MagicMock()
+    field.supportsService.return_value = False
+    field.getPresentation.return_value = "Page 1"
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    anchor = field.getAnchor.return_value
+    _one_field_doc(mock_ctx.doc, field)
+
+    list_res = FieldsList().execute(mock_ctx)
+    assert list_res["status"] == "ok"
+    snapshot = list_res["snapshot"]
+
+    # Changing presentation text should not invalidate snapshot
+    field.getPresentation.side_effect = ["Page 9", "9"]
+    del_res = FieldsDelete().execute(mock_ctx, ids=[1], snapshot=snapshot)
+    assert del_res["status"] == "ok"
+    assert del_res["deleted_count"] == 1
+    anchor.setString.assert_called_with("")
+
+
 def test_fields_delete_with_stale_snapshot_fails(mock_ctx):
     field1 = MagicMock()
     field1.supportsService.return_value = False
