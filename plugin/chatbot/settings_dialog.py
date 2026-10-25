@@ -98,22 +98,17 @@ def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
 
 def _get_image_field_specs() -> list[dict[str, Any]]:
     stored_aspect = canonical_aspect_label(get_config_str("image_default_aspect") or "Square")
+    # The combo shows the translated label; option values stay English so Apply
+    # maps the caption back to the stored string (apply_settings_result).
     aspect_options = [
         {"label": aspect_label_gettext(label), "value": label} for label in IMAGE_ASPECT_RATIO_LABELS
     ]
-    # value is what the combo shows. Options keep English values so Apply
-    # maps the translated label back to the stored string (apply_settings_result).
-    display_aspect = stored_aspect
-    for opt in aspect_options:
-        if opt["value"] == stored_aspect:
-            display_aspect = str(opt["label"])
-            break
     return [
         {"name": "image_model", "value": str(get_image_model())},
         {"name": "image_base_size", "value": str(get_config_int("image_base_size")), "type": "int"},
         {
             "name": "image_default_aspect",
-            "value": display_aspect,
+            "value": aspect_label_gettext(stored_aspect),
             "options": aspect_options,
         },
         {"name": "image_steps", "value": str(get_config_int("image_steps")), "type": "int"},
@@ -226,12 +221,13 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
 
     field_specs = field_specs if field_specs is not None else get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
+    specs_by_save_key = {str(f.get("config_key") or f["name"].replace("__", ".")): f for f in field_specs}
     pending: dict[str, Any] = {}
-    # (dialog key, value) for LRU that does not itself write the field.
+    # (value, save key) for LRU that does not itself write the field.
     # Recorded before the batch so a value that already matches disk does
     # not refresh the sidebar. Text and image models match set_text_model /
     # set_image_model: no LRU when the sanitized id is already stored.
-    ordinary_lru: list[tuple[str, Any, str]] = []
+    ordinary_lru: list[tuple[Any, str]] = []
     text_model_lru: str | None = None
     image_model_lru: str | None = None
 
@@ -292,10 +288,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             # the dialog opened. Read the combo text and this result's provider.
             # set_scoped_tts_voice writes both voice keys via set_config; stage
             # them in this batch instead.
-            prov_spec = next((s for s in field_specs if s.get("config_key") == "audio.tts_provider"), None)
-            model_spec = next((s for s in field_specs if s.get("config_key") == "audio.tts_model"), None)
-            prov_key = prov_spec["name"] if prov_spec and "name" in prov_spec else "audio__tts_provider"
-            model_key = model_spec["name"] if model_spec and "name" in model_spec else "audio__tts_model"
+            prov_key = str((specs_by_save_key.get("audio.tts_provider") or {}).get("name") or "audio__tts_provider")
+            model_key = str((specs_by_save_key.get("audio.tts_model") or {}).get("name") or "audio__tts_model")
             prov = result.get(prov_key) or ""
             model = result.get(model_key) or ""
             options = voice_options_for_provider(str(prov), str(model))
@@ -346,7 +340,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         pending[save_key] = val
         # image_model_lru is staged separately; exclude from ordinary_lru to keep one writer.
         if val and save_key != "image_model":
-            ordinary_lru.append((key, val, save_key))
+            ordinary_lru.append((val, save_key))
 
     if "api_key" in result:
         # One slot, not a copy of the whole map. set_configs merges that slot
@@ -386,7 +380,7 @@ def _stage_settings_lru(
     current_endpoint: str,
     text_model_lru: str | None,
     image_model_lru: str | None,
-    ordinary_lru: list[tuple[str, Any, str]],
+    ordinary_lru: list[tuple[Any, str]],
 ) -> None:
     """Add LRU list updates for keys already in *changed*. Does not write."""
     if "endpoint" in changed and current_endpoint:
@@ -395,7 +389,7 @@ def _stage_settings_lru(
         _stage_lru(changed, text_model_lru, "model_lru", current_endpoint)
     if image_model_lru and "image_model" in changed:
         _stage_lru(changed, image_model_lru, "image_model_lru", current_endpoint)
-    for _key, val, save_key in ordinary_lru:
+    for val, save_key in ordinary_lru:
         if save_key not in changed:
             continue
         for item, lru_key, endpoint in _lru_rows_for_key(save_key, val, current_endpoint):
