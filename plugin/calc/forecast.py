@@ -62,9 +62,7 @@ class ForecastDataTool(ToolBaseDummy):
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
         try:
-            # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-            # stop_checker / send_cancellation; the UNO context has neither.
-            result = run_trusted_forecast(ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_trusted_forecast(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "FORECAST_ERROR"))
         except Exception as exc:

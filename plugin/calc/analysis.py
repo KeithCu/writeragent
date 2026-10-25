@@ -404,9 +404,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 
         try:
-            # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-            # stop_checker / send_cancellation; the UNO context has neither.
-            result = run_trusted_analysis(ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:
