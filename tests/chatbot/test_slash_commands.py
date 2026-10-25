@@ -9,6 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.slash_commands import (
     KEY_DOWN,
     KEY_ESCAPE,
@@ -18,6 +20,7 @@ from plugin.chatbot.slash_commands import (
     KEY_UP,
     SLASH_COMMANDS,
     SLASH_LRU_KEY,
+    SlashCommand,
     classify_slash_key,
     filter_slash_commands,
     format_help_text,
@@ -25,11 +28,25 @@ from plugin.chatbot.slash_commands import (
     run_slash_command,
     slash_typed_prefix,
 )
-from plugin.chatbot.send_state import SendEventKind
 
 
-def _names(typed: str, lru: list[str] | None = None) -> list[str]:
-    return [cmd.name for cmd in filter_slash_commands(typed, lru)]
+@pytest.fixture
+def mock_commands() -> tuple[SlashCommand, ...]:
+    return (
+        SlashCommand("help", "Print the command list", "wired", clears_ask=True),
+        SlashCommand("clear", "Start a new chat", "wired", clears_ask=True),
+        SlashCommand("stop", "Cancel the in-flight send", "wired", clears_ask=False),
+        SlashCommand("mock-alpha", "Mock command (echo only)", "mock", clears_ask=True),
+        SlashCommand("mock-bravo", "Mock command (echo only)", "mock", clears_ask=True),
+        SlashCommand("mock-charlie", "Mock command (echo only)", "mock", clears_ask=True),
+        SlashCommand("apply", "Apply last draft (mock)", "mock", clears_ask=True),
+        SlashCommand("web", "Web research (mock)", "mock", clears_ask=True),
+        SlashCommand("model", "Switch model (mock)", "mock", clears_ask=True),
+    )
+
+
+def _names(typed: str, lru: list[str] | None = None, commands: Sequence[SlashCommand] | None = None) -> list[str]:
+    return [cmd.name for cmd in filter_slash_commands(typed, lru, commands=commands)]
 
 
 def test_slash_typed_prefix_full_list_and_narrow():
@@ -40,14 +57,14 @@ def test_slash_typed_prefix_full_list_and_narrow():
     assert slash_typed_prefix("") is None
 
 
-def test_slash_opens_full_registry_order_without_lru():
-    names = _names("/")
+def test_slash_opens_full_registry_order_without_lru(mock_commands):
+    names = _names("/", commands=mock_commands)
     assert names[0] == "help"
     assert "clear" in names
     assert "mock-alpha" in names
     assert "mock-bravo" in names
     assert "mock-charlie" in names
-    assert names == [cmd.name for cmd in SLASH_COMMANDS]
+    assert names == [cmd.name for cmd in mock_commands]
 
 
 def test_he_prefix_selects_help_as_top_match():
@@ -55,20 +72,20 @@ def test_he_prefix_selects_help_as_top_match():
     assert [cmd.name for cmd in matches] == ["help"]
 
 
-def test_further_typing_narrows_mocks():
-    assert _names("/mock-") == ["mock-alpha", "mock-bravo", "mock-charlie"]
-    assert _names("/mock-a") == ["mock-alpha"]
-    assert _names("/zzz") == []
+def test_further_typing_narrows_mocks(mock_commands):
+    assert _names("/mock-", commands=mock_commands) == ["mock-alpha", "mock-bravo", "mock-charlie"]
+    assert _names("/mock-a", commands=mock_commands) == ["mock-alpha"]
+    assert _names("/zzz", commands=mock_commands) == []
 
 
-def test_lru_floats_to_top_on_empty_filter():
-    names = _names("/", lru=["mock-bravo", "clear"])
+def test_lru_floats_to_top_on_empty_filter(mock_commands):
+    names = _names("/", lru=["mock-bravo", "clear"], commands=mock_commands)
     assert names[:2] == ["mock-bravo", "clear"]
     assert "help" in names
 
 
-def test_lru_is_tie_break_among_prefix_matches():
-    names = _names("/m", lru=["model"])
+def test_lru_is_tie_break_among_prefix_matches(mock_commands):
+    names = _names("/m", lru=["model"], commands=mock_commands)
     assert names[0] == "model"
     assert "mock-alpha" in names
 
@@ -83,8 +100,8 @@ def test_classify_slash_keys():
     assert classify_slash_key(65) is None
 
 
-def test_help_text_lists_wired_and_mocks():
-    text = format_help_text()
+def test_help_text_lists_wired_and_mocks(mock_commands):
+    text = format_help_text(mock_commands)
     assert "/help" in text
     assert "/mock-alpha [mock]" in text
     assert "/clear" in text
@@ -96,118 +113,65 @@ def test_record_slash_lru_uses_existing_config_helper():
         update.assert_called_once_with("help", SLASH_LRU_KEY, "")
 
 
-def test_run_mock_echoes_and_records_lru():
+def test_run_mock_echoes_and_records_lru(mock_commands):
     host = SimpleNamespace(
-        slash_popup=SimpleNamespace(hide=MagicMock()),
-        query_control=MagicMock(),
-        dispatch=MagicMock(),
-        _append_response=MagicMock(),
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru") as record:
-        with patch("plugin.chatbot.dialogs.set_control_text"):
-            assert run_slash_command("mock-alpha", host) is True
+        assert run_slash_command("mock-alpha", host, commands=mock_commands) is True
     record.assert_called_once_with("mock-alpha")
-    host.slash_popup.hide.assert_called_once()
-    host._append_response.assert_called_once()
-    assert "slash: /mock-alpha" in host._append_response.call_args[0][0]
-    event = host.dispatch.call_args[0][0]
-    assert event.kind is SendEventKind.TEXT_UPDATED
-    assert event.data == {"has_text": False}
+    host.hide_popup.assert_called_once()
+    host.clear_ask.assert_called_once()
+    host.append_output.assert_called_once()
+    assert "slash: /mock-alpha" in host.append_output.call_args[0][0]
 
 
 def test_run_help_prints_static_list():
     host = SimpleNamespace(
-        slash_popup=None,
-        query_control=None,
-        dispatch=MagicMock(),
-        _append_response=MagicMock(),
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            run_slash_command("help", host)
-    body = host._append_response.call_args[0][0]
+        assert run_slash_command("help", host) is True
+    body = host.append_output.call_args[0][0]
     assert "Slash commands:" in body
     assert "/help" in body
-    set_text.assert_called_once_with(None, "")
-    event = host.dispatch.call_args[0][0]
-    assert event.kind is SendEventKind.TEXT_UPDATED
-    assert event.data == {"has_text": False}
+    host.clear_ask.assert_called_once()
 
 
 def test_run_clear_calls_existing_clear_listener():
-    clear = SimpleNamespace(on_action_performed=MagicMock())
     host = SimpleNamespace(
-        slash_popup=None,
-        query_control=None,
-        dispatch=MagicMock(),
-        clear_listener=clear,
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        clear_chat=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        run_slash_command("clear", host)
-    clear.on_action_performed.assert_called_once_with(None)
+        assert run_slash_command("clear", host) is True
+    host.clear_ask.assert_called_once()
+    host.clear_chat.assert_called_once()
 
 
 def test_run_stop_uses_stop_button_and_keeps_draft():
-    """/stop is the Stop button: STOP_CLICKED, and Ask is not cleared."""
     host = SimpleNamespace(
-        slash_popup=None,
-        query_control=SimpleNamespace(text="/stop extra"),
-        dispatch=MagicMock(),
-        _approval_event=None,
-        _send_busy=True,
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        stop_in_flight=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            with patch("plugin.audio.tts_service.is_speaking", return_value=False):
-                run_slash_command("stop", host)
-    set_text.assert_not_called()
-    assert host.query_control.text == "/stop extra"
-    kinds = [call.args[0].kind for call in host.dispatch.call_args_list]
-    assert kinds == [SendEventKind.STOP_CLICKED]
+        assert run_slash_command("stop", host) is True
+    host.stop_in_flight.assert_called_once()
+    host.clear_ask.assert_not_called()
 
 
-def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
-    stop_model = SimpleNamespace(Enabled=True)
+def test_set_config_raising_still_runs_help():
     host = SimpleNamespace(
-        slash_popup=None,
-        query_control=SimpleNamespace(text="/stop"),
-        dispatch=MagicMock(),
-        _approval_event=None,
-        _send_busy=False,
-        exit_hands_free_record=MagicMock(),
-        stop_control=SimpleNamespace(getModel=lambda: stop_model),
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
     )
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            with patch("plugin.audio.tts_service.is_speaking", return_value=True):
-                with patch("plugin.audio.tts_service.stop_speech") as stop_speech:
-                    run_slash_command("stop", host)
-    set_text.assert_not_called()
-    assert host.query_control.text == "/stop"
-    stop_speech.assert_called_once()
-    host.exit_hands_free_record.assert_called_once()
-    host.dispatch.assert_not_called()
-    assert stop_model.Enabled is False
-
-
-def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_ask():
-    from plugin.framework.i18n import _
-
-    stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
-    host = SimpleNamespace(
-        slash_popup=None,
-        query_control=SimpleNamespace(text="keep me"),
-        dispatch=MagicMock(),
-        _approval_event=object(),
-        stop_control=SimpleNamespace(getModel=lambda: stop_model),
-        _finish_inline_web_approval=MagicMock(),
-        _open_web_search_change_dialog=MagicMock(),
-    )
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            run_slash_command("stop", host)
-    set_text.assert_not_called()
-    assert host.query_control.text == "keep me"
-    host._open_web_search_change_dialog.assert_called_once_with()
-    host._finish_inline_web_approval.assert_not_called()
-    host.dispatch.assert_not_called()
+    with patch("plugin.framework.model_lru.set_config", side_effect=OSError("write failed")):
+        assert run_slash_command("help", host) is True
+    host.append_output.assert_called_once()

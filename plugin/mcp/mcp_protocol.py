@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import unquote
 
+from plugin.chatbot.agent_manual import writer_topic_list_text
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
@@ -140,8 +141,7 @@ def _attach_precomputed_echo(result: Any, echo: dict[str, Any] | None) -> None:
 # constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
     " HOW TO USE THESE TOOLS: call get_guidance(topic) for the manual — topics follow the open "
-    "document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, "
-    "concurrency); call get_guidance() for the current list. "
+    f"document's type (for Writer: {writer_topic_list_text()}); call get_guidance() for the current list. "
     "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
     "the user's to accept/reject, not yours."
 )

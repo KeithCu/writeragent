@@ -136,7 +136,7 @@ Runtime UNO uses **`queryInterface`** heavily; return types are often opaque. Cl
 
 ### 5. Host protocols: **`Protocol` for the host**
 
-`ToolCallingMixin` and `SendHandlersMixin` are composed onto `SendButtonListener`. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/chatbot/send_handlers.py`](../../plugin/chatbot/send_handlers.py) declare the attributes and methods expected on `self._panel` so code is checkable without circular imports.
+`ToolCallingMixin` and `SendHandlersMixin` are composed onto `SendButtonListener`. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) declares the attributes and methods expected on `self._panel` so code is checkable without circular imports.
 
 ### 6. `TYPE_CHECKING` imports
 

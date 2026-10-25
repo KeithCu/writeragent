@@ -40,6 +40,7 @@ class StartEvent(NamedTuple):
     doc_type_str: str
     wav_path: Optional[str] = None
     stt_model: Optional[str] = None
+    mode: str = ""
 
 
 class StreamChunkEvent(NamedTuple):
@@ -85,6 +86,7 @@ class SpawnAgentWorkerEffect(NamedTuple):
 class SpawnWebWorkerEffect(NamedTuple):
     query_text: str
     model: Any
+    mode: str = ""
 
 
 class SendHandlerUIEffect(NamedTuple):
@@ -131,8 +133,8 @@ class EffectInterpreter:
                 self.handler._send_handlers._execute_direct_image_effect(qt, mod, self.current_state, self)
             case SpawnAgentWorkerEffect(query_text=qt, model=mod, doc_type_str=dts):
                 self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts, self.current_state, self)
-            case SpawnWebWorkerEffect(query_text=qt, model=mod):
-                self.handler._send_handlers._execute_web_research_effect(qt, mod, self.current_state, self)
+            case SpawnWebWorkerEffect(query_text=qt, model=mod, mode=mode):
+                self.handler._send_handlers._execute_web_research_effect(qt, mod, self.current_state, self, mode=mode)
             case _:
                 # SendHandlerUIEffect kinds beyond append/status (and future effects): no-op.
                 pass
@@ -181,10 +183,11 @@ def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, st
 
 
 @deal.pre(
-    lambda handler_type, query_text, model, doc_type_str: (
+    lambda handler_type, query_text, model, doc_type_str, mode="": (
         str_bounded(handler_type, DEAL_MAX_TOKEN)
         and str_bounded(query_text, DEAL_MAX_SOURCE)
         and str_bounded(doc_type_str, DEAL_MAX_TOKEN)
+        and str_bounded(mode, DEAL_MAX_TOKEN)
     )
 )
 @deal.post(lambda result: isinstance(result, list))
@@ -193,6 +196,7 @@ def spawn_effects_for_start(
     query_text: str,
     model: Any,
     doc_type_str: str,
+    mode: str = "",
 ) -> list[SendHandlerEffect]:
     """UI + spawn effects for a StartEvent, keyed by handler_type. No I/O."""
     effects: List[SendHandlerEffect] = []
@@ -213,7 +217,7 @@ def spawn_effects_for_start(
     elif handler_type == "web":
         effects.append(SendHandlerUIEffect("append", query_text, role="user"))
         effects.append(SendHandlerUIEffect("status", "Starting research..."))
-        effects.append(SpawnWebWorkerEffect(query_text, model))
+        effects.append(SpawnWebWorkerEffect(query_text, model, mode=mode))
     return effects
 
 
@@ -300,8 +304,8 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
 
             return FsmTransition(_replace_state(state, status="done"), effects)
 
-        case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type):
-            effects.extend(spawn_effects_for_start(state.handler_type, q_text, mod, doc_type))
+        case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type, mode=mode):
+            effects.extend(spawn_effects_for_start(state.handler_type, q_text, mod, doc_type, mode=mode))
             new_state = _replace_state(state, status="starting", query_text=q_text, model=mod, doc_type_str=doc_type)
             return FsmTransition(new_state, effects)
 

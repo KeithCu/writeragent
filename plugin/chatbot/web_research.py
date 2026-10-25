@@ -414,6 +414,15 @@ class VisitWebpageCdpTool(Tool):
             _cdp_visit_leave()
 
 
+def _unpack_approval(result: Any) -> tuple[bool, str | None]:
+    """Unpack an approval result into (proceed, optional_query_override)."""
+    if isinstance(result, tuple):
+        proceed = bool(result[0])
+        override = str(result[1]) if len(result) > 1 and result[1] is not None else None
+        return proceed, override
+    return bool(result), None
+
+
 def _run_web_agent(
     ctx: Any,
     query: str,
@@ -507,10 +516,7 @@ def _run_web_agent(
                 # transcript matches what the user is approving (skip outer-query dedup).
                 _append_search_preview(q, skip_dedup=True)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
-                if isinstance(approval_result, tuple):
-                    proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
-                else:
-                    proceed, query_override = approval_result, None
+                proceed, query_override = _unpack_approval(approval_result)
 
                 if not proceed:
                     return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
@@ -549,7 +555,6 @@ def _run_web_agent(
 def _run_deep_web_research(
     ctx: Any,
     query_str: str,
-    history_text: str | None,
     agent_params: WebAgentRunParams,
     *,
     cache_path: str | None,
@@ -610,8 +615,10 @@ def _run_deep_web_research(
             parent_client.ctx,
             cancellation_scope=agent_params.cancellation_scope,
         )
-        worker_model = WriterAgentSmolModel(
-            worker_client,
+        from plugin.chatbot.smol_agent import create_smol_model
+
+        worker_model = create_smol_model(
+            client=worker_client,
             max_tokens=agent_params.smol_model.max_tokens,
             status_callback=agent_params.status_callback,
             stop_checker=agent_params.stop_checker,
@@ -635,15 +642,11 @@ def _run_deep_web_research(
         del sub_query, research_goal, sub_history
         raise RuntimeError("deep-research sub-queries must run on a worker LlmClient")
 
-    preview_query: str | None = query_str
     if agent_params.prompt_for_web_research and agent_params.approval_callback:
         # Same tuple-or-bool check as the web_search tool step. Reject or stop
         # skips this planning fetch; there is no second approval UI.
         approval_result = agent_params.approval_callback(query_str, "web_search", {"query": query_str})
-        if isinstance(approval_result, tuple):
-            proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
-        else:
-            proceed, query_override = approval_result, None
+        proceed, query_override = _unpack_approval(approval_result)
         if not proceed:
             # Reject used to skip only the preview, then run_deep_research
             # kept going after the sidebar went idle. Same stop payload as
@@ -654,7 +657,6 @@ def _run_deep_web_research(
             )
         if query_override is not None:
             query_str = str(query_override)
-            preview_query = query_str
         # The sidebar has one approval slot. A second web_search prompt from a
         # parallel sub-agent is rejected as USER_STOPPED and aborts the pool.
         # This preview consumed that slot; later searches run without it.
@@ -665,23 +667,19 @@ def _run_deep_web_research(
         )
 
     initial_snippet = ""
-    if preview_query is not None:
-        try:
-            preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
-            initial_snippet = str(preview.forward(preview_query))[:4000]
-        except Exception as preview_exc:
-            log.debug("deep_research preview search skipped: %s", preview_exc)
+    try:
+        preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
+        initial_snippet = str(preview.forward(query_str))[:4000]
+    except Exception as preview_exc:
+        log.debug("deep_research preview search skipped: %s", preview_exc)
 
     if agent_params.status_callback:
         agent_params.status_callback("Deep research: starting...")
 
     max_rounds = get_config_int_safe("chatbot.deep_research_max_rounds")
-    if max_rounds <= 0:
-        max_rounds = get_config_int("chatbot.deep_research_depth")
 
     researched = run_deep_research(
         query_str,
-        history_text,
         llm_chat=llm_chat,
         run_web_agent=_parent_runner_not_for_pool,
         worker_factory=worker_factory,
@@ -798,15 +796,15 @@ class WebResearchTool(ToolBase):
         approval_callback = getattr(ctx, "approval_callback", None)
         chat_append_callback = getattr(ctx, "chat_append_callback", None)
 
-        if history_text:
-            if len(history_text) > 4000:
-                history_text = "..." + history_text[-4000:]
+        from plugin.chatbot.web_research_chat import clip_sub_agent_history
+
+        history_text = clip_sub_agent_history(history_text)
 
         if status_callback:
             status_callback("Sub-agent starting web search: " + str(query or ""))
 
-        config = get_api_config()
-        max_tokens = get_config_int("chat_max_tokens")
+        from plugin.chatbot.smol_agent import create_smol_model
+
         max_steps = get_config_int("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
@@ -823,7 +821,7 @@ class WebResearchTool(ToolBase):
 
         stop_checker = getattr(ctx, "stop_checker", None)
         cancel_scope = getattr(ctx, "send_cancellation", None)
-        smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
+        smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
 
@@ -858,7 +856,6 @@ class WebResearchTool(ToolBase):
                 final_ans, researched_query = _run_deep_web_research(
                     ctx,
                     query_str,
-                    history_text,
                     agent_params,
                     cache_path=cache_path,
                     cache_max_mb=cache_max_mb,

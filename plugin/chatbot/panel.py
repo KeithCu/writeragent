@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import threading
 import uno
-from plugin.chatbot.send_handlers import SendHandlersMixin
+from plugin.chatbot.send_handlers import SendHandlersMixin, dispatch_sidebar_send
 from plugin.chatbot.tool_loop import ToolCallingMixin
 
 from plugin.framework.errors import suppress_disposed
@@ -578,8 +578,50 @@ class SendButtonListener(BaseActionListener):
     def on_writing_plan_session_finished(self) -> None:
         self._sidebar_mode.on_writing_plan_session_finished()
 
-    def on_ppt_master_session_finished(self, exported: bool = False) -> None:
-        self._sidebar_mode.on_ppt_master_session_finished(exported)
+    def on_ppt_master_session_finished(self) -> None:
+        self._sidebar_mode.on_ppt_master_session_finished()
+
+    def hide_popup(self) -> None:
+        popup = getattr(self, "slash_popup", None)
+        hide = getattr(popup, "hide", None)
+        if callable(hide):
+            hide()
+
+    def clear_ask(self) -> None:
+        from plugin.chatbot.dialogs import set_control_text
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+
+        query = getattr(self, "query_control", None)
+        set_control_text(query, "")
+        dispatch = getattr(self, "dispatch", None)
+        if callable(dispatch):
+            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": False}))
+
+    def append_output(self, text: str) -> None:
+        append = getattr(self, "_append_response", None)
+        if callable(append):
+            append(text, role="assistant")
+            return
+        response = getattr(self, "response_control", None)
+        if response is None:
+            return
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        current = get_control_text(response) or ""
+        set_control_text(response, current + text)
+
+    def clear_chat(self) -> None:
+        clear_listener = getattr(self, "clear_listener", None)
+        action = getattr(clear_listener, "on_action_performed", None)
+        if callable(action):
+            action(None)
+        else:
+            session = getattr(self, "session", None)
+            if session is not None and hasattr(session, "clear"):
+                session.clear()
+
+    def stop_in_flight(self) -> None:
+        StopButtonListener(self).on_action_performed(None)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         self._events.begin_inline_web_approval(query, tool, event)
@@ -1544,46 +1586,7 @@ class SendButtonListener(BaseActionListener):
                 started.mode = str(sidebar_mode or "")
                 started.model = model
 
-            if sidebar_mode == CHAT_MODE_LIBRARIAN:
-                log.info("_do_send: using librarian onboarding agent")
-                self._send_handlers._run_librarian(query_text, model)
-                return
-
-            if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
-                log.info("_do_send: using web research sub-agent — skip chat model and direct image")
-                self._send_handlers._run_web_research(query_text, model)
-                return
-
-            if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
-                log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
-                self._send_handlers._run_deep_web_research(query_text, model)
-                return
-
-            if sidebar_mode == CHAT_MODE_IMAGE:
-                log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
-                self._send_handlers._do_send_direct_image(query_text, model)
-                return
-
-            if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
-                if self._active_mode != CHAT_MODE_BRAINSTORMING or not self._mode_topic:
-                    self._mode_topic = query_text
-                log.info("_do_send: using brainstorming sub-agent")
-                self._send_handlers._run_brainstorming(query_text, model)
-                return
-
-            # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
-            if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
-                if not self._mode_topic:
-                    self._mode_topic = query_text
-                log.info("_do_send: using writing plan sub-agent")
-                self._send_handlers._run_writing_plan(query_text, model)
-                return
-
-            if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
-                if self._active_mode != CHAT_MODE_PPT_MASTER or not self._mode_topic:
-                    self._mode_topic = query_text
-                log.info("_do_send: using PPT-Master sub-agent")
-                self._send_handlers._run_ppt_master(query_text, model)
+            if dispatch_sidebar_send(self, sidebar_mode, query_text, model, doc_type_label):
                 return
 
             # Agent backend: use external agent instead of built-in LLM.

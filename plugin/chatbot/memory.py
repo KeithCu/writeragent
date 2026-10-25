@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from plugin.framework.config import atomic_write_text, user_config_dir
+from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_SOURCE,
@@ -52,6 +54,76 @@ class MemoryStore:
         # crosshair: off
         path = self._get_path()
         atomic_write_text(path, content, prefix=".memory-", fsync=True)
+
+    def upsert(self, key: str, content: Any) -> dict[str, Any]:
+        # crosshair: off
+        """Insert, update, or delete a memory entry in USER.md JSON under _MEMORY_WRITE_LOCK.
+
+        Returns a status dict: {"status": "ok", "message": ...} or {"status": "error", "message": ...}.
+        """
+        if not isinstance(key, str) or not key.strip():
+            return {"status": "error", "message": "Key is required."}
+
+        with _MEMORY_WRITE_LOCK:
+            try:
+                current = self.read()
+            except (OSError, UnicodeDecodeError) as e:
+                # Catch both OSError and UnicodeDecodeError for unreadable files.
+                return {"status": "error", "message": f"Failed to read existing memory: {e}"}
+
+            raw = current.strip()
+            if not raw:
+                parsed: dict[str, Any] = {}
+            else:
+                try:
+                    parsed_obj = json.loads(current)
+                except json.JSONDecodeError:
+                    return {"status": "error", "message": "USER.md is not valid JSON; left unchanged."}
+                if not isinstance(parsed_obj, dict):
+                    return {"status": "error", "message": "USER.md is not a JSON object; left unchanged."}
+                parsed = parsed_obj
+
+            parts = key.split(".")
+            if content is None or content == "":
+                node: Any = parsed
+                for part in parts[:-1]:
+                    child = node.get(part) if isinstance(node, dict) else None
+                    if not isinstance(child, dict):
+                        node = None
+                        break
+                    node = child
+                if isinstance(node, dict):
+                    node.pop(parts[-1], None)
+            else:
+                current_dict: dict[str, Any] = parsed
+                for part in parts[:-1]:
+                    if part in current_dict and not isinstance(current_dict.get(part), dict):
+                        return {"status": "error", "message": f"Memory key '{key}' would replace a non-object value; left unchanged."}
+                    child = current_dict.get(part)
+                    if not isinstance(child, dict):
+                        child = {}
+                        current_dict[part] = child
+                    current_dict = child
+                current_dict[parts[-1]] = content
+
+            try:
+                new_content = "" if not parsed else json.dumps(parsed, indent=2, ensure_ascii=False)
+                if len(new_content) > CHAT_DOCUMENT_CONTEXT_MAX_CHARS and len(new_content) > len(current):
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"User memory would exceed maximum size limit ({len(new_content)} > "
+                            f"{CHAT_DOCUMENT_CONTEXT_MAX_CHARS} characters); left unchanged."
+                        ),
+                    }
+
+                if new_content == current:
+                    return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
+
+                self.write(new_content)
+                return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
+            except (OSError, TypeError, UnicodeError) as e:
+                return {"status": "error", "message": f"Failed to write memory: {e}"}
 
 
 def user_profile_exists(ctx: Any = None) -> bool:
@@ -152,7 +224,10 @@ class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
 
     name: str | None = "upsert_memory"
-    description: str = "Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string."
+    description: str = (
+        "Persistent memory stored as a JSON object. Stores user profile, preferences, and durable facts "
+        "using short stable keys. Dotted keys nest (e.g. 'writing.tone'). To delete a memory, set content to an empty string."
+    )
     uno_services: list[str] | None = None
     tier: str = "core"
     intent: str | None = "navigate"
@@ -162,8 +237,8 @@ class MemoryTool(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off
-        key = kwargs["key"]
-        if not key:
+        key = kwargs.get("key")
+        if not isinstance(key, str) or not key.strip():
             return self._tool_error("Key is required.")
         # Omit is an error. kwargs.get("content", "") treats a missing
         # argument the same as an explicit empty string, and empty content
@@ -177,66 +252,7 @@ class MemoryTool(ToolBase):
         except Exception as e:
             return self._tool_error(f"Failed to initialize memory store: {e}")
 
-        with _MEMORY_WRITE_LOCK:
-            return self._upsert_locked(store, key, content)
-
-    def _upsert_locked(self, store: MemoryStore, key: str, content: Any) -> dict[str, Any]:
-        # crosshair: off
-        import json
-
-        try:
-            current = store.read()
-        except (OSError, UnicodeDecodeError) as e:
-            # Invalid UTF-8 raises UnicodeDecodeError, a ValueError, not
-            # an OSError. Catch both and return the same tool error as any
-            # other failed read.
-            return self._tool_error(f"Failed to read existing memory: {e}")
-
-        raw = current.strip()
-        if not raw:
-            parsed = {}
-        else:
-            try:
-                parsed = json.loads(current)
-            except json.JSONDecodeError:
-                # Invalid JSON used to become {} and the write replaced USER.md
-                # with only the new key. Leave the file and tell the model.
-                return self._tool_error("USER.md is not valid JSON; left unchanged.")
-            if not isinstance(parsed, dict):
-                return self._tool_error("USER.md is not a JSON object; left unchanged.")
-
-        # Nested update. content "" used to store an empty string; pop the key.
-        # JSON null is the same delete. A dotted key must not replace a string
-        # value with {} (name="Ada" then name.nickname wiped the profile).
-        parts = key.split(".")
-        if content is None or content == "":
-            node: Any = parsed
-            for part in parts[:-1]:
-                child = node.get(part) if isinstance(node, dict) else None
-                if not isinstance(child, dict):
-                    node = None
-                    break
-                node = child
-            if isinstance(node, dict):
-                node.pop(parts[-1], None)
-        else:
-            current_dict: dict[str, Any] = parsed
-            for part in parts[:-1]:
-                if part in current_dict and not isinstance(current_dict.get(part), dict):
-                    return self._tool_error(f"Memory key '{key}' would replace a non-object value; left unchanged.")
-                child = current_dict.get(part)
-                if not isinstance(child, dict):
-                    child = {}
-                    current_dict[part] = child
-                current_dict = child
-            current_dict[parts[-1]] = content
-
-        new_content = "" if not parsed else json.dumps(parsed, indent=2, ensure_ascii=False)
-        if new_content == current:
-            return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
-
-        try:
-            store.write(new_content)
-            return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
-        except OSError as e:
-            return self._tool_error(f"Failed to write memory: {e}")
+        res = store.upsert(key, content)
+        if res.get("status") == "error":
+            return self._tool_error(res.get("message", "Failed to update memory."))
+        return res

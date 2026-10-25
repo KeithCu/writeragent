@@ -168,7 +168,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                panel._run_web_research("What is X?", model)  # type: ignore
+                panel._run_specialized("What is X?", model, mode="web_research")  # type: ignore
 
     panel.session.add_assistant_message.assert_called_once_with(content="<p>HTML answer</p>")
     panel.rerender_rich_text_session.assert_called_once()
@@ -254,7 +254,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
                     "plugin.framework.uno_context.get_ctx",
                     side_effect=AssertionError("get_ctx must not run on background thread"),
                 ):
-                    panel._run_web_research("What is X?", model)  # type: ignore
+                    panel._run_specialized("What is X?", model, mode="web_research")  # type: ignore
 
     assert len(captured_tool_ctx) == 1
     assert captured_tool_ctx[0].ctx is panel.ctx
@@ -1119,7 +1119,7 @@ def test_run_web_research_invalid_json():
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                panel._run_web_research("What is the speed of light?", model) # type: ignore
+                panel._run_specialized("What is the speed of light?", model, mode="web_research") # type: ignore
 
                 # Verify responses
                 assert "What is the speed of light?" in panel.responses
@@ -1212,7 +1212,7 @@ def test_run_web_research_uses_session_history_not_response_control():
 
                     getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                    panel._run_web_research("you said that earlier", model)  # type: ignore
+                    panel._run_specialized("you said that earlier", model, mode="web_research")  # type: ignore
 
                     mock_get_text.assert_not_called()
                     mock_registry.execute.assert_called_once()
@@ -1289,7 +1289,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
                 with patch("plugin.chatbot.librarian.get_suggested_user_name", return_value="Keith"):
-                    panel._run_librarian("Hello", model)  # type: ignore
+                    panel._run_specialized("Hello", model, mode="librarian")  # type: ignore
 
     assert panel._active_mode == CHAT_MODE_LIBRARIAN
     mock_registry.execute.assert_called_once()
@@ -1365,7 +1365,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
                 mock_run_stream.side_effect = fake_drain_loop
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                panel._run_librarian("Done", model)  # type: ignore
+                panel._run_specialized("Done", model, mode="librarian")  # type: ignore
 
     assert panel._active_mode == ""
     mock_registry.execute.assert_called_once()
@@ -1438,7 +1438,7 @@ def test_run_librarian_switch_mode_calls_finished_callback():
                 mock_run_stream.side_effect = fake_drain_loop
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                panel._run_librarian("Done", model)  # type: ignore
+                panel._run_specialized("Done", model, mode="librarian")  # type: ignore
 
     panel.on_librarian_session_finished.assert_called_once()
 
@@ -1540,18 +1540,16 @@ def test_web_stop_without_emitted_text_stores_placeholder():
 def test_specialized_tool_errors_persist_assistant_row():
     """status=error must store the painted note so the user turn is not left open."""
     cases = (
-        ("_active_run_librarian", "[Librarian error: nope]"),
-        ("_active_run_brainstorming", "[Brainstorming error: nope]"),
-        ("_active_run_writing_plan", "[Writing plan error: nope]"),
-        ("_active_run_ppt_master", "[PPT-Master error: nope]"),
-        ("_active_run_deep_research", "[Deep research error: nope]"),
-        (None, "[Research error: nope]"),
+        ("librarian", "[Librarian error: nope]"),
+        ("brainstorming", "[Brainstorming error: nope]"),
+        ("writing_plan", "[Writing plan error: nope]"),
+        ("ppt-master", "[PPT-Master error: nope]"),
+        ("deep_research", "[Deep research error: nope]"),
+        ("", "[Research error: nope]"),
     )
-    for flag, needle in cases:
+    for mode, needle in cases:
         panel = DummyChatbotPanel()
         panel.session.messages = []
-        if flag:
-            setattr(panel, flag, True)
         state = SendHandlerState(handler_type="web", status="starting")
         interpreter = EffectInterpreter(panel)
         mock_main = MagicMock()
@@ -1567,7 +1565,7 @@ def test_specialized_tool_errors_persist_assistant_row():
             with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
                 with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                     with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
-                        panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+                        panel._execute_web_research_effect("query", MagicMock(), state, interpreter, mode=mode)
 
         content = panel.session.add_assistant_message.call_args.kwargs["content"]
         assert content == needle
@@ -2094,26 +2092,60 @@ def test_direct_image_stop_finalizes_with_stop_line():
     panel.stop_requested = True
     state = SendHandlerState(handler_type="image", status="ready")
     interpreter = EffectInterpreter(panel)
-    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response") as fin:
+    with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=lambda *a, **kw: kw.get("on_finished") and kw["on_finished"]()), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response") as fin:
         panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
     fin.assert_called_once_with(panel, allow_rerender=False)
 
-def test_run_deep_web_research_leak_fix():
-    panel = DummyChatbotPanel()
-    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
-        panel._run_deep_web_research("query", MagicMock())
-    assert not getattr(panel, "_active_run_deep_research", False)
+def test_start_event_mode_determines_executed_tool():
+    """The mode on StartEvent is the tool name execute is called with."""
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_LIBRARIAN,
+        CHAT_MODE_BRAINSTORMING,
+        CHAT_MODE_WRITING_PLAN,
+        CHAT_MODE_PPT_MASTER,
+        CHAT_MODE_DEEP_RESEARCH,
+        CHAT_MODE_WEB_RESEARCH,
+    )
+
+    expected_tools = {
+        CHAT_MODE_LIBRARIAN: "librarian_onboarding",
+        CHAT_MODE_BRAINSTORMING: "brainstorming_session",
+        CHAT_MODE_WRITING_PLAN: "writing_plan_session",
+        CHAT_MODE_PPT_MASTER: "ppt_master_session",
+        CHAT_MODE_DEEP_RESEARCH: "deep_research_session",
+        CHAT_MODE_WEB_RESEARCH: "web_research",
+        "": "web_research",
+    }
+    for mode, expected_tool in expected_tools.items():
+        panel = DummyChatbotPanel()
+        mock_main = MagicMock()
+        mock_registry = MagicMock()
+        mock_registry.execute.return_value = {"status": "ok", "result": "done"}
+        mock_registry._services = MagicMock()
+        mock_main.get_tools.return_value = mock_registry
+        mock_turn = MagicMock()
+
+        def fake_drain(q, run_search, *args, **kwargs):
+            run_search()
+
+        panel._run_unified_worker_drain_loop = fake_drain
+        with patch.dict("sys.modules", {"plugin.main": mock_main}):
+            with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn):
+                panel._run_specialized("test query", MagicMock(), mode=mode)
+        mock_registry.execute.assert_called_once()
+        assert mock_registry.execute.call_args[0][0] == expected_tool
+
 
 def test_mode_flags_stuck_fix():
     panel = DummyChatbotPanel()
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
-        panel._run_librarian("query", MagicMock())
+        panel._run_specialized("query", MagicMock(), mode="librarian")
         assert panel._active_mode == ""
-        panel._run_brainstorming("query", MagicMock())
+        panel._run_specialized("query", MagicMock(), mode="brainstorming")
         assert panel._active_mode == ""
-        panel._run_writing_plan("query", MagicMock())
+        panel._run_specialized("query", MagicMock(), mode="writing_plan")
         assert panel._active_mode == ""
-        panel._run_ppt_master("query", MagicMock())
+        panel._run_specialized("query", MagicMock(), mode="ppt-master")
         assert panel._active_mode == ""
 
 def test_execute_agent_backend_effect_errors():
@@ -2234,14 +2266,14 @@ def test_brainstorming_send_replaces_writing_plan_topic():
     send.chat_mode_selector = MagicMock()
     send._active_mode = CHAT_MODE_WRITING_PLAN
     send._mode_topic = "Old Writing Plan Topic"
-    send._send_handlers._run_brainstorming = MagicMock()
+    send._send_handlers._run_specialized = MagicMock()
 
     with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_BRAINSTORMING), \
          patch("plugin.chatbot.dialogs.get_control_text", return_value="New Brainstorming Query"):
         send._do_send()
 
     assert send._mode_topic == "New Brainstorming Query"
-    send._send_handlers._run_brainstorming.assert_called_once()
+    send._send_handlers._run_specialized.assert_called_once()
 
 
 def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():
@@ -2318,52 +2350,69 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
     assert panel._acp_backend_id == "claude"
 
 
-def test_stale_active_run_flag_does_not_hijack_web_research():
-    """Stale _active_run_* flags must be reset so they do not leak into the next send."""
+@pytest.mark.parametrize(
+    "mode,outcome",
+    [
+        ("librarian", "ok"),
+        ("librarian", "leave"),
+        ("librarian", "error"),
+        ("brainstorming", "ok"),
+        ("brainstorming", "leave"),
+        ("brainstorming", "error"),
+        ("writing_plan", "ok"),
+        ("writing_plan", "leave"),
+        ("writing_plan", "error"),
+        ("ppt-master", "ok"),
+        ("ppt-master", "leave"),
+        ("ppt-master", "error"),
+        ("deep_research", "ok"),
+        ("deep_research", "error"),
+        ("web_research", "ok"),
+        ("web_research", "error"),
+    ],
+)
+def test_specialized_runner_decoder_modes(mode, outcome):
+    """Decoder test over every mode x ok / leave / error."""
     panel = DummyChatbotPanel()
+    state = SendHandlerState(handler_type="web", status="starting")
+    interpreter = EffectInterpreter(panel)
     mock_main = MagicMock()
     mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "ok", "result": "Search results"}
+
+    if outcome == "ok":
+        mock_registry.execute.return_value = {"status": "ok", "result": "good answer"}
+    elif outcome == "leave":
+        if mode == "librarian":
+            mock_registry.execute.return_value = {"status": "switch_mode", "result": "Switching"}
+        elif mode == "brainstorming":
+            mock_registry.execute.return_value = {"status": "finished", "result": "Done", "spec_saved": True}
+        elif mode == "writing_plan":
+            mock_registry.execute.return_value = {"status": "finished", "result": "Done"}
+        elif mode == "ppt-master":
+            mock_registry.execute.return_value = {"status": "finished", "result": "Done", "exported": True}
+    else:  # error
+        mock_registry.execute.return_value = {"status": "error", "message": "something failed"}
+
     mock_registry._services = MagicMock()
     mock_main.get_tools.return_value = mock_registry
 
-    # Stale flags from a previous aborted send
-    panel._active_run_librarian = True
-    panel._active_run_brainstorming = True
-
-    mock_turn = MagicMock()
-
-    def fake_drain(q, run_search, *args, **kwargs):
-        run_search()
-
-    panel._run_unified_worker_drain_loop = fake_drain
+    def fake_run_bg(func, **kwargs):
+        func()
 
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
-        with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn):
-            panel._run_web_research("test query", MagicMock())
+        with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
+            with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
+                with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
+                    panel._execute_web_research_effect("query", MagicMock(), state, interpreter, mode=mode)
 
-    assert not getattr(panel, "_active_run_librarian", False)
-    assert not getattr(panel, "_active_run_brainstorming", False)
-
-    mock_registry.execute.assert_called_once()
-    assert mock_registry.execute.call_args[0][0] == "web_research"
-
-
-def test_active_run_flags_reset_on_interpret_exception():
-    """Active run flags are reset in finally block even if effect execution raises."""
-    panel = DummyChatbotPanel()
-    mock_turn = MagicMock()
-    with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
-         patch("plugin.chatbot.send_handlers.next_state") as mock_next_state:
-        mock_step = MagicMock()
-        mock_eff = MagicMock()
-        mock_step.effects = [mock_eff]
-        mock_step.state = MagicMock()
-        mock_next_state.return_value = mock_step
-
-        with patch("plugin.chatbot.state_machine.EffectInterpreter.interpret", side_effect=RuntimeError("UI error")):
-            with pytest.raises(RuntimeError):
-                panel._run_librarian("hello", MagicMock())
-
-    assert not getattr(panel, "_active_run_librarian", False)
+    content = panel.session.add_assistant_message.call_args.kwargs["content"]
+    if outcome == "ok":
+        assert "good answer" in content
+    elif outcome == "leave":
+        if mode == "librarian":
+            assert "Switching" in content
+        else:
+            assert "Done" in content
+    else:
+        assert "something failed" in content
 

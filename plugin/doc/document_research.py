@@ -110,7 +110,7 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
     return _EXTENSION_DOC_TYPE.get(ext, "unknown")
 
 
-def filter_document_research_discovery_tools(tools: list[ToolBase], ctx: Any) -> list[ToolBase]:
+def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[ToolBase]:
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
     from plugin.framework.constants import folder_search_enabled
 

@@ -13,7 +13,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.send_state import SendEventKind
-from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
+from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP, SlashCommand
+
+MOCK_SLASH_COMMANDS = (
+    SlashCommand("help", "Print the command list", "wired", clears_ask=True),
+    SlashCommand("clear", "Start a new chat", "wired", clears_ask=True),
+    SlashCommand("stop", "Cancel the in-flight send", "wired", clears_ask=False),
+    SlashCommand("mock-alpha", "Mock command (echo only)", "mock", clears_ask=True),
+    SlashCommand("mock-bravo", "Mock command (echo only)", "mock", clears_ask=True),
+    SlashCommand("mock-charlie", "Mock command (echo only)", "mock", clears_ask=True),
+)
 from plugin.chatbot.slash_popup import (
     SlashPopupController,
     _POPUP_MAX_ROWS,
@@ -110,17 +119,18 @@ def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, _Li
 
 
 def test_slash_opens_popup_with_full_list():
-    popup, box = _controller()
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert popup.is_open is True
-    assert box.visible is True
-    assert popup.visible_names[0] == "help"
-    assert "clear" in popup.visible_names
-    assert "mock-alpha" in popup.visible_names
-    assert popup.selected_name == "help"
-    # Non-toolkit path fills in _refresh_list only. A second addItems doubled rows.
-    assert len(box.items) == len(popup.visible_names)
+    with patch("plugin.chatbot.slash_popup.SLASH_COMMANDS", MOCK_SLASH_COMMANDS):
+        popup, box = _controller()
+        with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+            popup.on_query_text("/")
+        assert popup.is_open is True
+        assert box.visible is True
+        assert popup.visible_names[0] == "help"
+        assert "clear" in popup.visible_names
+        assert "mock-alpha" in popup.visible_names
+        assert popup.selected_name == "help"
+        # Non-toolkit path fills in _refresh_list only. A second addItems doubled rows.
+        assert len(box.items) == len(popup.visible_names)
 
 
 def test_he_leaves_help_selected():
@@ -177,11 +187,12 @@ def test_up_down_move_selection():
 
 
 def test_lru_ranks_mock_higher_next_time():
-    popup, _box = _controller(lru=["mock-bravo"])
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=["mock-bravo"]):
-        popup.on_query_text("/")
-    assert popup.selected_name == "mock-bravo"
-    assert popup.visible_names[0] == "mock-bravo"
+    with patch("plugin.chatbot.slash_popup.SLASH_COMMANDS", MOCK_SLASH_COMMANDS):
+        popup, _box = _controller(lru=["mock-bravo"])
+        with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=["mock-bravo"]):
+            popup.on_query_text("/")
+        assert popup.selected_name == "mock-bravo"
+        assert popup.visible_names[0] == "mock-bravo"
 
 
 def test_closed_popup_does_not_steal_enter():

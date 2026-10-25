@@ -59,7 +59,7 @@ def test_get_chat_response_format_instructions_plain_when_rich_disabled():
     from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
-        fmt = get_chat_response_format_instructions(MagicMock())
+        fmt = get_chat_response_format_instructions()
     assert CHAT_RESPONSE_FORMAT not in fmt
     assert "plain text only" in fmt
 
@@ -68,7 +68,7 @@ def test_get_chat_response_format_instructions_html_when_rich_enabled():
     from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
-        fmt = get_chat_response_format_instructions(MagicMock())
+        fmt = get_chat_response_format_instructions()
     assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
     assert CHAT_RESPONSE_FORMAT in fmt
     assert "&lt;p&gt;Paragraph&lt;/p&gt;" in fmt
@@ -175,6 +175,20 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     # Confirm bullet is not also left inside TOOL_USAGE_PATTERNS (would bury recency).
     assert template.count(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS) == 1
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
+
+
+def test_memory_guidance_rules_and_phrasing():
+    from plugin.framework.prompts import MEMORY_GUIDANCE
+
+    guidance = MEMORY_GUIDANCE.lower()
+    assert "preferences" in guidance
+    assert "durable facts" in guidance
+    assert "credentials" in guidance
+    assert "tokens" in guidance
+    assert "one-off document text" in guidance
+    assert "short" in guidance
+    assert "existing key" in guidance
+    assert "delete stale facts" in guidance
 
 
 def test_writer_chat_prompt_includes_sidebar_vs_document_routing():

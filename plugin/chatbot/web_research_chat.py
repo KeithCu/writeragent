@@ -12,6 +12,41 @@ from typing import Any, Mapping
 
 from plugin.framework.html_stripper import strip_html_tags
 
+HISTORY_CLIP_CHARS = 4000
+
+
+def clip_sub_agent_history(history_text: str | None) -> str | None:
+    """Cap conversation history for sub-agents near 4000 chars on message boundaries."""
+    if not history_text or len(history_text) <= HISTORY_CLIP_CHARS:
+        return history_text
+
+    sep = "\n\nUser: "
+    first_sep = history_text.find(sep)
+    if first_sep == -1:
+        return "..." + history_text[-HISTORY_CLIP_CHARS:]
+
+    head = history_text[:first_sep]
+    if len(head) > 2000:
+        head = head[:2000]
+
+    budget = HISTORY_CLIP_CHARS - len(head)
+    if budget < 500:
+        budget = 500
+
+    tail_part = history_text[first_sep:]
+    if len(tail_part) <= budget:
+        return head + tail_part
+
+    cutoff = len(history_text) - budget
+    next_sep = history_text.find(sep, max(first_sep + len(sep), cutoff))
+    if next_sep != -1:
+        tail = history_text[next_sep:]
+    else:
+        last_sep = history_text.rfind(sep)
+        tail = history_text[last_sep:] if last_sep != -1 else ""
+
+    return head + tail
+
 
 def _message_text(content: Any) -> str:
     """Normalize user/assistant message content to plain text."""

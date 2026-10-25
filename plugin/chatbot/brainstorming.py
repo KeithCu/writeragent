@@ -10,11 +10,13 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
-from plugin.chatbot.smol_examples import normalize_html_content_array
 from plugin.chatbot.sub_agent_tools import (
+    HTML_CONTENT_PARAMETERS,
     SubAgentResearchWebBase,
+    _SubagentSessionToolBase,
+    apply_html_content,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
@@ -93,38 +95,15 @@ class SaveDesignSpec(ToolWriterSpecialBase):
         "content must be a JSON array of HTML strings (one fragment per block). No Markdown."
     )
     is_mutation: bool | None = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "content": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of HTML fragments (e.g. <h1>, <p>, <ul>). No Markdown.",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "full_document"],
-                "description": "Where to insert. Default end. Use full_document only when the doc is empty.",
-            },
-        },
-        "required": ["content"],
-    }
+    long_running: bool = True
+    timeout: float = 300.0
+    parameters: dict[str, Any] | None = HTML_CONTENT_PARAMETERS
+
+    def is_async(self) -> bool:
+        return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        content = normalize_html_content_array(kwargs["content"])
-        if not content:
-            return self._tool_error("content must be a non-empty array of HTML strings.", code="INVALID_CONTENT")
-
-        target = kwargs.get("target") or "end"
-        if target not in ("beginning", "end", "full_document"):
-            target = "end"
-
-        registry = ctx.services.get("tools")
-        apply_tool = registry.get("apply_document_content")
-        if apply_tool is None:
-            return self._tool_error("apply_document_content is not available.", code="TOOL_NOT_FOUND")
-
-        return apply_tool.execute_safe(ctx, content=content, target=target)
+        return apply_html_content(self, ctx, **kwargs)
 
 
 def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None, **kwargs: Any) -> dict[str, Any]:
@@ -132,14 +111,16 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
     from plugin.chatbot.smol_agent import run_smol_side_turn
     from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
-    instructions = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS, ctx.ctx)
+    tools = collect_sub_agent_tools(ctx, "brainstorming")
+    tool_names = [t.name for t in tools if t.name]
+    instructions = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS, tool_names=tool_names)
     if topic and topic.strip():
         instructions += f"\n\n[BRAINSTORMING TOPIC]\n{topic.strip()}\n"
     return run_smol_side_turn(
         ctx,
         query=query,
         history_text=history_text,
-        collector=lambda c: collect_sub_agent_tools(c, "brainstorming"),
+        collector=lambda c: tools,
         instructions=instructions,
         examples_key="brainstorming",
         reply_spec=BRAINSTORMING_REPLY_SPEC,
@@ -150,14 +131,14 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
     )
 
 
-class BrainstormingSessionTool(ToolBase):
+class BrainstormingSessionTool(_SubagentSessionToolBase):
     """Orchestrator for one turn of the brainstorming sub-agent (sidebar session)."""
 
     name: str | None = "brainstorming_session"
     description: str = "Brainstorming design exploration sub-agent."
-    tier: str = "specialized_control"
-    is_mutation: bool | None = False
-    long_running: bool = True
+    agent_label: str = "Brainstorming"
+    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_brainstorming_agent)
+    doc_types: list[str] | None = ["writer"]
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -167,12 +148,4 @@ class BrainstormingSessionTool(ToolBase):
         },
         "required": ["query"],
     }
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.sub_agent_tools import run_subagent_tool
-
-        return run_subagent_tool("Brainstorming", _run_brainstorming_agent, ctx, **kwargs)
 

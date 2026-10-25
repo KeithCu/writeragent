@@ -23,11 +23,11 @@ delegates to the existing shallow web ReAct sub-agent (_run_web_agent).
 from __future__ import annotations
 
 import logging
+import queue
 import re
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +37,8 @@ from plugin.framework.constants import now_aware
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.worker_pool import run_in_background
+from plugin.chatbot.web_research import _norm_research_query
 
 log = logging.getLogger("writeragent.web_research_deep")
 
@@ -262,15 +264,6 @@ def _trim_evidence(
             break
 
     return trimmed_learnings, trimmed_context
-
-
-def trim_context_to_word_limit(
-    learnings: list[str],
-    context_chunks: list[str],
-    max_words: int = MAX_CONTEXT_WORDS,
-) -> list[str]:
-    _trimmed_learnings, trimmed_chunks = _trim_evidence(learnings, context_chunks, max_words)
-    return trimmed_chunks
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -658,109 +651,101 @@ def _run_sub_queries_parallel(
         return None
 
     workers = max(1, min(concurrency, len(serp_queries)))
-    error_payload: dict[str, Any] | None = None
+    work_q: queue.Queue[dict[str, str] | None] = queue.Queue()
+    result_q: queue.Queue[tuple[dict[str, str], Any]] = queue.Queue()
 
-    def _task(sq: dict[str, str]) -> dict[str, Any] | None:
-        # Stop can land after submit and before this body. Return without
-        # building a client so the pool join is not stuck in HTTP.
-        stopped = _check_stopped(stop_checker)
-        if stopped is not None:
-            return {"error": stopped}
-        # worker_factory builds a fresh LlmClient + extraction chat on this
-        # thread. Falling back to the shared callables is for unit tests that
-        # do not open HTTP; production always passes a factory.
-        worker_cleanup = None
+    for sq in serp_queries:
+        work_q.put(sq)
+
+    def _worker_fn() -> None:
         if worker_factory is not None:
             task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
         else:
-            task_run_web_agent, task_llm_chat = run_web_agent, llm_chat
-
+            task_run_web_agent, task_llm_chat, worker_cleanup = run_web_agent, llm_chat, None
         try:
-            return _process_one_sub_query(
-                sq,
-                run_web_agent=task_run_web_agent,
-                llm_chat=task_llm_chat,
-                stop_checker=stop_checker,
-                acc=acc,
-                max_sub_queries=max_sub_queries,
-                progress=progress,
-                status_callback=status_callback,
-            )
+            while True:
+                sq = work_q.get()
+                if sq is None:
+                    break
+                stopped = _check_stopped(stop_checker)
+                if stopped is not None:
+                    result_q.put((sq, {"error": stopped}))
+                    continue
+                try:
+                    branch = _process_one_sub_query(
+                        sq,
+                        run_web_agent=task_run_web_agent,
+                        llm_chat=task_llm_chat,
+                        stop_checker=stop_checker,
+                        acc=acc,
+                        max_sub_queries=max_sub_queries,
+                        progress=progress,
+                        status_callback=status_callback,
+                    )
+                    result_q.put((sq, branch))
+                except Exception as exc:
+                    result_q.put((sq, exc))
         finally:
             if worker_cleanup is not None:
                 worker_cleanup()
 
-    # The `with ThreadPoolExecutor` form always shutdown(wait=True) with
-    # cancel_futures left false, so Stop could not cancel unstarted work
-    # before the join. Own the pool and shut it down in finally.
-    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="deep-research")
-    user_stopped = False
+    handles = [
+        run_in_background(_worker_fn, name=f"deep-research-{idx}", dedicated=True)
+        for idx in range(workers)
+    ]
+
+    error_payload: dict[str, Any] | None = None
+    completed = 0
+    total = len(serp_queries)
+
     try:
-        futures = {pool.submit(_task, sq): sq for sq in serp_queries}
-        pending = set(futures.keys())
-        while pending:
+        while completed < total:
             stopped = _check_stopped(stop_checker)
             if stopped is not None:
                 error_payload = stopped
-                user_stopped = True
                 return error_payload
-            done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
-            for future in done:
-                try:
-                    branch = future.result()
-                except Exception as exc:
-                    if getattr(exc, "code", None) == "USER_STOPPED":
-                        # process_research_results raises USER_STOPPED. Do not
-                        # store it on the accumulator and continue sibling queries.
-                        user_stopped = True
-                        raise
-                    sq = futures[future]
-                    log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), exc)
-                    acc.last_branch_error = format_error_payload(exc)
-                    continue
-                if isinstance(branch, dict) and branch.get("error"):
-                    error_payload = branch["error"]
-                    if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
-                        user_stopped = True
-                        return error_payload
-                    # Emulate the `break` from original `as_completed` when an error branch is found
-                    pending.clear()
-                    break
-                if branch:
-                    _merge_branch_results(acc, branch)
+            try:
+                sq, res = result_q.get(timeout=0.25)
+            except queue.Empty:
+                continue
+
+            completed += 1
+            if isinstance(res, Exception):
+                if getattr(res, "code", None) == "USER_STOPPED":
+                    raise res
+                log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), res)
+                acc.last_branch_error = format_error_payload(res)
+                continue
+
+            branch = res
+            if isinstance(branch, dict) and branch.get("error"):
+                error_payload = branch["error"]
+                if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
+                    return error_payload
+                break
+            if branch:
+                _merge_branch_results(acc, branch)
         return error_payload
     finally:
-        _shutdown_research_pool(pool, user_stopped=user_stopped)
+        while not work_q.empty():
+            try:
+                work_q.get_nowait()
+            except queue.Empty:
+                break
+        for _ in range(workers):
+            work_q.put(None)
 
-
-def _shutdown_research_pool(pool: ThreadPoolExecutor, *, user_stopped: bool) -> None:
-    """Cancel unstarted work on Stop, then join the pool.
-
-    Cancel the queue first, then join. ``shutdown(wait=False,
-    cancel_futures=True)`` returns while non-daemon pool threads keep
-    running, and ``cancel_futures`` does not stop a future that already
-    started. Tasks check the stop checker captured with the send and
-    return, so the join finishes. A worker stuck in HTTP is joined only
-    up to ``_STOP_POOL_JOIN_SEC``. Do not use ``with ThreadPoolExecutor``:
-    that joins before this path can cancel.
-    """
-    if not user_stopped:
-        pool.shutdown(wait=True)
-        return
-    pool.shutdown(wait=False, cancel_futures=True)
-    # No public join timeout. The worker set is what shutdown(wait=True) joins.
-    threads = list(getattr(pool, "_threads", ()))
-    deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
-    for thread in threads:
-        remaining = deadline - time.monotonic()
-        thread.join(timeout=0 if remaining <= 0 else remaining)
-    stuck = [thread for thread in threads if thread.is_alive()]
-    if stuck:
-        log.warning(
-            "deep_research: %d pool worker(s) still in HTTP after %.0fs Stop join",
-            len(stuck),
-            _STOP_POOL_JOIN_SEC,
-        )
+        deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
+        for handle in handles:
+            remaining = deadline - time.monotonic()
+            handle.join(timeout=0.0 if remaining <= 0 else remaining)
+        stuck = [h for h in handles if h.is_alive()]
+        if stuck:
+            log.warning(
+                "deep_research: %d pool worker(s) still in HTTP after %.0fs Stop join",
+                len(stuck),
+                _STOP_POOL_JOIN_SEC,
+            )
 
 
 def _serp_from_suggested_queries(queries: list[str]) -> list[dict[str, str]]:
@@ -790,6 +775,7 @@ def _run_adaptive_research_loop(
     acc = _ResearchAccumulator()
     progress = ResearchProgress(max_rounds=max_rounds, max_sub_queries=max_sub_queries)
     next_gap_queries: list[str] = []
+    seen: set[str] = set()
 
     for round_num in range(1, max_rounds + 1):
         stopped = _check_stopped(stop_checker)
@@ -802,9 +788,16 @@ def _run_adaptive_research_loop(
         if round_num == 1:
             if status_callback:
                 status_callback(f"Planning {breadth} research queries...")
-            serp_queries = generate_search_queries(llm_chat, combined_query, num_queries=breadth)
+            raw_queries = generate_search_queries(llm_chat, combined_query, num_queries=breadth)
         else:
-            serp_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
+            raw_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
+
+        serp_queries = []
+        for sq in raw_queries:
+            q_norm = _norm_research_query(sq.get("query", ""))
+            if q_norm and q_norm not in seen:
+                seen.add(q_norm)
+                serp_queries.append(sq)
 
         if not serp_queries:
             log.warning("deep_research: no search queries for round %s", round_num)
@@ -814,6 +807,9 @@ def _run_adaptive_research_loop(
         if remaining <= 0:
             break
         serp_queries = serp_queries[: min(len(serp_queries), breadth, remaining)]
+
+        learnings_before = len(acc.learnings)
+        chunks_before = len(acc.context_chunks)
 
         loop_error = _run_sub_queries_parallel(
             serp_queries,
@@ -830,32 +826,40 @@ def _run_adaptive_research_loop(
         if loop_error is not None:
             return {"error": loop_error}
 
+        branches_merged = (len(acc.learnings) > learnings_before) or (len(acc.context_chunks) > chunks_before)
+        if not branches_merged:
+            if not acc.learnings and not acc.context_chunks:
+                return {"error": acc.last_branch_error or format_error_payload(ToolExecutionError("All research sub-queries failed."))}
+            break
+
         if acc.started_queries >= max_sub_queries:
             break
 
-        if status_callback:
-            status_callback("Deep research: assessing coverage...")
-        assessment = assess_research_coverage(
-            llm_chat,
-            original_query,
-            acc.learnings,
-            acc.citations,
-            quality_threshold=quality_threshold,
-        )
-        score = assessment.get("score") or 0.0
-        gaps = assessment.get("knowledge_gaps") or []
-        next_gap_queries = assessment.get("suggested_queries") or gaps
+        if round_num < max_rounds:
+            if status_callback:
+                status_callback("Deep research: assessing coverage...")
+            assessment = assess_research_coverage(
+                llm_chat,
+                original_query,
+                acc.learnings,
+                acc.citations,
+                quality_threshold=quality_threshold,
+            )
+            score = assessment.get("score") or 0.0
+            gaps = assessment.get("knowledge_gaps") or []
+            next_gap_queries = assessment.get("suggested_queries") or gaps
 
-        if assessment.get("stop") or score >= quality_threshold or not next_gap_queries:
-            log.info("deep_research: stopping after round %s (score=%s)", round_num, score)
-            break
+            if assessment.get("stop") or score >= quality_threshold or not next_gap_queries:
+                log.info("deep_research: stopping after round %s (score=%s)", round_num, score)
+                break
+        else:
+            log.info("deep_research: stopping after round %s (reached max rounds %s)", round_num, max_rounds)
 
     unique_learnings = list(dict.fromkeys(acc.learnings))
-    trimmed_context = trim_context_to_word_limit(unique_learnings, acc.context_chunks)
     return {
         "learnings": unique_learnings,
         "citations": acc.citations,
-        "context": trimmed_context,
+        "context": acc.context_chunks,
         "sources": list(dict.fromkeys(acc.sources)),
         "branch_error": acc.last_branch_error,
     }
@@ -863,7 +867,6 @@ def _run_adaptive_research_loop(
 
 def run_deep_research(
     query: str,
-    history_text: str | None,
     *,
     llm_chat: LlmChatFn,
     run_web_agent: WebAgentRunner,
@@ -897,8 +900,6 @@ def run_deep_research(
 
         qa_pairs = [f"Q: {q}\nA: Automatically proceeding with research" for q in follow_up_questions]
         combined_query = f"Initial Query: {query}\n"
-        if history_text:
-            combined_query += f"Conversation history:\n{history_text}\n"
         combined_query += "Follow-up Questions and Answers:\n" + "\n".join(qa_pairs)
 
         loop_result = _run_adaptive_research_loop(

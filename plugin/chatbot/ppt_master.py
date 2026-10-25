@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
+from plugin.chatbot.sub_agent_tools import _SubagentSessionToolBase
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -94,12 +95,11 @@ def _run_ppt_master_venv_agent(
     )
 
 
-class PptMasterSessionTool(ToolBase):
+class PptMasterSessionTool(_SubagentSessionToolBase):
     name: str | None = "ppt_master_session"
     description: str = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
-    tier: str = "specialized_control"
-    is_mutation: bool | None = False
-    long_running: bool = True
+    agent_label: str = "PPT-Master"
+    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_ppt_master_venv_agent)
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -110,14 +110,6 @@ class PptMasterSessionTool(ToolBase):
         },
         "required": ["query"],
     }
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.sub_agent_tools import run_subagent_tool
-
-        return run_subagent_tool("PPT-Master", _run_ppt_master_venv_agent, ctx, **kwargs)
 
 
 

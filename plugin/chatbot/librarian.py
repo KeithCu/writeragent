@@ -6,15 +6,17 @@
 from __future__ import annotations
 
 import getpass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
+from plugin.chatbot.sub_agent_tools import _SubagentSessionToolBase
+from plugin.chatbot.memory import format_upsert_memory_chat_line
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-from plugin.chatbot.memory import format_upsert_memory_chat_line
 
+MAX_SUGGESTED_NAME_LEN = 60
 _USER_PROFILE_NODE = "/org.openoffice.UserProfile/Data"
 
 # Login / profile placeholders that are not useful as a greeting name.
@@ -33,10 +35,15 @@ _GENERIC_NAMES = frozenset(
 def _normalize_suggested_name(raw: str | None) -> str | None:
     if raw is None:
         return None
-    name = str(raw).strip()
+    # Strip control characters
+    cleaned = "".join(ch for ch in str(raw) if ch.isprintable() or ch.isspace())
+    # Collapse whitespace
+    name = " ".join(cleaned.split()).strip()
     if not name:
         return None
-    if name.lower() in _GENERIC_NAMES:
+    if len(name) > MAX_SUGGESTED_NAME_LEN:
+        name = name[:MAX_SUGGESTED_NAME_LEN].strip()
+    if not name or name.lower() in _GENERIC_NAMES:
         return None
     return name
 
@@ -75,41 +82,29 @@ def get_suggested_user_name(ctx: Any) -> str | None:
 
 
 def _run_librarian_agent(
-    ctx: Any,
+    ctx: ToolContext,
     *,
     query: str = "",
     history_text: str | None = None,
     suggested_user_name: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    if isinstance(suggested_user_name, str):
-        suggested_user_name = suggested_user_name.strip() or None
-    else:
-        suggested_user_name = None
-    from plugin.framework.errors import format_error_payload, ToolExecutionError
-
+    """Run one turn of the Librarian onboarding smol sub-agent."""
     try:
-        from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
-        from plugin.chatbot.smol_examples import get_examples_block
-        from plugin.chatbot.memory import MemoryTool, MemoryStore
+        from plugin.chatbot.smol_agent import run_smol_side_turn
+        from plugin.chatbot.memory import MemoryTool
     except (ImportError, ValueError, TypeError) as e:
+        from plugin.framework.errors import ToolExecutionError, format_error_payload
         return format_error_payload(ToolExecutionError(f"Failed to load dependencies: {e}"))
 
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
     chat_append_callback = getattr(ctx, "chat_append_callback", None)
 
-    if history_text:
-        if len(history_text) > 4000:
-            history_text = "..." + history_text[-4000:]
-
-    user_mem = best_effort(lambda: MemoryStore().read(), "Failed to read user memory for librarian", default="") or ""
-
-    if status_callback:
-        status_callback("Librarian is thinking...")
-
     if suggested_user_name:
+        hint_block = f"[SUGGESTED USER NAME]\n{suggested_user_name}\n[/SUGGESTED USER NAME]"
         priority_1 = f"""Priority 1. Confirm what to call the user and save it to memory (key "name") for later.
+  {hint_block}
   Ask whether they would like to be called {suggested_user_name} (phrase naturally in the user's language).
   Only call upsert_memory for "name" after they clearly confirm (yes, sure, that works).
   If they prefer a different name, save what they say. If they decline to share a name, do not pressure them and skip saving it.
@@ -141,7 +136,7 @@ Either: a. answer the question about that topic or LibreOffice or the extension 
 
 Tip 1: If the user asks WriterAgent to "review" or "give feedback" or "suggestions" (using their own language) on a document, WriterAgent will review it all and add comments in the margins near the text. Encourage them to try it.
 Tip 2: For work on their personal or business documents, tell them to say "my / our" (using their own language) so WriterAgent does document research on local files, not web research on public topics.
-Tip 3: WriterAgent has been auto-translated in 34 language by a variety of different AI models. If the user find a bug in the translations, or the code, file an issue or create a pull request at https://github.com/KeithCu/writeragent/
+Tip 3: WriterAgent has been auto-translated by a variety of different AI models. If the user find a bug in the translations, or the code, file an issue or create a pull request at https://github.com/KeithCu/writeragent/
 Tip 4: To enable advanced data analysis, scripting, and audio recording to talk with the WriterAgent AI, the user must set up a Python virtual environment (venv) and configure the path in Settings → Python. The 'sounddevice' package must be installed for audio recording.
 Tip 5: A great way to work is to select text and tell Writer Agent what to do. If they say "fix this" (or a synonym in their own language), WriterAgent corrects spelling and grammar in the current sentence only, unless the context makes it clear there is another specific error to fix. The cursor or selection implies which sentence.
 Tip 6: WriterAgent is sophisticated multi-threaded software, but this codebase is only a few months old so expect issues. 
@@ -168,65 +163,58 @@ TOOLS FOR COMPLETION:
 
 """
 
-    from plugin.framework.prompts import _cap_injected_prompt_blob, get_chat_response_format_instructions
+    from plugin.framework.prompts import (
+        format_user_memory_prompt_block,
+        get_chat_response_format_instructions,
+    )
 
     instructions += (
         "\n\n"
-        + get_chat_response_format_instructions(ctx.ctx)
+        + get_chat_response_format_instructions()
         + "\nFormat reply_to_user answer with this style; that text is shown in the chat sidebar."
     )
-    if user_mem and user_mem.strip():
-        # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
-        # as the main chat prompt. A raw profile crowds out the librarian
-        # instructions.
-        instructions += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
+    mem_block = format_user_memory_prompt_block()
+    if mem_block:
+        instructions += mem_block
 
-    from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool, interpret_sticky_final_answer
-
-    agent = build_toolcalling_agent(
-        ctx,
-        [
-            SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
-            SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False, inputs_style="librarian"),
-        ],
-        instructions=instructions,
-        final_answer_tool_name="reply_to_user",
-        examples_block=get_examples_block("librarian"),
-        status_callback=status_callback,
-    )
-
-    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
+    from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC
 
     def tool_call_handler(step: Any) -> None:
-        if step.name == "upsert_memory":
-            line = format_upsert_memory_chat_line(step.arguments)
+        name = getattr(step, "name", "")
+        arguments = getattr(step, "arguments", {})
+        if name == "upsert_memory":
+            line = format_upsert_memory_chat_line(arguments)
             if callable(chat_append_callback):
                 chat_append_callback(line)
             elif append_thinking_callback:
-                append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+                append_thinking_callback(f"Running tool: {name} with {arguments}\n")
         elif append_thinking_callback:
-            append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+            append_thinking_callback(f"Running tool: {name} with {arguments}\n")
         if status_callback:
-            status_callback(f"{step.name}...")
+            status_callback(f"{name}...")
 
-    # execute_safe calls interrupt() before it reports USER_STOPPED, which
-    # closes the model's HTTP client. Returning from this loop without that
-    # leaves agent.run() going after the sidebar has stopped.
-    res = SmolAgentExecutor(ctx).execute_safe(
-        agent,
-        task,
-        tool_call_handler=tool_call_handler,
+    return run_smol_side_turn(
+        ctx,
+        query=query,
+        history_text=history_text,
+        collector=lambda c: [MemoryTool()],
+        instructions=instructions,
+        examples_key="librarian",
+        reply_spec=LIBRARIAN_REPLY_SPEC,
+        status_message="Librarian is thinking...",
         stop_message="Librarian stopped by user.",
         error_prefix="Librarian failed",
+        collector_safe=False,
+        inputs_style="librarian",
+        tool_call_handler=tool_call_handler,
     )
-    if isinstance(res, dict) and res.get("status") == "error":
-        return res
-    return interpret_sticky_final_answer(res, leave_status=LIBRARIAN_REPLY_SPEC.leave_status)
 
 
-class LibrarianOnboardingTool(ToolBase):
+class LibrarianOnboardingTool(_SubagentSessionToolBase):
     name: str | None = "librarian_onboarding"
     description: str = "Librarian agent for new user onboarding."
+    agent_label: str = "Librarian"
+    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_librarian_agent)
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -236,16 +224,3 @@ class LibrarianOnboardingTool(ToolBase):
         },
         "required": ["query"],
     }
-    # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
-    tier: str = "specialized_control"
-    is_mutation: bool | None = False
-    long_running: bool = True
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.sub_agent_tools import run_subagent_tool
-
-        return run_subagent_tool("Librarian", _run_librarian_agent, ctx, **kwargs)
-

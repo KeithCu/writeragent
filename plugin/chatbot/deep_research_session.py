@@ -10,10 +10,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from plugin.chatbot.sub_agent_tools import (
     SubAgentResearchWebBase,
+    _SubagentSessionToolBase,
+    collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
 from plugin.framework.tool import ToolBase, ToolContext
@@ -41,17 +43,6 @@ TOOLS:
 _DEEP_RESEARCH_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document", "apply_document_content"])
 
 
-def collect_deep_research_tools(ctx: ToolContext) -> list[ToolBase]:
-    """Tools for the Deep Research smol sub-agent (domain + required core tools)."""
-    registry = ctx.services.get("tools")
-    return registry.get_tools(
-        doc_type=ctx.doc_type,
-        uno_services_supported=ctx.uno_services_supported,
-        active_domain="deep_research",
-        exclude_tiers=(),
-    )
-
-
 class DeepResearchWebTool(SubAgentResearchWebBase):
     """Multi-step public web research (sidebar Deep Research only; not shallow web_research)."""
 
@@ -72,12 +63,15 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
     """Run one turn of the Deep Research smol sub-agent."""
     from plugin.chatbot.smol_agent import run_smol_side_turn
 
+    tools = collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)
+    tool_names = [t.name for t in tools if t.name]
+    instructions = get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS, tool_names=tool_names)
     return run_smol_side_turn(
         ctx,
         query=query,
         history_text=history_text,
-        collector=collect_deep_research_tools,
-        instructions=get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS, ctx.ctx),
+        collector=lambda c: tools,
+        instructions=instructions,
         examples_key="deep_research",
         status_message="Deep research...",
         stop_message="Deep research stopped by user.",
@@ -85,14 +79,13 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
     )
 
 
-class DeepResearchSessionTool(ToolBase):
+class DeepResearchSessionTool(_SubagentSessionToolBase):
     """Orchestrator for one turn of the Deep Research sub-agent (sidebar session)."""
 
     name: str | None = "deep_research_session"
     description: str = "Deep Research sub-agent (multi-step web research + optional document insert)."
-    tier: str = "specialized_control"
-    is_mutation: bool | None = False
-    long_running: bool = True
+    agent_label: str = "Deep research"
+    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_deep_research_agent)
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -101,12 +94,3 @@ class DeepResearchSessionTool(ToolBase):
         },
         "required": ["query"],
     }
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.sub_agent_tools import run_subagent_tool
-
-        return run_subagent_tool("Deep research", _run_deep_research_agent, ctx, **kwargs)
-

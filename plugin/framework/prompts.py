@@ -202,7 +202,7 @@ RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
 {CHAT_SIDEBAR_HTML_EXAMPLES}"""
 
 
-def get_chat_response_format_instructions(ctx: Any | None = None) -> str:
+def get_chat_response_format_instructions() -> str:
     """Sidebar response format for main chat and sub-agents (web research, librarian).
 
     When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
@@ -225,9 +225,9 @@ GENERIC_EDIT_CONFIRMATION_RULES = """EDITING THE DOCUMENT:
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
-WHEN TO SAVE (do this proactively, don't wait to be asked):
-- User corrects you.
-- You discover something about the environment.
+- Save user preferences and durable facts; update an existing key or delete stale facts with "".
+- Never store credentials, tokens, or one-off document text.
+- Keep values short.
 Prioritize what reduces future user steering."""
 
 
@@ -441,7 +441,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
-WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
+APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
 - Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
@@ -451,8 +451,9 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
-- Headers/footers: delegate_to_specialized_writer_toolset(domain="page", task=...).
-- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
+- Headers/footers: delegate_to_specialized_writer_toolset(domain="page", task=...)."""
+
+SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
 - Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math (e.g. \\(a^2+b^2=c^2\\) or \\(\\frac{{a}}{{b}}\\)).
@@ -478,6 +479,8 @@ EXAMPLES:
 - Good field: ["<p>Page <span title=\"page-number\"/></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 """
+
+WRITER_APPLY_DOCUMENT_HTML_RULES = f"{APPLY_DOCUMENT_TARGET_RULES}\n{SUB_AGENT_HTML_CONTENT_RULES}"
 
 
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
@@ -1205,6 +1208,39 @@ def _profile_data_block(heading: str, body: str) -> str:
     return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
 
 
+def format_user_memory_prompt_block() -> str:
+    """Read MemoryStore and return a fenced, capped user profile block, or empty string."""
+    try:
+        from plugin.chatbot.memory import MemoryStore
+
+        store = MemoryStore()
+        user_mem = store.read()
+        text = str(user_mem or "").strip()
+        if not text or text == "{}":
+            return ""
+        return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to read user memory for prompt")
+    return ""
+
+
+def format_humanizer_guidance_prompt_block() -> str:
+    """Return fenced humanizer guidance if enabled in settings, else empty string."""
+    try:
+        from plugin.chatbot.skills import SkillStore
+        from plugin.framework.config import get_config_bool_safe
+
+        if get_config_bool_safe("chatbot.humanizer_enabled"):
+            hstore = SkillStore()
+            hguidance = hstore.get_humanizer_guidance()
+            if hguidance:
+                body = _cap_injected_prompt_blob(hguidance)
+                return _profile_data_block("[HUMANIZER GUIDANCE — apply when generating or revising prose]", body)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
+    return ""
+
+
 def _append_additional_instructions(base: str, additional_instructions: str) -> str:
     text = str(additional_instructions or "").strip()
     if not text:
@@ -1225,7 +1261,7 @@ def _assemble_chat_prompt(label: str, delegation: str, ctx: Any) -> str:
         base = _apply_draw_get_image_tool_line(base)
     else:
         base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
-    return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+    return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions())
 
 
 def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
@@ -1302,38 +1338,11 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         base += "\n\n" + peer_block
 
     if ctx:
-        try:
-            from plugin.chatbot.memory import MemoryStore
+        base += format_user_memory_prompt_block()
 
-            store = MemoryStore()
-            user_mem = store.read()
-            if user_mem:
-                base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
-        except Exception:
-            # A broken USER.md still builds the prompt. Log it the same way as
-            # a peer-block failure (exception + traceback); debug alone drops
-            # the profile with no traceback.
-            logging.getLogger(__name__).exception("Failed to read user memory for prompt")
-
-        # Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
-        # When enabled, the model receives the rules as ambient context for any prose it generates
-        # or revises. This is the primary delivery mechanism — cheap, always-on when active,
-        # and automatically benefits main chat + all writing/brainstorming sub-agents.
-        # User can turn it off in Settings or override the rules by editing the SKILL.md file.
-        # Defined in plugin/chatbot/module.yaml so it appears as a checkbox in the sidebar Settings.
-        try:
-            from plugin.chatbot.skills import SkillStore
-            from plugin.framework.config import get_config_bool_safe
-
-            if get_config_bool_safe("chatbot.humanizer_enabled"):
-                hstore = SkillStore(ctx)
-                hguidance = hstore.get_humanizer_guidance()
-                if hguidance:
-                    base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + _cap_injected_prompt_blob(hguidance) + "\n"
-        except Exception:
-            # Same as the memory except above: a broken skill store must not
-            # swallow the guidance at debug, and must not abort the prompt.
-            logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
+        # Humanizer skill: when enabled, injected as ambient guidance into main chat
+        # and writing/brainstorming/deep research sub-agents (librarian excluded).
+        base += format_humanizer_guidance_prompt_block()
 
     base = _append_additional_instructions(base, additional_instructions)
 

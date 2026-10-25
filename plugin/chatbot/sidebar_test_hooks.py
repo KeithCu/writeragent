@@ -2343,17 +2343,33 @@ class _UrpSlashHost:
         )()
         self._stop = stop
 
-    def dispatch(self, event: Any) -> None:
-        kind = getattr(event, "kind", None)
-        if kind == SendEventKind.STOP_CLICKED and self._stop is not None:
+    def hide_popup(self) -> None:
+        popup = getattr(self, "slash_popup", None)
+        hide = getattr(popup, "hide", None)
+        if callable(hide):
+            hide()
+
+    def clear_ask(self) -> None:
+        from plugin.chatbot.dialogs import set_control_text
+        set_control_text(self.query_control, "")
+        dispatch = getattr(self, "dispatch", None)
+        if callable(dispatch):
+            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": False}))
+
+    def append_output(self, text: str) -> None:
+        append = getattr(self, "_append_response", None)
+        if callable(append):
+            append(text, role="assistant")
+
+    def clear_chat(self) -> None:
+        if self.clear_listener is not None:
+            action = getattr(self.clear_listener, "on_action_performed", None)
+            if callable(action):
+                action(None)
+
+    def stop_in_flight(self) -> None:
+        if self._stop is not None:
             uno_click(self._stop)
-
-    def _append_response(self, text: str, role: str = "assistant") -> None:
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
-
-        # ``role`` matches SendButtonListener._append_response (run_slash_command).
-        current = get_control_text(self.response_control, default="") or ""
-        set_control_text(self.response_control, current + ("" if role is None else text))
 
 
 def _urp_slash_controller() -> Any:

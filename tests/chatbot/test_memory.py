@@ -307,3 +307,114 @@ def test_memory_arguments_longer_than_source_normalize():
     line = format_upsert_memory_chat_line(args)
     assert line.startswith("[Memory update:")
     assert line.endswith("...\n") or "notes" in line
+
+
+def test_memory_store_direct_upsert(tmp_path):
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore()
+
+        # Insert
+        res_ins = store.upsert("name", "Keith")
+        assert res_ins["status"] == "ok"
+        assert json.loads(store.read()) == {"name": "Keith"}
+
+        # Update
+        res_up = store.upsert("name", "Alice")
+        assert res_up["status"] == "ok"
+        assert json.loads(store.read()) == {"name": "Alice"}
+
+        # Nested
+        res_nest = store.upsert("pref.editor", "vim")
+        assert res_nest["status"] == "ok"
+        data = json.loads(store.read())
+        assert data["pref"]["editor"] == "vim"
+        assert data["name"] == "Alice"
+
+        # No change
+        res_same = store.upsert("pref.editor", "vim")
+        assert res_same["status"] == "ok"
+        assert "already up to date" in res_same["message"]
+
+        # Delete
+        res_del = store.upsert("name", "")
+        assert res_del["status"] == "ok"
+        assert "name" not in json.loads(store.read())
+
+
+def test_memory_rejects_non_string_and_blank_key(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore()
+
+        # Non-string key via tool
+        res1 = tool.execute(ctx, key=123, content="val")
+        assert res1["status"] == "error"
+        assert "Key is required" in res1["message"]
+
+        # Blank key via tool
+        res2 = tool.execute(ctx, key="   ", content="val")
+        assert res2["status"] == "error"
+        assert "Key is required" in res2["message"]
+
+        # Direct non-string key on store
+        res3 = store.upsert(None, "val")
+        assert res3["status"] == "error"
+        assert "Key is required" in res3["message"]
+
+
+def test_memory_type_error_content_and_lone_surrogate(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        # TypeError on non-serializable content
+        res = tool.execute(ctx, key="bad_obj", content=object())
+        assert res["status"] == "error"
+        assert "Failed to write memory" in res["message"]
+
+        # Lone surrogate
+        res_surr = tool.execute(ctx, key="surr", content="\ud800")
+        assert res_surr["status"] == "error"
+        assert "Failed to write memory" in res_surr["message"]
+
+
+def test_memory_cap_rejection_and_shrink_allowed(tmp_path):
+    from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore()
+
+        # Over-cap insert is rejected
+        huge = "x" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 50)
+        res = tool.execute(ctx, key="big", content=huge)
+        assert res["status"] == "error"
+        assert "exceed maximum size limit" in res["message"]
+        assert store.read() == ""
+
+        # Directly write a file that already exceeds the cap
+        big_dict = {"existing": "y" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 100), "extra": "z" * 50}
+        store.write(json.dumps(big_dict, indent=2))
+        initial_len = len(store.read())
+        assert initial_len > CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+
+        # Further insert exceeding length is rejected
+        res_more = tool.execute(ctx, key="more", content="abc")
+        assert res_more["status"] == "error"
+        assert "exceed maximum size limit" in res_more["message"]
+
+        # Deleting a key reduces size and is allowed even when over cap
+        res_del = tool.execute(ctx, key="extra", content="")
+        assert res_del["status"] == "ok"
+        after_del = store.read()
+        assert len(after_del) < initial_len
+        assert "extra" not in json.loads(after_del)
+
+
+def test_memory_tool_description_and_spec():
+    desc = MemoryTool.description
+    assert "JSON object" in desc
+    assert "writing.tone" in desc
+    assert "empty string" in desc
+    assert "short stable keys" in desc

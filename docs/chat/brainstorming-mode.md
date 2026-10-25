@@ -105,7 +105,7 @@ Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKI
 | Markdown spec + git commit | Replaced by HTML array in Writer document |
 | writing-plans handoff | Optional transition to Writing Plan sidebar mode after spec save |
 
-Constants: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS`, `get_brainstorming_sub_agent_instructions()` in [`plugin/chatbot/brainstorming.py`](../../plugin/chatbot/brainstorming.py). Few-shots: `BRAINSTORMING_EXAMPLES` in [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) (approaches, section approval, self-review, full spec save).
+Instructions: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS` via `get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)` in [`plugin/chatbot/sub_agent_tools.py`](../../plugin/chatbot/sub_agent_tools.py). Few-shots: `BRAINSTORMING_EXAMPLES` in [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) (approaches, section approval, self-review, full spec save).
 
 ---
 

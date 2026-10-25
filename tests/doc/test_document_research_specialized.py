@@ -63,7 +63,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     ctx = MagicMock()
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        filtered = filter_document_research_discovery_tools(tools, ctx)
+        filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "list_nearby_files" in names
     assert "grep_nearby_files" in names
@@ -73,7 +73,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_nearby_files" not in names
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        filtered = filter_document_research_discovery_tools(tools, ctx)
+        filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
