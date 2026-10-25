@@ -183,7 +183,7 @@ def test_is_quant_result_uses_helper_names_not_fetch_prefix():
 
     assert is_quant_result({"status": "ok", "helper": "fetch_historical_data"}) is True
     assert is_quant_result({"status": "ok", "helper": "fetch_not_a_helper"}) is False
-    assert is_quant_result({"status": "error", "code": "QUANT_ERROR"}) is True
+    assert is_quant_result({"status": "error", "code": "QUANT_ERROR"}) is False
     assert is_quant_result({"status": "error", "code": "OTHER"}) is False
 
 

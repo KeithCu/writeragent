@@ -20,13 +20,9 @@ from plugin.scripting.helper_domain import is_status_helper_result
 
 
 def is_quant_result(value: Any) -> bool:
-    """True when *value* matches the compact quant helper result contract.
-
-    ``and`` binds tighter than ``or``, so the old check treated every
-    ``fetch_*`` string as a quant helper even when it was not in
-    ``QUANT_HELPER_NAMES``.
-    """
-    return is_status_helper_result(value, QUANT_HELPER_NAMES, frozenset({"QUANT_ERROR"}))
+    """True when *value* matches the compact quant helper result contract."""
+    # No host-side error code: every quant error carries helper= or a helper name.
+    return is_status_helper_result(value, QUANT_HELPER_NAMES, frozenset())
 
 
 def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
@@ -45,12 +41,18 @@ def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     if isinstance(metrics, dict) and metrics:
         _append_key_value_block(rows, "Portfolio Metrics", metrics)
 
+    warning = result.get("warning")
+    if isinstance(warning, str) and warning.strip():
+        _append_blank(rows)
+        rows.append(["Flags"])
+        rows.append([warning.strip()])
+
     weights = result.get("weights")
     if isinstance(weights, dict) and weights:
         _append_key_value_block(rows, "Optimized Weights", weights)
 
     table = result.get("table")
-    if isinstance(table, dict):
+    if isinstance(table, dict) and (table.get("columns") or table.get("rows")):
         _append_blank(rows)
         _append_table_rows(rows, table.get("columns"), table.get("rows"), _cell)
 
