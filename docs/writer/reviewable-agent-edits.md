@@ -183,7 +183,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
 1. **Inline resolve** — [`plugin/writer/inline_review.py`](../../plugin/writer/inline_review.py),
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
-   menu, accept/reject-all.
+   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
 2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
    **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses

@@ -606,6 +606,61 @@ def test_install_view_doc_listener_handles_broadcaster_failure() -> None:
     assert result is None
 
 
+def test_install_view_doc_listener_on_unload() -> None:
+    ctx = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+
+    unloaded: list[Any] = []
+    listener = install_view_doc_listener(
+        ctx,
+        lambda c: None,
+        "test_unload",
+        on_unload=unloaded.append,
+    )
+    assert listener is not None
+
+    # Callback receives Event.Source when ViewController is absent
+    model1 = MagicMock()
+    evt1 = MagicMock(spec=["EventName", "ViewController", "Source"])
+    evt1.EventName = "OnUnload"
+    evt1.ViewController = None
+    evt1.Source = model1
+    listener.on_document_event(evt1)
+    assert unloaded == [model1]
+
+    # Callback receives ViewController.getModel() when present
+    model2 = MagicMock()
+    vc = MagicMock()
+    vc.getModel.return_value = model2
+    evt2 = MagicMock(spec=["EventName", "ViewController", "Source"])
+    evt2.EventName = "OnUnload"
+    evt2.ViewController = vc
+    evt2.Source = MagicMock()
+    listener.on_document_event(evt2)
+    assert unloaded == [model1, model2]
+
+
+def test_install_view_doc_listener_ignores_unload_without_callback() -> None:
+    ctx = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+
+    registered: list[Any] = []
+    listener = install_view_doc_listener(ctx, registered.append, "test_no_unload")
+    assert listener is not None
+
+    source = MagicMock()
+    evt = MagicMock(spec=["EventName", "ViewController", "Source"])
+    evt.EventName = "OnUnload"
+    evt.ViewController = None
+    evt.Source = source
+    listener.on_document_event(evt)
+
+    assert registered == []
+    source.getCurrentController.assert_not_called()
+
+
 def test_base_modify_listener():
     """Verify modify listener invokes the correct subclass callback and catches exceptions."""
     class MyModifyListener(BaseModifyListener):
