@@ -33,14 +33,13 @@ import subprocess
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 if TYPE_CHECKING:
     from plugin.framework.worker_pool import AsyncProcess
 
 log = logging.getLogger("writeragent.mcp.tunnel")
-
-_CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 DEFAULT_PROVIDER = "cloudflare"
 DEFAULT_BORE_SERVER = "bore.pub"
@@ -186,7 +185,7 @@ def parse_ngrok_url(line: str) -> Optional[str]:
         return None
     try:
         data = json.loads(line)
-    except Exception:
+    except json.JSONDecodeError:
         return None
     if data.get("msg") == "started tunnel" and data.get("url"):
         return str(data["url"])
@@ -206,7 +205,7 @@ def detect_tunnel_auth_error(provider: str, line: str) -> Optional[str]:
         if line.startswith("{"):
             try:
                 data = json.loads(line)
-            except Exception:
+            except json.JSONDecodeError:
                 data = None
             if isinstance(data, dict):
                 err = str(data.get("err") or data.get("error") or "")
@@ -241,7 +240,7 @@ def _tailscale_reset(port: int) -> bool:
     cmd = _tailscale_off_command()
     shown = " ".join(cmd)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, **get_subprocess_creationflags())
     except Exception:
         log.exception("Tailscale funnel off failed (local MCP port %s): %s", port, shown)
         return False
@@ -352,7 +351,7 @@ def binary_available(provider: str) -> str | None:
     binary = version_args[0]
     install_url = info["install_url"]
     try:
-        result = subprocess.run(version_args, capture_output=True, text=True, timeout=10, creationflags=_CREATION_FLAGS)
+        result = subprocess.run(version_args, capture_output=True, text=True, timeout=10, **get_subprocess_creationflags())
         ver = (result.stdout or result.stderr or "").strip()
         log.info("%s version: %s", provider, ver or "(empty)")
         return None
@@ -709,7 +708,7 @@ class TunnelManager:
             # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
             env = os.environ.copy()
             env.update(_build_provider_env(provider, effect.provider_token))
-            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS, env=env)
+            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, env=env)
             spawned["proc"] = proc
             self._process = proc
             proc.start()
@@ -1011,13 +1010,25 @@ def tunnel_status_line(
     return _("Public tunnel via {0} not running (is the provider binary installed?)").format(pname)
 
 
+def _health_probe_ok(url: str, timeout: float) -> bool:
+    """True when *url* answers HTTP 200; probe failures are logged at debug and are False."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "WriterAgent-Probe"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.getcode() == 200
+    except Exception:
+        log.debug("MCP tunnel health probe failed for %s", url, exc_info=True)
+        return False
+
+
 def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765) -> tuple[bool, str, Optional[str]]:
     """Checks that the provider binary runs, whether local MCP /health answers, and whether a tunnel is already running.
 
     Does not validate provider credentials and does not start a tunnel.
     Returns (ok, user_facing_message, public_url).
     """
-    import urllib.request
     from plugin.framework.i18n import _
 
     if os.environ.get("WRITERAGENT_TESTING"):
@@ -1034,7 +1045,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
 
     # 1. Check binary availability and version
     try:
-        res = subprocess.run(info["version_args"], capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
+        res = subprocess.run(info["version_args"], capture_output=True, text=True, timeout=5, **get_subprocess_creationflags())
         version_str = (res.stdout or res.stderr or "").strip().splitlines()[0] if (res.stdout or res.stderr) else ""
     except FileNotFoundError:
         return False, _("Binary '{0}' for {1} not found on PATH.\n\nInstall from: {2}").format(binary, pname, info["install_url"]), None
@@ -1042,15 +1053,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
         return False, _("Failed to execute {0} binary ({1}): {2}").format(pname, binary, exc), None
 
     # 2. Check if local MCP server is running on port
-    local_url = f"http://localhost:{port}/health"
-    local_running = False
-    try:
-        req = urllib.request.Request(local_url, headers={"User-Agent": "WriterAgent-Probe"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            if resp.getcode() == 200:
-                local_running = True
-    except Exception:
-        local_running = False
+    local_running = _health_probe_ok(f"http://localhost:{port}/health", 1.5)
 
     # 3. Check if an active tunnel is already running in LibreOffice
     from plugin.mcp import _shared_tunnel
@@ -1060,15 +1063,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
         active_url = _shared_tunnel.mcp_public_url()
         if active_url:
             base_url = normalize_public_base(_shared_tunnel.public_url or "")
-            health_url = f"{base_url}/health"
-            probe_ok = False
-            try:
-                probe_req = urllib.request.Request(health_url, headers={"User-Agent": "WriterAgent-Probe"})
-                with urllib.request.urlopen(probe_req, timeout=2.0) as probe_resp:
-                    if probe_resp.getcode() == 200:
-                        probe_ok = True
-            except Exception:
-                log.debug("tunnel health probe failed for %s", health_url, exc_info=True)
+            probe_ok = _health_probe_ok(f"{base_url}/health", 2.0)
 
             if active_p == provider:
                 if probe_ok:
