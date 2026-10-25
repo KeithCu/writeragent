@@ -5,6 +5,7 @@ from plugin.chatbot.web_research_chat import (
     document_open_preview_line,
     document_open_step_chat_text,
     format_sub_agent_conversation_history,
+    web_research_cache_chat_text,
 )
 import pytest
 
@@ -51,6 +52,19 @@ def test_format_sub_agent_history_strips_html():
     assert "are" in history
 
 
+def test_format_sub_agent_history_ignores_whitespace_when_skipping_current_query():
+    session = ChatSession(system_prompt="Observe web search.")
+    session.messages.append({"role": "user", "content": "  follow up\tquestion "})
+    assert format_sub_agent_conversation_history(session, current_query="follow up question") == ""
+
+
+def test_format_sub_agent_history_prefixes_assistant_turns():
+    session = ChatSession(system_prompt="Observe web search.")
+    session.messages.append({"role": "user", "content": "q"})
+    session.messages.append({"role": "assistant", "content": "a"})
+    assert format_sub_agent_conversation_history(session) == "User: q\n\nAssistant: a"
+
+
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -89,3 +103,37 @@ def test_document_open_preview_line():
     line = document_open_preview_line("/tmp/foo.ods")
     assert "foo.ods" in line
     assert "read-only" in line.lower()
+
+
+def test_web_research_cache_chat_text_malformed_score():
+    fuzzy_block = web_research_cache_chat_text({
+        "research_cache_event": "hit_fuzzy",
+        "research_cache_key": "elevator space",
+        "research_cache_matched_key": "english|elevator physics",
+        "research_cache_jaccard": "high",
+    })
+    assert "fuzzy" in fuzzy_block.lower()
+    assert "0%" in fuzzy_block
+    assert "elevator space" in fuzzy_block
+
+    embed_block = web_research_cache_chat_text({
+        "research_cache_event": "hit_embedding",
+        "research_cache_key": "elevator space",
+        "research_cache_matched_key": "english|elevator physics",
+        "research_cache_similarity": None,
+    })
+    assert "embedding" in embed_block.lower()
+    assert "0%" in embed_block
+    assert "elevator space" in embed_block
+
+
+def test_web_research_cache_chat_text_unknown_event_is_silent():
+    assert web_research_cache_chat_text({
+        "research_cache_event": "bogus",
+        "research_cache_key": "k",
+    }) == ""
+
+
+def test_web_research_cache_chat_text_missing_event_is_saved():
+    block = web_research_cache_chat_text({"research_cache_key": "k"})
+    assert "Research cache saved" in block
