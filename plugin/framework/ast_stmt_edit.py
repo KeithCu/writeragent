@@ -42,8 +42,13 @@ def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     return isinstance(func, ast.Name) and func.id in names
 
 
-def _discover_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.stmt]]:
-    """Parse once; return ``(tree, matching stmt nodes)``.
+def _discover_statements(
+    source: str,
+    should_remove: Callable[[ast.stmt], bool],
+    *,
+    skip_last_module_expr: bool = False,
+) -> tuple[list[ast.stmt], dict[ast.AST, ast.AST]]:
+    """Parse once; return ``(matching stmt nodes, child -> parent map)``.
 
     Shared by :func:`iter_matching_statements` and
     :func:`remove_statements` so there is one matching implementation.
@@ -57,38 +62,23 @@ def _discover_statements(source: str, should_remove: Callable[[ast.stmt], bool],
             skip_node = last
 
     found: list[ast.stmt] = []
+    parents: dict[ast.AST, ast.AST] = {}
 
     class FindVisitor(ast.NodeVisitor):
         def generic_visit(self, node: ast.AST) -> None:
-            if isinstance(node, ast.stmt):
-                if skip_node is not None and node is skip_node:
-                    super().generic_visit(node)
-                    return
-                if should_remove(node):
-                    found.append(node)
-            super().generic_visit(node)
+            if isinstance(node, ast.stmt) and node is not skip_node and should_remove(node):
+                found.append(node)
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+                self.visit(child)
 
     FindVisitor().visit(tree)
-    return tree, found
-
-
-def _discover_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.Expr]]:
-    """Parse once; return ``(tree, matching Expr nodes)``.
-
-    Shared by :func:`iter_matching_expr_statements` and
-    :func:`remove_expr_statements` so there is one matching implementation.
-    """
-    tree, stmts = _discover_statements(
-        source,
-        lambda node: isinstance(node, ast.Expr) and should_remove(node),
-        skip_last_module_expr=skip_last_module_expr,
-    )
-    return tree, [s for s in stmts if isinstance(s, ast.Expr)]
+    return found, parents
 
 
 def iter_matching_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, skip_last_module_expr: bool = False) -> list[ast.stmt]:
     """Discover matching statements in *source*."""
-    _tree, found = _discover_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
+    found, _parents = _discover_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
     return found
 
 
@@ -99,17 +89,12 @@ def iter_matching_expr_statements(source: str, should_remove: Callable[[ast.Expr
     is an ``ast.Expr`` (Excel/Jupyter last-expression egress — keep that ``xl``
     so it can rewrite to ``data``).
     """
-    _tree, found = _discover_expr_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
-    return found
-
-
-def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
-    # crosshair: off
-    parent_map: dict[ast.AST, ast.AST] = {}
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            parent_map[child] = node
-    return parent_map
+    found, _parents = _discover_statements(
+        source,
+        lambda node: isinstance(node, ast.Expr) and should_remove(node),
+        skip_last_module_expr=skip_last_module_expr,
+    )
+    return [s for s in found if isinstance(s, ast.Expr)]
 
 
 def _cut_same_line_span(raw: str, start: int, end: int) -> str:
@@ -144,15 +129,12 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
     parent = parent_map.get(node)
     if not parent:
         return None
+    # body also covers ExceptHandler and match_case.
     for attr in ("body", "orelse", "finalbody"):
         if hasattr(parent, attr):
             container = getattr(parent, attr)
             if isinstance(container, list) and node in container:
                 return container
-    if isinstance(parent, (ast.Try, getattr(ast, "TryStar", ast.Try))):
-        for handler in getattr(parent, "handlers", []):
-            if node in handler.body:
-                return handler.body
     return None
 
 
@@ -168,14 +150,17 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
     # Callable + ast.parse hangs deep check (same class as _rewrite_token_calls).
     # crosshair: off
     src = source or ""
-    tree, nodes_to_remove = _discover_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
+    nodes_to_remove, parent_map = _discover_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
     if not nodes_to_remove:
         return src, 0
 
-    # Copy into a plain list[str]. splitlines() is typed as a LiteralString
-    # list when src is a literal, and ty then rejects writing a new line back.
-    lines = [line for line in src.splitlines(keepends=True)]
-    parent_map = _parent_map(tree)
+    # Exact AST lines. splitlines() also breaks on \x0c, \x0b, U+2028, U+2029
+    # (see line_starts_exact), which shifts AST line numbers and deletes the
+    # wrong line. line_starts_exact splits only on \r\n, \r, \n.
+    _starts = line_starts_exact(src)
+    lines = [src[start:end] for start, end in zip(_starts, _starts[1:] + [len(src)])]
+    if lines and not lines[-1]:
+        lines.pop()  # trailing newline: match splitlines(), which has no empty last element
     remove_set = set(nodes_to_remove)
     replacements: dict[int, str] = {}
     to_delete: set[int] = set()
