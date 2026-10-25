@@ -81,7 +81,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `set_speaker_notes` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
 | `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
-| `manage_charts` | `charts` | `calc/charts.py` (shared) | Unified charts CRUD | Drawing+Presentation |
+| `manage_charts` | `charts` | `draw/charts.py` | Unified charts CRUD | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
@@ -244,7 +244,7 @@ Core **placeholders** remain on the default list (`list_placeholders`, `get_plac
 
 Some tools are implemented in shared modules but work with Draw/Impress:
 
-- **Charts** (`plugin/calc/charts.py`): Chart tools work across all document types that support charts; the Writer wrapper keeps the service union.
+- **Charts** (`plugin/draw/charts.py`): Chart tools work across all document types that support charts
 - **Forms** (`plugin/writer/specialized/forms.py`): Live ControlShape tools inherit from `ToolWriterFormBase` ∪ `ToolDrawFormBase` and work across Writer/Calc/Draw/Impress. Paper-form blanks (empty TextShapes) are a different path — `get_draw_tree` + `fill_draw_fields` / `shape_upsert` — see [§3.1](#31-controlshapes-vs-paper-form-fill).
 
 > This document focuses on Draw/Impress-specific usage of these shared tools.
