@@ -42,7 +42,8 @@ PEER_WORK_TOOL_NAME = "send_peer_work"
 PEER_RESULT_TOOL_NAME = "send_peer_result"
 PEER_TOOL_NAMES = frozenset({PEER_WORK_TOOL_NAME, PEER_RESULT_TOOL_NAME})
 PEER_QUEUE_CAP = 8
-PEER_FIELD_MAX_CHARS = 200
+# Only the title is capped: uid/url are addresses the model sends back.
+PEER_NAME_MAX_CHARS = 200
 PEER_SPECIALIZED_DOMAIN = "document_research"
 # MCP / script / venv RPC must never inject a sidebar turn. Chat main and
 # document_research specialized inherit or set caller="chat"; also allow a
@@ -163,7 +164,7 @@ def _sanitize_peer_field(value: str) -> str:
     return "".join(
         " " if (ch in "|[]\u2028\u2029" or unicodedata.category(ch) == "Cc") else ch
         for ch in str(value or "")
-    )[:PEER_FIELD_MAX_CHARS]
+    )
 
 
 def format_peer_envelope(
@@ -182,7 +183,7 @@ def format_peer_envelope(
     """
     label = "Peer result from" if kind == "result" else "Peer work from"
     header = (
-        f"[{label}: {_sanitize_peer_field(name)} | "
+        f"[{label}: {_sanitize_peer_field(name)[:PEER_NAME_MAX_CHARS]} | "
         f"uid={_sanitize_peer_field(uid)} | url={_sanitize_peer_field(url)}]"
     )
     # What was wrong: None became the body text "None" in the f-string.
@@ -201,7 +202,7 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
     parts = []
     for p in peers:
         parts.append(
-            f"{_sanitize_peer_field(p.get('name') or 'Untitled')} "
+            f"{_sanitize_peer_field(p.get('name') or 'Untitled')[:PEER_NAME_MAX_CHARS]} "
             f"(uid={_sanitize_peer_field(p.get('uid') or '')}, "
             f"url={_sanitize_peer_field(p.get('url') or '')}, "
             f"type={_sanitize_peer_field(p.get('type') or '')})"

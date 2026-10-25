@@ -1012,6 +1012,9 @@ def test_format_peer_envelope_flattens_header_fields():
         name="n" * 500, uid="u", url="", message="m"
     ).splitlines()[0]
     assert long_header.count("n") == 200
+    long_url = "file:///tmp/" + "d/" * 150 + "x.odt"
+    url_header = format_peer_envelope(name="n", uid="u", url=long_url, message="m").splitlines()[0]
+    assert f"url={long_url}]" in url_header
 
 
 def test_format_peer_catalog_flattens_fields():
