@@ -363,7 +363,7 @@ class AlignShapes(ToolDrawShapeBase):
 **Implementation:**
 - `insert_draw_table`: oversized `data` is rejected before any shape is created.
 - Growth is one `insertByIndex(index, count)` per axis and the result is verified; cells are then populated via `getCellByPosition(col, row)`.
-- The whole insert runs in one compound undo step titled `WriterAgent: Insert table`.
+- The table edits run in one compound undo step titled `WriterAgent: Insert table`; `page.add` itself records no undo action in Draw, so undo does not remove the shape.
 
 ---
 
