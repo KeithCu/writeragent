@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcVisionBase
+from plugin.framework.config_schema import as_bool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
@@ -18,17 +19,6 @@ if TYPE_CHECKING:
 
 _VISION_DOC_TYPES = frozenset({"writer", "calc"})
 _VISION_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
-
-
-def _coerce_bool(val: Any, default: bool = True) -> bool:
-    """Coerce boolean tool argument that may be passed as a string."""
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, str):
-        return val.strip().lower() in ("true", "1", "yes")
-    return bool(val)
 
 
 class ExtractStructureFromImage(ToolCalcVisionBase):
@@ -65,7 +55,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             return self._tool_error(_("Vision OCR requires a Writer or Calc document."), code="VISION_ERROR")
 
         doc = ctx.doc
-        insert_into_document = _coerce_bool(kwargs.get("insert_into_document", True))
+        insert_into_document = as_bool(kwargs.get("insert_into_document", True))
         params_raw = kwargs.get("params")
         params_dict: dict[str, Any] = dict(params_raw) if params_raw is not None else {}
         image_name = str(kwargs.get("image_name") or "").strip()
