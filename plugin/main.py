@@ -309,13 +309,9 @@ def bootstrap(ctx: Any | None = None) -> None:
         module_phase_failed = False
         try:
             _modules.extend(ModuleLoader.load_modules(_services))
-
-            # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled)
-            for mod in _modules:
-                mod.start_background(_services)
         except Exception as exc:
             module_phase_failed = True
-            log.exception("bootstrap failed after the init flag was set")
+            log.exception("bootstrap failed while loading modules")
             _bootstrap_error = exc
             if not _modules:
                 _bootstrap_state = BootstrapState.UNINITIALIZED
@@ -325,6 +321,17 @@ def bootstrap(ctx: Any | None = None) -> None:
             # How it happened: the except block unconditionally returned on any error.
             # Why this change: fall through so core handlers and menu updates register;
             # the error is kept so an unhandled command still raises BOOTSTRAP_FAILED.
+
+        # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled).
+        # Isolate each module: one failed start must not keep later servers/listeners from starting.
+        for mod in _modules:
+            try:
+                mod.start_background(_services)
+            except Exception as exc:
+                module_phase_failed = True
+                log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
+                if _bootstrap_error is None:
+                    _bootstrap_error = exc
 
         try:
             # Wire event bus into config service
