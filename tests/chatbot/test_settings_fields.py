@@ -39,6 +39,10 @@ def test_default_settings_stay_unchanged_when_strict_coerce_sees_bounds() -> Non
     assert changed_config_values({"temperature": 5.0}, lambda key: 5.0) == {"temperature": 5.0}
     assert changed_config_values({"chat_max_tokens": -1}, lambda key: -1) == {"chat_max_tokens": -1}
     assert changed_config_values({"request_timeout": 0}, lambda key: 0) == {"request_timeout": 0}
+    assert changed_config_values({"api_keys_by_endpoint": {"a": "k"}}, lambda key: {"a": "k"}) == {}
+    assert changed_config_values({"api_keys_by_endpoint": {"a": "k2"}}, lambda key: {"a": "k"}) == {
+        "api_keys_by_endpoint": {"a": "k2"}
+    }
 
 
 def test_egret_layout_label_keeps_the_comma():
