@@ -14,12 +14,13 @@ from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, is_status_helper_result, parse_helper_script_header
 
 # --- Constants (host) ---
 
 SQL_HELPER_NAMES = frozenset({"query_folder_sql", "query_sheet_sql"})
 SQL_RESULT_HELPERS = frozenset({"query_folder_sql", "query_sheet_sql", "run_sql"})
+SQL_RESULT_ERROR_CODES = frozenset({"READONLY_VIOLATION", "DUCKDB_SQL_ERROR", "DUCKDB_ERROR", "MISSING_SCOPED_DIR"})
 
 SQL_HEADER_PREFIX = header_prefix("sql")
 
@@ -166,17 +167,7 @@ _deal_sql_result_value_ok = (
 @deal.pre(lambda value: _deal_sql_result_value_ok(value))
 def is_sql_result(value: Any) -> bool:
     """True when *value* matches the compact DuckDB SQL helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper in SQL_RESULT_HELPERS:
-        return True
-    if value.get("status") == "error":
-        code = str(value.get("code") or "")
-        return code in ("READONLY_VIOLATION", "DUCKDB_SQL_ERROR", "DUCKDB_ERROR", "MISSING_SCOPED_DIR")
-    return False
+    return is_status_helper_result(value, SQL_RESULT_HELPERS, SQL_RESULT_ERROR_CODES)
 
 
 def insert_sql_result_into_calc(
