@@ -49,10 +49,8 @@ from tests.harness.strip_bundle import module_source_contains
 def _reset_harper_client_cache() -> None:
     """Each run_harper_lint test owns a fresh LSP client and mocked stdout stream."""
     shutdown_harper_runtime()
-    harper_binary_module._release_cache.clear()
     yield
     shutdown_harper_runtime()
-    harper_binary_module._release_cache.clear()
 
 
 def test_harper_client_parameterizes_stdout_queue() -> None:
@@ -799,7 +797,6 @@ def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: Magic
 
 
 def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
     api_payload = {
         "tag_name": "v2.7.0",
         "assets": [
@@ -882,9 +879,26 @@ def test_run_harper_lint_emits_heartbeat_progress(mock_popen: MagicMock, mock_ge
     assert mock_get_bin.call_args.kwargs.get("heartbeat_fn") is heartbeat_fn
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{not json",
+        "[]",
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": "soon", "version": "9.9.9", "download_url": "https://x", "sha256": ""}),
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": 1e18, "version": 9, "download_url": "https://x", "sha256": ""}),
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": 1e18, "version": "9.9.9", "sha256": ""}),
+    ],
+)
+def test_read_persisted_release_malformed_json_is_cache_miss(tmp_path: Path, payload: str) -> None:
+    harper_dir = tmp_path / "harper"
+    harper_dir.mkdir()
+    (harper_dir / "harper-ls.release.json").write_text(payload, encoding="utf-8")
+
+    assert harper_binary_module._read_persisted_release(harper_dir, "harper-ls-x86_64-unknown-linux-gnu.tar.gz") is None
+
+
 @patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: MagicMock, tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
     api_payload = {"tag_name": "v2.7.0", "assets": []}
 
     with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload):
@@ -897,7 +911,6 @@ def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: Magi
 
 @patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock, tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
 
     with patch("plugin.writer.locale.harper_binary._github_api_request", side_effect=OSError("network down")):
         with pytest.raises(RuntimeError, match="Harper releases API request failed"):
