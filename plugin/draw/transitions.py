@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
-from plugin.draw.bridge import DrawBridge
+from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
 from plugin.draw.transform_schema import AUTOLAYOUT_ID
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import is_real_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -48,35 +48,17 @@ _FADE_EFFECTS = {
 }
 
 _ADVANCE_MODES: dict[int, str] = {0: "on_click", 1: "auto", 2: "semi_auto"}
+_ADVANCE_CHANGES: dict[str, int] = {name: change for change, name in _ADVANCE_MODES.items()}
 _SPEED_ENUM: dict[str, str] = {"slow": "SLOW", "medium": "MEDIUM", "fast": "FAST"}
 
 
-# What was wrong: In live PyUNO, com.sun.star.presentation.FadeEffect and AnimationSpeed
-#   are UNO enum modules/types and not top-level attributes of com.sun.star.presentation,
-#   so importing FadeEffect or AnimationSpeed directly from com.sun.star.presentation raised ImportError.
-# How it happened: 788b91a31 (#1996) changed the imports to `from com.sun.star.presentation import ...`.
-# Why this change: Catch (ImportError, AttributeError) and construct the uno.Enum instance via
-#   uno.Enum("com.sun.star.presentation....", ...) when direct attribute lookup is unavailable.
-def _fade_effect(enum_name: str) -> Any:
-    try:
-        from com.sun.star.presentation import FadeEffect
+def _pres_enum(type_name: str, member: str) -> Any:
+    """One com.sun.star.presentation enum member."""
+    # uno.Enum works in every PyUNO; importing FadeEffect/AnimationSpeed from
+    # com.sun.star.presentation broke in 788b91a31 (#1996).
+    import uno
 
-        return getattr(FadeEffect, enum_name)
-    except (ImportError, AttributeError):
-        import uno
-
-        return uno.Enum("com.sun.star.presentation.FadeEffect", enum_name)
-
-
-def _speed_enum(speed_key: str) -> Any:
-    try:
-        from com.sun.star.presentation import AnimationSpeed
-
-        return getattr(AnimationSpeed, _SPEED_ENUM[speed_key])
-    except (ImportError, AttributeError):
-        import uno
-
-        return uno.Enum("com.sun.star.presentation.AnimationSpeed", _SPEED_ENUM[speed_key])
+    return uno.Enum("com.sun.star.presentation.%s" % type_name, member)
 
 # Friendly name → AutoLayout constant in AUTOLAYOUT_ID.
 # Impress ``page.Layout`` is the LibreOffice AutoLayout enum
@@ -176,6 +158,12 @@ def _transition_enum_name(value: Any) -> str:
     return value.value.lower() if hasattr(value, "value") else str(value).lower()
 
 
+def _slide_for_tool(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, int]:
+    """Explicit page, else ctx.active_page_index, else the controller."""
+    bridge, page_idx = resolve_page_and_bridge(ctx, kwargs)
+    return DrawBridge.get_slide_for_tool(bridge.doc, page_idx), page_idx
+
+
 class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
 
@@ -185,8 +173,7 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, page_idx = _slide_for_tool(ctx, kwargs)
 
         # Bugfix: 130c136d6 dropped the per-property fallbacks while removing
         # try/except. A missing Effect/Speed/Duration/TransitionDuration/Change
@@ -223,7 +210,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         "roll_from_left/top/right/bottom, "
         "uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. "
         "Speed: slow, medium, fast. "
-        "Advance: on_click, auto (set duration for auto-advance)."
+        "Advance: on_click, auto, semi_auto (set duration for auto-advance)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -233,69 +220,76 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
             "speed": {"type": "string", "enum": list(_SPEED_ENUM), "description": "Transition speed (default: medium)."},
             "duration": {"type": "integer", "description": "Auto-advance duration in seconds (0 = manual advance)."},
             "transition_duration": {"type": "number", "description": "Transition animation time in seconds (e.g. 1.5)."},
-            "advance": {"type": "string", "enum": ["on_click", "auto"], "description": "How to advance: on_click (default) or auto."},
+            "advance": {"type": "string", "enum": list(_ADVANCE_CHANGES), "description": "How to advance: on_click (default), auto, or semi_auto (object effects run automatically, click still changes the page)."},
         },
         "required": [],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        updated = []
+        page, page_idx = _slide_for_tool(ctx, kwargs)
 
-        # Effect
-        effect_name = kwargs.get("effect")
-        if effect_name is not None:
-            effect_key = effect_name.strip().lower()
-            try:
-                _fade_effect("NONE")
-            except ImportError:
-                return self._tool_error("FadeEffect enum not available.")
-
-            if effect_key in _FADE_EFFECTS:
-                page.setPropertyValue("Effect", _fade_effect(_FADE_EFFECTS[effect_key]))
-                updated.append("effect")
-            else:
-                return self._tool_error("Unknown effect: %s" % effect_name, available=sorted(_FADE_EFFECTS.keys()))
+        effect_key: str | None = None
+        effect = kwargs.get("effect")
+        if effect is not None:
+            effect_key = str(effect).strip().lower()
+            if effect_key not in _FADE_EFFECTS:
+                return self._tool_error("Unknown effect: %s" % effect, available=sorted(_FADE_EFFECTS))
 
         # Speed and TransitionDuration are one LibreOffice double.
         # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
         # medium 2s, fast 1s) and the getter derives speed from that double.
         # Setting both used to leave the duration and report the overwritten speed.
-        speed = kwargs.get("speed")
+        speed_key: str | None = None
+        td_value: float | None = None
         td = kwargs.get("transition_duration")
+        speed = kwargs.get("speed")
         if td is not None:
             try:
-                page.setPropertyValue("TransitionDuration", float(td))
-                updated.append("transition_duration")
-            except Exception as exc:
-                from plugin.framework.errors import is_disposed_exception
-
-                if is_disposed_exception(exc):
-                    raise
-                return self._tool_error("Could not set transition_duration: %s" % exc)
+                td_value = float(td)
+            except (TypeError, ValueError):
+                return self._tool_error("Invalid transition_duration: %r" % (td,))
         elif speed is not None:
             speed_key = str(speed).lower()
             if speed_key not in _SPEED_ENUM:
-                return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM.keys()))
-            page.setPropertyValue("Speed", _speed_enum(speed_key))
-            updated.append("speed")
+                return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM))
 
-        # Auto-advance duration
+        duration_value: int | None = None
         duration = kwargs.get("duration")
         if duration is not None:
-            page.setPropertyValue("Duration", int(duration))
-            updated.append("duration")
+            try:
+                duration_value = int(duration)
+            except (TypeError, ValueError):
+                return self._tool_error("Invalid duration: %r" % (duration,))
 
-        # Advance mode
+        change: int | None = None
         advance = kwargs.get("advance")
         if advance is not None:
-            if advance not in ("on_click", "auto"):
-                return self._tool_error("Unknown advance: %s" % advance, available=["on_click", "auto"])
-            change = 0 if advance == "on_click" else 1
-            page.setPropertyValue("Change", change)
-            updated.append("advance")
+            change = _ADVANCE_CHANGES.get(advance)
+            if change is None:
+                return self._tool_error("Unknown advance: %s" % advance, available=sorted(_ADVANCE_CHANGES))
+
+        updated = []
+        try:
+            if effect_key is not None:
+                page.setPropertyValue("Effect", _pres_enum("FadeEffect", _FADE_EFFECTS[effect_key]))
+                updated.append("effect")
+            if td_value is not None:
+                page.setPropertyValue("TransitionDuration", td_value)
+                updated.append("transition_duration")
+            elif speed_key is not None:
+                page.setPropertyValue("Speed", _pres_enum("AnimationSpeed", _SPEED_ENUM[speed_key]))
+                updated.append("speed")
+            if duration_value is not None:
+                page.setPropertyValue("Duration", duration_value)
+                updated.append("duration")
+            if change is not None:
+                page.setPropertyValue("Change", change)
+                updated.append("advance")
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
+            return self._tool_error("Could not update slide transition: %s" % exc)
 
         return {"status": "ok", "page": page_idx, "updated": updated}
 
@@ -309,8 +303,7 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, page_idx = _slide_for_tool(ctx, kwargs)
         current_id = page.Layout
         layout_name = _LAYOUT_NAMES.get(current_id, "unknown_%d" % current_id)
         return {"status": "ok", "page": page_idx, "layout_id": current_id, "layout_name": layout_name, "available_layouts": available_layout_names()}
@@ -331,7 +324,6 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
         layout_name = kwargs["layout"].strip().lower()
         if layout_id(layout_name) is None:
             return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, page_idx = _slide_for_tool(ctx, kwargs)
         applied = apply_slide_layout(page, layout_name)
         return {"status": "ok", "page": page_idx, "layout": applied}
