@@ -200,6 +200,31 @@ def test_calc_edit_formula_cell():
     assert cell.getFormula() == "=1+2"
 
 
+def test_calc_edit_number_cell_stays_numeric():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data(((42,),))
+    # Calc's getFormulaArray returns "42" for a number cell; the stub returns "".
+    sheet.getCellRangeByPosition = MagicMock(return_value=MagicMock(getFormulaArray=MagicMock(return_value=(("42",),))))
+    input_box = MagicMock(return_value=("change", "extra system"))
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+        apply_chunk_fn("43", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
+         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.update_lru_history"), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, input_box, is_edit=True)
+
+    cell = sheet.getCellByPosition(0, 0)
+    assert cell.getFormula() == "43"
+    assert cell.getString() == ""
+
+
 def test_calc_edit_text_cell_restores_original_on_error():
     from plugin.calc.editselection import do_calc_extend_edit
 

@@ -197,7 +197,8 @@ class ErrorDetector:
         col, row = parse_address(bare)
         cell = sheet.getCellByPosition(col, row)
         formula = cell.getFormula() or ""
-        display_address = qualify_a1(str(sheet.getName()), format_address(col, row))
+        sheet_name = str(sheet.getName())
+        display_address = qualify_a1(sheet_name, format_address(col, row))
 
         # Get precedent cells via formula parsing
         refs = A1_CELL_RE.findall(formula.upper())
@@ -211,7 +212,8 @@ class ErrorDetector:
         precedent_details = []
         for prec_addr in precedent_addrs:
             def _read_prec(addr: str = prec_addr) -> dict[str, Any]:
-                return self.inspector.read_cell(addr)
+                # Bare refs live on the error cell's sheet, not the active one.
+                return self.inspector.read_cell(qualify_a1(sheet_name, addr))
 
             prec_info = uno_probe(
                 _read_prec,
