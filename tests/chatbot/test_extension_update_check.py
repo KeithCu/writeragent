@@ -1,12 +1,15 @@
 # WriterAgent tests — extension update.xml parsing and version ordering
 
+import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.extension_update_check import (
+    _FAILURE_RETRY_SECONDS,
     UPDATE_CHECK_PROFILES,
     get_update_check_profile,
     parse_update_xml,
-    remote_is_newer,
     reset_extension_update_check_schedule_for_tests,
     run_extension_update_check,
     schedule_extension_update_check_once,
@@ -73,12 +76,6 @@ def test_version_tuple_invalid():
     assert version_tuple("1.a.0") is None
 
 
-def test_remote_is_newer():
-    assert remote_is_newer("0.8.0", "0.7.9") is True
-    assert remote_is_newer("0.7.1", "0.7.1") is False
-    assert remote_is_newer("0.7.0", "0.7.1") is False
-
-
 def test_parse_update_xml_sample():
     ident, ver = parse_update_xml(SAMPLE_XML)
     assert ident == _WRITERAGENT_PROFILE.extension_id
@@ -108,7 +105,7 @@ def test_identifier_mismatch_means_ignore_for_update_signal():
     ident, ver = parse_update_xml(WRONG_ID_XML)
     assert ident != _WRITERAGENT_PROFILE.extension_id
     # would not treat as update even though remote > local
-    assert remote_is_newer(ver, "0.0.1") is True
+    assert version_tuple(ver or "") > version_tuple("0.0.1")
 
 
 def test_update_check_profiles_cover_three_products():
@@ -156,15 +153,64 @@ def test_run_extension_update_check_dialog_formatting(monkeypatch):
     # "succeeds" at AsyncCallback and the dialog callback never drains.
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     ctx = MagicMock()
-    with patch("plugin.framework.client.requests.sync_request", return_value=SAMPLE_XML), \
+    with patch("plugin.framework.client.requests.sync_request", return_value=SAMPLE_XML) as mock_sync, \
          patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox, \
          patch("plugin.framework.config.get_config_float", return_value=0.0), \
-         patch("plugin.framework.config.set_config"), \
+         patch("plugin.framework.config.set_config") as mock_set_config, \
          patch("plugin.version.EXTENSION_VERSION", "0.7.0"):
         run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
 
+        assert mock_sync.call_args.kwargs["max_bytes"] == 64 * 1024
         assert mock_msgbox.call_count == 1
         msg_args = mock_msgbox.call_args[0]
         assert msg_args[1] == "Update available"
         assert "A newer WriterAgent (0.7.1) is available." in msg_args[2]
+        mock_set_config.assert_called_once()
+        assert mock_set_config.call_args[0][0] == _WRITERAGENT_PROFILE.config_key_epoch
+        assert mock_set_config.call_args[0][1] == pytest.approx(time.time(), abs=60)
+
+
+def test_transient_fetch_failure_retries_in_six_hours(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    ctx = MagicMock()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("offline")), \
+         patch("plugin.framework.config.get_config_float", return_value=0.0), \
+         patch("plugin.framework.config.set_config") as mock_set_config:
+        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+
+        mock_set_config.assert_called_once_with(
+            _WRITERAGENT_PROFILE.config_key_epoch,
+            pytest.approx(time.time() - 7 * 24 * 3600 + _FAILURE_RETRY_SECONDS, abs=60),
+        )
+
+
+def test_not_due_check_writes_nothing(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    ctx = MagicMock()
+    with patch("plugin.framework.config.get_config_float", return_value=time.time()), \
+         patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+         patch("plugin.framework.config.set_config") as mock_set_config:
+        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        mock_sync.assert_not_called()
+        mock_set_config.assert_not_called()
+
+
+def test_parse_update_xml_ignores_nested_metadata():
+    data = b"""<?xml version="1.0" encoding="UTF-8"?>
+<description xmlns="http://openoffice.org/extensions/description/2006"
+             xmlns:d="http://openoffice.org/extensions/description/2006"
+             xmlns:xlink="http://www.w3.org/1999/xlink">
+    <identifier value="org.extension.writeragent" />
+    <version value="0.7.1" />
+    <update-download>
+        <identifier value="evil" />
+        <version value="9.9.9" />
+        <src xlink:href="https://example.com/bad.oxt" />
+    </update-download>
+</description>
+"""
+    ident, ver = parse_update_xml(data)
+    assert ident == "org.extension.writeragent"
+    assert ver == "0.7.1"
+
 
