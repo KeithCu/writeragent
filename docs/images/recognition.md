@@ -1023,7 +1023,7 @@ Do these **before** building layout HTML to avoid dead ends.
 **Objective:** Red banner, gray subheads, and white-on-color titles **approximately** match the image.
 
 1. **Collect blocks** from Docling after `_convert_image_bytes(..., for_structure=True)`:
-   - Reuse [`_map_docling_structure`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
+   - Reuse [`_map_docling_document`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
    - Map `label` → HTML tag (`section_header` → `h2`, `text` → `p`, `list_item` → `li`, …).
 
 2. **Sample colors** per block bbox from PNG (Pillow already in vision stack):
@@ -1115,11 +1115,11 @@ Only if inline HTML + tables still collapse in Writer:
 
 | Layer | Tests |
 |-------|--------|
-| Color sampling | `tests/scripting/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
+| Color sampling | `tests/vision/venv/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
 | Layout clustering | Fixed bbox fixtures → column assignment |
 | Integration | Mock Docling document + PNG bytes → `run_vision` → `html` field shape |
 | UNO | [`test_format_uno.py`](../../tests/writer/test_format_uno.py) — colored header, two-column table |
-| Regression | Existing [`test_vision_html_export.py`](../../tests/scripting/test_vision_html_export.py) — `html_mode=structured` unchanged |
+| Regression | Existing [`test_vision_html_export.py`](../../tests/vision/venv/test_vision_html_export.py) — `html_mode=structured` unchanged |
 | Manual QA | Akihabara, one receipt scan (tables), one simple single-column screenshot |
 
 **CI:** no real Docling in default pytest; commit **frozen HTML snippets** from Phase 0d for UNO tests.

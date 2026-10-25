@@ -116,6 +116,17 @@ def test_html_table_from_columns_rows_clamps_huge_spans():
     assert "<table" in html
 
 
+def test_html_table_from_columns_rows_pads_ragged_rows():
+    from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
+
+    html = _html_table_from_columns_rows(["A", "B", "C"], [["1"], ["2", "3"]])
+    rows = re.findall(r"<tr>(.*?)</tr>", html)
+    assert len(rows) == 3
+    assert [len(re.findall(r"<t[dh]\b", row)) for row in rows] == [3, 3, 3]
+    assert "<td>1</td><td></td><td></td>" in html
+    assert "<td>2</td><td>3</td><td></td>" in html
+
+
 def test_css_inline_install_cmd():
     assert "css-inline" in CSS_INLINE_INSTALL_CMD
 
@@ -173,6 +184,7 @@ def test_convert_latex_uses_vendored_latex2mathml_when_not_installed(tmp_path, m
     html_export._import_latex2mathml_convert.cache_clear()
     try:
         out = convert_latex_delimiters_to_mathml("<p>$$x^2$$</p>")
+        assert vendor not in sys.path
     finally:
         sys.path[:] = path_before
         for name in list(sys.modules):
