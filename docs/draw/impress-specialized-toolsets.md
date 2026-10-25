@@ -102,7 +102,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 ### 2.4 insert_math (math domain)
 
-> **Shape size:** `insert_math` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size.
+> **Shape size:** `insert_math` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size. An embed map unit that is not a plain length (PIXEL) also falls back to the heuristic, because it needs a DPI the visual object does not report.
 
 ----
 
@@ -167,7 +167,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
 | **Web Research (specialized)** | ✅ Complete | 1 tool | Delegated search |
 | **Forms (specialized)** | ✅ ControlShapes + paper-form fill | 6 `form_*` + `fill_draw_fields` | Two problems — see [§3.1](#31-controlshapes-vs-paper-form-fill) |
-| **Math (specialized)** | partial | 1 tool (`insert_math`) | LaTeX/MathML → OLE Math on slide; **bounding-box sizing still unreliable** — see [§2.3](#23-insert_math-math-domain) |
+| **Math (specialized)** | partial | 1 tool (`insert_math`) | LaTeX/MathML → OLE Math on slide; sizing from the OLE visual area, heuristic only for unsupported map units — see [§2.4](#24-insert_math-math-domain) |
 | **Animations** | ❌ Missing | — | Slide + shape-level animations |
 | **Layers** | ❌ Missing | — | Draw layer management |
 | **Slide Show** | ❌ Missing | — | Start, stop, presenter mode |
@@ -258,7 +258,7 @@ Some tools are implemented in shared modules but work with Draw/Impress:
 | Task | Effort | Impact | Status |
 |------|--------|--------|--------|
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
-| Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | Open — see [§2.3](#23-insert_math-math-domain) |
+| Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | ✅ **Done** — see [§2.4](#24-insert_math-math-domain) |
 
 
 ### 5.2 Priority 2: High-Value Features & Technical Designs
