@@ -169,6 +169,43 @@ def test_topics_error_does_not_become_last_result(monkeypatch):
     assert "Suggested install: uv pip install scikit-learn" in res_text
 
 
+def test_empty_entities_result_is_not_insertable(monkeypatch):
+    dlg_obj, fake_dlg = _make_dialog()
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
+
+    dlg_obj._apply_compute_result("entities", {"status": "ok", "result": {"entities": []}}, None)
+    assert dlg_obj._last_result is None
+    assert fake_dlg.controls["ResultsEdit"].getModel().Text == "No entities found."
+
+    def forbidden_insert(*args, **kwargs):
+        raise AssertionError("insert_text_analytics_result_into_doc should not be called")
+
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.insert_text_analytics_result_into_doc", forbidden_insert)
+
+    recorded_msgbox: list[tuple[Any, Any]] = []
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.msgbox",
+        lambda ctx, title, msg: recorded_msgbox.append((title, msg)),
+    )
+
+    dlg_obj._insert_report(fake_dlg)
+    assert len(recorded_msgbox) == 1
+    assert "Nothing to insert" in recorded_msgbox[0][1]
+
+
+def test_topics_inner_error_result_is_not_insertable():
+    dlg_obj, fake_dlg = _make_dialog()
+    dlg_obj._source_uid = "uid-123"
+    dlg_obj._apply_compute_result(
+        "topics",
+        {"status": "ok", "result": {"topics": [], "error": "topic_model_failed: x"}},
+        None,
+    )
+    assert dlg_obj._last_result is None
+    assert dlg_obj._source_uid is None
+
+
 def test_generic_worker_exception_omits_package_hint(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())

@@ -38,6 +38,7 @@ from plugin.scripting.text_analytics import (
     get_doc_language,
     insert_text_analytics_result_into_doc,
     resolve_text_analytics_document_inputs,
+    text_analytics_payload_has_content,
 )
 
 log = logging.getLogger(__name__)
@@ -369,6 +370,7 @@ class TextAnalyticsDialog:
             isinstance(result, dict)
             and result.get("status") == "ok"
             and helper not in ("diagnostics", "check")
+            and text_analytics_payload_has_content(result)
         ):
             self._last_result = result
         else:
@@ -394,7 +396,7 @@ class TextAnalyticsDialog:
             return
 
         if not self._last_result:
-            msgbox(ctx, _("Text Analytics"), _("Run an analysis first."))
+            msgbox(ctx, _("Text Analytics"), _("Nothing to insert. Run an analysis first."))
             return
 
         source = self._source_uid or ""

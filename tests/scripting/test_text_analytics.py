@@ -943,7 +943,9 @@ def test_html_table_ignores_overall_key():
     assert "positive" in ta._result_to_html_table({"sentiment": {"score": 0.4, "label": "positive"}})
 
 
-def test_insert_empty_ok_result_does_not_dump_envelope(monkeypatch):
+def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
+    from plugin.framework.errors import ToolExecutionError
+
     monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
     captured_html = []
 
@@ -957,13 +959,48 @@ def test_insert_empty_ok_result_does_not_dump_envelope(monkeypatch):
             raise RuntimeError("no controller")
 
     doc = FakeDoc()
-    ret = ta.insert_text_analytics_result_into_doc(None, doc, {"status": "ok", "result": {}, "note": "empty text"})
-    assert ret == 1
-    assert len(captured_html) == 1
-    html = captured_html[0]
-    assert "{}" in html
-    assert "status" not in html
-    assert "empty text" not in html
+    with pytest.raises(ToolExecutionError) as exc_info:
+        ta.insert_text_analytics_result_into_doc(None, doc, {"status": "ok", "result": {}, "note": "empty text"})
+    assert "empty text" in str(exc_info.value)
+    assert len(captured_html) == 0
+
+
+def test_insert_topic_inner_error_raises(monkeypatch):
+    from plugin.framework.errors import ToolExecutionError
+
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    captured_html = []
+
+    def fake_insert(doc, ctx, html, pos):
+        captured_html.append(html)
+
+    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+
+    class FakeDoc:
+        def getCurrentController(self):
+            raise RuntimeError("no controller")
+
+    doc = FakeDoc()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        ta.insert_text_analytics_result_into_doc(
+            None, doc, {"status": "ok", "result": {"topics": [], "error": "topic_model_failed: boom"}}
+        )
+    assert "topic_model_failed" in str(exc_info.value)
+    assert len(captured_html) == 0
+
+
+def test_payload_has_content_and_error():
+    res_ok = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
+    assert ta.text_analytics_payload_has_content(res_ok) is True
+    assert ta.text_analytics_payload_error(res_ok) is None
+
+    res_empty_ents = {"entities": []}
+    assert ta.text_analytics_payload_has_content(res_empty_ents) is False
+    assert ta.text_analytics_payload_error(res_empty_ents) is None
+
+    res_note = {"note": "no text"}
+    assert ta.text_analytics_payload_has_content(res_note) is False
+    assert ta.text_analytics_payload_error(res_note) == "no text"
 
 
 def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
