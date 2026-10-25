@@ -461,7 +461,11 @@ def _outside_page(page: Any, shape: Any) -> bool:
     if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
         return False  # Tip: Calc sheet draw pages have no size or report 0; skip.
     pos, size = shape.getPosition(), shape.getSize()
-    return pos.X < 0 or pos.Y < 0 or pos.X + size.Width > w or pos.Y + size.Height > h
+    x, y = getattr(pos, "X", None), getattr(pos, "Y", None)
+    sw, sh = getattr(size, "Width", None), getattr(size, "Height", None)
+    if not isinstance(x, int) or not isinstance(y, int) or not isinstance(sw, int) or not isinstance(sh, int):
+        return False
+    return x < 0 or y < 0 or x + sw > w or y + sh > h
 
 
 class UpsertShape(_AnyDocumentShapeTool):

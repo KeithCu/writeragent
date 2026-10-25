@@ -68,12 +68,12 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls, patch("plugin.draw.shapes.ConnectShapes") as conn_cls:
-            upsert_cls.return_value.execute.side_effect = [
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
+            mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
                 {"status": "ok", "index": 1},
             ]
-            conn_cls.return_value.execute.return_value = {"status": "ok", "index": 2}
+            mock_conn.return_value = {"status": "ok", "index": 2}
             out = CreateDiagram().execute(
                 ctx,
                 layout="horizontal_flow",
@@ -93,8 +93,8 @@ def test_create_diagram_unknown_connection():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
-            upsert_cls.return_value.execute.return_value = {"status": "ok", "index": 0}
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
+            mock_upsert.return_value = {"status": "ok", "index": 0}
             out = CreateDiagram().execute(
                 ctx,
                 nodes=[{"id": "a", "text": "A"}],
@@ -112,12 +112,12 @@ def test_create_diagram_numeric_ids_pass_connection_check():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls, patch("plugin.draw.shapes.ConnectShapes") as conn_cls:
-            upsert_cls.return_value.execute.side_effect = [
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
+            mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
                 {"status": "ok", "index": 1},
             ]
-            conn_cls.return_value.execute.return_value = {"status": "ok", "index": 2}
+            mock_conn.return_value = {"status": "ok", "index": 2}
             out = CreateDiagram().execute(
                 ctx,
                 nodes=[{"id": 1, "text": "A"}, {"id": 2, "text": "B"}],
@@ -135,13 +135,13 @@ def test_create_diagram_unknown_connection_creates_nothing():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             out = CreateDiagram().execute(
                 ctx,
                 nodes=[{"id": "a", "text": "A"}],
                 connections=[{"from": "a", "to": "missing"}],
             )
-            upsert_cls.return_value.execute.assert_not_called()
+            mock_upsert.assert_not_called()
     assert out["status"] == "error"
 
 
@@ -201,12 +201,12 @@ def test_create_diagram_connector_failure_removes_connectors():
     page.getByIndex.side_effect = shapes
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls, patch("plugin.draw.shapes.ConnectShapes") as conn_cls:
-            upsert_cls.return_value.execute.side_effect = [
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as conn_cls:
+            mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
                 {"status": "ok", "index": 1},
             ]
-            conn_cls.return_value.execute.side_effect = [
+            conn_cls.side_effect = [
                 {"status": "ok", "index": 2},
                 {"status": "error", "message": "connector failed"},
             ]
@@ -230,8 +230,8 @@ def test_create_diagram_cleanup_reraises_disposed():
     page.remove.side_effect = DisposedException("closed")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
-            upsert_cls.return_value.execute.side_effect = [
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
+            mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
                 {"status": "error", "message": "second node failed"},
             ]
@@ -258,8 +258,8 @@ def test_create_diagram_cleanup_continues_past_live_runtime_exception():
     page.remove.side_effect = [RuntimeException("busy"), None]
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
-            upsert_cls.return_value.execute.side_effect = [
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
+            mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
                 {"status": "ok", "index": 1},
                 {"status": "error", "message": "third node failed"},
