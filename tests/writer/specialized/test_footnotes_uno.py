@@ -6,8 +6,11 @@ Pins the behavior documented in ``FootnotesDelete``
 reference mark, and note text.
 """
 
+from types import SimpleNamespace
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+from plugin.writer.specialized.footnotes import FootnotesDelete
 
 
 def _insert_note(doc, note_type, text):
@@ -112,3 +115,19 @@ def test_anchor_delete_records_redline_when_recording_on(ctx, doc):
     helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
     assert _supplier(doc, "footnote").getCount() == 1
     assert _body_text(doc) == "probe text 1", f"reject must restore the mark, got {_body_text(doc)!r}"
+
+
+@native_test
+@with_native_doc("writer")
+def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
+    doc.getText().setString("probe text ")
+    _insert_note(doc, "footnote", "note body")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = FootnotesDelete().execute(SimpleNamespace(doc=doc), note="footnote", index=0)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert res["status"] == "ok"
+    assert res.get("tracked") is True
+    assert _supplier(doc, "footnote").getCount() == 1
