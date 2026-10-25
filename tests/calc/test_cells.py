@@ -1155,9 +1155,9 @@ def test_sheet_prefix_for_clip_quoting_differs_from_quote_sheet_name():
     assert _sheet_prefix_for_clip("A+B.A1", None) == "'A+B'."
     assert quote_sheet_name("A+B") + "." == "A+B."
 
-    # 5. '$Prices'.$A$1 -> '$Prices'. vs $Prices.
+    # 5. '$Prices'.$A$1 -> '$Prices'. vs '$Prices'.
     assert _sheet_prefix_for_clip("'$Prices'.$A$1", None) == "'$Prices'."
-    assert quote_sheet_name("$Prices") + "." == "$Prices."
+    assert quote_sheet_name("$Prices") + "." == "'$Prices'."
 
     # 6. 'Foo!Bar'.A1:H10 -> 'Foo!Bar'! vs 'Foo!Bar'. (bang anywhere in range_name causes '!')
     assert _sheet_prefix_for_clip("'Foo!Bar'.A1:H10", None) == "'Foo!Bar'!"

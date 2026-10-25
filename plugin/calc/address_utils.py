@@ -34,9 +34,13 @@ MAX_COL = 16383
 MAX_ROW = 1_048_575
 
 # Pattern for scanning cell tokens in formulas (not a validator; accepts optional $).
-A1_CELL_RE = re.compile(r"\$?([A-Z]+)\$?(\d+)")
+# Token boundaries keep function names (LOG10(), named ranges, and the Sheet1 half of Sheet1.A1 out; it is still a scanner, not a row/column-limit validator.
+A1_CELL_RE = re.compile(
+    r"(?<![A-Z0-9_$])\$?([A-Z]{1,3})\$?([1-9][0-9]{0,6})(?![A-Z0-9_(.!])",
+    re.IGNORECASE,
+)
 
-_A1_RE = re.compile(r"^([A-Z]+)([0-9]+)$")
+_A1_RE = re.compile(r"^\$?([A-Z]+)\$?([0-9]+)$")
 
 
 # Pre must cap the int: `index >= 0` with no max lets CrossHair feed a giant
@@ -88,7 +92,7 @@ def column_to_index(col_str: str) -> int:
 # doubled ('O''Brien'.A1), the same escape Calc and Excel use.
 _SHEET_PREFIX = re.compile(
     r"""^\s*
-        (?:'(?P<quoted>(?:[^']|'')+)'  # 'Sheet One' or 'O''Brien'
+        (?:\$?'(?P<quoted>(?:[^']|'')+)'  # 'Sheet One', $'Sheet One'
           |(?P<bare>[^.!'\s][^.!']*?))  # Sheet1
         \s*[.!]\s*
         (?P<rest>.+)$""",
@@ -135,13 +139,9 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
 
 
 def quote_sheet_name(name: str) -> str:
-    """Bare unless LibreOffice requires quotes (spaces, dots, apostrophes, or bangs)."""
-    # What was wrong: str.isidentifier() quoted sheet names like '2024' or 'Q1-Sales'
-    # that LibreOffice Calc accepts bare without quotes.
-    # How it happened: isidentifier() was carried over during cleanup.
-    # Why this change: only quote when the name contains characters that require
-    # escaping in Calc/Excel references (' ', '.', ''', '!').
-    if any(ch in name for ch in " .!'"):
+    """Bare unless Calc needs quotes (spaces, dots, apostrophes, bangs, or a leading $)."""
+    # A leading $ is Calc's absolute-sheet marker, so a literal name must be quoted.
+    if name.startswith("$") or any(ch in name for ch in " .!'"):
         return "'" + name.replace("'", "''") + "'"
     return name
 
@@ -152,20 +152,22 @@ def qualify_a1(sheet_name: str, a1: str, *, sep: str = ".") -> str:
 
 
 def _parse_a1(text: str, label: str) -> tuple[int, int]:
-    cleaned = text.replace("$", "").strip().upper()
+    cleaned = text.strip().upper()
     match = _A1_RE.match(cleaned)
     if not match:
         raise ValueError(f"Invalid {label}: '{cleaned}'")
     row_num = int(match.group(2))
     if row_num < 1:
         raise ValueError(f"Invalid row number in {label}: {row_num}")
+    if row_num - 1 > MAX_ROW:
+        raise ValueError(f"Row {row_num} in {label} is past Calc's last row ({MAX_ROW + 1})")
     return column_to_index(match.group(1)), row_num - 1
 
 
 def split_sheet_and_name(ref: str, sheet_name: str | None) -> tuple[str, str | None]:
     """Return ``(address, sheet)``. A prefix on *ref* wins over *sheet_name*."""
     prefix, address = split_sheet_prefix(ref)
-    if prefix is not None and sheet_name and prefix != sheet_name:
+    if prefix is not None and sheet_name and prefix.casefold() != sheet_name.casefold():
         raise ValueError(
             "Reference names sheet '%s' but sheet_name says '%s' — pass one or the other."
             % (prefix, sheet_name)
@@ -223,7 +225,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     if sheet is not None:
         raise ValueError(f"Range '{sheet}.{range_str}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
 
-    cleaned = range_str.replace("$", "").strip().upper()
+    cleaned = range_str.strip().upper()
     start_str, has_sep, end_str = cleaned.partition(":")
     if not has_sep:
         pt = _parse_a1(start_str, "cell address")
