@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+import importlib.util
 import re
 from typing import Any, cast
 
@@ -51,6 +53,7 @@ _DESCRIPTIVE_KEYS = frozenset({
 })
 
 _INSTALL_PACKAGES = ("spacy", "textdescriptives", "transformers", "torch", "scikit-learn")
+_MAX_ANALYZED_CHARS = 1_000_000  # spaCy default nlp.max_length
 
 
 def _text_analytics_install_command(model: str) -> str:
@@ -158,8 +161,23 @@ def _get_lang_from_context(context: dict[str, Any] | None) -> str | None:
 # Core high-quality analyses
 # ---------------------------------------------------------------------------
 
-def _run_nlp_doc(text: str, lang: str | None, context: dict[str, Any] | None) -> tuple[Any, Any, str | None]:
-    """Load the model and run the spaCy pipeline once. Returns (nlp, doc, resolved_lang).
+def _truncate_for_nlp(text: str) -> tuple[str, dict[str, Any] | None]:
+    """Cap text at spaCy's max_length; return (text, truncated note or None)."""
+    # What was wrong: long text raised ValueError inside nlp(text).
+    # How it happened: there was no input cap; spaCy's default nlp.max_length is 1,000,000.
+    # Why this change: cap input to bound work and report what was analyzed in the truncated note.
+    if len(text) <= _MAX_ANALYZED_CHARS:
+        return text, None
+    return text[:_MAX_ANALYZED_CHARS], {
+        "analyzed_chars": _MAX_ANALYZED_CHARS,
+        "total_chars": len(text),
+    }
+
+
+def _run_nlp_doc(
+    text: str, lang: str | None, context: dict[str, Any] | None
+) -> tuple[Any, Any, str | None, dict[str, Any] | None]:
+    """Load the model and run the spaCy pipeline once. Returns (nlp, doc, resolved_lang, truncated).
 
     Factored out so narrow helpers (entities, key_phrases, readability) each call
     nlp(text) exactly once without running the full analyze_text stack.
@@ -167,14 +185,18 @@ def _run_nlp_doc(text: str, lang: str | None, context: dict[str, Any] | None) ->
     if lang is None:
         lang = _get_lang_from_context(context)
     nlp = _load_nlp(lang)
+    text, truncated = _truncate_for_nlp(text)
     doc = nlp(text)
-    return nlp, doc, lang
+    return nlp, doc, lang, truncated
 
 
 def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
+    # What was wrong: doc._.lang is not standard spaCy and doc.lang_ was ignored, reporting "unknown".
+    # How it happened: doc._ was checked for an unregistered attribute instead of standard doc.lang_.
+    # Why this change: inspect doc.lang_ first before falling back to lang or "unknown".
     return {
         "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
-        "lang": getattr(doc._, "lang", None) or (lang or "unknown"),
+        "lang": getattr(doc, "lang_", None) or (lang or "unknown"),
         "has_textdescriptives": any(p.startswith("textdescriptives/") for p in nlp.pipe_names),
     }
 
@@ -249,6 +271,13 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
     return key_phrases[:25]
 
 
+def _as_sections(text: str | list[str]) -> tuple[list[str], bool]:
+    """Normalize a string or list of section texts to (non-empty sections, is_multi)."""
+    if isinstance(text, (list, tuple)):
+        return [str(t).strip() for t in text if str(t).strip()], True
+    return ([str(text).strip()] if str(text or "").strip() else []), False
+
+
 def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
     """Topic modeling via TF-IDF + NMF (from scikit-learn).
 
@@ -270,13 +299,7 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
             "install": "uv pip install scikit-learn",
         }
 
-    # Normalize input: support list of sections for better "by section" topic structure.
-    if isinstance(text, (list, tuple)):
-        docs = [str(t).strip() for t in text if str(t).strip()]
-        is_multi_section = True
-    else:
-        docs = [str(text).strip()] if str(text or "").strip() else []
-        is_multi_section = False
+    docs, is_multi_section = _as_sections(text)
 
     if not docs:
         return {"topics": [], "note": "no text"}
@@ -417,12 +440,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
     Only the transformers engine is implemented.
     """
     params = params or {}
-    if isinstance(text, (list, tuple)):
-        sections = [str(t).strip() for t in text if str(t).strip()]
-        is_multi = True
-    else:
-        sections = [str(text).strip()] if str(text or "").strip() else []
-        is_multi = False
+    sections, is_multi = _as_sections(text)
 
     if not sections:
         return {"overall": {"score": 0.0, "label": "neutral"}, "note": "no text"}
@@ -519,7 +537,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     if not text or not text.strip():
         return {"status": "ok", "result": {}, "note": "empty text"}
 
-    nlp, doc, lang = _run_nlp_doc(text, lang, context)
+    nlp, doc, lang, truncated = _run_nlp_doc(text, lang, context)
 
     result: dict[str, Any] = {}
 
@@ -535,7 +553,12 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     for token in doc:
         if token.is_punct or token.is_space:
             continue
+        # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
+        # How it happened: pos_ was added to counts without checking whether it was non-empty.
+        # Why this change: skip empty pos tags.
         pos = token.pos_
+        if not pos:
+            continue
         pos_counts[pos] = pos_counts.get(pos, 0) + 1
 
     total = sum(pos_counts.values()) or 1
@@ -548,8 +571,18 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     }
 
     result["meta"] = _extract_meta(nlp, doc, lang)
+    if truncated:
+        result["truncated"] = truncated
 
     return {"status": "ok", "result": result}
+
+
+def _probe_package(package: str) -> tuple[bool, str | None]:
+    """Presence and version from package metadata; never imports the package."""
+    try:
+        return True, importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return False, None
 
 
 def check_diagnostics(lang: Any = None) -> dict[str, Any]:
@@ -581,52 +614,17 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
 
     try:
         import spacy
-        has_td = False
-        try:
-            import textdescriptives as td  # noqa: F401
-            has_td = True
-        except ImportError:
-            pass
+        has_td = importlib.util.find_spec("textdescriptives") is not None
+        models = list(spacy.util.get_installed_models())
 
-        # Try to find installed models
-        models: list[str] = []
-        try:
-            models = spacy.util.get_installed_models()
-        except Exception:
-            for m in ("xx_sent_ud_sm", "en_core_web_sm", "de_core_news_sm", "fr_core_news_sm", "es_core_news_sm"):
-                try:
-                    spacy.load(m)
-                    models.append(m)
-                except Exception:
-                    pass
+        # Transformers + torch (for Sentiment). Probed independently: torch used
+        # to sit inside the transformers import, so a missing transformers
+        # reported torch missing too.
+        has_transformers, transformers_version = _probe_package("transformers")
+        has_torch, torch_version = _probe_package("torch")
 
-        # Transformers + torch (for Sentiment)
-        has_transformers = False
-        transformers_version = None
-        has_torch = False
-        torch_version = None
-        try:
-            import transformers
-            has_transformers = True
-            transformers_version = getattr(transformers, "__version__", "unknown")
-            try:
-                import torch
-                has_torch = True
-                torch_version = str(getattr(torch, "__version__", "unknown"))
-            except ImportError:
-                pass
-        except ImportError:
-            pass
-
-        # scikit-learn (for topics)
-        has_sklearn = False
-        sklearn_version = None
-        try:
-            import sklearn
-            has_sklearn = True
-            sklearn_version = getattr(sklearn, "__version__", "unknown")
-        except ImportError:
-            pass
+        # scikit-learn (for topics). Metadata name, not the "sklearn" import name.
+        has_sklearn, sklearn_version = _probe_package("scikit-learn")
 
         return {
             "status": "ok",
@@ -692,24 +690,33 @@ def run_text_analytics(
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
     if helper in ("readability", "stats", "descriptive"):
-        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
+        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
         rd, ds = _extract_readability(doc)
+        res: dict[str, Any] = {
+            "readability": rd,
+            "descriptive_stats": ds,
+            "meta": _extract_meta(nlp, doc, resolved_lang),
+        }
+        if truncated:
+            res["truncated"] = truncated
         return {
             "status": "ok",
-            "result": {
-                "readability": rd,
-                "descriptive_stats": ds,
-                "meta": _extract_meta(nlp, doc, resolved_lang),
-            },
+            "result": res,
         }
 
     if helper in ("entities", "ner"):
-        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
-        return {"status": "ok", "result": {"entities": _extract_entities(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}}
+        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
+        res = {"entities": _extract_entities(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}
+        if truncated:
+            res["truncated"] = truncated
+        return {"status": "ok", "result": res}
 
     if helper in ("key_phrases", "keyphrases", "chunks"):
-        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
-        return {"status": "ok", "result": {"key_phrases": _extract_key_phrases(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}}
+        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
+        res = {"key_phrases": _extract_key_phrases(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}
+        if truncated:
+            res["truncated"] = truncated
+        return {"status": "ok", "result": res}
 
     if helper in ("topics", "topic", "topic_model"):
         # Use preserved original (may still be list) for per-section support.

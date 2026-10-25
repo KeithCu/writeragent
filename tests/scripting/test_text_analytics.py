@@ -1068,3 +1068,129 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
     assert ta._get_writer_sections(DummyDoc()) == ["fallback text long enough"]
 
 
+class _FakeDoc:
+    def __init__(self, text: str = "", ents: list[Any] | None = None, lang: str = "en") -> None:
+        self.text = text
+        self.ents = ents or []
+        self.lang_ = lang
+
+    def __len__(self) -> int:
+        return 0
+
+    def __iter__(self):
+        return iter([])
+
+    def has_annotation(self, name: str) -> bool:
+        return False
+
+
+class _FakeNlp:
+    def __init__(self) -> None:
+        self.meta: dict[str, Any] = {"name": "fake"}
+        self.pipe_names: list[str] = []
+        self.seen: str = ""
+
+    def __call__(self, text: str) -> _FakeDoc:
+        self.seen = text
+        return _FakeDoc(text=text, ents=[], lang="en")
+
+
+def test_long_text_is_truncated_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeNlp()
+    monkeypatch.setattr(vta, "_load_nlp", lambda lang=None: fake)
+    res = vta.run_text_analytics("entities", "x" * (vta._MAX_ANALYZED_CHARS + 10))
+    assert res["status"] == "ok"
+    assert len(fake.seen) == vta._MAX_ANALYZED_CHARS
+    assert res["result"]["truncated"] == {
+        "analyzed_chars": vta._MAX_ANALYZED_CHARS,
+        "total_chars": vta._MAX_ANALYZED_CHARS + 10,
+    }
+    assert res["result"]["entities"] == []
+
+
+def test_text_within_limit_has_no_truncation_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeNlp()
+    monkeypatch.setattr(vta, "_load_nlp", lambda lang=None: fake)
+    res = vta.run_text_analytics("entities", "short text")
+    assert res["status"] == "ok"
+    assert "truncated" not in res["result"]
+
+
+def test_analyze_text_reports_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeNlp()
+    monkeypatch.setattr(vta, "_load_nlp", lambda lang=None: fake)
+    out = vta.analyze_text("y" * (vta._MAX_ANALYZED_CHARS + 1))
+    assert out["status"] == "ok"
+    assert out["result"]["truncated"]["total_chars"] == vta._MAX_ANALYZED_CHARS + 1
+
+
+def test_as_sections_normalizes_strings_and_lists() -> None:
+    assert vta._as_sections([" a ", "", "b"]) == (["a", "b"], True)
+    assert vta._as_sections((" a ",)) == (["a"], True)
+    assert vta._as_sections("  ") == ([], False)
+    assert vta._as_sections("hi") == (["hi"], False)
+
+
+def test_check_diagnostics_probes_torch_without_transformers(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("spacy")
+    real_probe = vta._probe_package
+
+    def fake_probe(pkg: str):
+        if pkg == "transformers":
+            return False, None
+        if pkg == "torch":
+            return True, "9.9.9"
+        return real_probe(pkg)
+
+    monkeypatch.setattr(vta, "_probe_package", fake_probe)
+    out = vta.check_diagnostics()
+    assert out["status"] == "ok"
+    assert out["has_transformers"] is False
+    assert out["has_torch"] is True
+    assert out["torch_version"] == "9.9.9"
+
+
+def test_extract_meta_uses_doc_lang() -> None:
+    class DummyNlp:
+        meta = {"name": "fake"}
+        pipe_names: list[str] = []
+
+    nlp = DummyNlp()
+
+    class DummyDoc:
+        def __init__(self, lang: str) -> None:
+            self.lang_ = lang
+
+    doc_en = DummyDoc("en")
+    assert vta._extract_meta(nlp, doc_en, None)["lang"] == "en"
+
+    doc_empty = DummyDoc("")
+    assert vta._extract_meta(nlp, doc_empty, "de")["lang"] == "de"
+
+
+def test_linguistic_profile_skips_empty_pos(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    t1 = types.SimpleNamespace(is_punct=False, is_space=False, pos_="NOUN")
+    t2 = types.SimpleNamespace(is_punct=False, is_space=False, pos_="")
+
+    class DummyDoc:
+        def __iter__(self):
+            return iter([t1, t2])
+
+        def __len__(self) -> int:
+            return 2
+
+    doc = DummyDoc()
+    monkeypatch.setattr(vta, "_run_nlp_doc", lambda text, lang, context: (None, doc, None, None))
+    monkeypatch.setattr(vta, "_extract_readability", lambda doc: ({}, {}))
+    monkeypatch.setattr(vta, "_extract_entities", lambda doc: [])
+    monkeypatch.setattr(vta, "_extract_key_phrases", lambda doc: [])
+    monkeypatch.setattr(vta, "_sentence_count", lambda doc: 0)
+    monkeypatch.setattr(vta, "_extract_meta", lambda nlp, doc, lang: {})
+
+    res = vta.analyze_text("some text")
+    assert res["result"]["linguistic_profile"]["pos_proportions"] == {"NOUN": 1.0}
+
+
+

@@ -32,6 +32,14 @@ def test_trusted_action_spec_copies_params() -> None:
     assert spec["headers"] is False
 
 
+def test_trusted_action_spec_rejects_non_dict_params() -> None:
+    with pytest.raises(ValueError, match="params must be a dict"):
+        _trusted_action_spec("convert_quantity", ["value"], {})
+    with pytest.raises(ValueError, match="params must be a dict"):
+        dispatch_text({"helper": "full", "params": "x", "text": "t"})
+    assert _trusted_action_spec("convert_quantity", None, {})["params"] == {}
+
+
 def test_require_str_rejects_blank_and_keeps_padding() -> None:
     assert _require_str("  en-US  ", "bcp47") == "  en-US  "
     assert _require_str("  select 1  ", "sql") == "  select 1  "
