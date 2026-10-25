@@ -115,6 +115,7 @@ def test_address_utils():
     assert parse_range_string("A$1:B$2") == ((0, 0), (1, 1))
     assert split_sheet_prefix("$Sheet1.$A$1:$B$2") == ("Sheet1", "$A$1:$B$2")
     assert split_sheet_prefix("'$Prices'.$A$1") == ("$Prices", "$A$1")
+    assert split_sheet_prefix("$'Data Sheet'.$A$1") == ("Data Sheet", "$A$1")
     for whole_col in ("A:A", "1:1"):
         with pytest.raises(ValueError):
             parse_range_string(whole_col)
@@ -123,6 +124,7 @@ def test_address_utils():
     from plugin.calc.address_utils import split_sheet_and_name
 
     assert split_sheet_and_name("Summary.B3", None) == ("B3", "Summary")
+    assert split_sheet_and_name("Summary.B3", "summary") == ("B3", "Summary")
     with pytest.raises(ValueError) as excinfo:
         split_sheet_and_name("Summary.B3", "Other")
     assert "Summary" in str(excinfo.value)
@@ -130,7 +132,7 @@ def test_address_utils():
 
 
 def test_quote_sheet_name_and_qualify_a1():
-    from plugin.calc.address_utils import qualify_a1, quote_sheet_name
+    from plugin.calc.address_utils import qualify_a1, quote_sheet_name, split_sheet_prefix
 
     assert quote_sheet_name("Sheet1") == "Sheet1"
     assert quote_sheet_name("2024") == "2024"
@@ -148,9 +150,14 @@ def test_quote_sheet_name_and_qualify_a1():
     assert qualify_a1("Foo!Bar", "F6") == "'Foo!Bar'.F6"
     assert qualify_a1("Sheet1", "A1", sep="!") == "Sheet1!A1"
 
+    assert quote_sheet_name("$Prices") == "'$Prices'"
+    assert qualify_a1("$Prices", "A1") == "'$Prices'.A1"
+    for name in ("Prices", "$Prices", "2024", "Data Sheet", "O'Brien", "Q1.Sales", "Foo!Bar", "Plan_B", "Ünïcode"):
+        assert split_sheet_prefix(qualify_a1(name, "A1")) == (name, "A1")
+
 
 def test_quote_sheet_name_only_when_libreoffice_needs_it():
-    """Sheet names with digits or hyphens stay bare; spaces, dots, apostrophes, and bangs are quoted."""
+    """Sheet names with digits or hyphens stay bare; spaces, dots, apostrophes, bangs, and leading $ are quoted."""
     from plugin.calc.address_utils import quote_sheet_name
 
     # Bare names in LibreOffice Calc
@@ -164,6 +171,7 @@ def test_quote_sheet_name_only_when_libreoffice_needs_it():
     assert quote_sheet_name("v1.2") == "'v1.2'"
     assert quote_sheet_name("User's Data") == "'User''s Data'"
     assert quote_sheet_name("Important!") == "'Important!'"
+    assert quote_sheet_name("$Prices") == "'$Prices'"
 
 
 def test_format_range_and_format_range_address():
@@ -181,3 +189,37 @@ def test_format_range_and_format_range_address():
     single_cell_addr = SimpleNamespace(StartColumn=2, StartRow=3, EndColumn=2, EndRow=3)
     assert format_range_address(single_cell_addr) == "C4:C4"
     assert format_range_address(single_cell_addr, collapse_single=True) == "C4"
+
+
+def test_a1_cell_re_skips_function_and_sheet_names():
+    from plugin.calc.address_utils import A1_CELL_RE
+    assert A1_CELL_RE.findall("=LOG10(A1)+ATAN2(B2,C3)") == [("A", "1"), ("B", "2"), ("C", "3")]
+    assert A1_CELL_RE.findall("=Sheet1.A1") == [("A", "1")]
+    assert A1_CELL_RE.findall("=SUMX2MY2(A1:A5)") == [("A", "1"), ("A", "5")]
+    assert A1_CELL_RE.findall("$A$1:$B$2") == [("A", "1"), ("B", "2")]
+    assert A1_CELL_RE.findall("=SUM($A$1:B2)+C3") == [("A", "1"), ("B", "2"), ("C", "3")]
+    assert A1_CELL_RE.findall("=SALES2024") == []
+    assert A1_CELL_RE.findall("=a1+b2") == [("a", "1"), ("b", "2")]
+
+
+def test_parse_address_rejects_rows_past_calc_max():
+    import pytest
+    from plugin.calc.address_utils import MAX_ROW, parse_address, parse_range_string
+    assert parse_address("A1048576") == (0, MAX_ROW)
+    with pytest.raises(ValueError, match="1048577"):
+        parse_address("A1048577")
+    with pytest.raises(ValueError, match="1048577"):
+        parse_range_string("A1:A1048577")
+
+
+def test_parse_address_rejects_misplaced_dollar_signs():
+    import pytest
+    from plugin.calc.address_utils import parse_address, parse_range_string
+    for bad in ("A$1$", "A$B$1", "$A1$", "A1$B"):
+        with pytest.raises(ValueError):
+            parse_address(bad)
+    assert parse_address("$A$1") == (0, 0)
+    assert parse_address("A$1") == (0, 0)
+    assert parse_address("$A1") == (0, 0)
+    assert parse_range_string("$A$1:$B$2") == ((0, 0), (1, 1))
+    assert parse_range_string("A$1:B$2") == ((0, 0), (1, 1))
