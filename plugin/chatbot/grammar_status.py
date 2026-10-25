@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 _GRAMMAR_STATUS_PREVIEW_CHARS = 10
+_GRAMMAR_STATUS_RESULT_CHARS = 120
 
 
 def _clip_grammar_status_preview(s: str, max_len: int = _GRAMMAR_STATUS_PREVIEW_CHARS) -> str:
@@ -38,7 +39,11 @@ def format_grammar_status(data: dict[str, Any]) -> str:
     """Format native grammar proofreader progress for the sidebar status field."""
     phase = str(data.get("phase") or "")
     preview_raw = str(data.get("preview") or "")
-    result = str(data.get("result") or "")
+    # Exception and status results may span multiple lines or be excessively long;
+    # collapse whitespace onto one line and clip to keep the sidebar status display compact.
+    result = " ".join(str(data.get("result") or "").split())
+    if len(result) > _GRAMMAR_STATUS_RESULT_CHARS:
+        result = result[:_GRAMMAR_STATUS_RESULT_CHARS] + "…"
     length = int(data.get("length") or 0)
     elapsed = data.get("elapsed_ms")
     area = _grammar_status_area(phase, result, preview_raw)
@@ -46,24 +51,17 @@ def format_grammar_status(data: dict[str, Any]) -> str:
     prefix = "Language:" if area == "language" else "Grammar:"
     if phase == "start":
         return f"{prefix} queued '{preview}' len {length}"
-    if phase == "join":
-        return f"{prefix} waiting '{preview}' len {length}"
     if phase == "request":
         verb = "detecting" if area == "language" else "checking"
         base = f"{prefix} {verb} '{preview}' len {length}"
         if result and result not in ("LLM request", "LLM batch request", "Detecting language"):
             return f"{prefix} {result}"
         return base
-    if phase in ("complete", "done"):
+    if phase == "done":
         suffix = result or "done"
         if elapsed is not None:
             suffix = f"{suffix}, {elapsed}ms"
         return f"{prefix} done '{preview}' len {length}: {suffix}"
-    _status_verbs = {
-        "timeout": "still running",
-        "skipped": "skipped",
-        "failed": "failed",
-    }
-    if phase in _status_verbs:
-        return f"{prefix} {_status_verbs[phase]} '{preview}' len {length}: {result}"
+    if phase == "failed":
+        return f"{prefix} failed '{preview}' len {length}: {result}"
     return f"{prefix} {phase or 'update'} '{preview}' len {length}"
