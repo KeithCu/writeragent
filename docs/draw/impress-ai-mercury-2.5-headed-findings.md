@@ -239,6 +239,10 @@ Note: on the probe build the role/class labels were absent — `_list_placeholde
 Before: `role="body"` can select the first `TitleTextShape`.  
 After: class→role is deterministic by pattern priority, independent of shape order.
 
+**Current state (2026-10):** The `_PLACEHOLDER_ROLES` token map and positional strategy 3 are gone. Roles come
+from an exact `getShapeType()` short-name map in `plugin/draw/placeholders.py`, with a shape-`Name` tag fallback;
+shapes are never matched by position. The text above is the historical record of the fix.
+
 ---
 
 ### B. Prompt + tool-description steer (no default behavior change)
