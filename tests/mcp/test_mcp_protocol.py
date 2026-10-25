@@ -1161,3 +1161,43 @@ def test_sse_keepalive_unexpected_error_is_logged(caplog):
     mock_forget.assert_called_once()
     assert any(r.exc_info and "SSE keepalive loop exception" in r.getMessage() for r in caplog.records)
 
+
+def test_process_jsonrpc_writeragent_exception_keeps_message():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import WriterAgentException
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    protocol = MCPProtocolHandler(MagicMock())
+    with patch.object(protocol, "_mcp_ping", side_effect=WriterAgentException("bad thing", code="CONFIG_ERROR")):
+        status, body = protocol._process_jsonrpc({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert status == 500
+    assert body["error"]["message"] == "bad thing"
+    assert body["error"]["data"]["code"] == "CONFIG_ERROR"
+
+
+def test_open_sse_stream_releases_reservation_on_unexpected_header_error():
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    protocol = MCPProtocolHandler(MagicMock())
+    handler = MagicMock()
+    handler.headers = {}
+    handler.server = MagicMock()
+    handler.connection = MagicMock()
+
+    def send_header_side_effect(name: str, value: str) -> None:
+        if name == "Cache-Control":
+            raise RuntimeError("unexpected header failure")
+
+    handler.send_header.side_effect = send_header_side_effect
+
+    with (
+        patch("plugin.mcp.mcp_protocol.try_reserve_sse", return_value=threading.Event()),
+        patch("plugin.mcp.mcp_protocol.forget_sse_keepalive") as mock_forget,
+    ):
+        with pytest.raises(RuntimeError, match="unexpected header failure"):
+            protocol._open_sse_stream(handler)
+
+    mock_forget.assert_called_once_with(handler.server, handler.connection)
+
+
