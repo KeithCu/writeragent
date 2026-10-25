@@ -56,7 +56,6 @@ KEEP_RECENT_FRACTION = 0.30
 KEEP_RECENT_FLOOR = 2048  # preference, not a hard min after remaining-budget clamp
 KEEP_RECENT_CAP = 20_000  # OpenClaw DEFAULT_COMPACTION_SETTINGS.keepRecentTokens
 MIN_TAIL_TOKENS = 256  # hard floor; below this, nothing to gain
-MAX_SUMMARY_CHARS = 16_000  # OpenClaw safety rail only; view cap is _summary_budget * 4
 IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
 AUDIO_BLOCK_TOKENS = 2000
 # Hermes ContextCompressor._PRUNE_MIN_CHARS
@@ -177,8 +176,6 @@ Number new completed tool actions as [tool: name] under Progress.
 class CompactionState:
     summary: str
     first_kept_index: int  # into session.messages; always >= 1
-    tokens_before: int
-    window: int
     stubbed_tool_call_ids: tuple[Any, ...] = ()  # view-only tail-pressure stubs
     kept_message_id: int | None = None  # id() of session.messages[first_kept_index] at publish
 
@@ -294,10 +291,6 @@ def prompt_tokens(messages: list[dict[str, Any]], tools: Any) -> int:
 def _summary_budget(window: int) -> int:
     """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
     return min(1024, max(256, window // 8))
-
-
-def summary_char_cap(window: int) -> int:
-    return min(MAX_SUMMARY_CHARS, _summary_budget(window) * CHARS_PER_TOKEN)
 
 
 def cap_summary(summary: str, max_chars: int) -> str:
@@ -667,9 +660,8 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     return None
 
 
-def messages_for_llm(session: Any, tools: Any = None) -> list[dict[str, Any]]:
+def messages_for_llm(session: Any) -> list[dict[str, Any]]:
     """Live messages[0] + summary pair + tail (view stubs). Does not mutate session messages, but may clear session.compaction if stale."""
-    del tools  # accepted so callers share the prompt_tokens signature
     messages = getattr(session, "messages", None) or []
     if not messages:
         return []
@@ -769,27 +761,18 @@ def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tu
     Returns ``(new_cut, stubbed_ids)`` or ``(None, stubbed_ids)``.
     """
     work, stubbed_ids = messages, ()
-    new_cut = find_cut_index(work, keep, start_index=prev_kept)
-    if new_cut is None:
-        work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
+    for attempt in range(2):
         new_cut = find_cut_index(work, keep, start_index=prev_kept)
-    if new_cut is None or new_cut <= prev_kept:
-        return None, stubbed_ids
-    new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
-    if new_cut is None or new_cut <= prev_kept:
-        # #10896: group fit keep so the walk succeeded; user+group did not.
-        # Helper only ran above when find_cut_index was None. Stub now, re-walk,
-        # re-snap. pressure_stub fits last_user+group (not group alone).
-        if stubbed_ids:
-            return None, stubbed_ids
+        if new_cut is not None:
+            new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
+            if new_cut is not None and new_cut > prev_kept:
+                return new_cut, stubbed_ids
+        if attempt:
+            break
+        # #10896: the group fit keep, but last user + group did not. Stub once,
+        # then re-walk and re-snap; the stub fits the pair.
         work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
-        new_cut = find_cut_index(work, keep, start_index=prev_kept)
-        if new_cut is None or new_cut <= prev_kept:
-            return None, stubbed_ids
-        new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
-        if new_cut is None or new_cut <= prev_kept:
-            return None, stubbed_ids
-    return new_cut, stubbed_ids
+    return None, stubbed_ids
 
 
 def _summarizer_user_body(conversation_text: str, previous_summary: str) -> str:
@@ -893,26 +876,11 @@ def _next_summary_chunk(
 
 
 def _cap_running_summary(summary: str, window: int) -> str:
-    summary = cap_summary(summary, summary_char_cap(window))
+    summary = cap_summary(summary, _summary_budget(window) * CHARS_PER_TOKEN)
     budget = _summary_budget(window)
     while estimate_tokens(summary_pair(summary)) > budget and len(summary) > 32:
         summary = cap_summary(summary, max(32, len(summary) * 3 // 4))
     return summary
-
-
-class _SummarizeResult(tuple[Any, ...]):
-    """(summary, reason) 2-tuple carrying chunks count."""
-
-    summary: str | None
-    reason: str
-    chunks: int
-
-    def __new__(cls, summary: str | None, reason: str, chunks: int = 0) -> _SummarizeResult:
-        obj = super().__new__(cls, (summary, reason))
-        obj.summary = summary
-        obj.reason = reason
-        obj.chunks = chunks
-        return obj
 
 
 def _summarize_bounded(
@@ -925,10 +893,10 @@ def _summarize_bounded(
     stop_checker: Callable[[], bool] | None,
     session: Any,
     messages: list[dict[str, Any]],
-) -> _SummarizeResult:
+) -> tuple[str | None, str, int]:
     lines = _summary_lines(slice_messages)
     if not lines:
-        return _SummarizeResult(None, "failed", 0)
+        return None, "failed", 0
 
     running = previous_summary
     idx = 0
@@ -937,9 +905,9 @@ def _summarize_bounded(
 
     while idx < len(lines):
         if stop_checker and stop_checker():
-            return _SummarizeResult(None, "aborted", chunks)
+            return None, "aborted", chunks
         if getattr(session, "messages", None) is not messages:
-            return _SummarizeResult(None, "aborted", chunks)
+            return None, "aborted", chunks
 
         next_chunk = _next_summary_chunk(
             lines,
@@ -949,7 +917,7 @@ def _summarize_bounded(
             previous_summary=running,
         )
         if next_chunk is None:
-            return _SummarizeResult(None, "failed", chunks)
+            return None, "failed", chunks
 
         chunk_text, next_idx = next_chunk
         user_body = _summarizer_user_body(chunk_text, running)
@@ -968,24 +936,24 @@ def _summarize_bounded(
             )
         except Exception:
             log.exception("Compaction failed")
-            return _SummarizeResult(None, "failed", chunks)
+            return None, "failed", chunks
 
         chunks += 1
 
         if stop_checker and stop_checker():
-            return _SummarizeResult(None, "aborted", chunks)
+            return None, "aborted", chunks
 
         content = (result or {}).get("content") or ""
         if not content.strip():
-            return _SummarizeResult(None, "failed", chunks)
+            return None, "failed", chunks
 
         running = _cap_running_summary(content, window)
         has_summary = True
         idx = next_idx
 
     if not has_summary:
-        return _SummarizeResult(None, "failed", chunks)
-    return _SummarizeResult(running, "ok", chunks)
+        return None, "failed", chunks
+    return running, "ok", chunks
 
 
 def compact_session(
@@ -1016,7 +984,7 @@ def compact_session(
         return CompactResult(False, "nothing_to_compact")
 
     state = _drop_stale_compaction(session, messages)
-    view = messages_for_llm(session, tools)
+    view = messages_for_llm(session)
     before = prompt_tokens(view, tools)
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
@@ -1062,7 +1030,7 @@ def compact_session(
         session=session,
         messages=messages,
     )
-    summary, reason = sum_res
+    summary, reason, chunks = sum_res
     if summary is None:
         return CompactResult(False, reason, before, before)
 
@@ -1076,12 +1044,10 @@ def compact_session(
     session.compaction = CompactionState(
         summary=summary,
         first_kept_index=new_cut,  # monotonic: new_cut > prev_kept
-        tokens_before=before,
-        window=window,
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = prompt_tokens(messages_for_llm(session, tools), tools)
+    after = prompt_tokens(messages_for_llm(session), tools)
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = prev_state  # revert; do not ship a too-large view
@@ -1093,7 +1059,7 @@ def compact_session(
         after,
         new_cut,
         prev_kept,
-        sum_res.chunks,
+        chunks,
     )
     if status_callback:
         status_callback("Thinking...")
