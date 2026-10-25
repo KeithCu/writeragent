@@ -401,6 +401,14 @@ def test_resolve_table_and_anchor():
     assert a.a1 == "A6:B20" and a.kind == "anchor_snapshot"
 
 
+def test_resolve_quoted_sheet_name_with_apostrophe():
+    model = ExcelWorkbookModel()
+    r = resolve_dep("'O''Brien'!A1", model)
+    assert r.kind == "range" and r.a1 == "'O''Brien'!A1"
+    assert resolve_dep("'O''Brien'!A1:B2", model).a1 == "'O''Brien'!A1:B2"
+    assert resolve_dep("''!A1", model).kind == "unresolved"
+
+
 def test_resolve_whole_column_and_row():
     model = ExcelWorkbookModel()
     assert resolve_dep("A:A", model).kind == "range"
@@ -2553,6 +2561,25 @@ def test_formula_for_converted_cell_over_1000_chars_refuses_inline():
         formula_for_converted_cell(cell)
 
 
+def test_dag_write_rejects_xml_noncharacter_in_formula(tmp_path: Path):
+    src = tmp_path / "src.xlsx"
+    out = tmp_path / "out.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code="x = '\uffff'",
+        data_args=[],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    with pytest.raises(ValueError, match="illegal XML character in formula"):
+        write_dag_formulas_xlsx(src, report, out)
+    assert not out.exists()
+
+
 def test_write_dag_formulas_atomic_save_failure_leaves_dest(tmp_path: Path):
     """Failure during rewrite_zip / replace leaves destination file untouched and cleans up temp files."""
     src = tmp_path / "src.xlsx"
@@ -2647,6 +2674,17 @@ def test_worksheet_cell_index_sparse_order():
         cells = list(r)
         cell_rs = [c.attrib.get("r", "") for c in cells]
         assert cell_rs == sorted(cell_rs, key=lambda a1: (len(a1), a1))
+
+
+def test_worksheet_cell_index_inserts_before_trailing_extlst():
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
+
+    xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"/><extLst/></sheetData></worksheet>'
+    root = ET.fromstring(xml)
+    idx = _WorksheetCellIndex(root)
+    idx.ensure_cell("A5")
+    assert [local_name(c.tag) for c in idx.sheet_data] == ["row", "row", "extLst"]
+    assert [r.attrib.get("r") for r in idx.sheet_data if local_name(r.tag) == "row"] == ["1", "5"]
 
 
 def test_worksheet_cell_index_no_r_attribute():

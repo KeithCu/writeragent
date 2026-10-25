@@ -3,7 +3,7 @@
 
 Microsoft keeps Python in ``xl/pythonScripts.xml`` and cells only hold a short
 ``_xlws.PY(…)`` formula. Calc formula string symbols are capped near
-``MAXSTRLEN`` (1024), so **rewritten code longer than**
+``MAXSTRLEN`` (1024), so **rewritten =PY("…") formula longer than**
 ``INLINE_CODE_MAX_CHARS`` (1000) is parked on a visible sheet **per source
 worksheet** at the **same A1** as the caller (``Pivots!H4`` →
 ``py_code_Pivots!H4``) and the formula becomes ``=PY(py_code_Pivots.H4; …)``.
@@ -20,7 +20,7 @@ import hashlib
 import logging
 import re
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
@@ -112,35 +112,31 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
     return f"{sheet}{sep}{a1}"
 
 
-def should_inline_code(code: str) -> bool:
-    """True when *code* fits in ``=PY(\"…\")`` under Calc ``MAXSTRLEN`` (budget 1000)."""
-    return len(code or "") <= INLINE_CODE_MAX_CHARS
+def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
+    """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget 1000)."""
+    return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
 def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False) -> str:
     """Build ``=PY`` for a converted cell.
 
-    Inline when ``len(converted_code) <= 1000``; otherwise reference
+    Inline when the escaped formula is <= 1000 chars; otherwise reference
     ``py_code_<Sheet>.A1`` (same address as the caller).
     """
-    # Data bindings only — ordering_args are legacy/empty (never formula args).
     args = list(cell.data_args)
     excel_syntax = excel_escape or separator == ","
-    if cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
-        try:
-            return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
-        except ValueError as exc:
-            if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
-                err = f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}"
-                raise ValueError(err) from exc
-    if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
-        err = f"script too long ({len(cell.converted_code)} chars) to inline"
-        raise ValueError(err)
-    return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+    if should_inline_code(cell.converted_code, args):
+        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+    if not cell.cell or not cell.sheet:
+        raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
+    try:
+        return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
+    except ValueError as exc:
+        raise ValueError(f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}") from exc
 
 
 def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, str]], list[str]]:
-    """Map ``code_sheet_name → {A1 → code}`` for cells that need banking (>1000 chars)."""
+    """Map ``code_sheet_name → {A1 → code}`` for cells whose escaped =PY formula needs banking (>1000 chars)."""
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
@@ -148,7 +144,7 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
     for cell in report.cells:
         if not cell.converted or not cell.converted_code or not cell.cell or not cell.sheet:
             continue
-        if should_inline_code(cell.converted_code):
+        if should_inline_code(cell.converted_code, cell.data_args):
             continue
         try:
             a1 = normalize_bank_a1(cell.cell)

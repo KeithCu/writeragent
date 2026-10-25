@@ -243,6 +243,32 @@ def test_script_bank_only_long_scripts_and_mirrors_a1():
     assert any("blocked" in w for w in collect_safety_warnings("import requests\nx=1"))
 
 
+def test_should_inline_code_measures_escaped_formula():
+    from plugin.calc.excel_py_convert.script_bank import (
+        collect_script_bank,
+        formula_for_converted_cell,
+        should_inline_code,
+    )
+
+    assert should_inline_code("x = data", ["C4"]) is True
+    quote_heavy = 'x = "' + ('ab"' * 250)
+    assert len(quote_heavy) == 755
+    assert should_inline_code(quote_heavy, ["A1"]) is False
+
+    cell = ConvertedCell(
+        sheet="Quoted",
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code=quote_heavy,
+        data_args=["A1"],
+        converted=True,
+    )
+    banks, _ = collect_script_bank(ConversionReport(direction="dag", cells=[cell]))
+    assert banks == {"py_code_Quoted": {"A1": quote_heavy}}
+    assert formula_for_converted_cell(cell).startswith("=PY(py_code_Quoted.A1")
+
+
 def test_maybe_convert_skips_non_candidate(tmp_path: Path):
     doc = CalcDocStub()
     with patch("plugin.doc.text_helpers.get_document_path", return_value=None):
