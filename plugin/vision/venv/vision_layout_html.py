@@ -21,8 +21,6 @@ _TWO_COLUMN_TABLE_TEMPLATE = (
 
 
 class _LayoutBlock(NamedTuple):
-    idx: int
-    raw: dict[str, Any]
     box: tuple[int, int, int, int]
     html: str
 
@@ -56,7 +54,7 @@ def _block_to_html(block: dict[str, Any]) -> str:
 
 
 def _has_box(block: _LayoutBlock) -> bool:
-    return block.box[2] > 0 and block.box[3] > 0 and block.box != (0, 0, 0, 0)
+    return block.box[2] > 0 and block.box[3] > 0
 
 
 def _sort_key(block: _LayoutBlock) -> tuple[int, int]:
@@ -106,66 +104,58 @@ def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
     gap = max(median_h * 0.6, 8.0)
 
     bands: list[list[_LayoutBlock]] = [[ordered[0]]]
+    band_bottom = _block_bottom(ordered[0])
     for block in ordered[1:]:
         if not _has_box(block) or not _has_box(bands[-1][-1]):
             bands.append([block])
+            band_bottom = _block_bottom(block)
             continue
-        prev_bottom = max(_block_bottom(item) for item in bands[-1])
-        if block.box[1] - prev_bottom <= gap:
+        if block.box[1] - band_bottom <= gap:
             bands[-1].append(block)
+            band_bottom = max(band_bottom, _block_bottom(block))
         else:
             bands.append([block])
+            band_bottom = _block_bottom(block)
     return bands
+
+
+# Flattening a band by (y, x) interleaves columns; centered single-column text
+# has no gutter. Split into columns only when extents have a positive gap.
+def _render_narrow_run(run: list[_LayoutBlock], split_x: float) -> str:
+    if len(run) < 2:
+        return _render_blocks(run)
+    left = [b for b in run if _block_center_x(b) < split_x]
+    right = [b for b in run if _block_center_x(b) >= split_x]
+    if left and right:
+        left_max_right = max(b.box[0] + b.box[2] for b in left)
+        right_min_left = min(b.box[0] for b in right)
+        left_top, left_bottom = min(b.box[1] for b in left), max(_block_bottom(b) for b in left)
+        right_top, right_bottom = min(b.box[1] for b in right), max(_block_bottom(b) for b in right)
+        if right_min_left - left_max_right >= 8.0 and min(left_bottom, right_bottom) > max(left_top, right_top):
+            return _TWO_COLUMN_TABLE_TEMPLATE.format(left=_render_blocks(left), right=_render_blocks(right))
+    return _render_blocks(run)
 
 
 def _render_band(band: list[_LayoutBlock], page_w: float, split_x: float) -> str:
     if len(band) == 1:
         return _render_blocks(band)
-
-    # Pull full-width blocks out of a band as sequential elements. Flattening
-    # the whole band by (y, x) interleaves columns. Split narrow blocks into
-    # columns only when their extents have a positive horizontal gap; without
-    # that gutter, centered single-column text becomes a two-column table.
-    ordered = sorted(band, key=_sort_key)
-    out_parts: list[str] = []
-    narrow_run: list[_LayoutBlock] = []
-
-    def _flush_narrow() -> None:
-        if not narrow_run:
-            return
-        if len(narrow_run) == 1:
-            out_parts.append(_render_blocks(narrow_run))
-            narrow_run.clear()
-            return
-        left = [b for b in narrow_run if _block_center_x(b) < split_x]
-        right = [b for b in narrow_run if _block_center_x(b) >= split_x]
-        if left and right:
-            left_max_right = max(b.box[0] + b.box[2] for b in left)
-            right_min_left = min(b.box[0] for b in right)
-            if right_min_left - left_max_right >= 8.0:
-                left_html = _render_blocks(sorted(left, key=_sort_key))
-                right_html = _render_blocks(sorted(right, key=_sort_key))
-                out_parts.append(_TWO_COLUMN_TABLE_TEMPLATE.format(left=left_html, right=right_html))
-                narrow_run.clear()
-                return
-        out_parts.append(_render_blocks(sorted(narrow_run, key=_sort_key)))
-        narrow_run.clear()
-
-    for block in ordered:
+    parts: list[str] = []
+    narrow: list[_LayoutBlock] = []
+    for block in band:
         if _is_full_width(block, page_w):
-            _flush_narrow()
-            out_parts.append(_render_blocks([block]))
+            parts.append(_render_narrow_run(narrow, split_x))
+            narrow = []
+            parts.append(_render_blocks([block]))
         else:
-            narrow_run.append(block)
-    _flush_narrow()
-
-    return "".join(out_parts)
+            narrow.append(block)
+    parts.append(_render_narrow_run(narrow, split_x))
+    return "".join(parts)
 
 
 def html_from_layout_blocks(blocks: list[dict[str, Any]]) -> str:
     """Return a body HTML fragment from structure blocks using bbox column bands."""
     parsed: list[_LayoutBlock] = []
-    for idx, block in enumerate(blocks):
+    for block in blocks:
         if not isinstance(block, dict):
             continue
         if str(block.get("type") or "").lower() == "table":
@@ -173,7 +163,7 @@ def html_from_layout_blocks(blocks: list[dict[str, Any]]) -> str:
         if str(block.get("text") or "").strip():
             box = _box_xywh(block)
             html = _block_to_html(block)
-            parsed.append(_LayoutBlock(idx=idx, raw=block, box=box, html=html))
+            parsed.append(_LayoutBlock(box=box, html=html))
     if not parsed:
         return ""
 
