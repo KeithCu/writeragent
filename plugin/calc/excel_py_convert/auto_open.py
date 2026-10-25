@@ -24,8 +24,9 @@ from plugin.framework.errors import best_effort
 
 log = logging.getLogger(__name__)
 
-# Document udprop set after in-place UNO apply so OnViewCreated does not re-run.
-_CONVERTED_PROP = "ExcelPyDagConverted"
+# No "converted" udprop: LibreOffice persists UserDefinedProperties into the saved
+# .xlsx, so a reopened native-PY workbook would skip conversion forever. Peek the
+# file instead; _busy_path guards same-process reentry.
 
 _lock = threading.Lock()
 _doc_listener: Any = None
@@ -36,6 +37,7 @@ _SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
 # Factory ``private:factory/scalc`` fires OnNew, not OnLoadFinished. Geometric
 # strip state and the unload listener are set up on these events too.
 _GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
+_ISSUE_LOG_LIMIT = 5
 
 
 def _geometric_open_job(ctx: Any, doc: Any) -> None:
@@ -132,14 +134,18 @@ def _busy_path(path_str: str):
             _busy_paths.discard(path_str)
 
 
+def _issue_summary(report: Any) -> str:
+    """Semicolon-joined first few issues (cell issues when the report has none)."""
+    issues = list(report.issues) or [f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues]
+    if not issues:
+        return ""
+    shown = "; ".join(issues[:_ISSUE_LOG_LIMIT])
+    return f"{shown} (+{len(issues) - _ISSUE_LOG_LIMIT} more)" if len(issues) > _ISSUE_LOG_LIMIT else shown
+
+
 def maybe_convert_excel_py_document(doc: Any) -> bool:
     """If *doc* is an Excel-PY ``.xlsx``, convert to DAG ``=PY``. Return True if converted."""
     if not _is_calc_doc(doc):
-        return False
-
-    from plugin.doc.udprops import get_document_property, set_document_property
-
-    if get_document_property(doc, _CONVERTED_PROP):
         return False
 
     resolved = _xlsx_doc_path(doc)
@@ -158,25 +164,26 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
             from plugin.calc.excel_py_convert.convert import convert_to_dag
 
             report = convert_to_dag(path)
+            if not report.ok:
+                log.warning("excel_py auto-open: fail-closed (leaving original open) for %s: %s", path, _issue_summary(report))
+                return False
             if not report.has_conversions:
                 log.info("excel_py auto-open: no convertible PY cells in %s", path)
                 return False
-            if not report.ok:
-                log.warning("excel_py auto-open: fail-closed (leaving original open) for %s: %s", path, "; ".join(report.issues) or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues))
-                return False
 
+            modified_before = best_effort(doc.isModified, "excel_py auto-open: read modified flag", default=True)
             errors = apply_dag_formulas_to_calc_doc(doc, report)
             if errors:
                 log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
                 return False
-            set_document_property(doc, _CONVERTED_PROP, "1")
             from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
 
             try:
                 store_dag_meta_on_doc(doc, report)
             except Exception:
                 log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
-            doc.setModified(True)
+            # setFormula dirties the doc; a pristine open must not prompt "Save changes?".
+            best_effort(lambda: doc.setModified(modified_before), "excel_py auto-open: restore modified flag")
             log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
             return True
         except Exception:
@@ -215,7 +222,7 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
 
             report = convert_uno_doc_to_excel(doc)
             if not report.ok:
-                detail = "; ".join(report.issues) if report.issues else "snapshot report not ok"
+                detail = _issue_summary(report) or "snapshot report not ok"
                 log.warning("excel_py auto-save: report not ok for %s: %s", path, detail)
                 _show_save_failure(ctx, path, detail)
                 return False

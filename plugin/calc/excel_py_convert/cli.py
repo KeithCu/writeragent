@@ -4,6 +4,9 @@
 ``--to excel --write-xlsx`` writes native ``pythonScripts.xml`` / ``_xlws.PY``.
 Pass ``--from-report dag.json`` with ``--to excel`` to preserve return_type /
 data_args from a DAG conversion report.
+
+Status and errors go to stderr; stdout carries only the JSON report.
+Exit codes: 0 ok, 1 conversion/write failure, 2 usage.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -30,7 +34,12 @@ def main(argv: list[str] | None = None) -> int:
         print("--from-report only valid with --to excel", file=sys.stderr)
         return 2
 
-    report = convert_path(args.path, direction=args.direction, out_report=args.report, best_effort=args.best_effort, from_report=args.from_report)
+    try:
+        report = convert_path(args.path, direction=args.direction, out_report=args.report, best_effort=args.best_effort, from_report=args.from_report)
+    except (OSError, zipfile.BadZipFile, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
     if args.write_xlsx:
         if args.path.suffix.lower() != ".xlsx":
             print("--write-xlsx requires an .xlsx source (package shell)", file=sys.stderr)
@@ -40,13 +49,13 @@ def main(argv: list[str] | None = None) -> int:
                 write_dag_formulas_xlsx(args.path, report, args.write_xlsx)
             else:
                 write_excel_python_xlsx(args.path, report, args.write_xlsx)
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
+        except (OSError, zipfile.BadZipFile, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
             return 1
-        print(f"wrote {args.write_xlsx}")
+        print(f"wrote {args.write_xlsx}", file=sys.stderr)
 
     if args.report:
-        print(f"wrote {args.report}")
+        print(f"wrote {args.report}", file=sys.stderr)
     else:
         print(json.dumps(report.to_dict(), indent=2))
 
