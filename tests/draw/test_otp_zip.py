@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import struct
+from unittest.mock import patch
 import zipfile
 
 from plugin.draw.otp_zip import (
@@ -93,15 +95,71 @@ def test_extract_member_capped_and_safe_paths(tmp_path: Path):
         assert Path(out).parent == dest_dir
 
 
-def test_extract_member_read_member_exception_returns_none(tmp_path: Path):
-    from unittest.mock import patch
-
-    otp = tmp_path / "test_err.otp"
-    dest_dir = tmp_path / "dest"
-    dest_dir.mkdir()
+def test_extract_member_uniquifies_duplicate_basenames(tmp_path: Path):
+    otp = tmp_path / "dup.otp"
+    dest = tmp_path / "dest"
+    dest.mkdir()
     with zipfile.ZipFile(otp, "w") as zf:
-        zf.writestr("bad.bin", b"data")
+        zf.writestr("Pictures/a/logo.png", b"logo_a")
+        zf.writestr("Pictures/b/logo.png", b"logo_b")
 
     with zipfile.ZipFile(otp) as zf:
-        with patch("plugin.draw.otp_zip.read_member", side_effect=RuntimeError("Encrypted or unsupported compression")):
-            assert extract_member(zf, "bad.bin", str(dest_dir)) is None
+        p1 = extract_member(zf, "Pictures/a/logo.png", str(dest), prefix="0_")
+        p2 = extract_member(zf, "Pictures/b/logo.png", str(dest), prefix="0_")
+        assert p1 is not None and p2 is not None
+        assert Path(p1).name == "0_logo.png"
+        assert Path(p2).name == "0_logo_1.png"
+        assert Path(p1).read_bytes() == b"logo_a"
+        assert Path(p2).read_bytes() == b"logo_b"
+
+
+def test_extract_member_write_failure_leaves_preexisting_file(tmp_path: Path):
+    otp = tmp_path / "fail.otp"
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    preexisting = dest / "0_logo.png"
+    preexisting.write_bytes(b"keep")
+
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("Pictures/logo.png", b"new_data")
+
+    with zipfile.ZipFile(otp) as zf:
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            res = extract_member(zf, "Pictures/logo.png", str(dest), prefix="0_")
+        assert res is None
+        assert preexisting.read_bytes() == b"keep"
+        assert not (dest / "0_logo_1.png").exists()
+
+
+def test_read_member_encrypted_returns_none(tmp_path: Path):
+    otp = tmp_path / "enc.otp"
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    name = "Pictures/logo.png"
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr(name, b"some content")
+
+    raw = bytearray(otp.read_bytes())
+    i = raw.rfind(b"PK\x01\x02")
+    struct.pack_into("<H", raw, i + 8, struct.unpack_from("<H", raw, i + 8)[0] | 1)
+    otp.write_bytes(raw)
+
+    with zipfile.ZipFile(otp) as zf:
+        assert read_member(zf, name) is None
+        assert extract_member(zf, name, str(dest)) is None
+        assert not any(dest.iterdir())
+
+
+def test_read_member_unsupported_compression_returns_none(tmp_path: Path):
+    otp = tmp_path / "unsupp.otp"
+    name = "Pictures/logo.png"
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr(name, b"some content")
+
+    raw = bytearray(otp.read_bytes())
+    i = raw.rfind(b"PK\x01\x02")
+    struct.pack_into("<H", raw, i + 10, 99)
+    otp.write_bytes(raw)
+
+    with zipfile.ZipFile(otp) as zf:
+        assert read_member(zf, name) is None

@@ -155,24 +155,31 @@ class AddSlide(ToolBase):
                 # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
-            from plugin.framework.errors import is_disposed_exception
-            if is_disposed_exception(exc):
+            # What was wrong: is_disposed_exception matched bare RuntimeException by name, skipping cleanup on live documents.
+            # How it happened: is_disposed_exception checks _has_runtime_teardown_name which matches RuntimeException.
+            # Why this change: use is_real_disposal so only real disposal skips cleanup, while live RuntimeException removes new_page.
+            if is_real_disposal(exc):
                 raise
+            cleanup_failed = False
             try:
                 bridge.get_pages().remove(new_page)
             except Exception as rm_exc:
-                # Bugfix: the layout/master handler already re-raises disposal from the failed
-                # edit, but pages.remove during cleanup swallowed a disposal and returned a normal
-                # tool error, so execute_safe did not report DOCUMENT_DISPOSED.
-                if is_disposed_exception(rm_exc):
+                if is_real_disposal(rm_exc):
                     raise
-            return self._tool_error(f"Failed to set layout or master on new slide: {exc}")
+                cleanup_failed = True
+                log.debug("add_slide cleanup remove failed", exc_info=True)
+            return self._tool_error(
+                f"Failed to set layout or master on new slide: {exc}",
+                cleanup_failed=cleanup_failed,
+            )
 
-        # False means the view did not move. The page is already inserted.
-        # Disposal must propagate; do not delete the page for a view failure.
-        if switch_view:
-            bridge.set_current_page_index(landed)
-        result["active_page_index"] = landed if switch_view else bridge.get_active_page_index()
+        # What was wrong: failed set_current_page_index return was ignored, reporting landed as active_page_index.
+        # How it happened: bridge.set_current_page_index return value was not checked.
+        # Why this change: report real active page when switch fails and set view_switch_failed flag.
+        switched = bridge.set_current_page_index(landed) if switch_view else False
+        if switch_view and not switched:
+            result["view_switch_failed"] = True
+        result["active_page_index"] = landed if switched else bridge.get_active_page_index()
         return result
 
 

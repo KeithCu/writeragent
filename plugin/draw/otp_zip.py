@@ -79,7 +79,10 @@ def read_member(zf: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER_BYTES) -
                 if len(buf) + len(piece) > limit:
                     return None
                 buf.extend(piece)
-    except (zipfile.BadZipFile, EOFError, zlib.error):
+    except (zipfile.BadZipFile, EOFError, zlib.error, RuntimeError, NotImplementedError):
+        # What was wrong: encrypted or unsupported-compression members raised RuntimeError/NotImplementedError.
+        # How it happened: zipfile.open reports encrypted members via RuntimeError and unsupported compression via NotImplementedError.
+        # Why this change: catch both so hostile archives return None instead of escaping read_member.
         return None
     return bytes(buf)
 
@@ -91,7 +94,7 @@ def extract_member(
     prefix: str = "",
     limit: int = MAX_MEMBER_BYTES,
 ) -> str | None:
-    """Extract a ZIP member under the member limit into dest_dir."""
+    """Extract a ZIP member under the member limit into dest_dir. An existing name gets a _N suffix. Returns the written path or None."""
     actual_name = _find_member(zf, name)
     if actual_name is None:
         return None
@@ -99,18 +102,18 @@ def extract_member(
     base = os.path.basename(actual_name.replace("\\", "/"))
     if not base or base in (".", ".."):
         return None
-    # What was wrong: read_member could raise RuntimeError/NotImplementedError, breaking caller loops.
-    # How it happened: read_member only caught BadZipFile, EOFError, and zlib.error.
-    # Why this change: catch any Exception around read_member and return None so failed members are skipped.
-    try:
-        data = read_member(zf, actual_name, limit)
-    except Exception:
-        log.debug("read member failed name=%s", name, exc_info=True)
-        return None
+    data = read_member(zf, actual_name, limit)
     if data is None:
         return None
-    filename = prefix + base
-    out = os.path.join(dest_dir, filename)
+    out = os.path.join(dest_dir, prefix + base)
+    root, ext = os.path.splitext(prefix + base)
+    counter = 1
+    while os.path.exists(out):
+        out = os.path.join(dest_dir, "%s_%d%s" % (root, counter, ext))
+        counter += 1
+    # What was wrong: duplicate basenames collided and preexisting files could be overwritten or deleted on failure.
+    # How it happened: filename was computed without checking if out already existed in dest_dir.
+    # Why this change: uniquify with a _N suffix before writing so out never collides, and cleanup only removes our own file.
     try:
         with open(out, "wb") as dst:
             dst.write(data)
