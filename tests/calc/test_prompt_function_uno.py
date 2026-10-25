@@ -22,9 +22,7 @@ def test_prompt_addin_metadata(ctx):
     func = PromptFunction(ctx)
     assert func.getProgrammaticFunctionName("PROMPT") == "prompt"
     assert func.getDisplayFunctionName("prompt") == "PROMPT"
-    assert func.getArgumentCount("prompt") == 4
     assert func.getProgrammaticFunctionName("PYTHON") == ""
-    assert func.getArgumentCount("python") == 0
 
 
 @native_test

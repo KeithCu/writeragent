@@ -40,10 +40,7 @@ _.elementRemoved  # method: plugin/framework/uno_listeners.py:394
 _.elementReplaced  # method: plugin/framework/uno_listeners.py:398
 _.focusGained  # method: plugin/framework/uno_listeners.py:592
 _.focusLost  # method: plugin/framework/uno_listeners.py:596
-_.getArgumentCount  # method: plugin/calc/addin_common.py:83
 _.getArgumentDescription  # method: plugin/calc/addin_common.py:72
-_.getArgumentIsOptional  # method: plugin/calc/addin_common.py:87
-_.getArgumentName  # method: plugin/calc/addin_common.py:76
 _.getDisplayCategoryName  # method: plugin/calc/addin_common.py:94
 _.getDisplayFunctionName  # method: plugin/calc/addin_common.py:64
 _.getFunctionDescription  # method: plugin/calc/addin_common.py:68
@@ -57,7 +54,6 @@ _.getServiceDisplayName  # method: plugin/writer/locale/ai_grammar_proofreader.p
 _.getTransferData  # method: plugin/chatbot/dialogs.py:427
 _.getTransferDataFlavors  # method: plugin/chatbot/dialogs.py:430
 _.getWindow  # method: plugin/chatbot/panel_factory.py:266
-_.hasFunctionWizard  # method: plugin/calc/addin_common.py:80
 _.hasLocale  # method: plugin/writer/locale/ai_grammar_proofreader.py:673
 _.ignoreRule  # method: plugin/writer/locale/ai_grammar_proofreader.py:1033
 _.isDataFlavorSupported  # method: plugin/chatbot/dialogs.py:437
