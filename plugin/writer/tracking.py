@@ -73,15 +73,6 @@ def _identity_keys(objs: list[Any]) -> list[tuple[Any, ...]] | None:
     return keys
 
 
-def _undo_resolve(ctx: ToolContext, log_message: str) -> bool:
-    try:
-        ctx.doc.getUndoManager().undo()
-        return True
-    except Exception:
-        log.exception(log_message)
-        return False
-
-
 def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -> str | None:
     # What was wrong: compareRegionStarts threw IllegalArgumentException when checking a redline in another XText (table cell, footnote, header).
     # How it happened: compareRegionStarts requires both ranges to belong to the same XText.
@@ -162,7 +153,7 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     return {"status": "ok", "message": f"{done} recording changes."}
 
 
-def _describe_redline(redline: Any, index: int, doc: Any) -> dict[str, Any]:
+def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int, str] | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
         try:
@@ -187,7 +178,7 @@ def _describe_redline(redline: Any, index: int, doc: Any) -> dict[str, Any]:
         start = None
     if start is not None:
         try:
-            entry["location"] = describe_match_location(start, doc)
+            entry["location"] = describe_match_location(start, doc, label_cache=label_cache)
         except Exception:
             log.debug("track_changes_list: redline field unreadable", exc_info=True)
     # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
@@ -262,9 +253,17 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         "List all tracked changes (redlines) in the document, including type, author, date, text "
         "and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; "
         "'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in "
-        "record/wait your edits become redlines even while recording is false."
+        "record/wait your edits become redlines even while recording is false. Returns at most "
+        "max_changes rows (default 100); page through the rest with start_index when has_more is true."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
+            "max_changes": {"type": "integer", "description": "Maximum rows to return (default 100)."},
+        },
+        "required": [],
+    }
 
     @staticmethod
     def _agent_review_mode(uno_ctx: Any) -> Any | None:
@@ -313,8 +312,28 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
                 "Couldn't read every tracked change (saw %d of %d). The list was not returned, so indexes would be wrong. Use Edit > Track Changes > Manage."
                 % (len(redline_objs), total)
             )
-        changes = [_describe_redline(redline, index, doc) for index, redline in enumerate(redline_objs)]
-        result = {"status": "ok", "recording": recording, "changes": changes, "count": len(changes)}
+        start_index = kwargs.get("start_index", 0)
+        max_changes = kwargs.get("max_changes", 100)
+        # The model can send 0 or a negative number; clamp instead of failing.
+        start_index = max(0, int(start_index))
+        max_changes = max(1, int(max_changes))
+        label_cache: dict[int, str] = {}
+
+        window = redline_objs[start_index:start_index + max_changes]
+        changes = [
+            _describe_redline(redline, start_index + offset, doc, label_cache)
+            for offset, redline in enumerate(window)
+        ]
+        end = start_index + len(changes)
+        result = {
+            "status": "ok",
+            "recording": recording,
+            "changes": changes,
+            "count": len(changes),
+            "has_more": end < total,
+        }
+        if end < total:
+            result["next_index"] = end
         if agent_mode is not None:
             result["agent_review_mode"] = agent_mode
         return result
@@ -398,6 +417,16 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
 
+    def _undo_error(self, ctx: ToolContext, problem: str, log_message: str,
+                    failed_suffix: str = " Undo failed; the document was still changed.") -> dict[str, Any]:
+        """Undo the last resolve, then report *problem* plus whether the undo worked."""
+        try:
+            ctx.doc.getUndoManager().undo()
+        except Exception:
+            log.exception(log_message)
+            return self._tool_error(problem + failed_suffix)
+        return self._tool_error(problem + " The resolve was undone.")
+
     def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
         # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
         # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
@@ -435,12 +464,12 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if after == before:
             return self._tool_error("Failed to resolve all tracked changes.")
 
-        undo_ok = _undo_resolve(ctx, "manage_tracked_changes: undo of a bad resolve failed")
         verb_all = "Accept-all" if is_accept else "Reject-all"
-        msg = f"{verb_all} did not clear every tracked change (left {after}). The resolve was undone."
-        if not undo_ok:
-            msg += " Undo failed; the document was still changed."
-        return self._tool_error(msg)
+        return self._undo_error(
+            ctx,
+            "%s did not clear every tracked change (left %d)." % (verb_all, after),
+            "manage_tracked_changes: undo of a bad resolve failed",
+        )
 
     def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool) -> dict[str, Any]:
         if not hasattr(ctx.doc, "getRedlines"):
@@ -518,43 +547,38 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             objs2, total2 = _enumerate_redlines(redlines)
             if len(objs2) != total2:
-                undo_ok = _undo_resolve(ctx, "manage_tracked_changes: undo of a bad resolve failed")
-                msg = (
-                    "Couldn't re-read tracked changes after the resolve, so it was undone."
-                    if undo_ok
-                    else "Couldn't re-read tracked changes after the resolve. Undo failed; the document was still changed."
+                return self._undo_error(
+                    ctx,
+                    "Couldn't re-read tracked changes after the resolve.",
+                    "manage_tracked_changes: undo of a bad resolve failed",
                 )
-                return self._tool_error(msg)
 
             after_keys = _identity_keys(objs2)
             if after_keys is None:
-                undo_ok = _undo_resolve(ctx, "manage_tracked_changes: undo of a bad resolve failed")
-                msg = (
-                    "Couldn't re-read tracked changes after the resolve, so it was undone."
-                    if undo_ok
-                    else "Couldn't re-read tracked changes after the resolve. Undo failed; the document was still changed."
+                return self._undo_error(
+                    ctx,
+                    "Couldn't re-read tracked changes after the resolve.",
+                    "manage_tracked_changes: undo of a bad resolve failed",
                 )
-                return self._tool_error(msg)
 
             outcome = _resolve_outcome(index, before_keys, after_keys)
             if outcome == "silent":
                 return self._tool_error("Failed to resolve tracked change: operation silently failed.")
 
             if outcome == "agent":
-                undo_ok = _undo_resolve(ctx, "manage_tracked_changes: undo of a forbidden agent resolution failed")
-                msg = "Agent edit was resolved, which is forbidden."
-                if not undo_ok:
-                    msg += " Undo failed; the change is still resolved."
-                return self._tool_error(msg)
+                return self._undo_error(
+                    ctx,
+                    "Agent edit was resolved, which is forbidden.",
+                    "manage_tracked_changes: undo of a forbidden agent resolution failed",
+                    " Undo failed; the change is still resolved.",
+                )
 
             if outcome == "wrong":
-                undo_ok = _undo_resolve(ctx, "manage_tracked_changes: undo of a bad resolve failed")
-                msg = (
-                    "Resolved a different tracked change than index %d. The resolve was undone." % index
-                    if undo_ok
-                    else "Resolved a different tracked change than index %d. Undo failed; the document was still changed." % index
+                return self._undo_error(
+                    ctx,
+                    "Resolved a different tracked change than index %d." % index,
+                    "manage_tracked_changes: undo of a bad resolve failed",
                 )
-                return self._tool_error(msg)
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {

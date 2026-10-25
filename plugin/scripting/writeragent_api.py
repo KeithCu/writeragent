@@ -2299,9 +2299,14 @@ class _TrackingProxy:
         """
         return _rpc_call("manage_tracked_changes", action=action, index=index)
 
-    def track_changes_list(self) -> dict[str, Any]:
-        """List all tracked changes (redlines) in the document, including type, author, date, text and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; 'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in record/wait your edits become redlines even while recording is false."""
-        return _rpc_call("track_changes_list")
+    def track_changes_list(self, *, start_index: int | None = None, max_changes: int | None = None) -> dict[str, Any]:
+        """List all tracked changes (redlines) in the document, including type, author, date, text and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; 'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in record/wait your edits become redlines even while recording is false. Returns at most max_changes rows (default 100); page through the rest with start_index when has_more is true.
+
+        Args:
+            start_index (optional): Zero-based row to start this page at (default 0).
+            max_changes (optional): Maximum rows to return (default 100).
+        """
+        return _rpc_call("track_changes_list", start_index=start_index, max_changes=max_changes)
 
     def track_changes_show(self, show: bool) -> dict[str, Any]:
         """Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented.
