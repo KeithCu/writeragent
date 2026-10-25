@@ -81,14 +81,14 @@ def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, 
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
-def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_completion):
+def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
     set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # stop_checker returns True, meaning stopped by user
+    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -112,14 +112,14 @@ def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_comple
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
-def test_edit_selection_stops_on_cancel(mock_create_client, mock_stream_completion):
+def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
     set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # stop_checker returns True, meaning stopped by user
+    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -278,5 +278,184 @@ def test_edit_selection_none_selection_shows_message_and_returns(mock_get_str, m
     mock_msgbox.assert_called_once()
     assert "Select text first" in mock_msgbox.call_args.args[2]
     mock_get_str.assert_not_called()
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.prompt_for_edit_instructions")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="")
+def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, mock_prompt, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "something"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_edit_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_prompt.assert_not_called()
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.prompt_for_edit_instructions")
+@patch("plugin.writer.editselection.create_validated_client", return_value=None)
+def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, mock_stream):
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "orig"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_edit_selection(ctx, model, MagicMock())
+
+    mock_prompt.assert_not_called()
+    mock_stream.assert_not_called()
+
+
+@patch("plugin.writer.editselection.msgbox")
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="")
+def test_extend_selection_empty_text_shows_message(mock_get_str, mock_stream, mock_msgbox):
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "something"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_extend_selection(ctx, model, MagicMock())
+
+    mock_msgbox.assert_called_once()
+    assert "Select text first" in mock_msgbox.call_args.args[2]
+    mock_stream.assert_not_called()
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+@patch("plugin.writer.editselection.get_current_endpoint", return_value="ep")
+@patch("plugin.writer.editselection.get_text_model", return_value="m")
+@patch("plugin.writer.editselection.update_lru_history")
+def test_both_commands_write_model_lru_once(
+    mock_update_lru, mock_get_model, mock_get_ep, mock_create_client, mock_stream
+):
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "orig"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("rewrite", "")):
+
+        do_extend_selection(ctx, model, MagicMock())
+        assert mock_update_lru.call_args_list == [(("m", "model_lru", "ep"),)]
+
+        mock_update_lru.reset_mock()
+
+        do_edit_selection(ctx, model, MagicMock())
+        assert mock_update_lru.call_args_list == [(("m", "model_lru", "ep"),)]
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_stream):
+    set_configs({
+        "extend_selection_max_tokens": 100,
+        "doc.agent_edit_review_mode": "none",
+        "additional_instructions": "chat extra",
+        "extend_selection_system_prompt": "extend sys",
+    })
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "hello selection"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_extend_selection(ctx, model, MagicMock())
+
+    assert mock_stream.called
+    assert mock_stream.call_args.args[2] == "hello selection"
+    assert mock_stream.call_args.args[3] == "extend sys"
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream):
+    set_configs({
+        "edit_selection_max_new_tokens": 100,
+        "doc.agent_edit_review_mode": "none",
+        "additional_instructions": "chat extra",
+        "edit_selection_system_prompt": "edit sys",
+    })
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "hello selection"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "")):
+        do_edit_selection(ctx, model, MagicMock())
+
+    assert mock_stream.called
+    assert mock_stream.call_args.args[3] == "edit sys"
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_stream):
+    set_configs({
+        "edit_selection_max_new_tokens": 100,
+        "doc.agent_edit_review_mode": "none",
+        "additional_instructions": "chat extra",
+        "edit_selection_system_prompt": "edit sys",
+    })
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "hello selection"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "dialog extra")):
+        do_edit_selection(ctx, model, MagicMock())
+
+    assert mock_stream.called
+    assert mock_stream.call_args.args[3] == "dialog extra"
+
 
 
