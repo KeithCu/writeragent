@@ -207,14 +207,14 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `safe_try_method` | Call a method if present; log and continue. |
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
 | `apply_character_properties` | Batch Char* on a shape/cell/style. Italic sets `CharPosture` to `FontSlant.ITALIC` (IDL value 2). Integer 1 is `OBLIQUE`. |
-| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` | 1/100 mm ↔ 96-DPI px. |
+| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` / `graphic_pixel_size` | 1/100 mm ↔ 96-DPI px (`UNITS_PER_INCH` / `PX_PER_INCH`, rounded both ways). |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
 | `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |
 | `get_active_draw_page` / `draw_page_for_insert` / `position_on_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page and position helpers. |
 | `SHAPE_TOOL_UNO_SERVICES` | Union of Writer/Calc/Draw/Impress services for shared tool names. |
 
-`mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`). They used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm.
+`mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`); they used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm. `px_to_units`, `units_to_px`, and `graphic_pixel_size` share `UNITS_PER_INCH = 2540` / `PX_PER_INCH = 96` and round in both directions, so a px → unit → px round trip is stable (it used to lose 1 px: `units_to_px(px_to_units(10))` was 9). `has_uno_property`, `safe_set_property`, `safe_try_method`, `graphic_from_object`, and `graphic_objects_in_selection` raise `DocumentDisposedError` for a closed document and keep their `False` / `None` / `[]` result for ordinary UNO failures; `selected_graphic_object` stays a probe that returns `None`.
 
 `image_tools.get_type_doc`, `_has_uno_property`, `_safe_set_property`, `_mm_to_units`, `_selection_graphic_object` are **already** one-line delegates into this module.
 
