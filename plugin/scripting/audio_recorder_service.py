@@ -68,10 +68,6 @@ def _build_recording_env() -> dict[str, str]:
     return env
 
 
-def _silence_cli_args(config: SilenceDetectorConfig) -> list[str]:
-    return [f"--silence-stop-ms={max(0, config.silence_stop_ms)}"]
-
-
 def _recording_popen(managed: ManagedSubprocess) -> subprocess.Popen[str]:
     proc = cast("subprocess.Popen[str] | None", managed.popen)
     if proc is None:
@@ -95,7 +91,7 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
     """
     cmd = [exe, _AUDIO_RECORD_MAIN, "--output", output_path]
     if silence_config is not None:
-        cmd.extend(_silence_cli_args(silence_config))
+        cmd.append(f"--silence-stop-ms={max(0, silence_config.silence_stop_ms)}")
     # text=True: read_json_line needs a text pipe, and bufsize=1 is what this
     # child already used. Worker start() is binary bufsize=0.
     # base_env is already scrubbed, with the display and Pulse keys put back.
@@ -297,16 +293,19 @@ def _known_path(handoff: RecordingStopHandoff | None, fallback_path: str | None)
     return None
 
 
-def _stop_recording_via_handoff(
+def stop_recording_process(
     managed: ManagedSubprocess,
-    handoff: RecordingStopHandoff,
     *,
-    timeout_sec: float,
-    fallback_path: str | None,
+    handoff: RecordingStopHandoff,
+    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
+    fallback_path: str | None = None,
     monitor: BackgroundHandle | None = None,
 ) -> str:
-    """Write stop and wait for the monitor. Do not read stdout."""
-    # _stop_recording_via_handoff can return or raise without reaping the child
+    """Send the stop line and wait on the handoff for the WAV path.
+
+    The monitor is the sole stdout reader; this function does not read stdout.
+    """
+    # stop_recording_process can return or raise without reaping the child
     # (wait_for_path timeout, stdin None, or an already-exited timeout).
     # try/finally _reap_recording_process reaps it and drops the stderr drain
     # on every exit.
@@ -350,29 +349,6 @@ def _stop_recording_via_handoff(
         # path wait above is the long timeout. After it returns or raises, 2s
         # plus the existing kill escalation is enough.
         _reap_recording_process(managed, _RECORDING_REAP_TIMEOUT_SEC, monitor=monitor, handoff=handoff)
-
-
-def stop_recording_process(
-    managed: ManagedSubprocess,
-    *,
-    handoff: RecordingStopHandoff,
-    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
-    fallback_path: str | None = None,
-    monitor: BackgroundHandle | None = None,
-) -> str:
-    """Send stop, then return the WAV path.
-
-    The stdout monitor is the sole pipe reader. This function delegates
-    to ``_stop_recording_via_handoff`` to signal stop and await the WAV path.
-    This still does not read stdout.
-    """
-    return _stop_recording_via_handoff(
-        managed,
-        handoff,
-        timeout_sec=timeout_sec,
-        fallback_path=fallback_path,
-        monitor=monitor,
-    )
 
 
 def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff | None, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:

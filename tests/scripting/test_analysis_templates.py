@@ -39,3 +39,11 @@ def test_parse_header_with_params():
 def test_parse_header_rejects_unknown_helper():
     code = "# writeragent:analysis helper=not_real params={}\n"
     assert parse_analysis_script_header(code) is None
+
+
+def test_defaults_and_descriptions_cover_all_helpers():
+    from plugin.scripting.analysis import _DEFAULT_PARAMS, _HELPER_DESCRIPTIONS
+
+    assert set(_DEFAULT_PARAMS) == set(HELPER_NAMES)
+    assert set(_HELPER_DESCRIPTIONS) == set(HELPER_NAMES)
+
