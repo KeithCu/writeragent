@@ -28,7 +28,8 @@ small chunks up to ``MAX_MEMBER_BYTES``. The
 XML/SVG fallback also refuses to open every ``Pictures/*.svg`` or keep
 every hex hit: a missing thumbnail must not turn listing into an
 unbounded scan. 1/2/4-bit grayscale samples are scaled to 0–255 so an
-all-white thumbnail stays a light background. We never load master pages
+all-white thumbnail stays a light background. Alpha samples below
+_MIN_ALPHA are treated as transparent. We never load master pages
 or open the document via Desktop.
 """
 
@@ -89,6 +90,9 @@ _SECOND_ACCENT_RATIO = 0.25
 # handful of hex hits, so keep that floor at 2.
 _MIN_THUMB_ACCENT = 15
 _MIN_XML_ACCENT = 2
+# PNG alpha (0-255) below this is transparent: a white page behind a drop
+# shadow must not dilute the mood. Shared by gray+alpha, RGBA, and palette tRNS.
+_MIN_ALPHA = 16
 
 
 @lru_cache(maxsize=128)
@@ -98,9 +102,11 @@ def _derive_otp_look_cached(path: str, mtime_ns: int, size: int) -> str:
             names = zf.namelist()
             pic_tag = _picture_tag(names)
             samples = _thumbnail_samples(zf)
+            min_count = _MIN_THUMB_ACCENT
             if not samples:
                 samples = _xml_color_samples(zf, names)
-            mood, accents = _mood_and_accents(samples)
+                min_count = _MIN_XML_ACCENT
+            mood, accents = _mood_and_accents(samples, min_count)
             return _format_look(mood, accents, pic_tag)
     except Exception:
         log.debug("derive_otp_look failed for %s", path, exc_info=True)
@@ -129,11 +135,14 @@ def _format_look(mood: str, accents: list[str], pic_tag: str) -> str:
 
 
 def _picture_tag(names: Iterable[str]) -> str:
-    pics = [n for n in names if _norm_zip_name(n).startswith("pictures/") and not _norm_zip_name(n).endswith("/") and _norm_zip_name(n).rsplit("/", 1)[-1]]
-    images = [n for n in pics if _norm_zip_name(n).endswith(_IMAGE_EXT)]
-    if len(images) >= 2:
+    images = 0
+    for name in names:
+        norm = _norm_zip_name(name)
+        if norm.startswith("pictures/") and norm.endswith(_IMAGE_EXT):
+            images += 1
+    if images >= 2:
         return "illustrated"
-    if len(images) == 1:
+    if images == 1:
         # Single decorative SVG/PNG/etc. (Metropolis ships one chrome SVG).
         return "graphic chrome"
     return ""
@@ -200,7 +209,7 @@ def _hex_colors(blob: bytes, limit: int) -> list[tuple[int, int, int]]:
     return out
 
 
-def _mood_and_accents(samples: list[tuple[int, int, int]]) -> tuple[str, list[str]]:
+def _mood_and_accents(samples: list[tuple[int, int, int]], min_count: int = _MIN_THUMB_ACCENT) -> tuple[str, list[str]]:
     if not samples:
         return "", []
     lum = sum(0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b in samples) / len(samples)
@@ -212,7 +221,6 @@ def _mood_and_accents(samples: list[tuple[int, int, int]]) -> tuple[str, list[st
             counts[name] = counts.get(name, 0) + 1
     if not counts:
         return mood, []
-    min_count = _MIN_XML_ACCENT if len(samples) < 50 else _MIN_THUMB_ACCENT
     ranked = [pair for pair in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])) if pair[1] >= min_count]
     if not ranked:
         return mood, []
@@ -437,7 +445,7 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
         for i in range(width):
             g = samples[i * 2]
             a = samples[i * 2 + 1]
-            if a < 16:
+            if a < _MIN_ALPHA:
                 continue
             out.append((g, g, g))
         return out
@@ -450,18 +458,18 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
         for i in range(width):
             j = i * 4
             a = samples[j + 3]
-            if a < 16:
+            if a < _MIN_ALPHA:
                 continue
             out.append((samples[j], samples[j + 1], samples[j + 2]))
         return out
-    # Indexed. tRNS of 0 means fully transparent — skip so white canvas
+    # Indexed. tRNS below _MIN_ALPHA means transparent — skip so white canvas
     # behind a drop-shadow does not dilute a dark slide.
     pal_len = len(palette)
     for i in range(width):
         idx = samples[i]
         if idx >= pal_len:
             return None
-        if idx < len(trans) and trans[idx] < 16:
+        if idx < len(trans) and trans[idx] < _MIN_ALPHA:
             continue
         out.append(palette[idx])
     return out

@@ -40,6 +40,21 @@ def _rgb_png(pixels: list[tuple[int, int, int]], width: int, height: int) -> byt
     )
 
 
+def _rgba_png(pixels: list[tuple[int, int, int, int]], width: int, height: int) -> bytes:
+    raw = b""
+    for y in range(height):
+        raw += b"\x00"
+        for x in range(width):
+            raw += bytes(pixels[y * width + x])
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw, 9))
+        + _chunk(b"IEND", b"")
+    )
+
+
 def _write_otp(
     tmp_path: Path,
     *,
@@ -417,4 +432,30 @@ def test_decode_png_rgb_1024x1024_tracemalloc_stays_bounded():
     # peak stays under 12MB (including the inflated ~3MB raw scanline buffer).
     assert peak < 12 * 1024 * 1024
 
+
+def test_accent_floor_follows_the_sample_source(tmp_path: Path):
+    pixels = [(255, 0, 0)] * 3 + [(255, 255, 255)] * 46
+    thumb = _rgb_png(pixels, 7, 7)
+    path = _write_otp(tmp_path, name="Floor7x7.otp", thumb=thumb)
+    assert derive_otp_look(path) == "light background"
+
+    pixels_blue = [(20, 40, 120)] * 16
+    thumb_blue = _rgb_png(pixels_blue, 4, 4)
+    path_blue = _write_otp(tmp_path, name="Floor4x4.otp", thumb=thumb_blue)
+    assert derive_otp_look(path_blue) == "dark background; blue accents"
+
+
+def test_alpha_15_is_dropped_and_16_is_kept():
+    pixels = [(255, 0, 0, 15), (0, 255, 0, 16), (0, 0, 255, 0), (9, 9, 9, 255)]
+    png = _rgba_png(pixels, 4, 1)
+    assert decode_png_rgb(png) == [(0, 255, 0), (9, 9, 9)]
+
+
+def test_picture_tag_normalizes_case_backslashes_and_directories():
+    from plugin.draw.design_look import _picture_tag
+
+    assert _picture_tag(["Pictures/A.PNG", "Pictures/"]) == "graphic chrome"
+    assert _picture_tag(["./Pictures\\A.PNG", "Pictures/Sub/B.JPG"]) == "illustrated"
+    assert _picture_tag(["Pictures/A.PNG", "Pictures/B.PNG", "Pictures/C.PNG"]) == "illustrated"
+    assert _picture_tag(["Thumbnails/thumbnail.png", "Pictures/notes.txt"]) == ""
 
