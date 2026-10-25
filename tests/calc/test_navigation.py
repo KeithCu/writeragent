@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from plugin.calc.address_utils import format_address, parse_address, split_sheet_prefix
 from plugin.calc.navigation import (
     WRITERAGENT_CELL_URL_PREFIX,
     _accessible_text,
@@ -33,6 +34,52 @@ def test_normalize_cell_address_simple():
     assert normalize_cell_address("'My Sheet'.B2") == "My Sheet.B2"
     assert normalize_cell_address("'My-Sheet'.B2") == "My-Sheet.B2"
     assert normalize_cell_address("My_Sheet.B2") == "My_Sheet.B2"
+
+
+def test_normalize_cell_address_canonical():
+    assert normalize_cell_address("'a.b'.C3") == "'a.b'.C3"
+    assert normalize_cell_address("'O''Brien'.A1") == "'O''Brien'.A1"
+    assert normalize_cell_address("$Sheet1.$A$1") == "Sheet1.A1"
+    assert normalize_cell_address("A01") == "A1"
+    assert normalize_cell_address("XFD1048576") == "XFD1048576"
+    assert normalize_cell_address("A0") is None
+    assert normalize_cell_address("A1048577") is None
+    assert normalize_cell_address("ZZZ1") is None
+    assert normalize_cell_address("Sheet1.A1:B2") is None
+    assert normalize_cell_address("not-a-cell") is None
+    assert normalize_cell_address(" cell://Sheet1!b2 ") == "Sheet1.B2"
+    assert normalize_cell_address(f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1") == "'O''Brien'.A1"
+    assert normalize_cell_address("B" * 300) is None
+    assert normalize_cell_address("Bé1") is None
+
+
+def test_normalize_cell_address_round_trips():
+    cases = [
+        ("b2", None),
+        ("Sheet1.B2", "Sheet1"),
+        ("cell://C10", None),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}D4", None),
+        ("cell://Sheet1.C3", "Sheet1"),
+        ("cell://Sheet1!C3", "Sheet1"),
+        ("Orders!A1", "Orders"),
+        ("'My Sheet'.B2", "My Sheet"),
+        ("'My-Sheet'.B2", "My-Sheet"),
+        ("My_Sheet.B2", "My_Sheet"),
+        ("'a.b'.C3", "a.b"),
+        ("'O''Brien'.A1", "O'Brien"),
+        ("$Sheet1.$A$1", "Sheet1"),
+        ("A01", None),
+        ("XFD1048576", None),
+        (" cell://Sheet1!b2 ", "Sheet1"),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1", "O'Brien"),
+    ]
+    for raw, expected_sheet in cases:
+        out = normalize_cell_address(raw)
+        assert out is not None
+        sheet, a1 = split_sheet_prefix(out)
+        col, row = parse_address(a1)
+        assert format_address(col, row) == a1
+        assert sheet == expected_sheet
 
 
 def test_cell_link_registry_lookup():
@@ -84,6 +131,14 @@ def test_click_text_index():
     ctrl = MagicMock()
     ctrl.getModel.return_value = model
     assert _click_text_index(ctrl, 10, 20) == 5
+
+
+def test_click_text_index_ignores_selection_struct():
+    model = SimpleNamespace(Selection=SimpleNamespace(Start=3, End=3))
+    ctrl = MagicMock()
+    ctrl.getModel.return_value = model
+    with patch("plugin.calc.navigation._char_index_at_point", return_value=7):
+        assert _click_text_index(ctrl, 10, 20) == 7
 
 
 def test_accessible_text_returns_none_on_exception():

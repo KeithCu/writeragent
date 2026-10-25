@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -35,8 +36,8 @@ ODS_CACHE_ENABLED_KEY = "calc.ods_cache_enabled"
 
 
 def normalize_source_path(source_path: str) -> str:
-    """Absolute, normalized filesystem path used in the cache key."""
-    return os.path.normpath(os.path.abspath(source_path))
+    """Real, case-normalized filesystem path used in the cache key."""
+    return os.path.normcase(os.path.realpath(source_path))
 
 
 def is_cacheable_office_source(source_path: str) -> bool:
@@ -53,7 +54,7 @@ def source_stat(source_path: str) -> tuple[str, int, int]:
 
 
 def cache_key(abs_path: str, mtime_ns: int, size: int) -> str:
-    """Hash of absolute path + mtime + size (content hash only if mtime is flaky)."""
+    """Hash of path + mtime + size; a content change that keeps both goes undetected."""
     payload = f"{abs_path}\n{mtime_ns}\n{size}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
@@ -134,7 +135,15 @@ def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int)
     """Write source path / mtime / size / format version next to the cached ODS."""
     payload = {"cache_format_version": CACHE_FORMAT_VERSION, "source_path": abs_path, "mtime_ns": mtime_ns, "size": size}
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=meta_path.name + ".", suffix=".partial", dir=str(meta_path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp_path, meta_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def ods_cache_enabled() -> bool:

@@ -22,6 +22,7 @@ from plugin.calc.ods_cache import (
     is_cacheable_office_source,
     lookup_cached_ods,
     meta_matches_source,
+    normalize_source_path,
     ods_cache_dir,
     ods_cache_enabled,
     source_stat,
@@ -105,7 +106,30 @@ def test_ods_source_never_looks_up_cache(tmp_path: Path):
 
 def test_ods_cache_dir_is_beside_source_folder(tmp_path: Path):
     xlsx = _write_xlsx(tmp_path / "budget.xlsx")
-    assert ods_cache_dir(str(xlsx)) == tmp_path / ODS_CACHE_DIRNAME
+    assert os.path.normcase(str(ods_cache_dir(str(xlsx)))) == os.path.normcase(str(tmp_path / ODS_CACHE_DIRNAME))
+
+
+def test_write_sidecar_meta_is_atomic(tmp_path: Path):
+    meta_path = tmp_path / "test.meta.json"
+    write_sidecar_meta(meta_path, "/abs/file.xlsx", 1000, 200)
+    write_sidecar_meta(meta_path, "/abs/file.xlsx", 2000, 300)
+    data = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert data["mtime_ns"] == 2000
+    assert data["size"] == 300
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == []
+
+
+def test_normalize_source_path_resolves_symlink(tmp_path: Path):
+    budget = _write_xlsx(tmp_path / "budget.xlsx")
+    alias = tmp_path / "alias.xlsx"
+    try:
+        alias.symlink_to(budget)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    assert normalize_source_path(str(alias)) == normalize_source_path(str(budget))
+    assert ods_cache_dir(str(alias)) == ods_cache_dir(str(budget))
+    _seed_cache(budget)
+    assert lookup_cached_ods(str(alias)) is not None
 
 
 def test_meta_matches_source_rejects_wrong_path(tmp_path: Path):
