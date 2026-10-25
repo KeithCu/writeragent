@@ -422,17 +422,16 @@ def test_writer_drop_falls_back_to_embedded_objects():
     from plugin.calc.charts import _drop_writer_chart_insert
 
     doc = MagicMock()
-    text = MagicMock()
     chart_obj = MagicMock()
-    text.removeTextContent.side_effect = RuntimeError("not in this text")
+    chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = RuntimeError("not in this text")
     embeds = doc.getEmbeddedObjects.return_value
     embeds.hasByName.return_value = True
-    _drop_writer_chart_insert(doc, text, chart_obj, "Chart_2")
+    _drop_writer_chart_insert(doc, chart_obj, "Chart_2")
     embeds.removeByName.assert_called_once_with("Chart_2")
 
-    text.removeTextContent.side_effect = None
-    _drop_writer_chart_insert(doc, text, chart_obj, "Chart_2")
-    text.removeTextContent.assert_called_with(chart_obj)
+    chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = None
+    _drop_writer_chart_insert(doc, chart_obj, "Chart_2")
+    chart_obj.getAnchor().getText.return_value.removeTextContent.assert_called_with(chart_obj)
     assert embeds.removeByName.call_count == 1
 
 
@@ -478,6 +477,28 @@ def test_manage_charts_validate_name_required_for_get_info_and_delete():
 
     ok, err = mc.validate(doc_type="calc", action="list")
     assert (ok, err) == (True, None)
+
+
+def test_manage_charts_read_actions_skip_document_lock():
+    from plugin.calc.charts import ManageCharts
+
+    mc = ManageCharts()
+    assert mc.requires_document_lock({"action": "list"}) is False
+    assert mc.requires_document_lock({"action": "get_info", "name": "Chart_0"}) is False
+    for action in ("create", "edit", "delete"):
+        assert mc.requires_document_lock({"action": action}) is True
+    assert mc.requires_document_lock() is True
+    assert mc.requires_document_lock({}) is True
+
+
+def test_manage_charts_validate_rejects_unknown_chart_type():
+    from plugin.calc.charts import ManageCharts
+
+    ok, err = ManageCharts().validate(
+        doc_type="calc", action="create", chart_type="barz", data_range="A1:B2"
+    )
+    assert ok is False
+    assert "chart_type" in (err or "")
 
 
 def test_find_calc_chart_honors_sheet_name():
