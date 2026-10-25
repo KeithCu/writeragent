@@ -532,13 +532,8 @@ def _can_start_ensure_locked() -> bool:
 
 def harper_runtime_is_ready() -> bool:
     """True when harper-ls is in-process and the runtime state is READY."""
-    if not _HARPER_LOCK.acquire(blocking=False):
-        # A queue lint owns the lock; an atomic state snapshot is enough for this advisory call.
-        return _HARPER_STATE is HarperRuntimeState.READY
-    try:
+    with _HARPER_LOCK:
         return _HARPER_STATE is HarperRuntimeState.READY and _alive_client() is not None
-    finally:
-        _HARPER_LOCK.release()
 
 
 def _broadcast_proofread_again() -> None:
@@ -603,14 +598,10 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
 
 def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> bool:
     """Start at most one download/start job. Returns True if a job was submitted."""
-    if not _HARPER_LOCK.acquire(blocking=False):
-        return False
-    try:
+    with _HARPER_LOCK:
         if not _can_start_ensure_locked():
             return False
         _set_state(HarperRuntimeState.RESOLVING)
-    finally:
-        _HARPER_LOCK.release()
     from plugin.framework.worker_pool import run_in_background
 
     try:
@@ -670,6 +661,35 @@ def maybe_start_harper_async(
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
 
+_LOCK_WAIT_POLL_SEC = 0.075
+
+
+def _acquire_harper_lock_pumping(ctx: Any, *, timeout: float = _LINT_BUDGET_SEC) -> bool:
+    """Acquire ``_HARPER_LOCK``, pumping UI events while another lint holds it.
+
+    With ``ctx`` each poll tick runs :func:`pump_secondary_idle_tick` (PE2I on the
+    main thread, posted to it from the linguistic worker; ``pump_ui_idle`` is a
+    no-op off main). Without ``ctx`` there is nothing to pump: plain blocking wait.
+    Returns False only if *timeout* elapses (caller must not release then).
+    """
+    if _HARPER_LOCK.acquire(blocking=False):
+        return True
+    if ctx is None:
+        return _HARPER_LOCK.acquire(timeout=timeout)
+    from plugin.framework.vcl_pumping import pump_secondary_idle_tick
+    from plugin.framework.thread_guard import on_main_thread
+
+    pump_on_caller = on_main_thread()
+    deadline = time.monotonic() + timeout
+    while True:
+        pump_secondary_idle_tick(ctx, on_caller=pump_on_caller)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _HARPER_LOCK.acquire(blocking=False)
+        if _HARPER_LOCK.acquire(timeout=min(_LOCK_WAIT_POLL_SEC, remaining)):
+            return True
+
+
 def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict[str, Any] | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
@@ -699,8 +719,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         return None
     none_reason = "not_ready"
     client: HarperLSClient | None = None
-    if not _HARPER_LOCK.acquire(blocking=False):
-        grammar_obs("harper_try_lint_none", reason="lock_busy", ensure_submitted=False)
+    # Block (pumping UI events) rather than skip: every sentence must be checked,
+    # and a queue-path lint normally releases the lock within a few ms.
+    if not _acquire_harper_lock_pumping(ctx):
+        grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
         return None
     try:
         client = _alive_client()

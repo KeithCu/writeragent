@@ -1355,16 +1355,34 @@ def test_harper_runtime_is_ready_requires_alive_client() -> None:
     assert harper_runtime_is_ready() is False
 
 
-def test_advisory_harper_calls_fail_soft_when_lint_lock_is_held() -> None:
+def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
+    """A held lock blocks harper_try_lint (pumping each tick) instead of skipping the sentence."""
     harper_module._HARPER_LOCK.acquire()
+    ticks: list[bool | None] = []
+
+    def _tick(_ctx: Any, *, on_caller: bool | None = None) -> None:
+        ticks.append(on_caller)
+        if len(ticks) == 2:
+            harper_module._HARPER_LOCK.release()
+
+    with patch("plugin.framework.vcl_pumping.pump_secondary_idle_tick", side_effect=_tick):
+        assert harper_module._acquire_harper_lock_pumping(object(), timeout=5.0) is True
     try:
-        t0 = time.monotonic()
-        assert harper_runtime_is_ready() is False
-        assert harper_module.harper_ensure_ready_async("/tmp") is False
-        assert harper_try_lint("Hello.", "/tmp") is None
-        assert time.monotonic() - t0 < 0.5
+        assert len(ticks) >= 2
     finally:
         harper_module._HARPER_LOCK.release()
+
+
+def test_harper_lock_wait_times_out_without_holding_lock() -> None:
+    harper_module._HARPER_LOCK.acquire()
+    try:
+        with patch("plugin.framework.vcl_pumping.pump_secondary_idle_tick"):
+            assert harper_module._acquire_harper_lock_pumping(object(), timeout=0.1) is False
+        assert harper_module._acquire_harper_lock_pumping(None, timeout=0.05) is False
+    finally:
+        harper_module._HARPER_LOCK.release()
+    assert harper_module._acquire_harper_lock_pumping(None, timeout=0.05) is True
+    harper_module._HARPER_LOCK.release()
 
 
 def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
