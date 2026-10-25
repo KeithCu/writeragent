@@ -579,6 +579,49 @@ def test_save_current_script_builtin_channel():
     mock_save_user.assert_not_called()
 
 
+def test_save_current_script_builtin_does_not_enter_catalog():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="[Vision] extract_text"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("extract_text", "vision")),
+        patch.object(ui, "save_document_script") as mock_save_doc,
+        patch.object(ui, "save_user_script") as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "builtin"
+    assert res.text is not None
+    assert "Save As" in res.text
+    assert "Copy to My Scripts" not in res.text
+    mock_save_doc.assert_not_called()
+    mock_save_user.assert_not_called()
+    assert inst._current_scripts == {}
+
+
+def test_save_current_script_failure_leaves_catalog_unchanged():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {"[Doc] foo": "old"}
+    inst._script_origin_map = {}
+
+    err = DocumentScriptError("too big", DocumentScriptErrorCode.TOO_LARGE)
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="[Doc] foo"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("foo", ui.SCRIPT_ORIGIN_DOCUMENT)),
+        patch.object(ui, "save_document_script", return_value=err),
+    ):
+        res = inst._save_current_script("rejected")
+
+    assert res.channel == "modal"
+    assert inst._current_scripts == {"[Doc] foo": "old"}
+
+
 def test_save_current_script_user_success_is_ok():
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._select_ctrl = MagicMock()
@@ -596,6 +639,26 @@ def test_save_current_script_user_success_is_ok():
     assert res.channel == "ok"
     assert res.text == "Script 'Mine' saved successfully."
     mock_save_user.assert_called_once_with("Mine", "new code")
+
+
+def test_save_current_script_user_success_updates_catalog():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script") as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "ok"
+    assert res.text == "Script 'Mine' saved successfully."
+    mock_save_user.assert_called_once_with("Mine", "new code")
+    assert inst._current_scripts == {"Mine": "new code"}
 
 
 def test_save_current_script_reports_user_script_error():
@@ -695,19 +758,19 @@ def _setup_dialog_and_listeners(doc=None, code="result = 1"):
 
         def _make_adder(btn_mock=mock_btn):
             def _add(listener):
-                action_listeners[type(listener).__name__] = listener
+                action_listeners[listener.action_name] = listener
             btn_mock.addActionListener.side_effect = _add
 
         _make_adder()
 
     inst._wire_listeners(dlg, script_select)
 
-    def _trigger_action(type_substr: str):
+    def _trigger_action(btn_name: str):
         for name, listener in action_listeners.items():
-            if type_substr in name:
+            if name == btn_name:
                 listener.actionPerformed(MagicMock())
                 return
-        raise AssertionError(f"No action listener matching {type_substr}")
+        raise AssertionError(f"No action listener matching {btn_name}")
 
     return inst, controls, _trigger_action
 
@@ -722,7 +785,7 @@ def test_run_ok_save_shows_running_and_no_save_box():
         patch.object(pr, "start_native_script_run") as mock_start_run,
         patch.object(ui, "msgbox") as mock_msgbox,
     ):
-        trigger("RunListener")
+        trigger("BtnRun")
 
     mock_msgbox.assert_not_called()
     mock_start_run.assert_called_once()
@@ -751,7 +814,7 @@ def test_run_builtin_keeps_warning_on_the_label():
         patch.object(ui, "msgbox") as mock_msgbox,
         patch.object(ui, "_report_run_outcome", side_effect=_fake_report_outcome),
     ):
-        trigger("RunListener")
+        trigger("BtnRun")
         mock_msgbox.assert_not_called()
         assert "Running..." not in [call.args[0] for call in lbl.setText.call_args_list]
         mock_start_run.assert_called_once()
@@ -774,7 +837,7 @@ def test_run_builtin_keeps_warning_on_the_label():
         patch.object(ui, "msgbox") as mock_msgbox,
         patch.object(ui, "_report_run_outcome"),
     ):
-        trigger2("RunListener")
+        trigger2("BtnRun")
         captured_on_complete2["callback"]({"ok": False, "message": "boom"})
 
     assert lbl2.setText.call_args.args[0] == "boom"
@@ -798,10 +861,90 @@ def test_run_modal_save_boxes_then_runs():
         patch.object(ui, "msgbox", side_effect=_fake_msgbox),
         patch.object(pr, "start_native_script_run", side_effect=_fake_start_run),
     ):
-        trigger("RunListener")
+        trigger("BtnRun")
 
     assert order == [("msgbox", "Save", modal_text), "start_run"]
     lbl.setText.assert_called_with("Running...")
+
+
+def test_run_completion_after_close_touches_nothing():
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    captured_on_complete = {}
+
+    def _capture_run(ctx, doc, code, *, on_complete, **kwargs):
+        captured_on_complete["callback"] = on_complete
+
+    with (
+        patch.object(inst, "_save_current_script", return_value=ui._ScriptSaveResult(None, "none")),
+        patch.object(pr, "start_native_script_run", side_effect=_capture_run),
+    ):
+        trigger("BtnRun")
+
+    inst._closed = True
+    with (
+        patch.object(ui, "msgbox") as mock_msgbox,
+        patch.object(ui, "set_control_text") as mock_set_text,
+    ):
+        captured_on_complete["callback"]({"ok": False, "message": "boom"})
+
+    mock_msgbox.assert_not_called()
+    mock_set_text.assert_not_called()
+
+
+def test_run_unchanged_text_skips_the_save():
+    inst, controls, trigger = _setup_dialog_and_listeners(code="result = 1")
+    inst._current_scripts = {"Mine": "result = 1"}
+    lbl = controls["InstructionLbl"]
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(pr, "start_native_script_run") as mock_start_run,
+        patch.object(ui, "msgbox") as mock_msgbox,
+    ):
+        trigger("BtnRun")
+
+    mock_save_user.assert_not_called()
+    mock_msgbox.assert_not_called()
+    mock_start_run.assert_called_once()
+    lbl.setText.assert_called_with("Running...")
+
+
+def test_run_changed_text_saves_once():
+    inst, controls, trigger = _setup_dialog_and_listeners(code="result = 2")
+    inst._current_scripts = {"Mine": "result = 1"}
+    lbl = controls["InstructionLbl"]
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(pr, "start_native_script_run") as mock_start_run,
+        patch.object(ui, "msgbox") as mock_msgbox,
+    ):
+        trigger("BtnRun")
+
+    mock_save_user.assert_called_once_with("Mine", "result = 2")
+    mock_msgbox.assert_not_called()
+    mock_start_run.assert_called_once()
+    lbl.setText.assert_called_with("Running...")
+
+
+def test_save_button_always_saves_unchanged_text():
+    inst, controls, trigger = _setup_dialog_and_listeners(code="result = 1")
+    inst._current_scripts = {"Mine": "result = 1"}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "msgbox") as mock_msgbox,
+    ):
+        trigger("BtnSave")
+
+    mock_save_user.assert_called_once_with("Mine", "result = 1")
+    mock_msgbox.assert_not_called()
 
 
 def test_delete_user_script_failure_does_not_claim_success():
@@ -819,7 +962,7 @@ def test_delete_user_script_failure_does_not_claim_success():
         patch.object(ui, "delete_user_script", return_value=del_err),
         patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
     ):
-        trigger("DeleteListener")
+        trigger("BtnDelete")
 
     mock_refresh.assert_not_called()
     assert lbl.setText.call_args.args[0] == del_err
@@ -837,7 +980,7 @@ def test_delete_user_script_success_refreshes():
         patch.object(ui, "delete_user_script", return_value=None),
         patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
     ):
-        trigger("DeleteListener")
+        trigger("BtnDelete")
 
     mock_refresh.assert_called_once_with()
     assert lbl.setText.call_args.args[0] == "Script 'Mine' deleted."
