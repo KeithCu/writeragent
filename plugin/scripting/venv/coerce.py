@@ -19,24 +19,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
-import numpy as np
-
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
-
-_pd: Any = None
-
-
-def _get_pd() -> Any:
-    global _pd
-    if _pd is None:
-        try:
-            import pandas as pd
-
-            _pd = pd
-        except ImportError:
-            _pd = False
-    return _pd if _pd is not False else None
 
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
@@ -113,15 +97,24 @@ def is_missing_value(value: Any) -> bool:
         return stripped == "" or stripped.upper() in _LO_ERROR_TOKENS
     if isinstance(value, float):
         return math.isnan(value)
-    if isinstance(value, np.floating) and np.isnan(value):
-        return True
-    # numpy.datetime64 and timedelta64 NaT are not np.floating, so the NaN
-    # check misses them. Test them explicitly with np.isnat.
-    if isinstance(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
-        return True
-    pd = _get_pd()
-    if pd is not None and (value is pd.NA or value is pd.NaT):
-        return True
+    try:
+        import numpy as np
+
+        if isinstance(value, np.floating) and np.isnan(value):
+            return True
+        # numpy.datetime64 and timedelta64 NaT are not np.floating, so the NaN
+        # check misses them. Test them explicitly with np.isnat.
+        if isinstance(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
+            return True
+    except ImportError:
+        pass
+    try:
+        import pandas as pd
+
+        if value is pd.NA or value is pd.NaT:
+            return True
+    except ImportError:
+        pass
     return False
 
 
@@ -226,15 +219,24 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
     # A raw ndarray used to be stored as the single cell of a 1x1 frame.
-    if isinstance(data, np.ndarray):
-        if data.ndim == 0:
-            return [[data.item()]]
-        if data.ndim in (1, 2):
-            return ensure_rectangular_2d(data.tolist())
-        return [[data]]
-    pd = _get_pd()
-    if pd is not None and isinstance(data, pd.Series):
-        return ensure_rectangular_2d(cast("Any", data).tolist())
+    try:
+        import numpy as np
+
+        if isinstance(data, np.ndarray):
+            if data.ndim == 0:
+                return [[data.item()]]
+            if data.ndim in (1, 2):
+                return ensure_rectangular_2d(data.tolist())
+            return [[data]]
+    except ImportError:
+        pass
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.Series):
+            return ensure_rectangular_2d(cast("Any", data).tolist())
+    except ImportError:
+        pass
     if isinstance(data, (int, float, str, bool)):
         return [[data]]
     raise ValueError(f"Cannot normalize input of type {type(data).__name__} to 2D grid")
@@ -320,6 +322,7 @@ def _coerce_column_types(
     """Optional string→numeric/datetime inference and explicit date_cols conversion."""
     if not parse_strings and not _date_cols_requested(date_cols):
         return df
+    import numpy as np
     import pandas as pd
     out = df.copy()
 
@@ -514,7 +517,7 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
                 in_range = (arr >= 1900) & (arr <= 2200)
                 if is_int.all() and in_range.all():
                     is_year = True
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     if is_year:
@@ -532,7 +535,7 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
                 fv = float(v)
                 if np.isfinite(fv) and 0 < fv <= 2958465:
                     return fv
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             return float("nan")
 
@@ -581,7 +584,13 @@ def _coerce_number(value: Any) -> float | None:
     """Coerce value to float or return None."""
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float, np.integer, np.floating)):
+    try:
+        import numpy as np
+
+        num_types = (int, float, np.integer, np.floating)
+    except ImportError:
+        num_types = (int, float)  # type: ignore[assignment]
+    if isinstance(value, num_types):
         f = float(value)
         return f if math.isfinite(f) else None
     if isinstance(value, str):
@@ -707,7 +716,7 @@ def _id_like(series: Any) -> bool:
         diffs = np.diff(arr)
         if (diffs > 0).all() or (diffs < 0).all():
             return True
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     return False
 

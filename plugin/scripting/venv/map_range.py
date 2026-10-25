@@ -15,8 +15,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import numpy as np
-
 from plugin.scripting.calc_range import (
     CalcRange,
     _is_pandas_frame_or_series,
@@ -78,6 +76,10 @@ def _to_plain_sequence(val: Any) -> Any:
         return val.values
     if _is_pandas_frame_or_series(val):
         val = val.to_numpy()
+    try:
+        import numpy as np
+    except ImportError:
+        return val
     if isinstance(val, np.ndarray):
         return val.tolist()
     if isinstance(val, np.generic):
