@@ -341,6 +341,16 @@ def test_locate_formula_with_unquoted_code_ref_duplicate_is_none():
     assert located is None
 
 
+def test_locate_formula_with_unquoted_code_ref_missing_sheet_is_none():
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setString("result = 1")
+    sheet.getCellByPosition(1, 0).setFormula("=PY(NoSuchSheet.$A$1)")
+    doc = CalcDocStub(sheets=[sheet], url="file:///test_ref_missing.ods")
+    ctx = _ctx_with_doc(doc)
+
+    assert locate_formula_cell_in_doc(ctx, doc, "result = 1") is None
+
+
 def test_locate_formula_quoted_still_works():
     sheet = CalcSheetStub("Sheet1")
     sheet.getCellByPosition(0, 0).setString("result = 1")
@@ -366,4 +376,20 @@ def test_iter_range_formula_texts():
     assert items[1] == (0, 1, "=A2+2")
     assert items[2] == (1, 0, "=B1+1")
     assert items[3] == (1, 1, "=B2+2")
+
+
+def test_iter_range_formula_texts_reads_get_formula_array():
+    class _Range:
+        def getRangeAddress(self):
+            return SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=1, EndRow=0)
+
+        def getFormulaArray(self):
+            return (("=A1+1", "=A2+2"),)
+
+    class _Sheet:
+        def getCellByPosition(self, col, row):
+            raise AssertionError("per-cell getFormula() must not run when getFormulaArray works")
+
+    assert list(iter_range_formula_texts(_Sheet(), _Range())) == [(0, 0, "=A1+1"), (0, 1, "=A2+2")]
+
 
