@@ -1089,18 +1089,18 @@ def test_grok_shim(client):
         mock_auth.return_value = {"provider": "xai"}
         mock_sync.return_value = {"data": []}
 
-        # An omitted model used to send "aurora", which is not an xAI model id.
+        # An omitted model sends the documented xAI image model.
         client.image_completion("Draw a cat", model=None, width=1024, height=1024)
         _path, body = _posted_json(mock_sync)
-        assert body["model"] == "grok-imagine-image"
+        assert body["model"] == "grok-imagine-image-2.0"
 
-        # Test image request for Grok (should omit size and steps). A saved
-        # aurora id is still sent as the caller wrote it.
-        client.image_completion("Draw a cat", model="aurora", width=1024, height=1024, steps=30)
+        # Test image request for Grok (should omit size and steps). A supplied
+        # model id is sent as the caller wrote it.
+        client.image_completion("Draw a cat", model="grok-imagine-image-2.0", width=1024, height=1024, steps=30)
 
         path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a cat"
-        assert body["model"] == "aurora"
+        assert body["model"] == "grok-imagine-image-2.0"
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1k"
         assert body["response_format"] == "b64_json"
@@ -1110,17 +1110,17 @@ def test_grok_shim(client):
         assert "image" not in body
         assert str(path).endswith("/images/generations")
 
-        client.image_completion("Wide landscape", model="aurora", width=1792, height=1024)
+        client.image_completion("Wide landscape", model="grok-imagine-image-2.0", width=1792, height=1024)
         _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "2k"
 
-        client.image_completion("High res", model="aurora", width=2048, height=2048)
+        client.image_completion("High res", model="grok-imagine-image-2.0", width=2048, height=2048)
         _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "2k"
 
-        client.image_completion("Make it dusk", model="aurora", width=1024, height=1024, source_image="abc123")
+        client.image_completion("Make it dusk", model="grok-imagine-image-2.0", width=1024, height=1024, source_image="abc123")
         path, body = _posted_json(mock_sync)
         assert str(path).endswith("/images/edits")
         assert "image_url" not in body

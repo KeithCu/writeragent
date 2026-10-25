@@ -639,6 +639,7 @@ class LlmHttpTransport:
             if cl is not None:
                 try:
                     if int(str(cl)) > max_bytes:
+                        self.close()
                         raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
                 except ValueError:
                     pass
