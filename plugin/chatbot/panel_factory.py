@@ -25,8 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, cast
-from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from weakref import WeakSet
 import hashlib
 import uuid
@@ -330,8 +329,9 @@ def _is_sha256_hex(value: Any) -> bool:
     return True
 
 
-@dataclass(frozen=True)
-class SessionIdPlan:
+# NamedTuple, not @dataclass: pythonloader execs this component module without a
+# sys.modules entry, and dataclass() looks the module up there (unopkg add fails).
+class SessionIdPlan(NamedTuple):
     session_id: str
     fork_from: str | None
     stamp_url: bool
