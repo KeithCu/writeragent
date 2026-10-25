@@ -428,3 +428,11 @@ def test_l2_same_sentence_is_locale_specific() -> None:
     assert got_clean_fr is None
     assert got_clean_en == []
 
+
+def test_cache_get_sentence_hashes_once() -> None:
+    real = gc.fingerprint_for_text
+    with patch("plugin.writer.locale.grammar_proofread_cache.fingerprint_for_text", wraps=real) as fp_mock:
+        assert gc.cache_get_sentence("en-US", "Hello.") is None
+    assert fp_mock.call_count == 1
+
+
