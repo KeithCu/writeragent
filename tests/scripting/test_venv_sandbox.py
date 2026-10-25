@@ -311,6 +311,32 @@ def test_serialize_result_rejects_self_referential_list():
         serialize_result(items)
 
 
+def test_serialize_result_rejects_self_referential_list_with_dataframe():
+    pd = pytest.importorskip("pandas")
+    items: list[object] = [pd.DataFrame({"a": [1]})]
+    items.append(items)
+    with pytest.raises(ValueError, match="self-referential"):
+        serialize_result(items)
+
+
+def test_serialize_result_rejects_self_referential_dict_with_dataframe():
+    pd = pytest.importorskip("pandas")
+    d: dict[str, object] = {"df": pd.DataFrame({"a": [1]})}
+    d["self"] = d
+    with pytest.raises(ValueError, match="self-referential"):
+        serialize_result(d)
+
+
+def test_serialize_result_allows_shared_sublist_with_dataframe():
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    pd = pytest.importorskip("pandas")
+    shared = [pd.DataFrame({"a": [1]})]
+    res = serialize_result([shared, shared])
+    assert is_dataframe_payload(res[0][0])
+    assert is_dataframe_payload(res[1][0])
+
+
 def test_serialize_result_rejects_deep_nesting():
     obj: list[object] = []
     cursor = obj
@@ -1220,3 +1246,75 @@ def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
     )
     assert res["status"] == "ok"
     assert res["result"] is True
+
+
+def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
+    from plugin.scripting.config_limits import python_exec_timeout_default
+    from plugin.scripting.venv.venv_sandbox import (
+        _new_executor,
+        inject_auto_imports,
+        optional_module,
+    )
+
+    executor = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor, "def f():\n    dt = 1\nresult = dt")
+    assert "dt" in executor.state
+    res = executor("def g():\n    dt = 1\nresult = dt.date(2020, 1, 1).isoformat()")
+    assert res.output == "2020-01-01"
+
+    executor_class = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor_class, "class C:\n    dt = 1\nresult = 1")
+    assert "dt" in executor_class.state
+
+    executor2 = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor2, "def f():\n    import numpy as np\nresult = 1")
+    if optional_module("numpy") is not None:
+        assert "np" in executor2.state
+
+
+def test_apply_auto_imports_skips_shadowed_alias() -> None:
+    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
+
+    code1, _ = apply_auto_imports("dt = 123\nresult = dt")
+    assert "import datetime as dt" not in code1
+
+    code2, _ = apply_auto_imports("def f():\n    import datetime as dt\nresult = 1")
+    assert "import datetime as dt" in code2
+
+
+def test_apply_auto_imports_parses_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.scripting.venv.venv_sandbox as vs
+
+    real = vs.ast.parse
+    count = 0
+
+    def counting_parse(*args: Any, **kwargs: Any) -> vs.ast.AST:
+        nonlocal count
+        count += 1
+        return real(*args, **kwargs)
+
+    vs.apply_auto_imports("result = 1")
+    monkeypatch.setattr(vs.ast, "parse", counting_parse)
+    count = 0
+    vs.apply_auto_imports("result = 1")
+    assert count == 1
+
+    code, lines = vs.apply_auto_imports("def ")
+    assert lines > 0
+    assert "import " in code
+
+
+def test_run_sandboxed_code_rejects_non_numeric_timeout() -> None:
+    res = run_sandboxed_code("result = 1", timeout_sec=cast("Any", "soon"))
+    assert res["status"] == "error"
+    assert "timeout" in res["message"].lower()
+
+
+def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
+    res = run_sandboxed_code("result = 1", sandbox_policy=cast("Any", [("extra_modules", "x")]))
+    assert res["status"] == "error"
+
+
+def test_run_sandboxed_code_rejects_non_string_extra_modules() -> None:
+    res = run_sandboxed_code("result = 1", sandbox_policy={"extra_modules": [1]})
+    assert res["status"] == "error"

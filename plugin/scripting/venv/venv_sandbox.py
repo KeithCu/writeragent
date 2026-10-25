@@ -256,27 +256,14 @@ def _send_cell_owned(executor: LocalPythonExecutor, variables: dict[str, Any]) -
     executor.send_variables(variables)
 
 
-def is_module_imported(code_str: str, module_name: str) -> bool:
-    """Check if ``module_name`` is imported in any form in ``code_str``.
+def _code_says_imported(code: str, module_name: str) -> bool:
+    return f"import {module_name}" in code or f"from {module_name}" in code
 
-    Skip reusing sandbox_cache's parsed AST: cache misses and mutated trees
-    make that easy to get wrong, and parse cost is noise compared with exec.
-    """
-    try:
-        tree = ast.parse(code_str)
-    except SyntaxError:
-        # Fallback to simple substring match in case of syntax error.
-        return f"import {module_name}" in code_str or f"from {module_name}" in code_str
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == module_name or alias.name.startswith(module_name + "."):
-                    return True
-        elif isinstance(node, ast.ImportFrom):
-            if node.module == module_name or (node.module and node.module.startswith(module_name + ".")):
-                return True
-    return False
+def _auto_import_alias(module_name: str, import_stmt: str) -> str:
+    if " as " in import_stmt:
+        return import_stmt.rsplit(" as ", 1)[-1].strip()
+    return module_name
 
 
 # RLock: a module that calls optional_module during its own import on this
@@ -310,47 +297,66 @@ def optional_module(name: str) -> Any | None:
 
 def apply_auto_imports(code: str) -> tuple[str, int]:
     """Prepend imports from AUTO_IMPORTS if missing and available. Returns (new_code, lines_added)."""
-    prepended_lines = []
+    scanned = _scan_user_code(code)
+    bound: set[str] = scanned[0] if scanned is not None else set()
+    prepended_lines: list[str] = []
     for module_name, import_stmt in AUTO_IMPORTS.items():
-        if not is_module_imported(code, module_name):
-            if optional_module(module_name) is not None:
-                prepended_lines.append(import_stmt)
-
+        if _auto_import_alias(module_name, import_stmt) in bound:
+            continue
+        imported_already = (
+            _code_says_imported(code, module_name)
+            if scanned is None
+            else _code_imports_module(scanned[1], module_name)
+        )
+        if not imported_already and optional_module(module_name) is not None:
+            prepended_lines.append(import_stmt)
     if not prepended_lines:
         return code, 0
-
     return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
 
 
 def _scan_user_code(code_str: str) -> tuple[set[str], set[str]] | None:
-    """Bound names and imported module strings from one parse.
-
-    Known edge case: ast.walk also sees names bound inside function bodies,
-    lambdas and comprehensions, so ``def f(): dt = 1`` skips the ``dt``
-    auto-import even when top-level code uses ``dt``. Conservative on purpose
-    (never shadows user names); a scope-aware visitor could fix it later.
-    """
+    """Module-scope bound names and imported module strings from one parse."""
     try:
         tree = ast.parse(code_str)
     except SyntaxError:
         return None
-
     bound: set[str] = set()
     imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            bound.add(node.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                bound.add(alias.asname or alias.name.split(".")[0])
-                imported.add(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imported.add(node.module)
-            for alias in node.names:
-                bound.add(alias.asname or alias.name)
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.add(child.name)
+                continue  # bodies run in their own namespace
+            if isinstance(child, ast.Lambda):
+                continue
+            if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                # Only the iter runs on the module state (e.g. [x for x in (r := 5)]).
+                for comp in child.generators:
+                    visit(comp.iter)
+                continue
+            # ``result: int`` does not store when there is no value; do not
+            # walk the annotation either (evaluate_annassign skips it).
+            if isinstance(child, ast.AnnAssign) and child.value is None:
+                continue
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                bound.add(child.id)
+                continue
+            if isinstance(child, ast.Import):
+                for alias in child.names:
+                    bound.add(alias.asname or alias.name.split(".")[0])
+                    imported.add(alias.name)
+                continue
+            if isinstance(child, ast.ImportFrom):
+                if child.module:
+                    imported.add(child.module)
+                for alias in child.names:
+                    bound.add(alias.asname or alias.name)
+                continue
+            visit(child)
+
+    visit(tree)
     return bound, imported
 
 
@@ -360,75 +366,24 @@ def _code_imports_module(imported: set[str], module_name: str) -> bool:
 
 
 def _module_binds_name(code: str, name: str) -> bool:
-    """True when *code* stores *name* in the module state the executor keeps.
-
-    Smolagents runs function, class, and lambda bodies on a copied dict and
-    does not write those assignments back. Comprehension targets, filters,
-    and elements also use a copy; the iter expression does not.
-    """
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return False
-    return _node_binds_module_name(tree, name)
-
-
-def _node_binds_module_name(node: ast.AST, name: str) -> bool:
-    for child in ast.iter_child_nodes(node):
-        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if child.name == name:
-                return True
-            continue
-        if isinstance(child, ast.Lambda):
-            continue
-        if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-            for comp in child.generators:
-                if _node_binds_module_name(comp.iter, name):
-                    return True
-            continue
-        # ``result: int`` has a Store target but evaluate_annassign does not
-        # write it, and does not evaluate the annotation, when value is None
-        # (local_python_executor.evaluate_annassign). Recursing into the
-        # annotation treated ``a: [result := int]`` as a module bind. The
-        # executor rejects NamedExpr before result selection; the visitor
-        # still must not report that Store.
-        if isinstance(child, ast.AnnAssign) and child.value is None:
-            continue
-        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
-            return True
-        if isinstance(child, ast.Import):
-            for alias in child.names:
-                bound = alias.asname or alias.name.split(".")[0]
-                if bound == name:
-                    return True
-            continue
-        if isinstance(child, ast.ImportFrom):
-            for alias in child.names:
-                if (alias.asname or alias.name) == name:
-                    return True
-            continue
-        if _node_binds_module_name(child, name):
-            return True
-    return False
+    """True when *code* stores *name* in the module state the executor keeps."""
+    scanned = _scan_user_code(code)
+    return scanned is not None and name in scanned[0]
 
 
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     """Inject auto imports into executor state if not already bound or imported in code."""
     scanned = _scan_user_code(code)
-    if scanned is None:
-        bound_names: set[str] = set()
-        imported: set[str] | None = None
-    else:
-        bound_names, imported = scanned
-    bindings = {}
+    bound_names: set[str] = scanned[0] if scanned is not None else set()
+    imported: set[str] | None = None if scanned is None else scanned[1]
+    bindings: dict[str, Any] = {}
     for module_name, import_stmt in AUTO_IMPORTS.items():
-        alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
+        alias = _auto_import_alias(module_name, import_stmt)
         if alias in bound_names or alias in executor.state:
             continue
-        # SyntaxError keeps is_module_imported's substring fallback. A cell
-        # that fails to parse never runs, but the executor is reused.
+        # A cell that fails to parse never runs, but the executor is reused.
         already = (
-            is_module_imported(code, module_name)
+            _code_says_imported(code, module_name)
             if imported is None
             else _code_imports_module(imported, module_name)
         )
@@ -870,7 +825,7 @@ def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     return [flat[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
-def _serialize_result_impl(obj: Any) -> Any:
+def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = None) -> Any:
     from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
     if isinstance(obj, CalcRange):
@@ -988,21 +943,36 @@ def _serialize_result_impl(obj: Any) -> Any:
             return packed
     if isinstance(obj, (dict, list, tuple, set, frozenset)):
         if _has_custom_serialize_objects(obj):
-            if isinstance(obj, dict):
-                used: set[str] = set()
-                out_dict: dict[str, Any] = {}
-                for key, value in obj.items():
-                    sk = wire_str_key(key, used)
-                    out_dict[sk] = serialize_result(value)
-                return out_dict
-            elif isinstance(obj, list):
-                return [serialize_result(v) for v in obj]
-            elif isinstance(obj, (set, frozenset)):
-                # A Figure (or range coerced to a list) is unhashable after
-                # serialize. The list fallback keeps the values.
-                return _set_or_list(obj, [serialize_result(v) for v in obj])
-            else:
-                return tuple(serialize_result(v) for v in obj)
+            # Recursing through serialize_result bypassed the depth and cycle checks,
+            # letting self-referential custom containers loop to RecursionError.
+            if depth > _HOST_PICKLE_MAX_DEPTH:
+                raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
+            path = seen if seen is not None else set()
+            oid = id(obj)
+            if oid in path:
+                raise ValueError(
+                    "Result contains a self-referential container and cannot cross "
+                    "the LibreOffice pickle boundary"
+                )
+            path.add(oid)
+            try:
+                if isinstance(obj, dict):
+                    used: set[str] = set()
+                    out_dict: dict[str, Any] = {}
+                    for key, value in obj.items():
+                        sk = wire_str_key(key, used)
+                        out_dict[sk] = _serialize_result_impl(value, depth=depth + 1, seen=path)
+                    return out_dict
+                elif isinstance(obj, list):
+                    return [_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj]
+                elif isinstance(obj, (set, frozenset)):
+                    # A Figure (or range coerced to a list) is unhashable after
+                    # serialize. The list fallback keeps the values.
+                    return _set_or_list(obj, [_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj])
+                else:
+                    return tuple(_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj)
+            finally:
+                path.discard(oid)
         # Short lists skip split_grid and are pickled as Python objects. A date
         # or Decimal in that list is a datetime/decimal global the host unpickler
         # rejects, which used to kill the shared worker.
@@ -1677,20 +1647,24 @@ def run_sandboxed_code(
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
+    try:
+        timeout_sec = int(timeout_sec)
+    except (TypeError, ValueError, OverflowError):
+        return _error_result(f"Invalid timeout_sec: {timeout_sec!r}")
     deadline = time.monotonic() + float(timeout_sec)
 
+    if sandbox_policy is not None and not isinstance(sandbox_policy, dict):
+        return _error_result("sandbox_policy must be a dict")
     policy_dict = sandbox_policy or {}
     try:
         raw_extra = policy_dict.get("extra_modules") or ""
-        if isinstance(raw_extra, str):
-            extra = parse_extra_modules(raw_extra)
-        else:
-            extra = tuple(raw_extra)
+        if not isinstance(raw_extra, str):
+            return _error_result("sandbox_policy.extra_modules must be a comma-separated string")
         policy = build_sandbox_policy(
             network=bool(policy_dict.get("network", False)),
             files=bool(policy_dict.get("files", False)),
             os_=bool(policy_dict.get("os", False)),
-            extra=extra,
+            extra=parse_extra_modules(raw_extra),
         )
     except ValueError as e:
         return _error_result(str(e))
