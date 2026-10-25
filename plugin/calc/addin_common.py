@@ -73,21 +73,6 @@ class CalcAddInBase(unohelper.Base):
         spec = self._resolve(aProgrammaticName)
         return self._arg_value(spec.arg_descriptions, nArgument) if spec is not None else ""
 
-    def getArgumentName(self, aProgrammaticName: str, nArgument: int) -> str:
-        spec = self._resolve(aProgrammaticName)
-        return self._arg_value(spec.arg_names, nArgument) if spec is not None else ""
-
-    def hasFunctionWizard(self, aProgrammaticName: str) -> bool:
-        return self._resolve(aProgrammaticName) is not None
-
-    def getArgumentCount(self, aProgrammaticName: str) -> int:
-        spec = self._resolve(aProgrammaticName)
-        return len(spec.arg_names) if spec is not None else 0
-
-    def getArgumentIsOptional(self, aProgrammaticName: str, nArgument: int) -> bool:
-        spec = self._resolve(aProgrammaticName)
-        return spec is not None and nArgument >= spec.optional_from
-
     def getProgrammaticCategoryName(self, aProgrammaticName: str) -> str:
         return "Add-In" if self._resolve(aProgrammaticName) is not None else ""
 
@@ -98,12 +83,6 @@ class CalcAddInBase(unohelper.Base):
         return self.ctx.ServiceManager.createInstance("com.sun.star.lang.Locale", ("en", "US", ""))
 
     def setLocale(self, locale: Any) -> None:
-        pass
-
-    def load(self, xSomething: Any) -> None:
-        pass
-
-    def unload(self) -> None:
         pass
 
     def supportsService(self, name: str) -> bool:
