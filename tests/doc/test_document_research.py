@@ -338,10 +338,11 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
         budget_url = path_to_file_url(budget)
         budget_norm = os.path.normpath(os.path.abspath(budget))
 
-        broken = MagicMock(name="leftover_paste_writer")
-        broken.getController.side_effect = RuntimeError(
-            "Couldn't convert <traceback object> to a UNO type"
-        )
+        class _BrokenController:
+            def getController(self):
+                raise RuntimeError("Couldn't convert <traceback object> to a UNO type")
+
+        broken = _BrokenController()
 
         good = MagicMock(name="saved_calc")
         good.getController.return_value = None
@@ -485,6 +486,21 @@ def test_resolve_path_or_name_basename_still_uses_listing():
             path, url = resolve_path_or_name(MagicMock(), model, "Budget.ods")
         assert path == os.path.normpath(budget)
         assert url == path_to_file_url(path)
+
+
+def test_resolve_path_or_name_no_match_does_not_fall_back_to_only_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        model = MagicMock()
+        with (
+            patch("plugin.doc.document_research.get_document_path", return_value=None),
+            patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
+            patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp),
+        ):
+            path, err = resolve_path_or_name(MagicMock(), model, "Report", filter="Budget")
+    assert path is None
+    assert err == "No file matching 'Report'"
 
 
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
