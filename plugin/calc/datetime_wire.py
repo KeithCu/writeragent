@@ -35,17 +35,17 @@ FormatDecision: TypeAlias = tuple[str, int | None] | str | None
 ApplyRun: TypeAlias = tuple[int, int, int]  # c0, c1, key (inclusive, relative)
 ApplyRect: TypeAlias = tuple[int, int, int, int, int]  # r0, r1, c0, c1, key
 
-# Bracketed alphabetic time unit: [HH], [H], [MM], [SS], localized [TT], etc.
-# Used to classify elapsed formats (DURATION bit never fires).
-_ELAPSED_BRACKET_RE = re.compile(r"\[[A-Za-z]+")
+# Bracketed elapsed unit: [HH], [H], [MM], [SS], localized [TT]/[UU].
+# Cap at 2 letters so color/modifier brackets ([RED], [NatNum1]) do not match.
+_ELAPSED_BRACKET_RE = re.compile(r"\[[A-Za-z]{1,2}\]")
 
-_DATE_PART = r"(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"
-_TIME_PART = r"([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?"
+_DATE_PART = r"([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+_TIME_PART = r"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?"
 _DATE_RE = re.compile(rf"^{_DATE_PART}$")
 _TIME_RE = re.compile(rf"^{_TIME_PART}$")
 _DATETIME_RE = re.compile(rf"^{_DATE_PART}[T ]{_TIME_PART}$")
-# Strict time-only duration: PT + at least one integer H/M/S. No Y/M/W/D, fractions, or sign.
-_DURATION_RE = re.compile(r"^PT(?=\d+[HMS])(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
+# Strict time-only duration: PT + integer H/M/S (ASCII, <=6 digits each); no Y/M/W/D, fractions, sign.
+_DURATION_RE = re.compile(r"^PT(?=[0-9]{1,6}[HMS])(?:([0-9]{1,6})H)?(?:([0-9]{1,6})M)?(?:([0-9]{1,6})S)?$")
 
 _NUMBER_FORMAT_DEFINED = 1
 _NUMBER_FORMAT_DATE = 2
