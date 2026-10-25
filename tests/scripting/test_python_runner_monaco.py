@@ -359,6 +359,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
                         enriched = enrich_monaco_load_message(load)
+                        assert enriched["save_as_plain"] is False
                         assert enriched["ui"]["script_label"]
 
                         response = captured["on_save"]("result = 2", False, "A1:B2", "run")

@@ -32,7 +32,7 @@
   var isDirty = false;
   var suppressDirty = false;
   var dataBindingTitle = "Calc injects `data` and `ranges` from these range(s) at runtime.";
-  var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PYTHON() formula.";
+  var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PY() formula.";
   var followCodeRef = false;
   var completeTimer = null;
   var completeSeq = 0;
@@ -143,7 +143,7 @@
     );
     dataBindingDisabledTitle = t(
       "data_binding_disabled_title",
-      "Data ranges apply only when saving as a =PYTHON() formula."
+      "Data ranges apply only when saving as a =PY() formula."
     );
     if (dataInput) {
       dataInput.title = dataBindingTitle;
@@ -195,8 +195,8 @@
     applyUiChrome();
 
     var plainEl = getPlainTextCheckbox();
-    if (plainEl && typeof msg.save_as_plain === "boolean") {
-      plainEl.checked = msg.save_as_plain;
+    if (plainEl) {
+      plainEl.checked = !!msg.save_as_plain;
     }
 
     // status_ok_text is a top-level load/saved field, not a ui key.
