@@ -47,7 +47,7 @@ else:
 
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
-from plugin.calc.array_formula import MAX_ARRAY_CELLS, CellRect, plan_target, result_range, returns_array
+from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
     format_category_from_type,

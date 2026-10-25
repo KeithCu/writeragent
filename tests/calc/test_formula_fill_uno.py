@@ -16,8 +16,6 @@ def test_formula_fill_differential_vs_libreoffice(ctx, doc):
 
     relative, absolute, mixed, quoted sheet, whole row/col, #REF! edge, 2-D.
     """
-    sheet = doc.getCurrentController().getActiveSheet()
-
     # 1. Relative formula
     res_rel = expand_single_formula("=A1", 3, 1)
     assert res_rel == ["=A1", "=A2", "=A3"]

@@ -18,6 +18,7 @@ names are unique in the document, and refresh materializes the output.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 try:
@@ -67,6 +68,8 @@ from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+
+log = logging.getLogger("writeragent.calc")
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -342,8 +345,8 @@ class CreatePivotTable(ToolCalcPivotBase):
             for stray_name in new_names:
                 try:
                     dp_tables.removeByName(stray_name)
-                except Exception:
-                    pass
+                except Exception as rm_exc:
+                    log.debug("Failed to remove stray pivot table %s: %s", stray_name, rm_exc)
             return self._tool_error(f"Pivot table '{pivot_name}' was not created; that name may already exist in the document.")
 
         # Refresh so output is materialized (avoids #VALUE! in some layouts).
@@ -357,8 +360,8 @@ class CreatePivotTable(ToolCalcPivotBase):
                     raise
                 try:
                     dp_tables.removeByName(pivot_name)
-                except Exception:
-                    pass
+                except Exception as rm_exc:
+                    log.debug("Failed to remove pivot table %s after refresh failure: %s", pivot_name, rm_exc)
                 return self._tool_error(f"Failed to refresh new pivot table '{pivot_name}': {exc}")
 
         return {

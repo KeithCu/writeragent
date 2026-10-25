@@ -8,7 +8,6 @@
 
 """Unit tests for Calc conditional formatting tools (failure modes and error harmonization)."""
 
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

@@ -224,8 +224,8 @@ class _StackedDrawPageCursor:
                     ctrl_name = getattr(s, "Name", "") or getattr(getattr(s, "Control", None), "Name", "") or ""
                     if ctrl_name:
                         self.control_names.add(ctrl_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("Failed to inspect shape for existing control name: %s", exc)
         self.next_y: int = bottom + self.gap
 
     def next_position(self, height: int) -> Point:
@@ -469,8 +469,8 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
                     ctrl_name = s_name if s_name else m_name
                     if ctrl_name == name:
                         return format_error_payload(ToolExecutionError(f"A form control named '{name}' already exists on this page."))
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("Failed to inspect shape for name collision: %s", exc)
 
     full_comp_name = CONTROL_TYPE_MAP[control_type]
 

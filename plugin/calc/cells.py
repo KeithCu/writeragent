@@ -24,7 +24,6 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 # crosshair: off
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 

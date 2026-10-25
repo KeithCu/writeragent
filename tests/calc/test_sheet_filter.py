@@ -105,6 +105,23 @@ def test_field_to_dict_missing_operator_omits_key():
     assert result["index"] == 0
 
 
+def test_field_to_dict_enum_connection():
+    class EnumObj:
+        value = "OR"
+
+    class FieldObj:
+        Operator = 1
+        Field = 0
+        Connection = EnumObj()
+        IsNumeric = True
+        NumericValue = 42.0
+
+    result = _field_to_dict(FieldObj(), 0)
+    assert result["connection"] == "OR"
+    assert result["operator_code"] == 1
+    assert result["value"] == 42.0
+
+
 def test_get_sheet_filter_contains_header_disposal_propagates():
     ctx = SimpleNamespace(doc=MagicMock())
     xf = MagicMock()

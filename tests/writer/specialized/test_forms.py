@@ -740,7 +740,6 @@ def test_writer_create_does_not_call_scanner(monkeypatch):
 
 
 def test_form_list_controls_handles_failing_shape(monkeypatch):
-    from plugin.writer.specialized.forms import FormListControls
     from com.sun.star.awt import Point, Size
 
     bad_shape = MagicMock()

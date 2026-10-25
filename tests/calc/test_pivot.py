@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-import uno
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.calc.pivot import AVERAGE, SUM, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable
+from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable
 from plugin.framework.errors import UnoObjectError
 
 
