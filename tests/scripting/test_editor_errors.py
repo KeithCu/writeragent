@@ -36,6 +36,25 @@ def test_failure_message_accepts_none_detail():
     assert msg == "Summary"
 
 
+def test_failure_detail_strips_blocks_and_keeps_one_blank_line():
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as e:
+        tb = exception_traceback(e)
+        detail = failure_detail(detail="  x \n\n y  ", exc=e)
+        assert detail == f"x \n\n y\n\n{tb.rstrip()}"
+        assert failure_detail(detail="   \n\n ", exc=e) == tb.rstrip()
+
+
+def test_failure_detail_without_blocks_is_empty():
+    assert failure_detail() == ""
+    assert failure_detail(detail="  \n\t", exc=None) == ""
+
+
+def test_failure_message_with_blank_detail_is_summary_only():
+    assert failure_message("Summary", detail="  \n\t") == "Summary"
+
+
 def test_failure_message_empty_summary():
     assert failure_message("", detail="", exc=None) == ""
 
