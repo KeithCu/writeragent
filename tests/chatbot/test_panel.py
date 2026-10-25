@@ -332,7 +332,7 @@ class TestSendDispose:
         tools._services = services
         with (
             patch("plugin.main.get_tools", return_value=tools),
-            patch("plugin.framework.event_bus.global_event_bus", other_bus),
+            patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),
         ):
             listener = _make_send_listener()
             assert _live_bus_callbacks(local_bus, "mcp:request")
@@ -359,7 +359,7 @@ class TestSendDispose:
         tools._services = services
         with (
             patch("plugin.main.get_tools", return_value=tools),
-            patch("plugin.framework.event_bus.global_event_bus", shared),
+            patch("plugin.framework.event_bus.get_event_bus", return_value=shared),
         ):
             listener = _make_send_listener()
             listener.disposing(None)
@@ -391,7 +391,7 @@ class TestSendDispose:
             patch("plugin.main.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
             patch.object(PanelEventsController, "_post_to_main_thread", side_effect=posted.append),
-            patch("plugin.framework.event_bus.global_event_bus", grammar_bus),
+            patch("plugin.framework.event_bus.get_event_bus", return_value=grammar_bus),
         ):
             listener = _make_send_listener()
             get_tools.assert_not_called()
@@ -2109,7 +2109,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
     tools._services = services
     with (
         patch("plugin.main.get_tools", return_value=tools),
-        patch("plugin.framework.event_bus.global_event_bus", other_bus),
+        patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),
     ):
         listener.disposing(None)
     assert not listener._last_mcp_turn

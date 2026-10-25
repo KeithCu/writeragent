@@ -26,7 +26,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
 from plugin.framework.thread_guard import background, main_thread_only
-from plugin.framework.event_bus import global_event_bus
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import QueueExecutor, default_executor
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
@@ -1019,7 +1019,7 @@ def _on_config_changed(**kwargs: Any) -> None:
     terminate_persistent_editor()
 
 
-global_event_bus.subscribe("config:changed", _on_config_changed)
+get_event_bus().subscribe("config:changed", _on_config_changed)
 
 
 # --- Session launch ---

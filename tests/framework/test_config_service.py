@@ -85,9 +85,9 @@ class TestEvents():
 
     def test_config_changed_event(self, config_svc):
         from unittest.mock import patch
-        from plugin.framework.event_bus import global_event_bus
+        from plugin.framework.event_bus import get_event_bus
 
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             config_svc.set('mcp.mcp_port', 9000)
             assert mock_emit.call_count == 1
             call_args = mock_emit.call_args
@@ -98,9 +98,9 @@ class TestEvents():
 
     def test_no_event_when_value_unchanged(self, config_svc):
         from unittest.mock import patch
-        from plugin.framework.event_bus import global_event_bus
+        from plugin.framework.event_bus import get_event_bus
 
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             config_svc.set('mcp.mcp_port', 18765)
             mock_emit.assert_not_called()
             config_svc.set('mcp.mcp_port', 18765)
@@ -208,11 +208,11 @@ def test_get_empty_string_false_and_zero_are_real_values(config_svc, monkeypatch
 
 def test_set_does_not_emit_when_replace_fails(config_svc) -> None:
     from unittest.mock import patch
-    from plugin.framework.event_bus import global_event_bus
+    from plugin.framework.event_bus import get_event_bus
     from plugin.framework.errors import ConfigError
 
     with patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")):
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             with pytest.raises(ConfigError) as err:
                 config_svc.set("mcp.mcp_port", 9000)
             mock_emit.assert_not_called()

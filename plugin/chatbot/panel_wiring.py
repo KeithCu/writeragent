@@ -11,7 +11,7 @@ from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.i18n import _
-from plugin.framework.event_bus import global_event_bus
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.logging import init_logging
 
 log = logging.getLogger(__name__)
@@ -448,7 +448,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     self._update_backend_indicator(root_window)
 
     # 6. Global Config Listener
-    global_event_bus.subscribe("config:changed", self._on_config_changed, weak=True)
+    get_event_bus().subscribe("config:changed", self._on_config_changed, weak=True)
 
     # Weekly extension update check: run once per process, late (after sidebar UI is wired)
     # so logging is initialized and AsyncCallback/msgbox are reliable.

@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import plugin.framework.config as config_mod
+from plugin.framework.event_bus import get_event_bus
 import plugin.testing_runner as tr
 
 from plugin.testing_runner import (
@@ -486,7 +487,7 @@ def test_native_suite_set_config_review_mode_keeps_mapped_event_key(monkeypatch)
     def emit(event: str, **data: object) -> None:
         emitted.append((event, dict(data)))
 
-    monkeypatch.setattr("plugin.framework.event_bus.global_event_bus.emit", emit)
+    monkeypatch.setattr(get_event_bus(), "emit", emit)
     override: dict[str, object] = {}
     ctx = object()
 

@@ -4,6 +4,7 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.event_bus import get_event_bus
 import pytest
 
 from plugin.chatbot.settings_fields import (
@@ -103,7 +104,7 @@ def test_apply_field_specs_result_uses_config_key():
     ]
     with (
         patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
-        patch("plugin.framework.event_bus.global_event_bus.emit") as mock_emit,
+        patch.object(get_event_bus(), "emit") as mock_emit,
     ):
         apply_field_specs_result(ctx, {"scripting__python_venv_path": "/opt/venv"}, specs)
 
@@ -341,7 +342,7 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
     try:
         with (
             patch("plugin.framework.config._config_path", return_value=str(path)),
-            patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
+            patch.object(get_event_bus(), "emit") as emit,
         ):
             set_configs({"text_model": "alpha", "request_timeout": 45})
             assert emit.call_count == 1

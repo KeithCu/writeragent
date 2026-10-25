@@ -45,7 +45,7 @@ def _patch_manifest(mock_modules):
         yield
     finally:
         config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig
-from plugin.framework.event_bus import global_event_bus
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.constants import get_plugin_dir
 import sys
 
@@ -83,7 +83,7 @@ class TestConfigSync:
 
     def test_set_text_model_writes_and_lru(self):
         self.config_data['text_model'] = ''
-        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(get_event_bus(), 'emit') as mock_emit:
             set_text_model('new-chat-model')
             assert (self.config_data.get('text_model')) == ('new-chat-model')
             mock_lru.assert_called_once_with('new-chat-model', 'model_lru', '')
@@ -127,7 +127,7 @@ class TestConfigSync:
 
     def test_set_image_model_endpoint(self):
         self.config_data['image_model'] = ''
-        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(get_event_bus(), 'emit') as mock_emit:
             set_image_model('new-endpoint-model')
             assert (self.config_data.get('image_model')) == ('new-endpoint-model')
             mock_lru.assert_called_once_with('new-endpoint-model', 'image_model_lru', '')
@@ -167,23 +167,24 @@ class TestConfigSync:
 
     def test_event_bus_listener_and_emit(self):
         called = []
+        bus = get_event_bus()
 
         def my_callback(ctx=None, **kwargs):
             called.append(ctx)
-        global_event_bus.subscribe('config:changed', my_callback)
+        bus.subscribe('config:changed', my_callback)
         try:
-            global_event_bus.emit('config:changed', ctx=self.ctx)
+            bus.emit('config:changed', ctx=self.ctx)
             assert (len(called)) == (1)
             assert (called[0]) == (self.ctx)
 
             def bad_callback(**kwargs):
                 raise ValueError('Simulated error')
-            global_event_bus.subscribe('config:changed', bad_callback)
-            global_event_bus.emit('config:changed', ctx=self.ctx)
+            bus.subscribe('config:changed', bad_callback)
+            bus.emit('config:changed', ctx=self.ctx)
             assert (len(called)) == (2)
         finally:
-            global_event_bus.unsubscribe('config:changed', my_callback)
-            global_event_bus.unsubscribe('config:changed', bad_callback)
+            bus.unsubscribe('config:changed', my_callback)
+            bus.unsubscribe('config:changed', bad_callback)
 
 
 class TestConfigSyncFileIO:
@@ -601,7 +602,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"endpoint": "http://keep.example", "text_model": "m"}, f)
         reset_config_for_tests()
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             set_config("notamodule.endpoint", "http://other.example")
             assert mock_emit.call_count == 1
             assert mock_emit.call_args.kwargs["key"] == "notamodule.endpoint"
@@ -637,7 +638,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"stt_model": "whisper-legacy"}, f)
         reset_config_for_tests()
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             remove_config("audio.stt_model")
             assert mock_emit.call_count == 1
             assert mock_emit.call_args.kwargs["key"] == "audio.stt_model"
@@ -661,7 +662,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"text_model": "test-model"}, f)
         reset_config_for_tests()
-        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+        with patch.object(get_event_bus(), "emit") as emit:
             set_config("request_timeout", 45)
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "request_timeout"
@@ -672,7 +673,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"request_timeout": 30}, f)
         reset_config_for_tests()
-        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+        with patch.object(get_event_bus(), "emit") as emit:
             set_config("request_timeout", 45)
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "request_timeout"
@@ -685,7 +686,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"text_model": "keep"}, f)
         reset_config_for_tests()
-        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+        with patch.object(get_event_bus(), "emit") as emit:
             remove_config("text_model")
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "text_model"
@@ -835,7 +836,7 @@ class TestConfigSyncFileIO:
                 'text_model': 'custom-model',
             }, f)
         reset_config_for_tests()
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_config('text_model', 'custom-model')
             mock_emit.assert_not_called()
         data = self._load_written()
@@ -844,7 +845,7 @@ class TestConfigSyncFileIO:
 
     def test_set_config_event_value_is_normalized_endpoint(self):
         reset_config_for_tests()
-        with patch.object(global_event_bus, "emit") as mock_emit:
+        with patch.object(get_event_bus(), "emit") as mock_emit:
             set_config("endpoint", "https://api.example.com/v1")
         assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
         assert self._load_written().get("endpoint") == "https://api.example.com"
@@ -918,10 +919,10 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_config('text_model', 'gpt')
             mock_emit.assert_not_called()
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_config('text_model', 'other')
             mock_emit.assert_called_once()
             assert mock_emit.call_args.args[0] == "config:changed"
@@ -943,7 +944,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, encoding='utf-8') as f:
             before = f.read()
 
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_config('request_timeout', 120)
             mock_emit.assert_not_called()
             # Settings passes the dialog string; coercion must happen first.
@@ -954,7 +955,7 @@ class TestConfigSyncFileIO:
             assert f.read() == before
         assert (get_config_int('request_timeout')) == (120)
 
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_config('request_timeout', 60)
             mock_emit.assert_called_once()
             assert mock_emit.call_args.args[0] == "config:changed"
@@ -1038,7 +1039,7 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         with open(self.config_path, encoding='utf-8') as f:
             before = f.read()
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_configs({'request_timeout': 120, 'temperature': -1, 'text_model': 'custom-model'})
             mock_emit.assert_not_called()
         with open(self.config_path, encoding='utf-8') as f:
@@ -1053,7 +1054,7 @@ class TestConfigSyncFileIO:
                 'custom_unrecognized_key': 'stay',
             }, f)
         reset_config_for_tests()
-        with patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch.object(get_event_bus(), 'emit') as mock_emit:
             set_configs({'image_model': 'flux', 'request_timeout': 60})
         assert mock_emit.call_count == 1
         assert mock_emit.call_args.kwargs['key'] == ''

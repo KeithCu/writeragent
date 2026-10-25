@@ -92,7 +92,7 @@ class PanelEventsController:
         event_bus = getattr(get_tools()._services, "events", None)
         if event_bus:
             # Remember this object and unsubscribe it in disposing.
-            # Unsubscribing global_event_bus leaves this subscription,
+            # Unsubscribing get_event_bus() leaves this subscription,
             # which keeps calling a closed panel.
             self._panel._mcp_event_bus = event_bus
             self._panel._subscribe(event_bus, "mcp:request", self._on_mcp_request)

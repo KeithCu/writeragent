@@ -308,10 +308,10 @@ class EventBus:
 
 
 def get_event_bus() -> EventBus:
-    """Return the true singleton EventBus across all LO import contexts."""
+    """Return the true singleton EventBus across all LO import contexts.
+
+    All callers call this at the point of use; there is deliberately no module-level alias.
+    """
     if not hasattr(sys, "_writeragent_event_bus"):
         setattr(sys, "_writeragent_event_bus", EventBus())
     return cast("EventBus", getattr(sys, "_writeragent_event_bus"))
-
-
-global_event_bus = get_event_bus()

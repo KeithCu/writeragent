@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.event_bus import get_event_bus
 from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, get_settings_field_specs
 import pytest
 
@@ -448,7 +449,7 @@ def test_apply_settings_translated_select_stores_value():
          patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
          patch("plugin.chatbot.settings_dialog.set_configs") as batch, \
          patch("plugin.framework.model_lru.update_lru_history"), \
-         patch("plugin.framework.event_bus.global_event_bus.emit"), \
+         patch.object(get_event_bus(), "emit"), \
          patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext):
         apply_settings_result(MagicMock(), {"doc__grammar_provider": "Uit"})
         apply_settings_result(MagicMock(), {"doc__grammar_provider": "Off"})
@@ -497,7 +498,7 @@ def test_apply_settings_result_one_batch_no_extra_emit():
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: order.append("batch") or values) as batch, \
          patch("plugin.framework.model_lru.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
-         patch("plugin.framework.event_bus.global_event_bus.emit") as emit, \
+         patch.object(get_event_bus(), "emit") as emit, \
          patch("plugin.framework.config.set_config") as single:
         apply_settings_result(MagicMock(), {
             "endpoint": raw_endpoint,
@@ -719,7 +720,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
     try:
         with (
             patch("plugin.framework.config._config_path", return_value=str(path)),
-            patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
+            patch.object(get_event_bus(), "emit") as emit,
             patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
             patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
             patch("plugin.framework.model_lru.update_lru_history") as lru,

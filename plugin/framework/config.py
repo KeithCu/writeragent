@@ -91,7 +91,7 @@ from typing import Any, Callable, Dict, TypeVar
 _T = TypeVar("_T", int, float)
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
-from plugin.framework.event_bus import global_event_bus
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
 
@@ -986,8 +986,9 @@ def _event_for_changes(effective: list[tuple[str, Any, Any]], *, event_key: str 
 
 def _emit_pending(pending: _PendingConfigEvent) -> None:
     # Handlers may get_config/set_config; the caller already dropped the lock.
+    bus = get_event_bus()
     if pending.batch:
-        global_event_bus.emit(
+        bus.emit(
             "config:changed",
             key=pending.key,
             keys=pending.keys,
@@ -996,7 +997,7 @@ def _emit_pending(pending: _PendingConfigEvent) -> None:
             ctx=_emit_config_changed_ctx(),
         )
         return
-    global_event_bus.emit(
+    bus.emit(
         "config:changed",
         key=pending.key,
         value=pending.value,
