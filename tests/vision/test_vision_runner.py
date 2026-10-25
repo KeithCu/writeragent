@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import base64
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -22,12 +22,15 @@ from plugin.vision.vision_runner import (
 )
 
 
-def test_get_selected_image_bytes_decodes_png():
+def test_get_selected_image_bytes_returns_raw_bytes():
     ctx = MagicMock()
     ctx.stop_checker = None
     doc = MagicMock()
+    graphic = MagicMock()
     raw = b"fake-png-bytes"
-    with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=base64.b64encode(raw).decode("ascii")):
+    with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
+        "plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=raw
+    ):
         assert get_selected_image_bytes(ctx, doc) == raw
 
 
@@ -35,7 +38,7 @@ def test_get_selected_image_bytes_raises_when_no_selection():
     ctx = MagicMock()
     ctx.stop_checker = None
     doc = MagicMock()
-    with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=None):
+    with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             get_selected_image_bytes(ctx, doc)
     assert exc.value.code == "NO_IMAGE_SELECTED"
@@ -45,11 +48,27 @@ def test_get_selected_image_bytes_raises_when_export_fails():
     ctx = MagicMock()
     ctx.stop_checker = None
     doc = MagicMock()
-    with patch("plugin.vision.vision_runner.get_selected_image_base64", side_effect=RuntimeError("export failed")):
+    graphic = MagicMock()
+    with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
+        "plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=RuntimeError("export failed")
+    ):
         with pytest.raises(ToolExecutionError) as exc:
             get_selected_image_bytes(ctx, doc)
     assert exc.value.code == "IMAGE_EXPORT_FAILED"
     assert "Could not export the selected image" in str(exc.value)
+
+
+def test_get_selected_image_bytes_raises_when_export_returns_none():
+    ctx = MagicMock()
+    ctx.stop_checker = None
+    doc = MagicMock()
+    graphic = MagicMock()
+    with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
+        "plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=None
+    ):
+        with pytest.raises(ToolExecutionError) as exc:
+            get_selected_image_bytes(ctx, doc)
+    assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
 
@@ -84,25 +103,29 @@ def test_run_trusted_vision_rejects_unknown_helper():
     assert exc.value.code == "VISION_ERROR"
 
 
+@patch("plugin.vision.vision_runner._get_graphic_object")
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision")
 @patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge):
+def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge, mock_get_obj):
     ctx = MagicMock()
     ctx.stop_checker = None
     doc = MagicMock()
+    graphic = MagicMock()
+    mock_get_obj.return_value = graphic
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
 
     run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1", "lang": "en"})
 
-    mock_bytes.assert_called_once_with(ctx, doc, image_name="Photo1")
+    mock_get_obj.assert_called_once_with(doc, "Photo1")
+    mock_bytes.assert_called_once_with(ctx, doc, image_name="Photo1", graphic_obj=graphic)
     mock_run_vision.assert_called_once_with(
         ctx,
-        {"helper": "extract_text", "params": {"image_name": "Photo1", "lang": "en"}},
+        {"helper": "extract_text", "params": {"lang": "en"}},
         b"png",
         context={"source": "graphic_name", "image_name": "Photo1"},
-            stop_checker=None,
+        stop_checker=None,
     )
 
 
@@ -222,6 +245,8 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
     assert result["images_processed"] == 2
     assert result["full_text"] == "text-Img1\n\ntext-Img2"
     assert mock_run.call_count == 2
+    assert "_merged" not in mock_run.call_args_list[0].kwargs["params"]
+    assert mock_run.call_args_list[0].kwargs["params"] == {"lang": "en", "image_name": "Img1"}
     assert mock_run.call_args_list[0].kwargs["params"]["image_name"] == "Img1"
     assert mock_run.call_args_list[1].kwargs["params"]["image_name"] == "Img2"
     assert insert.call_count == 2
@@ -400,31 +425,64 @@ def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
     rpc.assert_not_called()
 
 
-def test_resolve_locale_reraises_disposed_selection():
+def test_resolve_locale_reraises_disposed_graphic():
     class DisposedException(Exception):
         pass
 
-    doc = MagicMock()
-    selection = MagicMock()
-    selection.getCount.return_value = 0
-    selection.getPropertyValue.side_effect = DisposedException("gone")
-    doc.CurrentController.Selection = selection
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
-        _resolve_locale_language(MagicMock(), doc, None)
+        _resolve_locale_language(MagicMock(), graphic)
 
 
-def test_resolve_locale_runtime_exception_is_not_document_disposed():
+def test_resolve_locale_runtime_exception_graphic_falls_back_to_ui_locale():
     class RuntimeException(Exception):
         pass
 
-    doc = MagicMock()
-    selection = MagicMock()
-    selection.getCount.return_value = 0
-    selection.getPropertyValue.side_effect = RuntimeException("unexpected error")
-    doc.CurrentController.Selection = selection
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = RuntimeException("unexpected error")
     with patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
-        res = _resolve_locale_language(MagicMock(), doc, None)
+        res = _resolve_locale_language(MagicMock(), graphic)
     assert res == "en"
+
+
+def test_named_image_locale_ignores_other_selection():
+    ctx = MagicMock()
+    ctx.stop_checker = None
+    doc = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr") if prop == "CharLocale" else None
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+
+    with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
+            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
+            patch("plugin.vision.vision_runner.run_vision") as mock_run_vision, \
+            patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=b"png"):
+        mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
+        run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
+
+    mock_get_obj.assert_called_once_with(doc, "Photo1")
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "fr"
+
+
+def test_named_image_without_char_locale_uses_ui_locale_not_selection():
+    ctx = MagicMock()
+    ctx.stop_checker = None
+    doc = MagicMock()
+    graphic = MagicMock()
+    graphic.getPropertyValue.return_value = None
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+
+    with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
+            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
+            patch("plugin.vision.vision_runner.run_vision") as mock_run_vision, \
+            patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=b"png"), \
+            patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
+        mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
+        run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
+
+    mock_get_obj.assert_called_once_with(doc, "Photo1")
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "en"
 
 
 def test_run_trusted_vision_rejects_oversized_image_before_rpc():

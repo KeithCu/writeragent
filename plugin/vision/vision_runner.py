@@ -6,11 +6,10 @@
 
 from __future__ import annotations
 
-import base64
 from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_writer
-from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
+from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import execute_on_main_thread
@@ -22,7 +21,7 @@ from plugin.vision.vision_common import (
     VISION_IMAGE_MAX_BYTES,
     merge_vision_params,
 )
-from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
+from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 
 
 def supports_vision_manual(doc: Any) -> bool:
@@ -44,21 +43,22 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
 def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     """Export the currently selected embedded graphic as raw PNG bytes."""
     try:
-        b64 = get_selected_image_base64(doc, ctx)
+        graphic_obj = selected_graphic_object(doc)
+        png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj) if graphic_obj is not None else None
     except Exception as exc:
         raise ToolExecutionError(
             _("Could not export the selected image: {error}").format(error=exc),
             code="IMAGE_EXPORT_FAILED",
         ) from exc
-    if not b64:
+    if not png_bytes:
         raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
-    return base64.b64decode(b64)
+    return png_bytes
 
 
 def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = None, graphic_obj: Any = None) -> bytes:
     """Export PNG bytes from *image_name* or the current graphic selection."""
     name = str(image_name or "").strip()
-    if not name:
+    if not name and graphic_obj is None:
         return get_selected_image_bytes(ctx, doc)
 
     if graphic_obj is None:
@@ -92,20 +92,8 @@ def _validate_helper(helper: str) -> str:
     return name
 
 
-def _first_selected_object(doc: Any) -> Any:
-    try:
-        selection = doc.CurrentController.Selection
-        if selection:
-            if hasattr(selection, "getCount") and selection.getCount() > 0:
-                return selection.getByIndex(0)
-            return selection
-    except Exception as exc:
-        reraise_if_disposed(exc)
-    return None
-
-
-def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
-    # 1. Try to get CharLocale from the graphic object itself
+def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
+    # 1. CharLocale from the target graphic
     if graphic_obj is not None:
         try:
             locale = graphic_obj.getPropertyValue("CharLocale")
@@ -114,17 +102,7 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
         except Exception as exc:
             reraise_if_disposed(exc)
 
-    # 2. Try to get CharLocale from the current selection/cursor
-    try:
-        sel_obj = _first_selected_object(doc)
-        if sel_obj is not None:
-            locale = sel_obj.getPropertyValue("CharLocale")
-            if locale and getattr(locale, "Language", None):
-                return str(locale.Language).lower()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-
-    # 3. Fall back to LibreOffice UI locale
+    # 2. LibreOffice UI locale
     from plugin.framework.i18n import get_lo_locale
 
     lo_locale = get_lo_locale(ctx)
@@ -141,31 +119,20 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
     the UNO component context, which never carries the tool's stop flag.
     """
     name = _validate_helper(helper)
-    if params is not None and params.get("_merged"):
-        params_dict = dict(params)
-        params_dict.pop("_merged", None)
-    else:
-        params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
+    params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Graphic lookup, locale, and PNG export are UNO. OCR itself is not.
         local_params = dict(params_dict)
         image_name = local_params.get("image_name")
-        graphic_obj = None
-        if image_name:
-            graphic_obj = _get_graphic_object(doc, str(image_name))
-        else:
-            graphic_obj = _first_selected_object(doc)
+        name_str = str(image_name).strip() if image_name is not None else ""
+        graphic_obj = _get_graphic_object(doc, name_str) if name_str else selected_graphic_object(doc)
 
         if not local_params.get("lang"):
-            local_params["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
+            local_params["lang"] = _resolve_locale_language(ctx, graphic_obj)
 
-        png_bytes = resolve_vision_image_bytes(
-            ctx,
-            doc,
-            image_name=str(image_name) if image_name is not None else None,
-        )
-        source = "graphic_name" if str(image_name or "").strip() else "selection"
+        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=name_str or None, graphic_obj=graphic_obj)
+        source = "graphic_name" if name_str else "selection"
         context: dict[str, Any] = {"source": source}
         if source == "graphic_name":
             context["image_name"] = str(image_name).strip()
@@ -180,7 +147,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             code="IMAGE_TOO_LARGE",
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
-    spec: dict[str, Any] = {"helper": name, "params": params_out}
+    spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
     if stop_checker is None:
         stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
@@ -201,8 +168,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     if stop_checker is None:
         stop_checker = getattr(ctx, "stop_checker", None)
-    params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
-    params_dict["_merged"] = True
+    params_dict = dict(params) if params is not None else {}
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
     def _discover_names() -> list[str]:
