@@ -80,3 +80,12 @@ def test_dialogue_fire_merge_native(ctx: Any) -> None:
     assert any("Fire! Fire!" in t for t in bodies)
     assert any("Next sentence." in t for t in bodies)
     assert '"Fire!' not in bodies
+
+
+@native_test
+def test_split_quoted_abbreviation_native(ctx: Any) -> None:
+    text = 'He said "Dr. Smith went home." Next one.'
+    result = gt.split_into_sentences(ctx, "en-US", text)
+    bodies = [t.strip() for _o, t in result]
+    assert any("Dr. Smith" in b for b in bodies)
+    assert not any(b.endswith("Dr.") for b in bodies)

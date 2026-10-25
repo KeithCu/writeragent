@@ -51,11 +51,14 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
 from .grammar_ignore_rules import WA_G_RULE_PREFIX
 from .grammar_obs import grammar_obs
 from .grammar_proofread_locale import (
+    GRAMMAR_TRAILING_CLOSERS,
     GRAMMAR_WHITESPACE_RUN_RE,
     is_whitespace_sentence_locale,
     split_sentence_chunks_by_separator_regex,
 )
 from .locale_abbrev import CLDR_ABBREVS
+
+SentenceSpan = tuple[int, int, str]
 
 # ---------------------------------------------------------------------------
 # UTF-16 / Python code point offset conversion
@@ -79,16 +82,11 @@ class Utf16OffsetMap:
 
     def __init__(self, text: str) -> None:
         self._py_len = len(text)
-        if text.isascii() or not any(ord(ch) > 0xFFFF for ch in text):
-            self._is_bmp = True
-            self._u16_len = self._py_len
-            self._non_bmp = []
-            self._high_surrogates = []
-        else:
-            self._is_bmp = False
-            self._non_bmp = [i for i, ch in enumerate(text) if ord(ch) > 0xFFFF]
-            self._high_surrogates = [idx + k for k, idx in enumerate(self._non_bmp)]
-            self._u16_len = self._py_len + len(self._non_bmp)
+        non_bmp = [] if text.isascii() else [i for i, ch in enumerate(text) if ord(ch) > 0xFFFF]
+        self._non_bmp = non_bmp
+        self._high_surrogates = [idx + k for k, idx in enumerate(non_bmp)]
+        self._is_bmp = not non_bmp
+        self._u16_len = self._py_len + len(non_bmp)
 
     def py_to_utf16(self, index: int) -> int:
         """Convert a Python code point index to a UTF-16 code unit index."""
@@ -129,11 +127,6 @@ class Utf16OffsetMap:
         return u_start, max(0, u_end - u_start)
 
 
-def utf16_span(text: str, start: int, length: int) -> tuple[int, int]:
-    """Convert a Python [start, start + length) span in *text* to (u16_start, u16_length)."""
-    return Utf16OffsetMap(text).utf16_span(start, length)
-
-
 # ---------------------------------------------------------------------------
 # LibreOffice BreakIterator + Locale
 # ---------------------------------------------------------------------------
@@ -159,7 +152,7 @@ def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, A
 
 
 def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
-    """Return index after ``end_pos`` including any following whitespace on the same line."""
+    """Return index after ``end_pos`` including following whitespace (line breaks included)."""
     ws_end = end_pos
     while ws_end < len(text) and text[ws_end].isspace():
         ws_end += 1
@@ -180,6 +173,8 @@ def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
 # Future work: see docs/writer/grammar-checker-plan.md (Abbreviation detection / Future work).
 #
 _ABBREV_VOWELS: frozenset[str] = frozenset("aeiouyаеёиоуыэюяαεηιουω")
+# Openers a token can carry when an abbreviation starts a quote/bracket
+_ABBREV_LEADING_OPENERS = "\"'“‘«‹([{"
 
 
 def word_before_period_is_abbrev(word: str) -> int:
@@ -217,13 +212,12 @@ def word_before_period_is_abbrev(word: str) -> int:
     if w_norm.isalpha() and not any(ch in _ABBREV_VOWELS for ch in w_norm):
         return len(word)
 
-    log.debug("[grammar] obs word_before_period_is_abbrev REJECT word=%r", word)
     return 0
 
 
 def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:
     """Split *text* into ``(start_offset, sentence_text)`` pairs."""
-    if not text or not text.strip():
+    if not text or text.isspace():
         return []
 
     if is_whitespace_sentence_locale(locale_key):
@@ -248,29 +242,29 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         # '1.5'), we skip past it and ask BreakIterator for the next boundary from position k.
         while end_pos < len(text):
             # Cursor i: scan backward from candidate end to locate the sentence-terminating period,
-            # skipping any intervening trailing whitespace or closing quotes.
+            # skipping any intervening trailing whitespace or trailing closers (GRAMMAR_TRAILING_CLOSERS).
             i = end_pos - 1
-            while i >= pos and text[i].isspace():
+            while i >= pos and (text[i].isspace() or text[i] in GRAMMAR_TRAILING_CLOSERS):
                 i -= 1
             if i >= pos and text[i] == ".":
-                # Cursor j: scan backward from period to find the start of the preceding word token.
+                # Cursor j: scan backward from period to find the start of the preceding word token,
+                # stripping any leading openers carried when the abbreviation starts a quote/bracket.
                 j = i - 1
                 while j >= pos and not text[j].isspace() and text[j] not in ".!?":
                     j -= 1
-                word = text[j + 1 : i]
+                word = text[j + 1 : i].lstrip(_ABBREV_LEADING_OPENERS)
                 abbrev_len = word_before_period_is_abbrev(word)  # Returns alpha char count (1-6) or 1 for pure numbers
-                grammar_obs("word_before_period_is_abbrev", word=word, abbrev_len=abbrev_len, text_preview=text[pos:pos+60])
+                grammar_obs("word_before_period_is_abbrev", word=word, abbrev_len=abbrev_len)
                 if abbrev_len > 0:  # >0 means it's an abbreviation or number
-                    # Cursor k: advance past the period and any following whitespace to set the
+                    # Cursor k: advance past the period, trailing closers, and following whitespace to set the
                     # clean restart position for BreakIterator.
                     k = i + 1
-                    while k < len(text) and text[k].isspace():
+                    while k < len(text) and (text[k].isspace() or text[k] in GRAMMAR_TRAILING_CLOSERS):
                         k += 1
                     # Use BreakIterator from position k to find the real sentence end.
                     u16_k = u16_map.py_to_utf16(k)
                     new_u16 = bi.endOfSentence(text, u16_k, locale)
                     new_end = u16_map.utf16_to_py(new_u16)
-                    log.debug("[grammar] split_abbrev_skip word=%r abbrev_len=%d new_end=%d", word, abbrev_len, new_end)
                     grammar_obs("split_abbrev_skip", word=word, abbrev_len=abbrev_len, i=i, k=k, new_end_pos=new_end)
                     # Forward-progress guard: BreakIterator has been observed to return
                     # a position <= the abbreviation period itself (e.g. UNO. followed
@@ -288,8 +282,9 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         sentences.append((pos, text[pos:ws_end]))
         pos = ws_end
 
-    log.debug("[grammar] split_into_sentences result count=%d: %r", len(sentences), [s for _unused_idx, s in sentences])
-    return sentences or [(0, text)]
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("[grammar] split_into_sentences count=%d preview=%r locale=%s", len(sentences), slice_preview_debug(text), locale_key)
+    return sentences
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +361,7 @@ def candidate_sentence_spans_for_proofreading(
     a_text: str,
     n_start_lo: int,
     n_suggested_behind_end: int,
-) -> list[tuple[int, int, str]]:
+) -> list[SentenceSpan]:
     """Return ``(abs_start, abs_end, sentence_text)`` for sentences Writer should check this call.
 
     - ``n_start_lo == 0``: paragraph-scale pass — all sentences in ``a_text``.
@@ -377,7 +372,7 @@ def candidate_sentence_spans_for_proofreading(
         return []
     all_sents = merge_dialogue_sentences(all_sents)
     nlen = len(a_text)
-    spans: list[tuple[int, int, str]] = []
+    spans: list[SentenceSpan] = []
     for off, txt in all_sents:
         end = off + len(txt)
         spans.append((off, end, txt))
@@ -389,11 +384,11 @@ def candidate_sentence_spans_for_proofreading(
 
 
 def filter_sentence_spans_for_overlap(
-    spans: Sequence[tuple[int, int, str]],
+    spans: Sequence[SentenceSpan],
     n_start: int,
     n_suggested_end: int,
     nlen: int,
-) -> list[tuple[int, int, str]]:
+) -> list[SentenceSpan]:
     """Keep spans whose ``[start, end)`` overlaps the clamped active window."""
     lo = max(0, min(n_start, nlen))
     hi = max(lo, min(n_suggested_end, nlen))
@@ -401,11 +396,11 @@ def filter_sentence_spans_for_overlap(
 
 
 def active_spans_from_paragraph(
-    paragraph_spans: Sequence[tuple[int, int, str]],
+    paragraph_spans: Sequence[SentenceSpan],
     a_text: str,
     n_start: int,
     n_suggested_end: int,
-) -> list[tuple[int, int, str]]:
+) -> list[SentenceSpan]:
     """Active-window sentences from an already-split paragraph.
 
     ``n_start == 0`` is a paragraph-scale pass: return every span and ignore
@@ -423,8 +418,8 @@ def resolve_work_spans(
     a_text: str,
     n_start: int,
     n_suggested_end: int,
-    paragraph_spans: list[tuple[int, int, str]],
-) -> list[tuple[int, int, str]]:
+    paragraph_spans: list[SentenceSpan],
+) -> list[SentenceSpan]:
     """Active-window spans from the already-split, threshold-filtered paragraph.
 
     One BreakIterator pass happens in ``doProofreading``; this only overlap-filters
@@ -435,7 +430,7 @@ def resolve_work_spans(
     if not work_spans:
         grammar_obs(
             "do_proofreading_skip",
-            reason="no_eligible_sentences_or_incomplete_short",
+            reason="no_active_sentences",
             doc_id=a_doc_id,
             n_start_lo=n_start,
             raw_candidates=len(paragraph_spans),
@@ -494,13 +489,9 @@ def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_id
     rel = window.find(wrong, search_pos)
     if rel >= 0:
         return rel
-    rel = window.find(wrong)
-    if rel < 0:
-        return None
-    if rel < search_pos:
+    if window.find(wrong) >= 0:
         grammar_obs("normalize_skip_duplicate", wrong=wrong, wrong_idx=wrong_idx, search_pos=search_pos)
-        return None
-    return rel
+    return None
 
 
 def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple[int, int] | None:
@@ -539,7 +530,7 @@ def _suggestion_hint(suggestions: tuple[str, ...]) -> str:
         return _("No automatic replacement is available.")
     if "" in suggestions:
         return _("Suggested fix: delete the highlighted text (the blank replacement below).")
-    if any(value.isspace() for value in suggestions):
+    if suggestions == (" ",):
         return _("Suggested fix: replace with one space (the blank replacement below).")
     return _("Choose a replacement below.")
 
@@ -570,19 +561,14 @@ def _expand_span_for_overlap(pos: int, length: int, correct: str, full_text: str
     return pos, length
 
 
-def _is_span_overlapping(span: tuple[int, int], used_spans: list[tuple[int, int]]) -> bool:
-    """Return True if the proposed span overlaps with any previously used spans."""
-    return any(not (span[1] <= o[0] or span[0] >= o[1]) for o in used_spans)
-
-
 def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: str) -> NormalizedProofError:
     """Construct a NormalizedProofError from the raw JSON payload properties."""
-    reason = it.get("reason", "")
+    reason = str(it.get("reason") or "")
     existing = str(it.get("rule_identifier") or "").strip()
     rule_id = existing if existing else f"{WA_G_RULE_PREFIX}{reason}"
 
     sugg = _proofreading_suggestions(it, correct)
-    typ = it.get("type", "grammar")
+    typ = str(it.get("type") or "grammar")
     provider_short = str(it.get("short_comment") or "").strip()
     provider_full = str(it.get("full_comment") or "").strip()
     comment = provider_short or reason
@@ -641,6 +627,9 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
             if bi is None:
                 bi, locale = get_break_iterator_and_locale(ctx, loc_key)
             pos, length = _expand_span_for_overlap(pos, length, correct, full_text, bi, locale)
+            span_end = min(pos + length, slice_end)
+            pos = max(pos, slice_start)
+            length = max(0, span_end - pos)
             expanded_wrong = full_text[pos : pos + length]
             if expanded_wrong == correct:
                 continue
@@ -651,7 +640,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
         # point look overlapping and drop a diagnostic that used to be kept.
         if length > 0:
             span = (pos, pos + length)
-            if _is_span_overlapping(span, used_spans):
+            if any(span_overlaps_range(span[0], span[1], s, e) for s, e in used_spans):
                 continue
             used_spans.append(span)
 
@@ -661,7 +650,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
     return results
 
 
-def calculate_covered_span_end(active_spans: Sequence[tuple[int, int, str]]) -> int:
+def calculate_covered_span_end(active_spans: Sequence[SentenceSpan]) -> int:
     """Return the maximum end offset among active sentence spans, or 0 if empty."""
     if not active_spans:
         return 0
@@ -669,9 +658,9 @@ def calculate_covered_span_end(active_spans: Sequence[tuple[int, int, str]]) -> 
 
 
 def reconcile_active_and_paragraph_spans(
-    active_spans: Sequence[tuple[int, int, str]],
-    uncached_paragraph_spans: Sequence[tuple[int, int, str]],
-) -> list[tuple[int, int, str]]:
+    active_spans: Sequence[SentenceSpan],
+    uncached_paragraph_spans: Sequence[SentenceSpan],
+) -> list[SentenceSpan]:
     """Return the active sentence spans that need background enqueuing.
 
     An active span needs checking if its start offset matches an uncached sentence
