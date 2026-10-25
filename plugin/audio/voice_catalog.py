@@ -58,6 +58,9 @@ class Catalog:
 
 CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "voice_catalog.json")
 
+_PIPER_FIELDS: tuple[str, ...] = ("id", "onnx", "config", "lang", "label")
+_VOICE_FIELDS: tuple[str, ...] = ("id", "label")
+
 _FALLBACK_DEFAULTS: dict[str, str] = {
     "piper": "en_US-lessac-medium",
     "kokoro": "af_sky",
@@ -113,10 +116,7 @@ def _parse_catalog(raw: Any) -> Catalog:
             if not isinstance(entry, dict):
                 raise ValueError(f"voice_catalog.json: {family}.voices[{idx}] must be an object")
 
-            if family == "piper":
-                req_fields = ("id", "onnx", "config", "lang", "label")
-            else:
-                req_fields = ("id", "label")
+            req_fields = _PIPER_FIELDS if family == "piper" else _VOICE_FIELDS
 
             for field in req_fields:
                 if field not in entry:
