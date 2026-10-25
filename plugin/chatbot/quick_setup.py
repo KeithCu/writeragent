@@ -31,7 +31,7 @@ def check_endpoint_connection(endpoint: str, api_key: str = "") -> tuple[bool, s
     built = _v1_models_request(endpoint, api_key)
     if built is None:
         return False, _("Invalid endpoint URL."), []
-    base, models_url, unused_cache_key = built
+    base, models_url, _cache_key = built
 
     auth_headers = _model_fetch_auth_headers(
         base,
