@@ -36,7 +36,7 @@ Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addo
 
 ## 2. IPC protocol (pipe)
 
-Same framing as [`worker_harness.py`](../../plugin/scripting/worker_harness.py) (`struct.pack("!I", …)` + **pickle protocol 5**). Helpers live in [`editor_ipc.py`](../../plugin/scripting/editor_ipc.py) (`stamp_session`, `target_from_load`, `PARENT_TO_CHILD_TYPES`, `read_message` / `write_message`). Host dispatch is [`editor_host.py`](../../plugin/scripting/editor_host.py); the child echoes in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) and [`editor.js`](../../plugin/contrib/scripting/assets/editor/editor.js).
+Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) (`struct.pack("!I", …)` + **pickle protocol 5**). Helpers live in [`editor_ipc.py`](../../plugin/scripting/editor_ipc.py) (`stamp_session`, `target_from_load`, `PARENT_TO_CHILD_TYPES`, `read_message` / `write_message`). Host dispatch is [`editor_host.py`](../../plugin/scripting/editor_host.py); the child echoes in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) and [`editor.js`](../../plugin/contrib/scripting/assets/editor/editor.js).
 
 ### Message types
 

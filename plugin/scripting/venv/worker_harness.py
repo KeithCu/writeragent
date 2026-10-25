@@ -53,9 +53,11 @@ from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
 log = logging.getLogger("worker_harness")
+# The sandbox imports this module; sys.modules lookup avoids a second import on every request.
+_LPE_MODULE = "plugin.contrib.smolagents.local_python_executor"
 
 
-def _error_response(exc: BaseException | Exception) -> dict[str, Any]:
+def _error_response(exc: BaseException) -> dict[str, Any]:
     return {
         "status": "error",
         "message": str(exc),
@@ -297,12 +299,9 @@ def main() -> None:
         # exception is a terminal error frame with a traceback. Only a read
         # that desyncs the stream (exchange_tool_call reading a host reply)
         # ends the loop.
-        try:
-            import plugin.contrib.smolagents.local_python_executor as _lpe
-
-            _lpe.abandoned_timeout = False
-        except ImportError:
-            pass
+        lpe = sys.modules.get(_LPE_MODULE)
+        if lpe is not None:
+            setattr(lpe, "abandoned_timeout", False)
 
         try:
             response = _handle_request(request, stdout=stdout)
@@ -354,14 +353,10 @@ def main() -> None:
                 log.exception("Failed to write capped error frame for request id=%s", req_id)
                 break
 
-        try:
-            import plugin.contrib.smolagents.local_python_executor as _lpe
-
-            if getattr(_lpe, "abandoned_timeout", False):
-                _lpe.abandoned_timeout = False
-                os._exit(1)
-        except ImportError:
-            pass
+        lpe = sys.modules.get(_LPE_MODULE)
+        if lpe is not None and getattr(lpe, "abandoned_timeout", False):
+            setattr(lpe, "abandoned_timeout", False)
+            os._exit(1)
 
 
 if __name__ == "__main__":
