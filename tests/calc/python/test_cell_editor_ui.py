@@ -32,6 +32,7 @@ class _FakeControl:
         self.action_listeners: list = []
         self.item_listeners: list = []
         self.focus = False
+        self.events: list[str] = []
 
     def getText(self) -> str:
         return self._text
@@ -55,6 +56,7 @@ class _FakeControl:
 
     def setFocus(self) -> None:
         self.focus = True
+        self.events.append("focus")
 
     def addActionListener(self, listener: object) -> None:
         self.action_listeners.append(listener)
@@ -68,6 +70,7 @@ class _FakeControl:
 
 class _FakeDialog:
     def __init__(self) -> None:
+        self.events: list[str] = []
         self.controls = {
             "BtnSave": _FakeControl(),
             "BtnCancel": _FakeControl(),
@@ -78,6 +81,8 @@ class _FakeDialog:
             "StatusEdit": _FakeControl("Status: Ready"),
             "CodeEdit": _FakeControl(""),
         }
+        for ctrl in self.controls.values():
+            ctrl.events = self.events
         self.visible = False
         self.disposed = False
         self.top_listeners: list = []
@@ -87,6 +92,7 @@ class _FakeDialog:
 
     def setVisible(self, visible: bool) -> None:
         self.visible = bool(visible)
+        self.events.append("visible")
 
     def addTopWindowListener(self, listener: object) -> None:
         self.top_listeners.append(listener)
@@ -682,3 +688,81 @@ def test_native_follow_python_alias_and_clear_data():
     assert mock_save.call_args.kwargs["data_binding_text"] == ""
     assert mock_save.call_args.kwargs["code_ref"] == "$A$1"
     assert mock_save.call_args.kwargs["new_code"] == "result = 2"
+
+
+def test_native_focuses_code_after_visible():
+    dlg, inst = _open_native(initial_code="x", parsed_parts=None)
+    assert dlg.visible is True
+    assert dlg.events.index("visible") < dlg.events.index("focus")
+
+
+def test_native_retarget_refocuses_code():
+    dlg, inst = _open_native(initial_code="first", parsed_parts=None)
+    dlg.events.clear()
+    inst.retarget(doc=MagicMock(), cell=MagicMock(), initial_code="second", parsed_parts=None)
+    assert dlg.events.count("focus") == 1
+    assert "visible" not in dlg.events
+
+
+def test_native_external_dispose_clears_active():
+    dlg, inst = _open_native(initial_code="x", parsed_parts=None)
+    assert dlg.top_listeners
+    dlg.top_listeners[0].disposing(None)
+    assert inst.is_open is False
+    assert ui._active is None
+    assert dlg.disposed is False
+
+
+def test_native_save_exception_shows_reason_and_stays_dirty():
+    dlg, inst = _open_native(initial_code="x", parsed_parts=None)
+    inst._dirty = True
+    with patch("plugin.calc.python.editor._apply_cell_save", side_effect=RuntimeError("boom")):
+        inst._save()
+    assert inst._dirty is True
+    assert "Could not save the cell." in dlg.controls["StatusEdit"].getText()
+    assert "boom" in dlg.controls["StatusEdit"].getText()
+
+
+def test_xdl_controls_match_controller():
+    import re
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    root_dir = Path(__file__).resolve().parents[3]
+    root = ET.parse(root_dir / "extension" / "Dialogs" / "PythonCellEditorDialog.xdl").getroot()
+    ns = "{http://openoffice.org/2000/dialog}"
+    ids = {el.get(ns + "id") for el in root.iter() if el.get(ns + "id")}
+    required = {
+        "CellAddr", "BtnSave", "BtnCancel", "ChkPlainText",
+        "DataLbl", "DataEdit", "StatusEdit", "CodeEdit",
+    }
+    assert required <= ids
+    src = (root_dir / "plugin" / "calc" / "python" / "cell_editor_ui.py").read_text(encoding="utf-8")
+    used = set(re.findall(r'(?:_ctrl|getControl)\("([^"]+)"\)', src))
+    assert used <= ids
+    values = {el.get(ns + "id"): el.get(ns + "value") for el in root.iter() if el.get(ns + "id")}
+    assert values["ChkPlainText"] == "Save without =PY()"
+    assert values["DataLbl"] == "Data:"
+
+
+def test_status_text_prefixes_once():
+    assert ui._status_text("Saved.") == "Status: Saved."
+    assert ui._status_text("Status: Saved.") == "Status: Saved."
+    assert ui._status_text("") == "Status: Ready"
+
+
+def test_open_failure_returns_detail():
+    with patch.object(ui, "load_writeragent_dialog_detail", return_value=(None, "no xdl")):
+        opened, detail = ui.show_native_python_cell_editor(
+            MagicMock(), doc=MagicMock(), cell=MagicMock(), initial_code="x", parsed_parts=None
+        )
+    assert opened is False
+    assert detail == "no xdl"
+
+
+def test_native_data_help_text_follows_enablement():
+    dlg, inst = _open_native(initial_code="print(1)", parsed_parts=None)
+    assert "only when saving as a =PY() formula" in dlg.controls["DataEdit"]._model.HelpText
+    dlg.controls["ChkPlainText"].setState(0)
+    inst._sync_data_enabled()
+    assert "Calc injects" in dlg.controls["DataEdit"]._model.HelpText
