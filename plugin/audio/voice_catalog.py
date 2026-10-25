@@ -49,6 +49,7 @@ class Catalog:
     openai: tuple[VoiceRow, ...]
     system: tuple[VoiceRow, ...]
     kokoro_locale_defaults: dict[str, str]
+    piper_locale_defaults: dict[str, str]
     kokoro_aliases: dict[str, str]
     piper_fallback: str
     kokoro_fallback: str
@@ -99,6 +100,7 @@ def _parse_catalog(raw: Any) -> Catalog:
 
     fallbacks: dict[str, str] = {}
     kokoro_locale_defaults: dict[str, str] = {}
+    piper_locale_defaults: dict[str, str] = {}
 
     for family in ("piper", "kokoro", "openai", "system"):
         block = raw.get(family)
@@ -173,6 +175,8 @@ def _parse_catalog(raw: Any) -> Catalog:
                     )
             if family == "kokoro":
                 kokoro_locale_defaults = dict(loc_defaults)
+            elif family == "piper":
+                piper_locale_defaults = dict(loc_defaults)
 
     kokoro_block = raw["kokoro"]
     aliases = kokoro_block.get("openai_aliases")
@@ -193,6 +197,7 @@ def _parse_catalog(raw: Any) -> Catalog:
         openai=tuple(parsed_openai),
         system=tuple(parsed_system),
         kokoro_locale_defaults=kokoro_locale_defaults,
+        piper_locale_defaults=piper_locale_defaults,
         kokoro_aliases=kokoro_aliases,
         piper_fallback=fallbacks["piper"],
         kokoro_fallback=fallbacks["kokoro"],
@@ -209,6 +214,7 @@ KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
     {"value": r.id, "label": r.label, "lang": r.lang} for r in _CATALOG.kokoro
 ]
 LOCALE_TO_KOKORO_DEFAULT = dict(_CATALOG.kokoro_locale_defaults)
+LOCALE_TO_PIPER_DEFAULT = dict(_CATALOG.piper_locale_defaults)
 PIPER_FALLBACK_VOICE = _CATALOG.piper_fallback
 KOKORO_FALLBACK_VOICE = _CATALOG.kokoro_fallback
 KOKORO_OPENAI_ALIASES = dict(_CATALOG.kokoro_aliases)
@@ -247,6 +253,7 @@ __all__ = [
     "KOKORO_FALLBACK_VOICE",
     "KOKORO_OPENAI_ALIASES",
     "LOCALE_TO_KOKORO_DEFAULT",
+    "LOCALE_TO_PIPER_DEFAULT",
     "PIPER_FALLBACK_VOICE",
     "PIPER_VOICE_MODELS",
     "VOICE_CATALOGS",

@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable, Sequence
 
 from plugin.audio.kokoro_g2p import KOKORO_VOICE_PREFIX_TO_LANG
 from plugin.audio.voice_catalog import (
@@ -18,6 +19,7 @@ from plugin.audio.voice_catalog import (
     KOKORO_FALLBACK_VOICE as _KOKORO_FALLBACK_VOICE,
     KOKORO_OPENAI_ALIASES as _KOKORO_OPENAI_ALIASES,
     LOCALE_TO_KOKORO_DEFAULT as _LOCALE_TO_KOKORO_DEFAULT,
+    LOCALE_TO_PIPER_DEFAULT as _LOCALE_TO_PIPER_DEFAULT,
     PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
@@ -28,23 +30,35 @@ from plugin.framework.i18n import _
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "VoiceContext",
+    "canonical_voice_id",
     "catalog_voice_display_label",
     "clean_provider_name",
     "clean_voice_name",
-    "endpoint_is_together",
     "get_default_voice_for_locale",
     "get_scoped_tts_voice",
     "get_voice_catalog",
     "get_voice_family",
     "is_kokoro_voice_id",
+    "match_voice_id",
     "parse_tts_speed",
+    "pick_voice_id",
+    "resolve_voice_context",
     "set_scoped_tts_voice",
     "settings_voice_options",
-    "split_display_label",
     "tts_test_sample",
     "voice_choice_to_id",
     "voice_options_for_provider",
 ]
+
+
+@dataclass(frozen=True)
+class VoiceContext:
+    family: str                 # kokoro|piper|openai|openrouter|together|system
+    source: str                 # "catalog"|"harvested"|"unknown"
+    rows: tuple[dict[str, str], ...]
+    editable: bool
+
 
 def is_kokoro_voice_id(voice: str) -> bool:
     """True if voice starts with a known Kokoro prefix (e.g. af_, jf_, bm_)."""
@@ -61,14 +75,36 @@ def tts_test_sample() -> str:
     return _("Hello, I'm your LibreOffice WriterAgent.")
 
 
+def clean_provider_name(provider_or_label: str) -> str:
+    """Extract canonical provider code from a provider string or UI label."""
+    if not provider_or_label:
+        return "system"
+    # Deliberately uses first segment before ' (' to inspect the provider keyword
+    clean = provider_or_label.split(" (")[0].strip().lower()
+    for code in ("endpoint", "kokoro", "piper", "system"):
+        if code in clean:
+            return code
+    return "system"
+
+
 def _normalize_voice_family(family: str) -> str:
-    """Translate legacy or UI family names into canonical catalog keys."""
+    """Translate legacy or UI family names or provider labels into canonical catalog keys."""
     fam = (family or "").strip().lower()
+    if not fam:
+        return "system"
     if fam in ("local", "system_speech", "os", "native"):
         return "system"
     if fam in ("remote", "api", "cloud"):
         return "openai"
-    return fam
+    if fam in ("kokoro", "piper", "openai", "openrouter", "together", "system"):
+        return fam
+    if "openrouter" in fam:
+        return "openrouter"
+    if "together" in fam:
+        return "together"
+    if "openai" in fam:
+        return "openai"
+    return clean_provider_name(family)
 
 
 def _locale_language_stem(locale: str | None) -> str:
@@ -158,6 +194,39 @@ def catalog_voice_display_label(label: str) -> str:
     return human or head
 
 
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
+_FILE_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+
+
+def _looks_like_path(text: str) -> bool:
+    """True for absolute paths, Windows drive/UNC paths, or strings with / or \\."""
+    if not text:
+        return False
+    if os.path.isabs(text) or _WIN_DRIVE_RE.match(text) or text.startswith(r"\\"):
+        return True
+    return "/" in text or "\\" in text
+
+
+def clean_voice_name(voice_or_label: str) -> str:
+    """Extract canonical voice code from a voice string or legacy UI label.
+
+    ``af_bella (Kokoro US Female - Bella)`` yields ``af_bella``.
+    Preserves paths with parentheses like ``C:\\Program Files (x86)``.
+    """
+    if not voice_or_label:
+        return ""
+    text = voice_or_label.strip()
+    if _looks_like_path(text):
+        head, inside = split_display_label(text)
+        if inside is not None and head and _FILE_EXT_RE.search(head):
+            return head
+        return text
+    head, inside = split_display_label(text)
+    if inside is not None and head:
+        return head
+    return text
+
+
 def _buckets(
     rows: Any,
     is_locale: Any,
@@ -188,9 +257,9 @@ def _buckets(
 
 
 def _piper_default_for_stem(stem: str) -> str:
-    """First female voice for the language stem in Piper's catalog."""
-    if stem == "en":
-        return _PIPER_FALLBACK_VOICE
+    """Default Piper voice for the UI language stem (prefers JSON map, else female-first)."""
+    if stem in _LOCALE_TO_PIPER_DEFAULT:
+        return _LOCALE_TO_PIPER_DEFAULT[stem]
     return _first_matching(
         _PIPER_VOICE_MODELS.items(),
         lambda item: _voice_lang_matches_ui(stem, item[1][2]),
@@ -214,7 +283,7 @@ def _kokoro_default_for_stem(stem: str) -> str:
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
-    """Return the default voice for a family and the LibreOffice UI locale."""
+    """Return default voice for a family (canonical key or provider label) and UI locale."""
     fam = _normalize_voice_family(family)
     if locale is None:
         locale = i18n.get_active_locale()
@@ -231,7 +300,7 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
 
 
 def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
-    """Return ordered voice options for the family, prioritizing the active locale."""
+    """Return ordered voice options for a family (canonical key or provider label), prioritizing locale."""
     fam = _normalize_voice_family(family)
     if fam not in ("piper", "kokoro"):
         return VOICE_CATALOGS.get(fam, [])
@@ -270,211 +339,68 @@ def settings_voice_options(_services: Any = None) -> list[dict[str, str]]:
         return get_voice_catalog("system")
 
 
-def endpoint_is_together(endpoint: str | None = None) -> bool:
-    """True when the endpoint URL points at Together AI."""
-    ep = endpoint
-    if not ep:
-        from plugin.framework.config import get_current_endpoint
-
-        ep = get_current_endpoint() or ""
-    return "api.together" in str(ep).lower()
-
-
-def _sort_voice_rows_by_label(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+def _sort_voice_rows_by_label(rows: Sequence[dict[str, str]]) -> list[dict[str, str]]:
     """Sort voice option dicts by localized display label."""
     return sorted(rows, key=lambda row: row.get("label", "").casefold())
 
 
-def voice_options_for_provider(
-    provider: str,
-    model: str | None = None,
-    locale: str | None = None,
-    endpoint: str | None = None,
-) -> list[dict[str, str]]:
-    """Voice rows for Settings.
-
-    Together + LLM Endpoint reads ``cached_tts_supported_voices`` for
-    that TTS model. A miss does not HTTP: the Settings worker fills the
-    cache before the dialog applies it. OpenRouter models with a harvested
-    ``supported_voices`` list use those ids.
-    An OpenRouter speech model whose list omitted voices, or whose speech list
-    has not been fetched yet, returns ``[]`` so the combo stays free text
-    instead of the OpenAI alloy list. Other OpenAI-compatible endpoints keep
-    the openai catalog. Remote endpoint rows are sorted by display label.
-    Local Kokoro and Piper, including Kokoro served by an endpoint model id,
-    keep catalog and locale order.
-    """
-    prov = clean_provider_name(provider)
-    if prov == "endpoint":
-        together_rows = _together_endpoint_voice_rows(str(model or ""), endpoint)
-        if together_rows is not None:
-            return _sort_voice_rows_by_label(together_rows)
-        rows = _endpoint_voice_rows(str(model or ""))
-        if rows is not None:
-            return _sort_voice_rows_by_label(rows)
-        family = get_voice_family(prov, model, endpoint)
-        catalog = get_voice_catalog(family, locale)
-        # Alloy/nova list for other OpenAI-compatible hosts. Endpoint Kokoro
-        # keeps locale order. Together returns above (rows or []).
-        if family == "openai":
-            return _sort_voice_rows_by_label(catalog)
-        return catalog
-    return get_voice_catalog(get_voice_family(prov, model, endpoint), locale)
-
-
-def _together_endpoint_voice_rows(
-    model: str,
-    endpoint: str | None = None,
-) -> list[dict[str, str]] | None:
-    """Together voice rows, ``[]`` so alloy is not shown, or None for the family catalog.
-
-    Kokoro with no Together answer falls through to the local Kokoro catalog.
-    Orpheus and Cartesia do not: an empty list beats the OpenAI alloy list.
-    """
-    if not endpoint_is_together(endpoint):
+def match_voice_id(voice: str, candidates: Iterable[str]) -> str | None:
+    """Return matching candidate: exact match first, then first casefold match, else None."""
+    v = (voice or "").strip()
+    if not v:
         return None
-    mid = (model or "").strip()
-    if not mid:
-        return []
-    from plugin.framework.client.model_fetcher import cached_tts_supported_voices
-
-    voices = cached_tts_supported_voices(mid)
-    if voices:
-        # Label equals the token /audio/speech must send (Cartesia id or voice name).
-        return [{"value": voice, "label": voice} for voice in voices]
-    if "kokoro" in mid.lower():
-        return None
-    return []
-
-
-def _endpoint_voice_rows(model: str) -> list[dict[str, str]] | None:
-    """OR voice rows, ``[]`` for free text, or None to use the family catalog."""
-    from plugin.framework.client.model_fetcher import (
-        cached_tts_supported_voices,
-        openrouter_speech_list_has_model,
-        openrouter_speech_list_loaded,
-    )
-
-    voices = cached_tts_supported_voices(model) if model else []
-    if voices:
-        # Label equals the API id. Pretty-casing would hide ids the request must send.
-        return [{"value": voice, "label": voice} for voice in voices]
-    if model and "kokoro" in model.lower():
-        return None
-    if model and openrouter_speech_list_has_model(model):
-        # Fetched speech row with no supported_voices: do not invent alloy.
-        return []
-    if _saved_endpoint_is_openrouter() and not openrouter_speech_list_loaded():
-        # Not fetched yet. Alloy is the wrong list for Grok/Gemini speech models.
-        return []
+    cand_list = list(candidates)
+    for c in cand_list:
+        if c == v:
+            return c
+    v_fold = v.casefold()
+    for c in cand_list:
+        if c.casefold() == v_fold:
+            return c
     return None
 
 
-def _saved_endpoint_is_openrouter() -> bool:
-    """True when the saved chat endpoint is OpenRouter.
+def canonical_voice_id(family: str, voice: str) -> str:
+    """Canonicalize a voice id: clean name, match catalog spelling case-insensitively.
 
-    Speech uses the LLM Endpoint provider, so the host that will speak is the
-    saved URL, not an unsaved value still sitting in the endpoint combo.
+    Returns paths and unknown free text unchanged, lowercases known Kokoro ids,
+    and maps Kokoro OpenAI aliases case-insensitively.
     """
-    try:
-        from plugin.framework.client.provider_detection import get_provider_from_endpoint
-        from plugin.framework.config import get_current_endpoint as saved_endpoint
-
-        return get_provider_from_endpoint(saved_endpoint() or "") == "openrouter"
-    except Exception:
-        log.debug("TTS voice list: endpoint provider unavailable", exc_info=True)
-        return False
-
-
-def clean_provider_name(provider_or_label: str) -> str:
-    """Extract canonical provider code from a provider string or UI label."""
-    if not provider_or_label:
-        return "system"
-    # Deliberately uses first segment before ' (' to inspect the provider keyword
-    clean = provider_or_label.split(" (")[0].strip().lower()
-    for code in ("endpoint", "kokoro", "piper", "system"):
-        if code in clean:
-            return code
-    return "system"
-
-
-def clean_voice_name(voice_or_label: str) -> str:
-    """Extract canonical voice code from a voice string or legacy UI label.
-
-    ``af_bella (Kokoro US Female - Bella)`` yields ``af_bella``.
-    Does not break file paths containing parentheses like
-    ``C:\\Program Files (x86)\\...``.
-    """
-    if not voice_or_label:
+    clean_v = clean_voice_name(voice)
+    if not clean_v:
         return ""
-    text = voice_or_label.strip()
-    if os.path.isabs(text) and not text.endswith(")"):
-        return text
-    head, inside = split_display_label(text)
-    if inside is not None and head:
-        return head
-    return text
+    if _looks_like_path(clean_v):
+        return clean_v
+
+    fam = _normalize_voice_family(family)
+    if fam == "kokoro":
+        v_low = clean_v.lower()
+        alias_target = match_voice_id(v_low, _KOKORO_OPENAI_ALIASES)
+        if alias_target is not None:
+            clean_v = _KOKORO_OPENAI_ALIASES[alias_target]
+        elif is_kokoro_voice_id(v_low):
+            clean_v = v_low
+
+    if fam in ("kokoro", "piper", "openai", "system"):
+        catalog_values = [opt["value"] for opt in get_voice_catalog(fam)]
+        matched = match_voice_id(clean_v, catalog_values)
+        if matched is not None:
+            return matched
+        if fam == "kokoro" and is_kokoro_voice_id(clean_v):
+            return clean_v.lower()
+
+    return clean_v
 
 
-def voice_choice_to_id(choice: str, options: list[dict[str, str]] | None = None) -> str:
-    """Map a Voice combo string to the stored voice id."""
-    text = (choice or "").strip()
-    if not text:
-        return ""
-    rows = options or []
-    for opt in rows:
-        if text == str(opt.get("value") or ""):
-            return text
-    for opt in rows:
-        label = str(opt.get("label") or "")
-        if text == label or (label and text == i18n._(label)):
-            return str(opt.get("value") or "")
-    return clean_voice_name(text)
-
-
-def get_voice_family(
-    provider: str | None,
-    model: str | None = None,
-    endpoint: str | None = None,
-) -> str:
-    """Return voice family key ('kokoro', 'piper', 'openai', 'openrouter', 'together', 'system')."""
-    prov = clean_provider_name(provider or "")
-    if prov == "kokoro":
-        return "kokoro"
-    if prov == "piper":
-        return "piper"
-    if prov == "endpoint":
-        if model and "kokoro" in model.lower():
-            return "kokoro"
-        if endpoint_is_together(endpoint):
-            return "together"
-        if model and _endpoint_uses_openrouter_voices(model):
-            return "openrouter"
-        return "openai"
-    return "system"
-
-
-def _endpoint_uses_openrouter_voices(model: str) -> bool:
-    """True when this endpoint model should not use the OpenAI voice family."""
-    from plugin.framework.client.model_fetcher import (
-        cached_tts_supported_voices,
-        openrouter_speech_list_has_model,
-    )
-
-    if cached_tts_supported_voices(model):
-        return True
-    return openrouter_speech_list_has_model(model)
-
-
-def _preferred_harvested_voice(model: str | None, voices: list[str]) -> str:
+def _preferred_harvested_voice(model: str | None, voices: Sequence[str]) -> str:
     """First choice from an advertised voice array."""
     if not voices:
         return ""
     m = (model or "").lower()
     if "gemini" in m:
-        for candidate in ("Aoede", "aoede"):
-            if candidate in voices:
-                return candidate
+        matched = match_voice_id("Aoede", voices)
+        if matched is not None:
+            return matched
     sorted_ids = sorted(voices, key=lambda vid: vid.casefold())
     return sorted_ids[0]
 
@@ -487,13 +413,152 @@ def _voice_belongs_to_other_family(voice: str, current_family: str) -> bool:
     for fam in ("kokoro", "piper", "openai", "system"):
         if fam == current_family:
             continue
-        fam_voices = {opt["value"] for opt in get_voice_catalog(fam)}
-        if clean_v in fam_voices:
+        fam_voices = [opt["value"] for opt in get_voice_catalog(fam)]
+        if match_voice_id(clean_v, fam_voices) is not None:
             return True
     if current_family not in ("kokoro",):
-        if clean_v in _KOKORO_OPENAI_ALIASES or is_kokoro_voice_id(clean_v):
+        if match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES) is not None or is_kokoro_voice_id(clean_v):
             return True
     return False
+
+
+def _catalog_context(family: str, locale: str | None = None) -> VoiceContext:
+    rows = get_voice_catalog(family, locale)
+    if family == "openai":
+        rows = _sort_voice_rows_by_label(rows)
+    return VoiceContext(family=family, source="catalog", rows=tuple(rows), editable=False)
+
+
+def resolve_voice_context(
+    provider: str | None,
+    model: str | None = None,
+    endpoint: str | None = None,
+    locale: str | None = None,
+) -> VoiceContext:
+    """Resolve TTS voice family, source, catalog rows, and editability."""
+    prov = clean_provider_name(provider or "")
+    if prov in ("kokoro", "piper", "system"):
+        return _catalog_context(prov, locale)
+
+    # Provider is "endpoint"
+    m_str = str(model or "").strip()
+    if m_str and "kokoro" in m_str.lower():
+        return _catalog_context("kokoro", locale)
+
+    # Resolve endpoint and host
+    ep_val = endpoint if (endpoint is not None and str(endpoint).strip()) else config.get_current_endpoint()
+    ep_str = str(ep_val or "").strip()
+    host: str | None = None
+    if ep_str:
+        try:
+            from plugin.framework.client.provider_detection import get_provider_from_endpoint
+            from plugin.framework.errors import ConfigError
+
+            host = get_provider_from_endpoint(ep_str)
+        except (ConfigError, ValueError):
+            host = None
+
+    if m_str:
+        from plugin.framework.client.model_fetcher import cached_tts_supported_voices
+
+        tokens = cached_tts_supported_voices(m_str)
+        if tokens:
+            fam = "together" if host == "together" else "openrouter"
+            harvested_rows = [{"value": t, "label": t} for t in tokens]
+            return VoiceContext(
+                family=fam,
+                source="harvested",
+                rows=tuple(_sort_voice_rows_by_label(harvested_rows)),
+                editable=False,
+            )
+
+    if host == "together":
+        return VoiceContext(family="together", source="unknown", rows=(), editable=True)
+
+    if host == "openrouter":
+        from plugin.framework.client.model_fetcher import _model_fetch_tts_cache, cached_tts_models
+
+        models = cached_tts_models(ep_str)
+        if models is None:
+            raw_speech = _model_fetch_tts_cache.get("speech")
+            if isinstance(raw_speech, list):
+                models = raw_speech
+
+        if models is None:
+            return VoiceContext(family="openrouter", source="unknown", rows=(), editable=True)
+        if m_str and match_voice_id(m_str, models) is not None:
+            return VoiceContext(family="openrouter", source="unknown", rows=(), editable=True)
+        return _catalog_context("openai", locale)
+
+    return _catalog_context("openai", locale)
+
+
+def get_voice_family(
+    provider: str | None,
+    model: str | None = None,
+    endpoint: str | None = None,
+) -> str:
+    """Return voice family key ('kokoro', 'piper', 'openai', 'openrouter', 'together', 'system')."""
+    return resolve_voice_context(provider, model, endpoint=endpoint).family
+
+
+def voice_options_for_provider(
+    provider: str,
+    model: str | None = None,
+    locale: str | None = None,
+    endpoint: str | None = None,
+) -> list[dict[str, str]]:
+    """Voice rows for Settings."""
+    return list(resolve_voice_context(provider, model, locale=locale, endpoint=endpoint).rows)
+
+
+def voice_choice_to_id(choice: str, options: Sequence[dict[str, str]] | None = None) -> str:
+    """Map a Voice combo string to the stored voice id."""
+    text = (choice or "").strip()
+    if not text:
+        return ""
+    rows = options or []
+    values = [str(opt.get("value") or "") for opt in rows if "value" in opt]
+    matched_val = match_voice_id(text, values)
+    if matched_val is not None:
+        return matched_val
+    for opt in rows:
+        label = str(opt.get("label") or "")
+        if text == label or (label and text == i18n._(label)):
+            return str(opt.get("value") or "")
+    return clean_voice_name(text)
+
+
+def pick_voice_id(
+    *,
+    family: str,
+    model: str | None,
+    options: Sequence[dict[str, str]],
+    current_id: str = "",
+    stored_id: str = "",
+    locale: str | None = None,
+) -> str:
+    """Pick voice id for Settings dialog sync and save."""
+    if not options:
+        return match_voice_id(current_id, []) or current_id or stored_id
+
+    values = [str(opt.get("value") or "") for opt in options if "value" in opt]
+    if current_id:
+        matched = match_voice_id(current_id, values)
+        if matched is not None:
+            return matched
+    if stored_id:
+        matched = match_voice_id(stored_id, values)
+        if matched is not None:
+            return matched
+    if family in ("openrouter", "together"):
+        return _preferred_harvested_voice(model, values)
+
+    def_voice = get_default_voice_for_locale(family, locale)
+    matched = match_voice_id(def_voice, values)
+    if matched is not None:
+        return matched
+    return options[0]["value"]
 
 
 def get_scoped_tts_voice(
@@ -511,36 +576,43 @@ def get_scoped_tts_voice(
 
         model = get_tts_model()
 
-    family = get_voice_family(prov_clean, model, endpoint)
+    context = resolve_voice_context(prov_clean, model, endpoint=endpoint, locale=locale)
+    family = context.family
     scoped_key = f"audio.tts_voice_{family}"
     val = config.get_config(scoped_key)
     clean_scoped = clean_voice_name(val.strip()) if isinstance(val, str) and val.strip() else ""
     general_voice = str(config.get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
 
-    voices: list[str] = []
-    if prov_clean == "endpoint" and model:
-        from plugin.framework.client.model_fetcher import cached_tts_supported_voices
+    if context.source == "harvested":
+        harvested_values = [opt["value"] for opt in context.rows]
+        if clean_scoped:
+            matched = match_voice_id(clean_scoped, harvested_values)
+            if matched is not None:
+                return matched
+        if clean_gen:
+            matched = match_voice_id(clean_gen, harvested_values)
+            if matched is not None:
+                return matched
+        return _preferred_harvested_voice(model, harvested_values)
 
-        voices = cached_tts_supported_voices(str(model)) or []
-    if voices:
-        if clean_scoped in voices:
+    if context.editable and family in ("openrouter", "together"):
+        if clean_scoped and not _voice_belongs_to_other_family(clean_scoped, family):
             return clean_scoped
-        if clean_gen in voices:
-            return clean_gen
-        return _preferred_harvested_voice(model, voices)
-
-    if clean_scoped:
-        return clean_scoped
-
-    if family in ("openrouter", "together"):
         if clean_gen and not _voice_belongs_to_other_family(clean_gen, family):
             return clean_gen
-        return get_default_voice_for_locale(family, locale)
+        return ""
 
-    valid_voices = {opt["value"] for opt in get_voice_catalog(family, locale)}
-    if clean_gen in valid_voices:
-        return clean_gen
+    # Catalog families
+    valid_voices = {opt["value"] for opt in context.rows}
+    if clean_scoped:
+        canon_scoped = canonical_voice_id(family, clean_scoped)
+        if canon_scoped in valid_voices or _looks_like_path(canon_scoped):
+            return canon_scoped
+    if clean_gen:
+        canon_gen = canonical_voice_id(family, clean_gen)
+        if canon_gen in valid_voices or _looks_like_path(canon_gen):
+            return canon_gen
 
     return get_default_voice_for_locale(family, locale)
 
@@ -552,10 +624,10 @@ def set_scoped_tts_voice(
     endpoint: str | None = None,
 ) -> None:
     """Persist the voice selection for the given provider/model family."""
-    clean_v = clean_voice_name(voice)
+    family = get_voice_family(provider, model, endpoint)
+    clean_v = canonical_voice_id(family, voice)
     if not clean_v:
         return
-    family = get_voice_family(provider, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
     config.set_config(scoped_key, clean_v)
     config.set_config("audio.tts_voice", clean_v)

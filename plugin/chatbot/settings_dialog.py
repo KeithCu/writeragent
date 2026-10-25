@@ -280,10 +280,9 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
         elif save_key == "audio.tts_voice":
             from plugin.audio.tts_voices import (
                 clean_provider_name,
-                clean_voice_name,
-                get_voice_family,
+                pick_voice_id,
+                resolve_voice_context,
                 voice_choice_to_id,
-                voice_options_for_provider,
             )
             # The generic label match above can bind a shared parenthetical
             # (French Female - Siwis) to the provider that was current when
@@ -296,14 +295,20 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             model_key = model_spec["name"] if model_spec and "name" in model_spec else "audio__tts_model"
             prov = result.get(prov_key) or ""
             model = result.get(model_key) or ""
-            options = voice_options_for_provider(str(prov), str(model))
-            val = voice_choice_to_id(str(result.get(key) or ""), options)
-            clean_v = clean_voice_name(val)
+            prov_clean = clean_provider_name(str(prov))
+            voice_endpoint = current_endpoint if "endpoint" in result else None
+            context = resolve_voice_context(prov_clean, str(model), endpoint=voice_endpoint)
+            current_id = voice_choice_to_id(str(result.get(key) or ""), context.rows)
+            stored = str(get_config(f"audio.tts_voice_{context.family}") or "")
+            clean_v = pick_voice_id(
+                family=context.family,
+                model=str(model),
+                options=context.rows,
+                current_id=current_id,
+                stored_id=stored,
+            )
             if clean_v:
-                prov_clean = clean_provider_name(str(prov))
-                voice_endpoint = current_endpoint if "endpoint" in result else None
-                family = get_voice_family(prov_clean, str(model), voice_endpoint)
-                pending[f"audio.tts_voice_{family}"] = clean_v
+                pending[f"audio.tts_voice_{context.family}"] = clean_v
                 pending["audio.tts_voice"] = clean_v
             else:
                 pending["audio.tts_voice"] = val

@@ -49,8 +49,14 @@ def test_resolve_tts_voice():
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "am_adam") == "am_adam"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "if_sara") == "if_sara"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "pf_dora") == "pf_dora"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "AF_BELLA") == "af_bella"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "") == "af_sky"
     assert _resolve_tts_voice("openai/tts-1", "nova") == "nova"
     assert _resolve_tts_voice("openai/tts-1", "alloy") == "alloy"
+    assert _resolve_tts_voice("openai/tts-1", "", endpoint_url="https://api.openai.com") == "alloy"
+    assert _resolve_tts_voice("openai/tts-1", "") == "alloy"
+    gemini = "google/gemini-2.5-flash-preview-tts"
+    assert _resolve_tts_voice(gemini, "", endpoint_url="https://openrouter.ai/api") == ""
 
 
 def test_speech_url():
@@ -141,6 +147,25 @@ def test_speak_endpoint_payload():
         assert payload["model"] == "hexgrad/Kokoro-82M"
         assert payload["voice"] == "af_sky"
         assert payload["response_format"] == "mp3"
+
+
+def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
+    """Cold OpenRouter with empty voice must omit the voice key from the payload."""
+    cfg._model_fetch_tts_cache.clear()
+    cfg._tts_supported_voices.clear()
+
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")) as mock_sync:
+        _download_endpoint_speech(
+            "Hello",
+            "https://openrouter.ai/api",
+            "k",
+            model="google/gemini-2.5-flash-preview-tts",
+            voice="",
+        )
+        assert mock_sync.called
+        payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
+        assert "voice" not in payload
+        assert payload["model"] == "google/gemini-2.5-flash-preview-tts"
 
 
 def test_speak_endpoint_prefers_cached_openrouter_speech_id():
