@@ -40,27 +40,50 @@ class DetectErrors(ToolCalcErrorBase):
 
     name: str | None = "detect_and_explain_errors"
     intent: str | None = "edit"
-    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas."
+    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        raw = kwargs.get("range")
+        if raw is None:
+            ranges: list[Any] = []
+        elif isinstance(raw, str):
+            ranges = [raw]
+        elif isinstance(raw, list):
+            ranges = list(raw)
+        else:
+            return self._tool_error("range must be a string or a list of strings", code="INVALID_RANGE")
+
+        for idx, entry in enumerate(ranges):
+            if not isinstance(entry, str) or not entry.strip():
+                return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_RANGE")
+
+        ranges = [entry.strip() for entry in ranges]
+
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
-        rn = kwargs.get("range")
-        if isinstance(rn, str):
-            rn = [rn] if rn.strip() else []
-        elif not isinstance(rn, list):
-            rn = []
 
-        if rn:
-            results = [error_detector.detect_and_explain(range_str=r) for r in rn if r]
-            combined_errors = []
-            for res in results:
-                combined_errors.extend(res.get("errors", []))
-            return {"status": "ok", "result": {"error_count": len(combined_errors), "errors": combined_errors}}
-        else:
-            result = error_detector.detect_and_explain(range_str=None)
-            return {"status": "ok", "result": result}
+        if not ranges:
+            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=None)}
+        if len(ranges) == 1:
+            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=ranges[0])}
+
+        results = [error_detector.detect_and_explain(range_str=r) for r in ranges]
+        combined_errors: list[dict[str, Any]] = []
+        for res in results:
+            combined_errors.extend(res.get("errors", []))
+        total = sum(res.get("total_error_count", res.get("error_count", 0)) for res in results)
+        truncated = any(res.get("truncated") for res in results)
+        return {
+            "status": "ok",
+            "result": {
+                "ranges": ranges,
+                "total_error_count": total,
+                "error_count": len(combined_errors),
+                "truncated": truncated,
+                "errors": combined_errors,
+            },
+        }

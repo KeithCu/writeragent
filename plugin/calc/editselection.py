@@ -19,11 +19,15 @@
 
 from typing import Any
 
+from plugin.calc.calc_utils import FORMULA, TEXT
+from plugin.chatbot.dialogs import msgbox
+from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
 from plugin.framework.config import get_config_int, get_config_str
 from plugin.framework.errors import format_error_message
-from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
-from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
+
+# Caps queued LLM tasks so a huge selection cannot queue minutes of requests.
+_MAX_CELLS = 250
 
 
 def _build_calc_edit_prompt(original: str, instructions: str) -> str:
@@ -70,6 +74,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     end_row = min(area.EndRow, used_area.EndRow)
 
     if start_col > end_col or start_row > end_row:
+        msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
     col_range = range(start_col, end_col + 1)
@@ -78,9 +83,11 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()
 
+    truncated = False
     for row_idx, row in enumerate(row_range):
         for col_idx, col in enumerate(col_range):
-            if len(tasks) >= 250:
+            if len(tasks) >= _MAX_CELLS:
+                truncated = True
                 break
             raw_val = formula_array[row_idx][col_idx]
 
@@ -98,10 +105,15 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
                 prompt = _build_calc_edit_prompt(cell_original, user_input)
                 max_tokens = len(cell_original) + edit_max
                 tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_original)))
-        if len(tasks) >= 250:
+        if len(tasks) >= _MAX_CELLS:
+            truncated = True
             break
 
+    if truncated:
+        msgbox(ctx, title, _("Only the first {0} non-empty cells are edited.").format(_MAX_CELLS))
+
     if not tasks:
+        msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
     client = create_validated_client(ctx, title)
@@ -111,6 +123,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
+        cell_kind = cell.getType()
 
         # Keep Calc writes local to the cell adapter; the shared code only drives the stream.
         accumulated_text = [""]
@@ -120,11 +133,17 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                cell.setFormula(accumulated_text[0])
+                if cell_kind == FORMULA:
+                    cell.setFormula(accumulated_text[0])
+                else:
+                    cell.setString(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:
-                cell.setFormula(original)
+                if cell_kind == TEXT:
+                    cell.setString(original)
+                else:
+                    cell.setFormula(original)
             msgbox(ctx, title, format_error_message(e))
 
         return apply_chunk, on_error

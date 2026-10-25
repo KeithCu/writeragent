@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.calc.address_utils import A1_CELL_RE, index_to_column, parse_address, parse_range_string
+from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
 try:
@@ -36,6 +36,9 @@ except ImportError:
     RESULT_ERROR = cast("Any", 4)
 
 log = logging.getLogger("writeragent.calc")
+
+# Cap per call, matching the other large-result caps.
+_MAX_EXPLAINED_ERRORS = 50
 
 # LibreOffice Calc error types and descriptions
 ERROR_TYPES = {
@@ -67,6 +70,7 @@ ERROR_TYPES = {
     533: {"code": "#NULL!", "name": "Nested arrays are not supported", "description": "The intersection of two ranges is empty or nested arrays are unsupported."},
     538: {"code": "#VALUE!", "name": "Error: Array or matrix size", "description": "Array or matrix dimensions do not match."},
     539: {"code": "#VALUE!", "name": "Unsupported inline array content", "description": "Unsupported inline array content in formula."},
+    32767: {"code": "#N/A", "name": "#N/A", "description": "The value is not available. A lookup or reference did not find a match."},
 }
 
 # Bugfix: unifies the two disparate Calc error token lists (ERROR_PATTERNS here
@@ -127,8 +131,10 @@ class ErrorDetector:
         if error_code == 0:
             return {}
         if error_code in ERROR_TYPES:
-            return ERROR_TYPES[error_code].copy()
-        return {"code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
+            info = ERROR_TYPES[error_code].copy()
+            info["error_code"] = error_code
+            return info
+        return {"error_code": error_code, "code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
 
     def detect_errors(self, range_str: str | None = None) -> list[dict[str, Any]]:
         """Detect errors in the specified range or the entire sheet.
@@ -172,11 +178,10 @@ class ErrorDetector:
                     error_info = self.get_error_type(cell)
                     if error_info:
                         addr = cell.getCellAddress()
-                        col_str = index_to_column(addr.Column)
-                        address = f"{col_str}{addr.Row + 1}"
+                        address = qualify_a1(str(sheet.getName()), format_address(addr.Column, addr.Row))
                         errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
 
-        log.info("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
+        log.debug("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
         return errors
 
     def explain_error(self, address: str) -> dict[str, Any]:
@@ -188,20 +193,20 @@ class ErrorDetector:
         Returns:
             dict with keys: address, formula, error, precedents, suggestion.
         """
-        cell_details = self.inspector.get_cell_details(address)
-
-        # Get precedent cells via formula parsing
-        col, row = parse_address(address)
-        sheet = self.bridge.get_active_sheet()
+        sheet, bare = self.bridge.resolve(address)
+        col, row = parse_address(bare)
         cell = sheet.getCellByPosition(col, row)
         formula = cell.getFormula() or ""
+        display_address = qualify_a1(str(sheet.getName()), format_address(col, row))
+
+        # Get precedent cells via formula parsing
         refs = A1_CELL_RE.findall(formula.upper())
         precedent_addrs = list({f"{c}{r}" for c, r in refs})
 
         error_info = self.get_error_type(cell)
 
         if not error_info:
-            return {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
+            return {"address": display_address, "formula": formula, "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
 
         precedent_details = []
         for prec_addr in precedent_addrs:
@@ -224,7 +229,7 @@ class ErrorDetector:
         except Exception as e:
             log.debug("FormulaDepChain unavailable for %s: %s", address, e)
 
-        result = {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
+        result = {"address": display_address, "formula": formula, "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
         if dependency_chain:
             result["dependency_chain"] = dependency_chain
         return result
@@ -236,12 +241,13 @@ class ErrorDetector:
             range_str: Cell range to check (whole sheet if *None*).
 
         Returns:
-            dict with keys: range, error_count, errors.
+            dict with keys: range, total_error_count, error_count, truncated, errors.
         """
         errors = self.detect_errors(range_str)
         detailed = []
+        truncated = len(errors) > _MAX_EXPLAINED_ERRORS
 
-        for item in errors:
+        for item in errors[:_MAX_EXPLAINED_ERRORS]:
             address = item.get("address")
             if not address:
                 continue
@@ -252,32 +258,41 @@ class ErrorDetector:
                 log.warning("Explain errors failed for %s: %s", address, e)
                 detailed.append({"address": address, "formula": item.get("formula", ""), "error": item.get("error"), "precedents": [], "suggestion": "Could not explain error; basic info shown."})
 
-        return {"range": range_str or "used_area", "error_count": len(detailed), "errors": detailed}
+        return {
+            "range": range_str or "used_area",
+            "total_error_count": len(errors),
+            "error_count": len(detailed),
+            "truncated": truncated,
+            "errors": detailed,
+        }
 
     @staticmethod
     def _generate_suggestion(error_info: dict[str, Any], precedents: list[dict[str, Any]]) -> str:
         """Generate a fix suggestion based on error type and precedent cells."""
-        code = error_info.get("code", "")
+        error_code = error_info.get("error_code")
 
-        if code == "#DIV/0!":
+        if error_code == 532:
             zero_cells = [p["address"] for p in precedents if p.get("value") == 0 or p.get("value") is None]
             if zero_cells:
                 return f"Division by zero error. The following cells are zero or empty: {', '.join(zero_cells)}. Try adding a zero check with the IF function: =IF(divisor<>0; dividend/divisor; 0)"
             return "Division by zero error. Make sure the divisor value is not zero or add a check with the IF function."
 
-        if code == "#REF!":
+        if error_code == 524:
             return "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references."
 
-        if code == "#NAME?":
+        if error_code == 522:
+            return "Circular reference: the formula refers to itself directly or indirectly. Break the circular chain or enable iterative calculation."
+
+        if error_code == 525:
             return "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist."
 
-        if code == "#VALUE!":
+        if error_code == 519:
             text_cells = [p["address"] for p in precedents if p.get("type") == "text"]
             if text_cells:
                 return f"Value type error. The following cells contain text instead of numbers: {', '.join(text_cells)}. You can use the VALUE() function for text-to-number conversion."
             return "Value type error. A value of an unexpected type was used in the formula. Check the types of cell values."
 
-        if code == "#N/A":
-            return "Value not found error. The value being searched for in VLOOKUP or a similar search function was not found. You can set a default value with IFERROR."
+        if error_code == 32767:
+            return "#N/A: a lookup or reference did not find a match. Check the search value or add a default with IFERROR."
 
         return error_info.get("description", "Unknown error. Check the formula.")
