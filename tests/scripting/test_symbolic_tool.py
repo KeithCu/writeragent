@@ -135,3 +135,85 @@ def test_run_trusted_symbolic_rejects_draw(doc_type):
             doc_type=doc_type,
         )
     assert "Writer or Calc" in str(exc_info.value)
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_forwards_tool_context_for_stop(mock_run, writer_ctx):
+    mock_run.return_value = {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
+    tool = SymbolicMathTool()
+    tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    mock_run.assert_called_once()
+    assert mock_run.call_args.args[0] is writer_ctx
+    assert mock_run.call_args.args[1] is writer_ctx.doc
+
+
+@patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, writer_ctx):
+    mock_run.return_value = {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
+    mock_insert.assert_not_called()
+    assert "math_inserted" not in result
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_rejects_unknown_param_key(mock_run, writer_ctx):
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="solve_equation", params={"variabel": "t"})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
+    assert "variabel" in result["message"]
+    assert "equation" in result["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_rejects_extra_param_key(mock_run, writer_ctx):
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="integrate", params={"expression": "x", "constant": "C"})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
+    assert "constant" in result["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_accepts_the_latex_expression_alias(mock_run, writer_ctx):
+    mock_run.return_value = {"status": "ok", "helper": "latex_to_math_object", "latex": "x^2", "text": "x^2"}
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="latex_to_math_object", params={"expression": "x^2"})
+    assert result["status"] == "ok"
+    mock_run.assert_called_once()
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_accepts_numeric_zero_param(mock_run, writer_ctx):
+    mock_run.return_value = {"status": "ok", "helper": "integrate", "latex": "0", "text": "0"}
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="integrate", params={"expression": "x", "lower": 0, "upper": 1})
+    assert result["status"] == "ok"
+    mock_run.assert_called_once()
+
+
+@patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
+@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thread, mock_insert, writer_ctx):
+    mock_run.return_value = {
+        "status": "ok",
+        "helper": "symbolic_simplify",
+        "latex": "2",
+        "text": "2",
+    }
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    writer_ctx.doc_type = "calc"
+
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "2"})
+
+    assert result["status"] == "ok"
+    assert result["math_inserted"] is False
+    assert result["message"] == "Symbolic result written to active sheet"
+
