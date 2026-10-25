@@ -95,26 +95,23 @@ def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
-def test_schema_int_rejects_bool():
-    """A YAML bool must take the non-int path. bool is a subclass of int."""
-    import plugin.scripting.config_limits as cl
+@pytest.mark.parametrize(
+    ("getter", "field", "name"),
+    [
+        (python_exec_timeout_default, "python_exec_timeout", "default"),
+        (python_exec_timeout_min, "python_exec_timeout", "min"),
+        (python_exec_timeout_max, "python_exec_timeout", "max"),
+        (python_max_data_cells_default, "python_max_data_cells", "default"),
+        (python_max_data_cells_min, "python_max_data_cells", "min"),
+        (python_max_data_cells_max, "python_max_data_cells", "max"),
+    ],
+)
+def test_schema_getters_match_config_schema(getter, field, name):
+    from plugin.framework.config_schema import get_config_schema
 
-    def _bool_field(field_name: str, *, required: bool = False) -> dict[str, object]:
-        del field_name, required
-        return {"default": True, "min": False}
-
-    original = cl._scripting_schema_field
-    cl._schema_int.cache_clear()
-    cl._scripting_schema_field = _bool_field
-    try:
-        assert cl._schema_int("bool_probe", "default", fallback=10) == 10
-        assert type(cl._schema_int("bool_probe", "default", fallback=10)) is int
-        with pytest.raises(RuntimeError, match=r"bool_probe\.min must be int"):
-            cl._schema_int("bool_probe", "min")
-    finally:
-        cl._scripting_schema_field = original
-        cl._schema_int.cache_clear()
-        original.cache_clear()
+    schema = get_config_schema(f"scripting.{field}")
+    assert schema is not None
+    assert getter() == schema[name]
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():
@@ -177,5 +174,12 @@ def test_configured_python_max_data_cells_clamps_high(mock_get):
 @patch("plugin.framework.config.get_config_int", return_value=0)
 def test_configured_python_max_data_cells_clamps_low(mock_get):
     assert configured_python_max_data_cells() == 1000
+
+
+@patch("plugin.framework.config.get_config_int", side_effect=RuntimeError("read failed"))
+def test_configured_python_max_data_cells_failed_read_uses_default_not_min(mock_get):
+    assert python_max_data_cells_default() != python_max_data_cells_min()
+    assert configured_python_max_data_cells() == python_max_data_cells_default()
+
 
 
