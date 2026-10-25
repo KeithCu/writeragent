@@ -54,6 +54,7 @@ def _xdl_snapshot():
         "base_size_label": (4, 233, 20, 10),
         "base_size_input": (25, 231, 40, 14),
         "aspect_ratio_selector": (70, 231, 102, 14),
+        "backend_indicator": (120, 4, 56, 10),
     }
 
 
@@ -167,7 +168,6 @@ class TestPanelResizeListenerIntegration:
         root.getControl.side_effect = lambda name: controls.get(name)
 
         listener = _PanelResizeListener(controls)
-        listener._width_negotiated = True
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=0):
             listener.relayout_now(root)
 
@@ -196,11 +196,11 @@ class TestPanelResizeListenerIntegration:
         root.getControl.side_effect = lambda name: controls.get(name)
 
         listener = _PanelResizeListener(controls)
-        listener._width_negotiated = True
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10):
             listener.relayout_now(root)
 
         expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
+        assert listener.last_response_rect is not None
         _rx, _ry, _rw, rh = listener.last_response_rect
         assert rh == expected["response"].height
         assert rich.getPosSize().Height == rh - 16
@@ -267,7 +267,7 @@ class TestPanelResizeListenerIntegration:
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=1019, Height=2488)
         listener = _PanelResizeListener(controls)
-        listener.note_width_negotiated(995)
+        listener._viewport_w = 995
         listener.on_window_resized(SimpleNamespace(Source=root))
         root.setPosSize.assert_not_called()
         right = 995 - 4
@@ -283,7 +283,7 @@ class TestPanelResizeListenerIntegration:
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=800, Height=500)
         listener = _PanelResizeListener(controls)
-        listener.note_width_negotiated(995)
+        listener._viewport_w = 995
         listener.on_window_resized(SimpleNamespace(Source=root))
         root.setPosSize.assert_not_called()
         q = controls["query"].getPosSize()
@@ -483,3 +483,146 @@ class TestColumnFitsAtBothScales:
     def test_image_size_box_never_grows_past_xdl_width(self):
         layouts = compute_chat_panel_layout(259, 900, _SNAPSHOT_1X, preferred={"base_size_input": (500, 29)})
         assert layouts["base_size_input"].width == 71
+
+
+def test_listener_get_and_set_control():
+    listener = _PanelResizeListener({})
+    assert listener.get_control("unknown") is None
+    dummy = object()
+    listener.set_control("test_ctrl", dummy)
+    assert listener.get_control("test_ctrl") is dummy
+
+
+def test_invalidate_measurements_remeasures_base_size():
+    snapshot = _xdl_snapshot()
+    controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
+    root = MagicMock()
+    root.getPosSize.return_value = SimpleNamespace(Width=300, Height=600)
+
+    # First relayout: getPreferredSize returns None
+    controls["base_size_input"].getPreferredSize.return_value = None
+    listener = _PanelResizeListener(controls)
+    listener.relayout_now(root)
+    assert listener._preferred.get("base_size_input") is None
+
+    # Now return real size, invalidate, and relayout
+    controls["base_size_input"].getPreferredSize.return_value = SimpleNamespace(Width=25, Height=14)
+    listener.invalidate_measurements()
+    listener.relayout_now(root)
+
+    assert listener._preferred.get("base_size_input") == (25, 14)
+    ps = controls["base_size_input"].getPosSize()
+    assert ps.Width == 25
+
+
+def test_relayout_now_reentrant_bounded_and_extra_pass():
+    snapshot = _xdl_snapshot()
+    controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
+    root = MagicMock()
+    root.getPosSize.return_value = SimpleNamespace(Width=800, Height=500)
+
+    listener = _PanelResizeListener(controls)
+    reentrant_triggered = [False]
+
+    orig_set_pos_size = controls["send"].setPosSize.side_effect
+
+    def hook_set_pos_size(nx, ny, nw, nh, flags):
+        if orig_set_pos_size:
+            orig_set_pos_size(nx, ny, nw, nh, flags)
+        if not reentrant_triggered[0]:
+            reentrant_triggered[0] = True
+            root2 = MagicMock()
+            root2.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
+            listener.relayout_now(root2, viewport_w=900)
+
+    controls["send"].setPosSize.side_effect = hook_set_pos_size
+
+    with patch.object(listener, "_relayout", wraps=listener._relayout) as spy_relayout:
+        listener.relayout_now(root)
+        # Should have executed initial pass and one extra pass for root2
+        assert spy_relayout.call_count <= 2
+
+    # After extra pass, query's right edge follows width 900
+    q = controls["query"].getPosSize()
+    assert q.Width > 850
+
+
+def test_resize_logging_behavior():
+    import plugin.chatbot.panel_resize as pr_mod
+
+    snapshot = _xdl_snapshot()
+    controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
+    root = MagicMock()
+    root.getPosSize.return_value = SimpleNamespace(Width=400, Height=600)
+
+    listener = _PanelResizeListener(controls)
+    with patch.object(pr_mod.log, "info") as mock_info, \
+         patch.object(pr_mod.log, "debug") as mock_debug:
+        listener.relayout_now(root)
+        # Verbose debug is False and not DEBUG enabled -> no log.info
+        mock_info.assert_not_called()
+        # Emits one size debug line
+        size_debugs = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
+        assert len(size_debugs) == 1
+
+        # Same size does not emit another size debug line
+        mock_debug.reset_mock()
+        listener.relayout_now(root)
+        size_debugs2 = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
+        assert len(size_debugs2) == 0
+
+
+def test_backend_indicator_layout():
+    snapshot = _xdl_snapshot()
+    # At width 900:
+    layouts = compute_chat_panel_layout(900, 500, snapshot)
+    ind = layouts["backend_indicator"]
+    hamb = layouts["btn_hamburger"]
+    right_margin = column_right_margin(snapshot)
+
+    assert ind.x == hamb.x + hamb.width + 4
+    assert ind.x + ind.width == 900 - right_margin
+
+    # Narrow width where leftover is < 8
+    layouts_narrow = compute_chat_panel_layout(ind.x + 5, 500, snapshot, right_margin=0)
+    assert layouts_narrow["backend_indicator"].width == 0
+
+
+def test_response_rich_is_not_in_layout():
+    snapshot = _xdl_snapshot()
+    snapshot["response_rich"] = (12, 24, 100, 80)
+    layouts = compute_chat_panel_layout(900, 500, snapshot)
+    assert "response_rich" not in layouts
+
+
+def test_xdl_all_ids_classified():
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    from plugin.chatbot.panel_resize import (
+        _BOTTOM_CLUSTER,
+        _BUTTON_ROW,
+        _HEADER_CONTROLS,
+        _INDICATOR_CONTROLS,
+        _OVERLAY_CONTROLS,
+        _STRETCH_CONTROLS,
+    )
+
+    xdl_path = Path(__file__).resolve().parents[2] / "extension" / "Dialogs" / "ChatPanelDialog.xdl"
+    tree = ET.parse(xdl_path)
+    root = tree.getroot()
+
+    all_classified = (
+        _STRETCH_CONTROLS
+        | _OVERLAY_CONTROLS
+        | _BOTTOM_CLUSTER
+        | set(_BUTTON_ROW)
+        | _HEADER_CONTROLS
+        | _INDICATOR_CONTROLS
+    )
+
+    ns = {"dlg": "http://openoffice.org/2000/dialog"}
+    for elem in root.iter():
+        ctrl_id = elem.attrib.get(f"{{{ns['dlg']}}}id")
+        if ctrl_id and ctrl_id != "ChatPanelDialog":
+            assert ctrl_id in all_classified, f"Unclassified XDL control: {ctrl_id}"
+

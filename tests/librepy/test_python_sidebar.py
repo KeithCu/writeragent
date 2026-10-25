@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.librepy.python_sidebar import (
     _CALC_ONLY_IDS,
+    _CONTROL_IDS,
     _PanelResizeListener,
     compute_python_sidebar_layout,
     format_runtime_status,
@@ -84,10 +86,32 @@ def test_format_runtime_status_shared_with_venv():
 def test_workbook_key_for_doc_uses_session_id():
     doc = MagicMock()
     with patch(
-        "plugin.librepy.python_sidebar.calc_workbook_base_session_id",
+        "plugin.librepy.python_sidebar.existing_calc_session_id",
         return_value="calc:file:///tmp/a.ods",
     ):
         assert workbook_key_for_doc(doc) == "calc:file:///tmp/a.ods"
+
+
+def test_workbook_key_for_doc_no_existing_id_returns_unknown_and_does_not_set_prop():
+    doc = MagicMock()
+    with (
+        patch("plugin.librepy.python_sidebar.existing_calc_session_id", return_value=None),
+        patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
+    ):
+        assert workbook_key_for_doc(doc) == "unknown"
+        mock_set_prop.assert_not_called()
+
+
+def test_workbook_key_for_doc_does_not_create_session():
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    props = MagicMock()
+    props.getPropertyValue.side_effect = Exception("UnknownPropertyException")
+    props.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+    doc.getDocumentProperties.return_value.UserDefinedProperties = props
+    res = workbook_key_for_doc(doc)
+    assert res == "unknown"
+    props.addProperty.assert_not_called()
 
 
 def test_workbook_key_unknown_on_none():
@@ -120,7 +144,7 @@ def test_activation_listener_schedules_refresh():
     """Switching sheets fires _schedule_refresh via the activation listener."""
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     refresh_calls = []
     ctrl._schedule_refresh = lambda *_: refresh_calls.append(1)
 
@@ -387,7 +411,7 @@ def test_resize_listener_disposing_runs_callback_once_without_removing():
 
     assert calls == ["dispose"]
     root.removeWindowListener.assert_not_called()
-    assert listener._root_window is None
+    assert listener._root_window is root
     listener.disposing(root)
     assert calls == ["dispose"]
 
@@ -403,7 +427,7 @@ def test_resize_listener_disposing_logs_callback_failure():
 def test_window_dispose_hook_cleans_controller_once():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     ctrl._calc_panel = False
     ctrl._store = MagicMock()
     ctrl._on_diag = object()
@@ -466,7 +490,7 @@ def test_explicit_disposing_detaches_live_window_listener():
 def test_hide_calc_only_controls_calls_set_visible():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     hidden: list[str] = []
 
     def fake_ctrl(name):
@@ -537,9 +561,10 @@ def test_filter_from_combo_matches_translation_and_msgid():
 def test_schedule_refresh_coalesces_until_posted_run():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     ctrl._disposed = False
     ctrl._refresh_pending = False
+    ctrl._pending_full = False
     refresh_calls = 0
 
     def mock_refresh():
@@ -550,8 +575,8 @@ def test_schedule_refresh_coalesces_until_posted_run():
 
     posted = []
     with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=posted.append):
-        ctrl._schedule_refresh()
-        ctrl._schedule_refresh()
+        ctrl._schedule_refresh(full=True)
+        ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
         assert ctrl._refresh_pending is True
 
@@ -562,7 +587,7 @@ def test_schedule_refresh_coalesces_until_posted_run():
         assert ctrl._refresh_pending is False
 
         # A third _schedule_refresh posts again
-        ctrl._schedule_refresh()
+        ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
         assert ctrl._refresh_pending is True
 
@@ -595,9 +620,10 @@ def test_scheduled_refresh_skipped_after_dispose():
 
 
 def test_refresh_keeps_selected_diagnostic():
-    from plugin.librepy.python_sidebar import PythonSidebarController, DiagnosticEntry
+    from plugin.librepy.python_sidebar import DiagnosticEntry, PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl.ctx = MagicMock()
     ctrl._disposed = False
     ctrl._calc_panel = True
     ctrl.ctx = MagicMock()
@@ -657,7 +683,7 @@ def test_refresh_keeps_selected_diagnostic():
 def test_refresh_resolves_frame_model_once():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     ctrl._disposed = False
     ctrl.ctx = MagicMock()
     frame = MagicMock()
@@ -686,7 +712,7 @@ def test_refresh_resolves_frame_model_once():
 def test_filter_change_does_not_rescan_cells():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
-    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
     ctrl._disposed = False
     doc = MagicMock()
     ctrl._calc_document = MagicMock(return_value=doc)
@@ -728,6 +754,299 @@ def test_init_survives_refresh_failure_and_keeps_listeners():
     assert ctrl._disposed is False
     store.add_listener.assert_called_once_with(ctrl._on_diag)
     frame.getController.return_value.addActivationEventListener.assert_called_once_with(ctrl._activation_listener)
+
+
+def test_diag_event_matching_key_does_not_scan_cells():
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._refresh_pending = False
+    ctrl._pending_full = False
+    ctrl._on_diag = lambda entry=None: ctrl._schedule_refresh(entry, full=False)
+    ctrl._active_workbook_key = MagicMock(return_value="calc:test")
+    ctrl._calc_document = MagicMock(return_value=MagicMock())
+    ctrl._refresh_diagnostics = MagicMock()
+
+    entry = DiagnosticEntry(workbook_key="calc:test", code="x=1", status="ok")
+
+    posted = []
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=posted.append):
+        with patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan:
+            ctrl._on_diag(entry)
+            assert len(posted) == 1
+            posted[0]()
+            mock_scan.assert_not_called()
+            ctrl._refresh_diagnostics.assert_called_once()
+
+
+def test_activation_event_scans_cells():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._refresh_pending = False
+    ctrl._pending_full = False
+    ctrl.refresh = MagicMock()
+
+    posted = []
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=posted.append):
+        ctrl._schedule_refresh(full=True)
+        assert len(posted) == 1
+        posted[0]()
+        ctrl.refresh.assert_called_once()
+
+
+def test_diag_event_foreign_key_drops_early():
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._refresh_pending = False
+    ctrl._pending_full = False
+    ctrl._on_diag = lambda entry=None: ctrl._schedule_refresh(entry, full=False)
+    ctrl._active_workbook_key = MagicMock(return_value="calc:current")
+    ctrl._refresh_diagnostics = MagicMock()
+
+    entry = DiagnosticEntry(workbook_key="calc:other", code="x=1", status="ok")
+
+    posted = []
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=posted.append):
+        ctrl._on_diag(entry)
+        assert len(posted) == 0
+        ctrl._refresh_diagnostics.assert_not_called()
+
+
+def test_schedule_refresh_diag_then_full_coalesces_to_full():
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._refresh_pending = False
+    ctrl._pending_full = False
+    ctrl._active_workbook_key = MagicMock(return_value="calc:test")
+    ctrl._calc_document = MagicMock(return_value=MagicMock())
+    ctrl.refresh = MagicMock()
+    ctrl._refresh_diagnostics = MagicMock()
+
+    entry = DiagnosticEntry(workbook_key="calc:test", code="x=1", status="ok")
+
+    posted = []
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=posted.append):
+        ctrl._schedule_refresh(entry, full=False)
+        assert ctrl._refresh_pending is True
+        assert ctrl._pending_full is False
+        ctrl._schedule_refresh(full=True)
+        assert ctrl._pending_full is True
+        assert len(posted) == 1
+        posted[0]()
+        ctrl.refresh.assert_called_once()
+        ctrl._refresh_diagnostics.assert_not_called()
+
+
+def test_refresh_caches_cell_lines_and_restores_selection():
+    from plugin.calc.python.cell_discovery import PythonCellInfo
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl.ctx = MagicMock()
+    ctrl._disposed = False
+    ctrl._calc_panel = True
+    ctrl._calc_document = MagicMock(return_value=MagicMock())
+    ctrl._refresh_diagnostics = MagicMock()
+    ctrl._last_cell_lines = None
+    cells_list = MagicMock()
+    cells_list.getSelectedItemPos.return_value = 2
+    assigned_items = []
+
+    class MockModel:
+        @property
+        def StringItemList(self):
+            return ()
+
+        @StringItemList.setter
+        def StringItemList(self, val):
+            assigned_items.append(val)
+
+    cells_list.getModel.return_value = MockModel()
+    ctrl._ctrl = lambda name: cells_list if name == "cells_list" else MagicMock()
+
+    cell1 = PythonCellInfo(sheet="Sheet1", row=0, column=0, address="Sheet1.A1", code="1+1", formula="=PY()")
+    cell2 = PythonCellInfo(sheet="Sheet1", row=1, column=0, address="Sheet1.A2", code="2+2", formula="=PY()")
+    cell3 = PythonCellInfo(sheet="Sheet1", row=2, column=0, address="Sheet1.A3", code="3+3", formula="=PY()")
+    cells = [cell1, cell2, cell3]
+    ctrl._cells = list(cells)
+
+    with (
+        patch("plugin.librepy.python_sidebar.format_runtime_status", return_value="status"),
+        patch("plugin.librepy.python_sidebar.list_python_cells_in_doc", return_value=cells),
+    ):
+        ctrl.refresh()
+        assert len(assigned_items) == 1
+        cells_list.selectItemPos.assert_called_with(2, True)
+
+        cells_list.selectItemPos.reset_mock()
+        ctrl.refresh()
+        # Same cell lines: model.StringItemList assigned only on first call, selection preserved
+        assert len(assigned_items) == 1
+        cells_list.selectItemPos.assert_called_with(2, True)
+
+
+def test_set_diag_detail_caches_text():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._last_diag_detail_text = None
+    mock_detail = MagicMock()
+    ctrl._ctrl = lambda name: mock_detail if name == "diag_detail" else MagicMock()
+
+    with patch("plugin.librepy.python_sidebar.set_control_text") as mock_set_text:
+        ctrl._set_diag_detail("same text")
+        mock_set_text.assert_called_once_with(mock_detail, "same text")
+        ctrl._set_diag_detail("same text")
+        mock_set_text.assert_called_once()
+
+
+def test_ctrl_caching_and_disposing_clears():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._controls = {}
+    ctrl.root = MagicMock()
+    with patch("plugin.librepy.python_sidebar.get_optional_control", return_value=MagicMock()) as mock_get:
+        c1 = ctrl._ctrl("status")
+        c2 = ctrl._ctrl("status")
+        assert c1 is c2
+        mock_get.assert_called_once()
+        assert "status" in ctrl._controls
+
+    ctrl.disposing()
+    assert ctrl._controls == {}
+
+
+def test_disposing_twice_detaches_listener_once():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._controls = {}
+    root = MagicMock()
+    listener = _PanelResizeListener({}, on_dispose=None)
+    listener._root_window = root
+    ctrl.resize_listener = listener
+    ctrl._activation_listener = None
+    ctrl.frame = None
+
+    ctrl.disposing()
+    root.removeWindowListener.assert_called_once_with(listener)
+    root.removeWindowListener.reset_mock()
+    ctrl.disposing()
+    root.removeWindowListener.assert_not_called()
+
+
+def test_init_failure_in_wire_allows_safe_disposing():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl_partial = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl_partial.resize_listener = None
+    ctrl_partial._activation_listener = None
+    # Ensure disposing does not crash on missing attributes
+    ctrl_partial.disposing()
+
+
+def test_control_ids_composition():
+    from plugin.librepy.python_sidebar import _CALC_ONLY_IDS
+
+    expected = (
+        "btn_hdr_settings",
+        "btn_python",
+        "btn_latex",
+        "btn_hamburger",
+        "status_label",
+        "status",
+        "btn_refresh",
+    ) + _CALC_ONLY_IDS + (
+        "btn_reset",
+        "btn_settings",
+    )
+    assert _CONTROL_IDS == expected
+    for cid in _CALC_ONLY_IDS:
+        assert _CONTROL_IDS.count(cid) == 1
+    assert "btn_settings" in _CONTROL_IDS
+    assert "btn_settings" not in _CALC_ONLY_IDS
+    assert "btn_refresh" in _CONTROL_IDS
+    assert "btn_refresh" not in _CALC_ONLY_IDS
+
+
+def test_diag_enrichment_with_duplicate_code_different_sheets():
+    from plugin.calc.python.cell_discovery import PythonCellInfo
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl._cells = [
+        PythonCellInfo(sheet="Sheet1", row=0, column=0, address="Sheet1.A1", code="x = 10", formula="=PY()"),
+        PythonCellInfo(sheet="Sheet2", row=5, column=2, address="Sheet2.C6", code="x = 10", formula="=PY()"),
+    ]
+    diag_with_sheet = DiagnosticEntry(workbook_key="calc:test", code="x = 10", status="error", message="fail", sheet="Sheet2", address="")
+    diag_ambiguous = DiagnosticEntry(workbook_key="calc:test", code="x = 10", status="error", message="fail", sheet="", address="")
+    ctrl._store = MagicMock()
+    ctrl._store.list_entries.return_value = [diag_with_sheet, diag_ambiguous]
+    ctrl._ctrl = lambda _name: MagicMock()
+    ctrl._suppress_diag_nav = False
+    ctrl._last_diag_detail_text = None
+
+    doc = MagicMock()
+    with patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"):
+        ctrl._refresh_diagnostics(doc)
+
+    assert len(ctrl._diags) == 2
+    # diag_with_sheet gets enriched with matching sheet's address
+    assert ctrl._diags[0].sheet == "Sheet2"
+    assert ctrl._diags[0].address == "Sheet2.C6"
+    # diag_ambiguous has duplicate global matches, so address is not arbitrarily assigned
+    assert ctrl._diags[1].address == ""
+
+
+def test_cell_selection_matches_cell_diagnostic():
+    from plugin.calc.python.cell_discovery import PythonCellInfo
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl: Any = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl.ctx = MagicMock()
+    ctrl._calc_document = MagicMock(return_value=MagicMock())
+    ctrl._disposed = False
+    cell1 = PythonCellInfo(sheet="Sheet1", row=0, column=0, address="Sheet1.A1", code="x = 1", formula="=PY()")
+    cell2 = PythonCellInfo(sheet="Sheet1", row=1, column=0, address="Sheet1.A2", code="y = 2", formula="=PY()")
+    ctrl._cells = [cell1, cell2]
+
+    diag1 = DiagnosticEntry(workbook_key="k", code="x = 1", status="ok", stdout="out1", sheet="Sheet1", address="Sheet1.A1")
+    diag2 = DiagnosticEntry(workbook_key="k", code="y = 2", status="error", message="err2", sheet="Sheet1", address="Sheet1.A2")
+    ctrl._diags = [diag1, diag2]
+
+    mock_cells_list = MagicMock()
+    mock_cells_list.getSelectedItemPos.return_value = 1  # select cell2
+    mock_detail = MagicMock()
+    ctrl._ctrl = lambda name: mock_cells_list if name == "cells_list" else (mock_detail if name == "diag_detail" else MagicMock())
+    ctrl._last_diag_detail_text = None
+
+    with (
+        patch("plugin.librepy.python_sidebar.navigate_to_cell"),
+        patch("plugin.librepy.python_sidebar.set_control_text") as mock_set_text,
+    ):
+        ctrl._on_cell_selected()
+
+    mock_set_text.assert_called_once()
+    detail_arg = mock_set_text.call_args[0][1]
+    assert "err2" in detail_arg
+
 
 
 

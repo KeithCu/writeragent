@@ -10,6 +10,7 @@ import logging
 import sys
 import types
 from contextlib import contextmanager
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -72,7 +73,7 @@ def _set_active_top(frame: MagicMock, top: object) -> None:
     container.getToolkit.return_value.getActiveTopWindow.return_value = top
 
 
-def _frame(controller: _Controller) -> MagicMock:
+def _frame(controller: Any) -> MagicMock:
     frame = MagicMock()
     frame.getController.return_value = controller
     # Default: this frame's window is the active one, so restore_focus runs.
@@ -80,9 +81,9 @@ def _frame(controller: _Controller) -> MagicMock:
     return frame
 
 
-def _install(session: FrameSession, query: MagicMock, leave: MagicMock | None = None) -> None:
+def _install(session: FrameSession, query: Any, leave: Any = None) -> None:
     with _fake_listeners():
-        session.install(MagicMock(), query=query, leave_query_controls=(leave,) if leave is not None else ())
+        session.install(query=query, leave_query_controls=(leave,) if leave is not None else ())
 
 
 def test_each_frame_gets_its_own_session():
@@ -147,12 +148,15 @@ def test_factory_opens_one_session_per_frame():
         element_a = factory.createUIElement("private:resource/toolpanel/WriterAgent/ChatPanel", _args(frame_a))
         element_b = factory.createUIElement("private:resource/toolpanel/WriterAgent/ChatPanel", _args(frame_b))
         element_a_again = factory.createUIElement("private:resource/toolpanel/WriterAgent/ChatPanel", _args(frame_a))
-    assert element_a._live_panel_uid == "uid-a"
-    assert element_b._live_panel_uid == "uid-b"
-    assert element_a.frame_session is not element_b.frame_session
-    assert element_a_again.frame_session is element_a.frame_session
-    assert session_for_frame(frame_a) is element_a.frame_session
-    assert session_for_frame(frame_b) is element_b.frame_session
+    el_a: Any = element_a
+    el_b: Any = element_b
+    el_a_again: Any = element_a_again
+    assert el_a._live_panel_uid == "uid-a"
+    assert el_b._live_panel_uid == "uid-b"
+    assert el_a.frame_session is not el_b.frame_session
+    assert el_a_again.frame_session is el_a.frame_session
+    assert session_for_frame(frame_a) is el_a.frame_session
+    assert session_for_frame(frame_b) is el_b.frame_session
 
 
 def test_second_frame_dispose_does_not_touch_the_first_listeners():
@@ -213,7 +217,7 @@ def test_second_frame_click_does_not_restore_or_clear_the_first_panel():
     _install(session_a, query_a)
     _install(session_b, query_b)
 
-    handler_b = controller_b.added[0]
+    handler_b = cast("Any", controller_b.added[0])
     handler_b.mousePressed(None)
 
     session_a.restore_focus()
@@ -231,8 +235,8 @@ def test_listener_disposing_does_not_remove_listener():
     query = MagicMock()
     leave = MagicMock()
     _install(session, query, leave)
-    click = controller.added[0]
-    mouse = leave.addMouseListener.call_args[0][0]
+    click = cast("Any", controller.added[0])
+    mouse = cast("Any", leave.addMouseListener.call_args[0][0])
     click.disposing(None)
     mouse.disposing(None)
     assert controller.removed == []
