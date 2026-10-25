@@ -24,9 +24,14 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import resolve_target_cursor
+from plugin.doc.undo import commit_or_rollback_mutation
+from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+from plugin.framework.uno_context import get_service_manager, resolve_uno_context
+from plugin.framework.url_utils import normalize_file_url
 
 import uno
 
@@ -37,8 +42,8 @@ def _to_file_url(path_or_url: str) -> str:
     """Convert a filesystem path or URL string into a normalized file:/// URL."""
     if not path_or_url:
         return ""
-    if path_or_url.startswith("file://"):
-        return path_or_url
+    if path_or_url.startswith("file:"):
+        return normalize_file_url(path_or_url)
     try:
         # import uno is unconditional; ty treats `if uno` as always-true once UNO is linked.
         if hasattr(uno, "systemPathToFileUrl"):
@@ -50,22 +55,30 @@ def _to_file_url(path_or_url: str) -> str:
     return Path(os.path.abspath(path_or_url)).as_uri()
 
 
+def _to_system_path(path_or_url: str) -> str:
+    """Convert a filesystem path or ``file:`` URL to a system path."""
+    if not path_or_url:
+        return ""
+    if not path_or_url.startswith("file:"):
+        return path_or_url
+    url = normalize_file_url(path_or_url)
+    try:
+        if hasattr(uno, "fileUrlToSystemPath"):
+            return str(uno.fileUrlToSystemPath(url))
+    except Exception:
+        log.debug("fileUrlToSystemPath failed", exc_info=True)
+    return unquote(urlparse(url).path)
+
+
 _COMMAND_TYPES = {"table": 0, "query": 1, "command": 2}  # default 0
-_OUTPUT_TYPES = {"printer": 1, "file": 2, "mail": 3}      # default 2
+_OUTPUT_TYPES = {"printer": 1, "file": 2}      # default 2
 
 
 def _create_global_service(ctx: Any, service_name: str) -> Any:
-    comp_ctx = None
-    if hasattr(ctx, "get_ctx"):
-        comp_ctx = ctx.get_ctx()
-    elif hasattr(ctx, "ctx"):
-        comp_ctx = ctx.ctx
-
-    if comp_ctx and hasattr(comp_ctx, "getServiceManager"):
-        smgr = comp_ctx.getServiceManager()
-        if hasattr(smgr, "createInstanceWithContext"):
-            return smgr.createInstanceWithContext(service_name, comp_ctx)
-
+    comp_ctx = resolve_uno_context(ctx)
+    smgr = get_service_manager(comp_ctx)
+    if smgr:
+        return smgr.createInstanceWithContext(service_name, comp_ctx)
     return None
 
 
@@ -130,28 +143,42 @@ class ListDataSources(ToolWriterMailMergeBase):
         results = []
         for name in selected_names:
             source_entry: dict[str, Any] = {"name": name}
+            try:
+                location = db_ctx.getDatabaseLocation(name)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                location = ""
+            source_entry["location"] = str(location or "")
             if include_tables:
                 try:
                     ds = db_ctx.getByName(name)
                     # Establish connection to inspect schema
                     conn = ds.getConnection("", "")
-                    tables_container = conn.getTables()
-                    table_names = list(tables_container.getElementNames())
+                    try:
+                        tables_container = conn.getTables()
+                        table_names = list(tables_container.getElementNames())
 
-                    tables_info = []
-                    for t_name in table_names:
+                        tables_info = []
+                        for t_name in table_names:
+                            try:
+                                tbl = tables_container.getByName(t_name)
+                                cols = list(tbl.getColumns().getElementNames())
+                                tables_info.append({"table": t_name, "columns": cols})
+                            except Exception as tbl_exc:
+                                reraise_if_disposed(tbl_exc)
+                                tables_info.append({"table": t_name, "columns": []})
+
+                        source_entry["tables"] = tables_info
+                    finally:
+                        # Fix: Ensure database connection is closed even if inspection fails.
                         try:
-                            tbl = tables_container.getByName(t_name)
-                            cols = list(tbl.getColumns().getElementNames())
-                            tables_info.append({"table": t_name, "columns": cols})
-                        except Exception:
-                            tables_info.append({"table": t_name, "columns": []})
-
-                    if hasattr(conn, "close"):
-                        conn.close()
-
-                    source_entry["tables"] = tables_info
+                            if hasattr(conn, "close"):
+                                conn.close()
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            log.debug("mail merge: closing data-source connection failed", exc_info=True)
                 except Exception as exc:
+                    reraise_if_disposed(exc)
                     source_entry["tables_error"] = str(exc)
 
             results.append(source_entry)
@@ -165,13 +192,13 @@ class ListDataSources(ToolWriterMailMergeBase):
 
 
 class RegisterDataSource(ToolWriterMailMergeBase):
-    """Register or unregister a database, spreadsheet, or CSV file in LibreOffice."""
+    """Register or unregister an .odb database file in LibreOffice."""
 
     name: str | None = "mail_merge_register_source"
     intent: str | None = "edit"
     description: str = (
-        "Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named "
-        "data source in LibreOffice, making it available for mail merge operations and merge fields."
+        "Register or unregister an .odb database file as a named data source in LibreOffice, "
+        "making it available for mail merge operations and merge fields."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -182,7 +209,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
             },
             "file_path": {
                 "type": "string",
-                "description": "Path to the .ods, .csv, or .odb file to register. Required when action is 'register'.",
+                "description": "Path to the .odb file to register. Required when action is 'register'.",
             },
             "action": enum_param(
                 ["register", "unregister"],
@@ -202,13 +229,28 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         if not name:
             return self._tool_error("Data source name is required.")
 
+        # XDatabaseRegistrations methods registerDatabaseLocation / changeDatabaseLocation
+        # manage named database locations by URL.
         db_ctx = _get_database_context(ctx)
-        if not db_ctx or not hasattr(db_ctx, "registerObject"):
+        if (
+            not db_ctx
+            or not hasattr(db_ctx, "registerDatabaseLocation")
+            or not hasattr(db_ctx, "changeDatabaseLocation")
+        ):
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         if action == "unregister":
             if db_ctx.hasByName(name):
-                db_ctx.revokeObject(name)
+                # Fix: Use revokeDatabaseLocation instead of XNamingService.revokeObject.
+                try:
+                    db_ctx.revokeDatabaseLocation(name)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    return self._tool_error(
+                        f"Failed to unregister data source '{name}': {exc}",
+                        code="UNREGISTER_FAILED",
+                        name=name,
+                    )
                 return {"status": "ok", "message": f"Data source '{name}' unregistered successfully."}
             return {"status": "ok", "message": f"Data source '{name}' was not registered."}
 
@@ -216,13 +258,41 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         if not file_path:
             return self._tool_error("file_path is required when action='register'.")
 
-        file_url = _to_file_url(file_path)
+        path = _to_system_path(file_path)
+        if not os.path.isfile(path) or not os.access(path, os.R_OK):
+            return self._tool_error(
+                f"Data source file not found or not readable: '{path}'.",
+                code="FILE_NOT_FOUND",
+                path=path,
+            )
 
-        # If already registered with this name, revoke first to ensure clean update
-        if db_ctx.hasByName(name):
-            db_ctx.revokeObject(name)
+        # DatabaseContext.getByName loads registered locations as office database documents (.odb).
+        # Raw .ods/.csv files cannot be registered directly without an .odb wrapper.
+        if Path(path).suffix.lower() != ".odb":
+            return self._tool_error(
+                "Only .odb database files can be registered. Register a spreadsheet or CSV through an .odb wrapper first.",
+                code="INVALID_FILE_TYPE",
+            )
 
-        db_ctx.registerObject(name, file_url)
+        file_url = _to_file_url(path)
+
+        # Fix: XNamingService.registerObject expected an XInterface database document and failed
+        # on URL strings; revoking before re-registering also lost previous registrations on failure.
+        # Use changeDatabaseLocation if already registered, otherwise registerDatabaseLocation.
+        try:
+            if db_ctx.hasByName(name):
+                db_ctx.changeDatabaseLocation(name, file_url)
+            else:
+                db_ctx.registerDatabaseLocation(name, file_url)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return self._tool_error(
+                f"Failed to register data source '{name}': {exc}",
+                code="REGISTRATION_FAILED",
+                name=name,
+                file_url=file_url,
+            )
+
         return {
             "status": "ok",
             "message": f"Data source '{name}' registered successfully pointing to '{file_path}'.",
@@ -300,7 +370,8 @@ class InsertField(ToolWriterMailMergeBase):
         if hasattr(masters, "hasByName") and masters.hasByName(master_id):
             try:
                 master = masters.getByName(master_id)
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 master = None
 
         if master is None:
@@ -321,11 +392,33 @@ class InsertField(ToolWriterMailMergeBase):
             field.attachTextFieldMaster(master)
 
         if target == "search" and old_content:
-            cursor.setString("")
+            from ..edit_review import next_agent_edit_undo_title
 
-        # 3. Insert into text cursor
-        text = cursor.getText()
-        text.insertTextContent(cursor, field, False)
+            undo_title = next_agent_edit_undo_title()
+
+            def mutate() -> None:
+                cursor.setString("")
+                cursor.getText().insertTextContent(cursor, field, False)
+
+            # Fix: Previously deleted matched text before inserting field without undo context;
+            # if insert failed the text was permanently lost. Use commit_or_rollback_mutation.
+            err = commit_or_rollback_mutation(
+                self,
+                doc,
+                undo_title,
+                mutate,
+                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
+                rollback_msg="Failed to insert the merge field; the change was rolled back",
+            )
+            if err is not None:
+                return err
+        else:
+            try:
+                cursor.getText().insertTextContent(cursor, field, False)
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
+                return self._tool_error(f"Failed to insert merge field: {exc}")
 
         return {
             "status": "ok",
@@ -363,7 +456,7 @@ class ListFields(ToolWriterMailMergeBase):
         merge_fields = []
         field_idx = 0
 
-        while enum.hasMoreElements():
+        while enum.hasMoreElements() is True:
             field = enum.nextElement()
             field_idx += 1
 
@@ -372,7 +465,8 @@ class ListFields(ToolWriterMailMergeBase):
             if hasattr(field, "supportsService"):
                 try:
                     is_db_field = field.supportsService("com.sun.star.text.textfield.Database")
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     is_db_field = False
 
             db_name = ""
@@ -389,7 +483,8 @@ class ListFields(ToolWriterMailMergeBase):
                         db_name = field.getPropertyValue("DataBaseName") or ""
                     if info.hasPropertyByName("DataTableName"):
                         tbl_name = field.getPropertyValue("DataTableName") or ""
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     log.debug("mail merge: database field properties unreadable", exc_info=True)
 
             if is_db_field:
@@ -397,12 +492,14 @@ class ListFields(ToolWriterMailMergeBase):
                 content = ""
                 try:
                     presentation = field.getPresentation(False)
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     presentation = f"<{col_name}>" if col_name else "DatabaseField"
 
                 try:
                     content = field.getPresentation(True)
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     content = ""
 
                 merge_fields.append({
@@ -422,7 +519,7 @@ class ListFields(ToolWriterMailMergeBase):
 
 
 class RunMerge(ToolWriterMailMergeBase):
-    """Execute mail merge workflow to files, printer, or email using com.sun.star.text.MailMerge."""
+    """Execute mail merge workflow to files or printer using com.sun.star.text.MailMerge."""
 
     name: str | None = "mail_merge_run"
     intent: str | None = "edit"
@@ -448,8 +545,8 @@ class RunMerge(ToolWriterMailMergeBase):
                 default="table",
             ),
             "output_type": enum_param(
-                ["file", "printer", "mail"],
-                "Destination for merge results: 'file' (default), 'printer', or 'mail'.",
+                ["file", "printer"],
+                "Destination for merge results: 'file' (default) or 'printer'.",
                 default="file",
             ),
             "output_path": {
@@ -510,11 +607,32 @@ class RunMerge(ToolWriterMailMergeBase):
 
         # Resolve document URL
         doc_url = ""
+        out_dir = ""
         if doc_url_arg:
-            doc_url = _to_file_url(doc_url_arg)
-        elif doc and doc.getURL():
-            doc_url = doc.getURL()
-        else:
+            template_path = _to_system_path(doc_url_arg)
+            if not os.path.isfile(template_path):
+                return self._tool_error(
+                    f"Template not found: {doc_url_arg}", code="FILE_NOT_FOUND", path=template_path
+                )
+            doc_url = _to_file_url(template_path)
+        elif doc:
+            try:
+                modified = doc.isModified()
+                url = doc.getURL()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                return self._tool_error("Cannot read the active document before mail merge.")
+            # Fix: MailMerge reads template from disk directly via DocumentURL, ignoring in-memory
+            # edits in WriterAgent. Reject if active document has unsaved changes.
+            if modified is True:
+                return self._tool_error(
+                    "The active document has unsaved changes. Save it first, or pass document_url "
+                    "for a saved template; mail merge reads the template from disk.",
+                    code="DOCUMENT_MODIFIED",
+                )
+            if url:
+                doc_url = url
+        if not doc_url:
             return self._tool_error(
                 "Document must be saved or a valid document_url provided before running mail merge."
             )
@@ -537,13 +655,32 @@ class RunMerge(ToolWriterMailMergeBase):
         mail_merge.Command = table_name
         mail_merge.OutputType = out_type
 
+        output_url = None
         if out_type == 2:  # File
-            if not output_path:
-                output_path = os.getcwd()
-            output_url = _to_file_url(output_path)
-            if not output_url.endswith("/"):
-                output_url += "/"
-            mail_merge.OutputURL = output_url
+            # Fix: When output_path is omitted, do not fall back to os.getcwd() which can be the
+            # LO installation or root folder. Leaving OutputURL unset lets LO save to the template directory.
+            if output_path:
+                out_dir = _to_system_path(output_path)
+                try:
+                    if os.path.exists(out_dir) and not os.path.isdir(out_dir):
+                        return self._tool_error(
+                            f"Output path exists and is not a directory: '{output_path}'",
+                            code="INVALID_OUTPUT_PATH",
+                            path=out_dir,
+                        )
+                    os.makedirs(out_dir, exist_ok=True)
+                except OSError as exc:
+                    return self._tool_error(
+                        f"Cannot use output directory '{output_path}': {exc}",
+                        code="INVALID_OUTPUT_PATH",
+                        path=out_dir,
+                    )
+                output_url = _to_file_url(out_dir)
+                if not output_url.endswith("/"):
+                    output_url += "/"
+                mail_merge.OutputURL = output_url
+            else:
+                out_dir = os.path.dirname(_to_system_path(doc_url))
             mail_merge.SaveAsSingleFile = save_as_single_file
             mail_merge.FileNamePrefix = file_name_prefix
             mail_merge.FileNameFromColumn = file_name_from_column
@@ -560,14 +697,23 @@ class RunMerge(ToolWriterMailMergeBase):
         # Execute the merge
         mail_merge.execute([])
 
+        # Fix: Stop claiming a file format for printer output.
+        dest_msg = (
+            f"Output directory: {out_dir or output_url} ({file_format.upper()})."
+            if out_type == 2
+            else "Output destination: printer."
+        )
+
         return {
             "status": "ok",
             "message": (
                 f"Mail merge completed successfully using data source '{data_source_name}' ({table_name}). "
-                f"Output destination: {output_path or output_type_str} ({file_format.upper()})."
+                f"{dest_msg}"
             ),
             "output_type": output_type_str,
             "output_path": output_path,
+            "output_url": output_url,
+            "output_directory": out_dir if out_type == 2 else None,
             "save_as_single_file": save_as_single_file,
             "file_format": file_format,
         }
