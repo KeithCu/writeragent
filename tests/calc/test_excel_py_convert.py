@@ -42,6 +42,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
     _prefer_excel_dep_token,
     _skip_string,
+    convert_cell_to_dag,
     convert_model_to_dag,
     rewrite_excel_code,
 )
@@ -282,13 +283,21 @@ def test_rewrite_non_ascii_prefix_offsets():
 
 def test_rewrite_ignores_attribute_xl_calls():
     """``obj.xl(...)`` is not the Excel data-bridge builtin — leave it alone."""
-    src = "x = obj.xl(%P2%)\ny = xl(%P2%)\n"
+    src = "x = obj.xl(existing)\ny = xl(%P2%)\n"
     res = rewrite_excel_code(src, num_deps=1)
-    # Bare ``%Pn%`` is normalized to ``_Pn_`` for AST; attribute call is not rewritten.
-    assert "obj.xl(_P2_)" in res.code or "obj.xl(%P2%)" in res.code
+    assert "obj.xl(existing)" in res.code
     assert 'y = xl("%P2%")' in res.code
     assert res.used == ["0"]
     assert not any("dynamic" in i for i in res.issues)
+
+
+def test_rewrite_attribute_xl_with_placeholder_is_fatal():
+    """``obj.xl(%P2%)`` has placeholder outside xl(); fatal and returns source unchanged."""
+    src = "x = obj.xl(%P2%)"
+    res = rewrite_excel_code(src, num_deps=1)
+    assert res.fatal is True
+    assert res.code == src
+    assert any("outside xl()" in i for i in res.issues)
 
 
 def test_rewrite_keeps_xl_statement_under_if():
@@ -1530,12 +1539,12 @@ def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
 
 
 def test_script_bank_name_collision_raises():
-    """Two source sheets mapping to the same py_code_* bank name must raise ValueError."""
+    """Two source sheets that previously collided must receive distinct bank sheet names."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+    from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
-    # 'My Sheet' and 'My_Sheet' both sanitize to 'py_code_My_Sheet'
-    assert code_sheet_name_for("My Sheet") == code_sheet_name_for("My_Sheet")
+    assert code_sheet_name_for("My_Sheet") == "py_code_My_Sheet"
+    assert code_sheet_name_for("My Sheet") != code_sheet_name_for("My_Sheet")
 
     long_code_1 = "x = 1\n" * 250  # >1000 chars
     long_code_2 = "y = 2\n" * 250
@@ -1558,21 +1567,25 @@ def test_script_bank_name_collision_raises():
     )
     report = ConversionReport(direction="dag", cells=[cell1, cell2])
 
-    with pytest.raises(ValueError, match="script-bank sheet name collision"):
-        collect_script_bank(report)
-
-    assert not report.ok
-    assert any("collision" in issue for issue in report.issues)
+    banks, warns = collect_script_bank(report)
+    assert code_sheet_name_for("My Sheet") in banks
+    assert code_sheet_name_for("My_Sheet") in banks
+    assert warns == []
+    assert report.issues == []
 
 
 def test_script_bank_truncation_collision_raises():
-    """Two long sheet names truncating to the same bank name must raise ValueError."""
+    """Two long sheet names truncating must receive distinct bank names <= 31 chars."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+    from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
     name1 = "VeryLongSheetNameThatWillTruncate1"
     name2 = "VeryLongSheetNameThatWillTruncate2"
-    assert code_sheet_name_for(name1) == code_sheet_name_for(name2)
+    bank1 = code_sheet_name_for(name1)
+    bank2 = code_sheet_name_for(name2)
+    assert bank1 != bank2
+    assert len(bank1) <= 31
+    assert len(bank2) <= 31
 
     cell1 = ConvertedCell(
         sheet=name1,
@@ -1592,8 +1605,11 @@ def test_script_bank_truncation_collision_raises():
     )
     report = ConversionReport(direction="dag", cells=[cell1, cell2])
 
-    with pytest.raises(ValueError, match="script-bank sheet name collision"):
-        collect_script_bank(report)
+    banks, warns = collect_script_bank(report)
+    assert bank1 in banks
+    assert bank2 in banks
+    assert warns == []
+    assert report.issues == []
 
 
 def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
@@ -2035,6 +2051,75 @@ def test_convert_cell_unresolved_deps_and_syntax_error_both_reported():
     assert not cell.converted
     assert any("syntax error" in i for i in cell.issues)
     assert any("unresolved" in i for i in cell.issues)
+
+
+def test_convert_cell_bare_placeholder_outside_xl_fails_closed():
+    """Bare %P2% outside xl() must fail closed."""
+    for script in ["df = %P2%", "df = %P2% + 1"]:
+        model = ExcelWorkbookModel(
+            scripts=[script],
+            cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+            sheets=[_sheet("Sheet1")],
+        )
+        report = convert_model_to_dag(model)
+        cell = report.cells[0]
+        assert not cell.converted
+        assert cell.dag_formula == ""
+        assert any("outside xl()" in i for i in cell.issues)
+
+
+def test_convert_cell_real_sentinel_identifier_fails_closed():
+    """Real user identifier _P2_ passed to xl() must fail closed."""
+    model = ExcelWorkbookModel(
+        scripts=["_P2_ = 5\ndf = xl(_P2_)"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("collides with the placeholder sentinel" in i for i in cell.issues)
+
+
+def test_convert_cell_bare_placeholder_in_fstring_fails_closed():
+    """Placeholder inside f-string produces syntax error and fails closed."""
+    model = ExcelWorkbookModel(
+        scripts=['x = f"{%P2%}"'],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("syntax error" in i.lower() for i in cell.issues)
+
+
+def test_convert_cell_long_script_bad_cell_fails_closed():
+    """1,100-char script with malformed cell or empty sheet fails closed without raising."""
+    long_script = "x = 1\n" * 220  # 1320 chars (> 1000)
+    model = ExcelWorkbookModel(
+        scripts=[long_script],
+        cells=[_cell("Sheet1", "not-a1", 0, deps=[], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    res = convert_cell_to_dag(model, model.cells[0])
+    assert res.converted is False
+    assert res.dag_formula == ""
+    assert res.converted_code == long_script
+    assert any("script too long" in i for i in res.issues)
+
+    model_no_sheet = ExcelWorkbookModel(
+        scripts=[long_script],
+        cells=[_cell("", "A1", 0, deps=[], row=1, col=1)],
+        sheets=[],
+    )
+    res_no_sheet = convert_cell_to_dag(model_no_sheet, model_no_sheet.cells[0])
+    assert res_no_sheet.converted is False
+    assert res_no_sheet.dag_formula == ""
+    assert res_no_sheet.converted_code == long_script
+    assert any("to inline" in i for i in res_no_sheet.issues)
 
 
 def test_dedup_merge_rules_header_mode_true_wins():

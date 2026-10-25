@@ -69,7 +69,7 @@ from plugin.calc.excel_py_convert.to_dag_contracts import (
     _deal_note_ok,
 )
 from plugin.calc.python.xl_static_rewrite import iter_xl_calls
-from plugin.framework.ast_stmt_edit import line_starts_exact
+from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import (
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_XL_EXPR,
@@ -305,6 +305,21 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             issues.append("nested or overlapping xl() calls are not supported")
             break
 
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Name) and _P_SENTINEL_RE.match(node.id)):
+            continue
+        off = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        if off < 0:
+            issues.append("placeholder token without reliable source position")
+            continue
+        token = src[off : off + len(node.id)]
+        if token.startswith(("%P", "%p")):
+            if not any(c.p_num is not None and c.start <= off < c.end for c in calls):
+                issues.append(f"placeholder {token} outside xl()")
+        else:
+            if any(c.p_num is not None and c.start <= off < c.end for c in calls):
+                issues.append(f"xl() argument {node.id} collides with the placeholder sentinel; rename it")
+
     return calls, issues
 
 
@@ -536,8 +551,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
             issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
         else:
             issues.append("unresolved or dropped dependency; refusing to emit shifted data indices")
-        new_code = original
-    elif fatal:
+    if fatal:
         new_code = original
     else:
         new_code = apply_rewrite(original, analysis.calls, index_map=index_map if index_map else None)
@@ -575,7 +589,14 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
     )
     if failed:
         return out
-    out.dag_formula = formula_for_converted_cell(out, separator=";")
+    try:
+        out.dag_formula = formula_for_converted_cell(out, separator=";")
+    except ValueError as exc:
+        out.converted = False
+        out.converted_code = original
+        out.issues.append(str(exc))
+        out.issues = list(dict.fromkeys(out.issues))
+        return out
     return out
 
 

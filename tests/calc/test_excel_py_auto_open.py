@@ -7,6 +7,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
 from plugin.calc.excel_py_convert.auto_open import (
     _doc_from_event,
@@ -1025,3 +1027,40 @@ def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
         assert result is True
         assert mock_warn.called
         assert any("ExcelPyDagMeta" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
+
+
+def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.MonkeyPatch):
+    from plugin.calc.excel_py_convert import script_bank
+
+    warns = script_bank.collect_safety_warnings("x = 1\x00")
+    assert any("not parseable" in w or "syntax error" in w for w in warns)
+
+    # On Python <=3.11, ast.parse raises ValueError on NUL bytes; verify that branch directly
+    def fake_parse(src: str):
+        raise ValueError("embedded null byte")
+
+    monkeypatch.setattr(script_bank.ast, "parse", fake_parse)
+    warns_val = script_bank.collect_safety_warnings("x = 1\x00")
+    assert any("not parseable" in w for w in warns_val)
+
+
+def test_report_safety_warnings_parses_each_script_once(monkeypatch: pytest.MonkeyPatch):
+    from plugin.calc.excel_py_convert import script_bank
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    calls: list[str] = []
+
+    def fake_collect(code: str) -> list[str]:
+        calls.append(code)
+        return ["warn"]
+
+    monkeypatch.setattr(script_bank, "collect_safety_warnings", fake_collect)
+
+    c1 = ConvertedCell(sheet="S1", cell="A1", direction="dag", original_code="c1", converted_code="code_a", converted=True)
+    c2 = ConvertedCell(sheet="S1", cell="A2", direction="dag", original_code="c2", converted_code="code_b", converted=True)
+    c3 = ConvertedCell(sheet="S1", cell="A3", direction="dag", original_code="c3", converted_code="code_a", converted=True)
+    report = ConversionReport(direction="dag", cells=[c1, c2, c3])
+
+    out = script_bank.report_safety_warnings(report)
+    assert len(calls) == 2
+    assert out == ["S1!A1: warn", "S1!A2: warn", "S1!A3: warn"]
