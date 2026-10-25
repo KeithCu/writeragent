@@ -9,8 +9,7 @@ import getpass
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.errors import best_effort
-from plugin.framework.tool import ToolBase
-from plugin.chatbot.sub_agent_tools import _SubagentSessionToolBase
+from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 
 if TYPE_CHECKING:
@@ -210,7 +209,7 @@ TOOLS FOR COMPLETION:
     )
 
 
-class LibrarianOnboardingTool(_SubagentSessionToolBase):
+class LibrarianOnboardingTool(SubAgentSessionToolBase):
     name: str | None = "librarian_onboarding"
     description: str = "Librarian agent for new user onboarding."
     agent_label: str = "Librarian"

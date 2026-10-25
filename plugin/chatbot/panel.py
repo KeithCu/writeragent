@@ -1564,13 +1564,6 @@ class SendButtonListener(BaseActionListener):
                         return
 
             from plugin.chatbot.chat_sidebar_mode import (
-                CHAT_MODE_BRAINSTORMING,
-                CHAT_MODE_DEEP_RESEARCH,
-                CHAT_MODE_IMAGE,
-                CHAT_MODE_LIBRARIAN,
-                CHAT_MODE_PPT_MASTER,
-                CHAT_MODE_WEB_RESEARCH,
-                CHAT_MODE_WRITING_PLAN,
                 mode_from_selector_with_flags,
                 sidebar_mode_flags_for_doc_type,
             )

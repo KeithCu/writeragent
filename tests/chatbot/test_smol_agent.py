@@ -737,7 +737,7 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
 
     with patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "m"}), \
          patch("plugin.chatbot.smol_agent.get_config_int", return_value=2048), \
-         patch("plugin.chatbot.smol_agent.LlmClient") as mock_llm, \
+         patch("plugin.chatbot.smol_agent.LlmClient"), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel") as mock_wsm:
 
         create_smol_model(ctx)

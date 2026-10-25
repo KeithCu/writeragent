@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +19,6 @@ from plugin.chatbot.slash_commands import (
     KEY_RETURN,
     KEY_TAB,
     KEY_UP,
-    SLASH_COMMANDS,
     SLASH_LRU_KEY,
     SlashCommand,
     classify_slash_key,

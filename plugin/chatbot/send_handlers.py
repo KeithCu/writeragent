@@ -12,10 +12,9 @@ alternate send flows that would otherwise bloat that class:
 from __future__ import annotations
 
 import os
-import json
 import threading
 import logging
-from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
@@ -249,7 +248,6 @@ def _specialized_tool_error_payload(note: str) -> dict[str, Any]:
 
 if TYPE_CHECKING:
     import queue
-    from plugin.chatbot.chat_session import ChatSession
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:

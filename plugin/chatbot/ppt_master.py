@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
-from plugin.chatbot.sub_agent_tools import _SubagentSessionToolBase
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ def _run_ppt_master_venv_agent(
     )
 
 
-class PptMasterSessionTool(_SubagentSessionToolBase):
+class PptMasterSessionTool(SubAgentSessionToolBase):
     name: str | None = "ppt_master_session"
     description: str = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
     agent_label: str = "PPT-Master"

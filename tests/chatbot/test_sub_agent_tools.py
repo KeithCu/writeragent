@@ -11,26 +11,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.chatbot.brainstorming import BrainstormingSessionTool, SaveDesignSpec
+from plugin.chatbot.brainstorming import BrainstormingSessionTool
 from plugin.chatbot.deep_research_session import DeepResearchSessionTool
 from plugin.chatbot.librarian import LibrarianOnboardingTool
 from plugin.chatbot.ppt_master import PptMasterSessionTool
 from plugin.chatbot.sub_agent_tools import (
-    _SubagentSessionToolBase,
+    SubAgentSessionToolBase,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
     run_subagent_tool,
 )
-from plugin.chatbot.writing import WriteDocumentSection, WritingPlanSessionTool
+from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
     DocumentDisposedError,
     WriterAgentException,
 )
-from plugin.framework.prompts import (
-    APPLY_DOCUMENT_TARGET_RULES,
-    SUB_AGENT_HTML_CONTENT_RULES,
-)
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
+from plugin.framework.tool import ToolBase, ToolContext
 
 
 class TestRunSubagentTool:
@@ -245,7 +241,7 @@ class TestSessionToolMetadata:
         tool = tool_cls()
         assert tool.is_async() is True
         assert tool.is_mutation is False
-        assert isinstance(tool, _SubagentSessionToolBase)
+        assert isinstance(tool, SubAgentSessionToolBase)
 
         ctx = MagicMock()
         with patch("plugin.chatbot.sub_agent_tools.run_subagent_tool") as mock_run:

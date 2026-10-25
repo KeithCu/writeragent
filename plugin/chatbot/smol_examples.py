@@ -23,7 +23,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK, WEB_RESEARCH_EXAMPLES_BLOCK
 

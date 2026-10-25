@@ -570,7 +570,6 @@ def _run_deep_web_research(
     """
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
     from plugin.framework.config import get_config_int, get_config_int_safe
-    from plugin.chatbot.smol_agent import WriterAgentSmolModel
     from plugin.chatbot.web_research_deep import run_deep_research
     from plugin.framework.client.llm_client import LlmClient
 
@@ -783,13 +782,6 @@ class WebResearchTool(ToolBase):
                     return {"status": "ok", "message": _("Web research completed."), "result": cached, "instruction": instruction, **cache_fields}
             except Exception as e:
                 log.warning("Failed to lookup web research cache: %s", e)
-
-        try:
-            from plugin.framework.config import get_api_config
-            from plugin.framework.client.llm_client import LlmClient
-            from plugin.chatbot.smol_agent import WriterAgentSmolModel
-        except (ImportError, ValueError, TypeError) as e:
-            return format_error_payload(ToolExecutionError(f"Failed to load required dependencies: {e}"))
 
         status_callback = getattr(ctx, "status_callback", None)
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)

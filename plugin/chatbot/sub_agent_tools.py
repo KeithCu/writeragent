@@ -110,7 +110,7 @@ class SubAgentResearchWebBase(ToolBase):
         return WebResearchTool().execute(ctx, query=query)
 
 
-class _SubagentSessionToolBase(ToolBase):
+class SubAgentSessionToolBase(ToolBase):
     """Nameless base class for sidebar subagent session orchestrators."""
 
     tier: str = "specialized_control"

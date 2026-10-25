@@ -10,18 +10,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import (
     HTML_CONTENT_PARAMETERS,
     SubAgentResearchWebBase,
-    _SubagentSessionToolBase,
+    SubAgentSessionToolBase,
     apply_html_content,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
-from plugin.framework.tool import ToolBase, ToolContext
 from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 WRITING_SUB_AGENT_INSTRUCTIONS = """WRITING PLAN MODE:
 You help write documents collaboratively using a structured, plan-driven approach.
@@ -105,7 +107,7 @@ def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str |
     )
 
 
-class WritingPlanSessionTool(_SubagentSessionToolBase):
+class WritingPlanSessionTool(SubAgentSessionToolBase):
     """Orchestrator for one turn of the writing plan sub-agent (sidebar session)."""
 
     name: str | None = "writing_plan_session"

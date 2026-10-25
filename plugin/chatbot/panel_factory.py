@@ -844,7 +844,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         toggle_image_ui: Callable[[bool], None] | None = None,
     ) -> tuple[str, SidebarModeFlags, Callable[[bool], None]]:
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, is_image_mode, librarian_default_mode, populate_mode_selector_with_flags, set_selector_mode_with_flags
+        from plugin.chatbot.chat_sidebar_mode import is_image_mode, librarian_default_mode, populate_mode_selector_with_flags, set_selector_mode_with_flags
 
         if aspect_ratio_selector:
             from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, aspect_label_gettext, canonical_aspect_label

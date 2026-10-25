@@ -10,15 +10,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import (
     SubAgentResearchWebBase,
-    _SubagentSessionToolBase,
+    SubAgentSessionToolBase,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
-from plugin.framework.tool import ToolBase, ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
 You perform multi-step public web research and write formatted results into the active Writer document when appropriate.
@@ -79,7 +81,7 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
     )
 
 
-class DeepResearchSessionTool(_SubagentSessionToolBase):
+class DeepResearchSessionTool(SubAgentSessionToolBase):
     """Orchestrator for one turn of the Deep Research sub-agent (sidebar session)."""
 
     name: str | None = "deep_research_session"

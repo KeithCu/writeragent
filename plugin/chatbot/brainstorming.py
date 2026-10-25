@@ -10,18 +10,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import (
     HTML_CONTENT_PARAMETERS,
     SubAgentResearchWebBase,
-    _SubagentSessionToolBase,
+    SubAgentSessionToolBase,
     apply_html_content,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
-from plugin.framework.tool import ToolBase, ToolContext
 from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 BRAINSTORMING_SUB_AGENT_INSTRUCTIONS = """BRAINSTORMING MODE:
 You help turn ideas into fully formed designs through collaborative dialogue before any implementation.
@@ -131,7 +133,7 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
     )
 
 
-class BrainstormingSessionTool(_SubagentSessionToolBase):
+class BrainstormingSessionTool(SubAgentSessionToolBase):
     """Orchestrator for one turn of the brainstorming sub-agent (sidebar session)."""
 
     name: str | None = "brainstorming_session"

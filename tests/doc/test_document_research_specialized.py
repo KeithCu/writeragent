@@ -60,7 +60,6 @@ def test_filter_document_research_discovery_tools_respects_config():
     r.register(DelegateReadDocument())
     r.register(SpecializedWorkflowFinished())
     tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
-    ctx = MagicMock()
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         filtered = filter_document_research_discovery_tools(tools)
