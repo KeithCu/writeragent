@@ -168,7 +168,7 @@ def _origin_key(url: str) -> tuple[str, str, int]:
 
 
 
-def _apply_redirect(
+def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
     method: str,
     body: Any,
     headers: dict[str, str],
@@ -249,9 +249,3 @@ def origin_and_path(url: str) -> tuple[str, str]:
     if parsed.query:
         path = f"{path}?{parsed.query}"
     return origin, path
-
-
-
-__all__ = [
-    "_apply_redirect",
-]
