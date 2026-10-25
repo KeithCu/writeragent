@@ -215,10 +215,8 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         warning = f"Kokoro voice {voice!r} is not in {voices_path}; using {fallback}"
         voice = fallback
 
-    # What was wrong: payload lang was the requested voice's language.
-    # How it happened: voice fallback replaced the voice but kept lang.
-    # Why this change: recompute lang from the final voice so phonemizing
-    # does not pass the wrong language to the substitute voice.
+    # Recompute lang from the voice actually used: a substitute voice must not
+    # get phonemes for the requested voice's language.
     lang = kokoro_g2p_lang(text, voice)
 
     phonemes, g2p_warning = misaki_frontend(text, lang)
@@ -233,9 +231,8 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         else:
             samples, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
 
-        # What was wrong: an empty samples array still wrote a header-only wav.
-        # How it happened: parent treated any wav with size > 0 as success.
-        # Why this change: reject empty samples before write so silence is not played.
+        # An empty samples array would write a header-only wav that the parent
+        # accepts as success (size > 0).
         try:
             empty = samples is None or len(samples) == 0
         except TypeError:

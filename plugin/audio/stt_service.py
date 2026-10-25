@@ -426,11 +426,11 @@ def _transcribe_local(
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
 
-    returncode = getattr(completed, "returncode", None)
-    stdout = getattr(completed, "stdout", "") or ""
-    stderr = getattr(completed, "stderr", "") or ""
-    timed_out = bool(getattr(completed, "timed_out", False))
-    spawn_failed = bool(getattr(completed, "spawn_failed", False))
+    returncode = completed.returncode
+    stdout = completed.stdout or ""
+    stderr = completed.stderr or ""
+    timed_out = completed.timed_out
+    spawn_failed = completed.spawn_failed
 
     tail = stderr.strip()[-500:]
 
