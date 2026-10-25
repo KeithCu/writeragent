@@ -250,8 +250,6 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
     """Read one settings control. ``None`` means the control is missing.
 
     Missing controls are skipped (callers must not persist ``""``).
-    Checkboxes are bool (WriterAgent). LibrePy maps that to ``\"true\"`` /
-    ``\"false\"``.
     int/float specs prefer ``getValue`` when the control has it.
     ``getText`` on a spin button is the stale UnoControlEdit caption and
     must not be written over that value. Before the read, a peer value

@@ -6,8 +6,6 @@ import pytest
 
 from plugin.librepy.settings import (
     _DownloadVecPackListener,
-    _extract_field,
-    _populate_field,
     _scripting_field_specs,
 )
 from plugin.scripting.venv_probe_ui import (
@@ -45,43 +43,6 @@ def test_scripting_field_specs_skips_librepy_exclude():
         specs = _scripting_field_specs()
     names = {s["name"] for s in specs}
     assert names == {"scripting__python_venv_path"}
-
-
-def test_populate_field_uses_setvalue_for_numeric():
-    class _NumericCtrl:
-        def setValue(self, value):
-            self.value = value
-
-    ctrl = _NumericCtrl()
-    _populate_field(ctrl, {"name": "scripting__python_exec_timeout", "type": "int", "value": "42"})
-    assert ctrl.value == 42.0
-
-
-def test_extract_field_checkbox_string_and_numeric_getvalue():
-    class _Box:
-        def supportsService(self, name):
-            return False
-
-        def getState(self):
-            return 1
-
-    class _Off:
-        def supportsService(self, name):
-            return False
-
-        def getState(self):
-            return 0
-
-    class _Spin:
-        def getText(self):
-            return "0"
-
-        def getValue(self):
-            return 7
-
-    assert _extract_field(_Box(), {"type": "bool"}) == "true"
-    assert _extract_field(_Off(), {"type": "bool"}) == "false"
-    assert _extract_field(_Spin(), {"type": "int"}) == "7"
 
 
 def test_venv_probe_progress_uses_xdl_control_ids():
@@ -318,7 +279,7 @@ def test_open_librepy_settings_disposes_when_populate_raises() -> None:
             return_value=[{"name": "scripting__python_venv_path", "type": "string", "value": "x"}],
         ),
         patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
-        patch("plugin.librepy.settings._populate_field", side_effect=RuntimeError("populate")),
+        patch("plugin.librepy.settings.populate_settings_control", side_effect=RuntimeError("populate")),
     ):
         with pytest.raises(RuntimeError, match="populate"):
             open_librepy_settings(MagicMock())
@@ -378,8 +339,8 @@ def test_open_librepy_settings_retries_on_config_validation_error() -> None:
             return_value=[{"name": "scripting__python_exec_timeout", "type": "int", "value": "999"}],
         ),
         patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
-        patch("plugin.librepy.settings._populate_field") as mock_populate,
-        patch("plugin.librepy.settings._extract_field", return_value="999"),
+        patch("plugin.librepy.settings.populate_settings_control") as mock_populate,
+        patch("plugin.librepy.settings.read_settings_control", return_value="999"),
         patch(
             "plugin.chatbot.settings_fields.apply_field_specs_result",
             side_effect=ConfigValidationError("out of range"),
@@ -392,6 +353,73 @@ def test_open_librepy_settings_retries_on_config_validation_error() -> None:
     mock_populate.assert_called_once()
     mock_apply.assert_called_once()
     mock_msgbox.assert_called_once()
+    dlg.dispose.assert_called_once()
+
+
+def test_open_librepy_settings_teardown_removal_error_keeps_populate_error() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    test_btn = MagicMock()
+    test_btn.removeActionListener.side_effect = RuntimeError("control disposed")
+    ctrl = MagicMock()
+
+    def get_opt(_dlg, name):
+        if name == "scripting__python_venv_path":
+            return ctrl
+        if name == "scripting__test_venv":
+            return test_btn
+        return None
+
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
+        patch(
+            "plugin.librepy.settings._scripting_field_specs",
+            return_value=[{"name": "scripting__python_venv_path", "type": "string", "value": "x"}],
+        ),
+        patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
+        patch("plugin.librepy.settings.populate_settings_control", side_effect=RuntimeError("populate")),
+    ):
+        with pytest.raises(RuntimeError, match="populate"):
+            open_librepy_settings(MagicMock())
+
+    dlg.dispose.assert_called_once()
+    test_btn.removeActionListener.assert_called_once()
+
+
+def test_open_librepy_settings_ok_writes_one_batch() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    dlg.execute.return_value = 1
+
+    specs = [
+        {"name": "scripting__python_allow_os", "type": "bool"},
+        {"name": "scripting__python_exec_timeout", "type": "int"},
+    ]
+
+    def fake_read(_ctrl, field=None):
+        if field and field.get("type") == "bool":
+            return True
+        return 42.0
+
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
+        patch("plugin.librepy.settings._scripting_field_specs", return_value=specs),
+        patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
+        patch("plugin.librepy.settings.read_settings_control", side_effect=fake_read),
+        patch("plugin.chatbot.settings_fields.get_config", return_value={}),
+        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+    ):
+        open_librepy_settings(MagicMock())
+
+    mock_set.assert_called_once_with(
+        {"scripting.python_allow_os": True, "scripting.python_exec_timeout": 42.0}
+    )
     dlg.dispose.assert_called_once()
 
 
