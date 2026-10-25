@@ -36,9 +36,9 @@ Locale argument separator is `;` in many locales and `,` in US English. Examples
 | # | Wizard name | IDL | Required | Meaning |
 | --- | --- | --- | --- | --- |
 | 0 | `message` | `string` | yes | User message. A single cell (`A1`) is coerced to text by Calc. A multi-cell range is **not** delivered as a 2D array (implicit intersection or `#VALUE!`). |
-| 1 | `system_prompt` | `any` | no | `None` → `extend_selection_system_prompt` if set, else `CALC_PROMPT_CELL_SYSTEM_PROMPT`. A non-`None` value is `str(…)`’d; empty string omits the system message. |
-| 2 | `model` | `any` | no | `None` → `get_text_model()`. Otherwise `str(model)` overrides the client config. |
-| 3 | `max_tokens` | `any` | no | `None` or non-int → `calc_prompt_max_tokens` (default **4096**; values `< 100` upgraded on load). Else `int(max_tokens)`. |
+| 1 | `system_prompt` | `any` | no | `None`, blank, or numeric zero (Calc's empty-cell value) → `extend_selection_system_prompt` if set, else `CALC_PROMPT_CELL_SYSTEM_PROMPT`. Any other value is stripped `str(…)`. |
+| 2 | `model` | `any` | no | `None`, blank, or numeric zero → the configured model. Otherwise the stripped `str(model)` overrides the client config. |
+| 3 | `max_tokens` | `any` | no | Only a finite positive integer `>= 100` wins; `None`, bool, blank, non-finite, and values below 100 → `calc_prompt_max_tokens` (default **4096**). |
 
 IDL today:
 
@@ -52,9 +52,10 @@ Contrast `=PY()`: last parameter is `sequence<any>`, which is how Calc packs tra
 
 1. Calc calls UNO `PromptFunction.prompt`.
 2. `execute_prompt_addin` runs in a yellow / sync-host context (`sync_host_dispatch`).
-3. Messages are `[optional system] + {role: user, content: message}`.
-4. `LlmClient.request_with_tools` via `run_blocking_in_thread(..., pump_idle=False, stream=False, tools=None)`.
-5. The cell gets a **string**. Empty assistant text becomes a diagnostic (`finish_reason`, token usage, model, short reasoning excerpt) — never a silent blank.
+3. Messages are `[system] + {role: user, content: message}`; a blank `message` returns `Error: prompt is empty.` before any network call.
+4. `LlmClient.request_with_tools` via `run_blocking_in_thread(..., pump_idle=False, stream=False, tools=None, prepend_dev_build_system_prefix=False)`.
+5. `LlmClient` prepends `Today's date is …` to the first system message; the resolved system prompt is always sent (the configured default when the argument is blank).
+6. The cell gets a **string**. Empty assistant text becomes a diagnostic (`finish_reason`, token usage, model, short reasoning excerpt) — never a silent blank.
 
 `pump_idle=False` is required: pumping VCL during recalc re-enters the formula engine (`#VALUE!`). The wait still polls `pump_main_thread_work_queue`; that helper returns without running items when the caller is not the main thread, while the same poll still drains the marshal queue on the UI thread.
 
