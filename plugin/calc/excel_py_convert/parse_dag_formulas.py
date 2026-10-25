@@ -15,7 +15,13 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
 )
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
-from plugin.calc.python.formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import (
+    format_data_binding_display,
+    parse_data_binding_text,
+    parse_python_formula,
+    py_formula_has_unquoted_code_ref,
+    rebuild_python_formula_with_data,
+)
 
 
 def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
@@ -52,12 +58,11 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
         shift_xlws_py_dep,
         shift_xlws_py_formula,
     )
-    from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 
     masters = _shared_formula_map(ws_root)
     out: dict[str, tuple[str, str]] = {}
     for c in find_all(ws_root, "c"):
-        a1 = (c.attrib.get("r") or "").replace("$", "")
+        a1 = (c.attrib.get("r") or "").replace("$", "").upper()
         if not a1:
             continue
         f = find_child(c, "f")
@@ -79,7 +84,8 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
                 if parts is not None:
                     shifted_args: list[str] = []
                     ok = True
-                    for arg in parts.data_args:
+                    # PythonFormulaParts has no data_args; re-parse the trailing arg text and keep parts.prefix.
+                    for arg in parse_data_binding_text(format_data_binding_display(parts.data_suffix)):
                         s_arg = shift_xlws_py_dep(arg, delta_r, delta_c)
                         if s_arg is None:
                             ok = False
@@ -87,10 +93,6 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
                         shifted_args.append(s_arg)
                     if ok:
                         formula = rebuild_python_formula_with_data(parts.code, shifted_args, parts=parts)
-                else:
-                    s_ref = shift_xlws_py_dep(master_body.lstrip("="), delta_r, delta_c)
-                    if s_ref is not None:
-                        formula = "=" + s_ref
 
         if formula and not formula.startswith("="):
             formula = "=" + formula
@@ -100,15 +102,15 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
 
 def resolve_code_bank_ref(code: str, sheet_cells: dict[str, dict[str, tuple[str, str]]]) -> str | None:
     """If *code* is ``py_code_Sheet.A1``, return that cell's string; else None."""
+    by_lower = {k.lower(): v for k, v in sheet_cells.items()}
+
     def _lookup(sheet: str, a1: str) -> str | None:
-        cell_map = sheet_cells.get(sheet)
-        if cell_map is None:
-            lower = {k.lower(): v for k, v in sheet_cells.items()}
-            cell_map = lower.get(sheet.lower())
+        cell_map = sheet_cells.get(sheet) or by_lower.get(sheet.lower())
         if not cell_map:
             return None
-        _formula, value = cell_map.get(a1, ("", ""))
-        return value if value else None
+        _formula, value = cell_map.get(a1) or cell_map.get(a1.lower(), ("", ""))
+        stripped = value.strip()
+        return stripped or None
 
     return resolve_bank_cell_reference(code, _lookup)
 
@@ -136,7 +138,7 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
 
         for sh in sheets:
             # Skip Calc script-bank sheets as formula hosts (they hold source text only).
-            if sh.title.startswith(CODE_SHEET_PREFIX):
+            if sh.title.lower().startswith(CODE_SHEET_PREFIX):
                 continue
             cell_map = sheet_cells.get(sh.title) or {}
             for a1, (formula, _value) in cell_map.items():
@@ -145,7 +147,12 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                 parts = parse_python_formula(formula)
                 if parts is None:
                     continue
-                resolved = resolve_code_bank_ref(parts.code, sheet_cells)
+                # A quoted code string that looks like a bank ref is literal Python, not a reference.
+                resolved = (
+                    resolve_code_bank_ref(parts.code, sheet_cells)
+                    if py_formula_has_unquoted_code_ref(formula)
+                    else None
+                )
                 if resolved is not None:
                     # Excel escape only — do not run Calc formula sanitizer on banked source.
                     from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_excel_formula
