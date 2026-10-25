@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.html_export import _range_to_content_via_temp_doc, xtext_to_content
+from plugin.writer.html_export import (
+    _inject_page_number_attributes,
+    _range_to_content_via_temp_doc,
+    xtext_to_content,
+)
 from plugin.writer.html_ruby import inject_ruby_into_html
 
 
@@ -232,6 +236,42 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
         out = html_export.document_to_content(_content_doc(), None, None)
     assert "Texto do documento" in out
+
+
+def test_full_export_fallback_reports_missing_style_tokens():
+    from plugin.writer import html_export
+
+    warnings: list[str] = []
+    with (
+        patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
+        patch("plugin.writer.format._with_temp_buffer") as buf,
+        patch("builtins.open") as opener,
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+    ):
+        buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
+        opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
+        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+    assert "Texto do documento" in out
+    assert warnings == [
+        "XHTML export failed; content came from the legacy HTML export and has no style tokens."
+    ]
+
+
+def test_full_export_happy_path_produces_no_fallback_warning():
+    from plugin.writer import html_export
+
+    warnings: list[str] = []
+    with (
+        patch.object(html_export, "_export_xhtml", return_value="<p>x</p>"),
+        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
+        patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+    ):
+        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+    assert "<p>x</p>" in out
+    assert warnings == []
 
 
 def test_an_empty_document_still_reads_as_empty():
@@ -637,6 +677,48 @@ def test_extract_page_number_fields_reads_properties():
     ]
 
 
+def test_extract_page_number_fields_reads_a_table_cell():
+    from plugin.writer.html_export import extract_page_number_fields
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.getPropertyValue.side_effect = lambda name: {"SubType": 1, "Offset": 2, "NumberingType": 4}[name]
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+
+    cell = MagicMock()
+    cell.createEnumeration.return_value = _Enum([para])
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1",)
+    table.getCellByName.return_value = cell
+
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([table])
+
+    assert extract_page_number_fields(text) == [
+        {"SubType": 1, "Offset": 2, "NumberingType": 4}
+    ]
+
+
+def test_extract_page_number_fields_no_field_returns_empty():
+    from plugin.writer.html_export import extract_page_number_fields
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([para])
+
+    assert extract_page_number_fields(text) == []
+
+
 def test_xtext_injects_nonzero_page_offset():
     from plugin.writer import html_export
 
@@ -654,6 +736,64 @@ def test_xtext_injects_nonzero_page_offset():
     assert 'data-offset="1"' in out
     assert 'data-subtype="NEXT"' in out
     assert "data-numbering-type" not in out
+
+
+def test_inject_page_number_attributes_defaults_omitted():
+    inp = '<p><span title="page-number"></span></p>'
+    fields = [{"SubType": 1, "Offset": 0, "NumberingType": 4}]
+    assert _inject_page_number_attributes(inp, fields) == inp
+
+
+def test_inject_page_number_attributes_non_defaults_in_order():
+    inp = '<p><span title="page-number"></span></p>'
+    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_number_attributes(inp, fields)
+    assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"></span>' in out
+
+
+def test_inject_page_number_attributes_self_closing_tag():
+    inp = '<p><span title="page-number"/></p>'
+    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_number_attributes(inp, fields)
+    assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"/>' in out
+
+
+def test_inject_page_number_attributes_count_mismatch_returns_unchanged():
+    two_spans = '<p><span title="page-number"></span><span title="page-number"></span></p>'
+    one_field = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    assert _inject_page_number_attributes(two_spans, one_field) == two_spans
+
+    one_span = '<p><span title="page-number"></span></p>'
+    two_fields = [
+        {"SubType": 2, "Offset": 1, "NumberingType": 3},
+        {"SubType": 1, "Offset": 0, "NumberingType": 4},
+    ]
+    assert _inject_page_number_attributes(one_span, two_fields) == one_span
+
+
+def test_inject_page_number_attributes_empty_fields_returns_unchanged():
+    inp = '<p><span title="page-number"></span></p>'
+    assert _inject_page_number_attributes(inp, []) == inp
+
+
+def test_page_number_converters():
+    from types import SimpleNamespace
+
+    from plugin.writer.html_export import (
+        _page_number_numbering_type_to_name,
+        _page_number_subtype_to_name,
+    )
+
+    assert _page_number_subtype_to_name(2) == "NEXT"
+    assert _page_number_subtype_to_name("2") == "NEXT"
+    assert _page_number_subtype_to_name("next") == "NEXT"
+    assert _page_number_subtype_to_name(SimpleNamespace(value="PREV")) == "PREV"
+    assert _page_number_subtype_to_name(99) == "CURRENT"
+
+    assert _page_number_numbering_type_to_name(4) == "ARABIC"
+    assert _page_number_numbering_type_to_name("ARABIC") == "ARABIC"
+    assert _page_number_numbering_type_to_name("roman_upper") == "ROMAN_UPPER"
+    assert _page_number_numbering_type_to_name(99) == "ARABIC"
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
