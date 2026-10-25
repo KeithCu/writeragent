@@ -68,7 +68,7 @@ Returning a **pandas DataFrame** spills/writes with its **column header row** in
 
 Payload size cap: `scripting.python_max_data_cells` ([serialization config](../scripting/numpy-serialization.md#subprocess-module-map-and-config)). Host↔venv pipeline: [Current pipeline](../scripting/numpy-serialization.md#current-pipeline-and-costs).
 
-**Gaps vs LibrePythonista (workarounds):** chat tool still single `data_range` (use multiple `=PY` cells or formula varargs); no `collapse` (tighter range or strip `None` in Python); DataFrame conversion is explicit via `data.to_pandas()` — [why that is the default](#why-calcrange-not-dataframe-by-default).
+**Gaps vs LibrePythonista (workarounds):** no `collapse` (tighter range or strip `None` in Python); DataFrame conversion is explicit via `data.to_pandas()` — [why that is the default](#why-calcrange-not-dataframe-by-default).
 
 ---
 
@@ -119,7 +119,7 @@ A Settings switch “inject DataFrames” would be two dialects, two meanings of
 
 ## Multi-range support (varargs) {#multi-range-support-varargs}
 
-**Status:** Shipped. `ranges` is always a `list[CalcRange]`. `data` is **polymorphic**: one formula arg → that `CalcRange`; two or more → the same list object as `ranges` (`data is ranges`). Wire envelope: [Multi-range wire format](../scripting/numpy-serialization.md#multi-range-wire-format). Chat-tool multi `data_range` remains future work.
+**Status:** Shipped. `ranges` is always a `list[CalcRange]`. `data` is **polymorphic**: one formula arg → that `CalcRange`; two or more → the same list object as `ranges` (`data is ranges`). Wire envelope: [Multi-range wire format](../scripting/numpy-serialization.md#multi-range-wire-format). Chat tools accept a `data_range` that is one address, a comma/semicolon-separated string, or a list of addresses; each range packs as its own `calc_range` in `multi_data`.
 
 `=PY()` accepts **one or more** optional data arguments after `code`. Calc packs trailing arguments into a single `sequence<any>` (UNO varargs).
 

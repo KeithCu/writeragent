@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.calc_addin_data import (
+    _normalize_data_range_addresses,
     _resolve_python_data,
     calc_addin_args_to_python,
     calc_addin_data_to_python,
@@ -82,7 +83,7 @@ def test_check_python_data_size_rejects_large():
 
 
 def test_check_python_data_size_ok():
-    assert check_python_data_size([1, 2]) is None
+    assert check_python_data_size([1, 2], max_cells=python_max_data_cells_default()) is None
 
 
 def test_values_from_inspector_range():
@@ -289,23 +290,53 @@ def test_pack_calc_data_for_wire_flat_list_is_one_row():
     assert wire["data"] == [[1, 2, 3]]
 
 
+def test_dict_is_one_cell_not_rows():
+    assert calc_addin_data_to_python({"a": 1}) == [[{"a": 1}]]
+    assert split_python_addin_data_args({"a": 1}) == [{"a": 1}]
+
+
+def test_set_is_one_cell_not_rows():
+    assert calc_addin_data_to_python({1, 2}) == [[{1, 2}]]
+
+
+def test_namedtuple_is_one_cell_not_rows():
+    from collections import namedtuple
+
+    Row = namedtuple("Row", "x y")
+    raw = Row(1, 2)
+    assert calc_addin_data_to_python(raw) == [[raw]]
+
+
+def test_normalize_data_range_addresses_skips_non_strings():
+    assert _normalize_data_range_addresses([None, " A1 ", "", 123]) == ["A1"]
+
+
+def test_normalize_data_range_addresses_splits_list_members():
+    assert _normalize_data_range_addresses(["A1;B1"]) == ["A1", "B1"]
+    assert _normalize_data_range_addresses(["A1,B1"]) == ["A1", "B1"]
+
+
+def test_normalize_data_range_addresses_scalar_unchanged():
+    assert _normalize_data_range_addresses("A1;B1") == ["A1", "B1"]
+    assert _normalize_data_range_addresses(None) == []
+    assert _normalize_data_range_addresses([]) == []
+
+
 def test_resolve_python_data_disposal_propagates():
     class DisposedException(Exception):
         pass
 
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
+    doc = MagicMock()
     with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):
-            _resolve_python_data(ctx, data_range="A1:B1")
+            _resolve_python_data(doc, data_range="A1:B1")
 
 
 def test_resolve_python_data_returns_calc_error_message():
     from plugin.framework.errors import CalcError
 
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
+    doc = MagicMock()
     with patch("plugin.calc.inspector.CellInspector.read_range", side_effect=CalcError("Data range has 500000 cells; maximum is 250000.")):
-        data, err = _resolve_python_data(ctx, data_range="A1:B500000")
+        data, err = _resolve_python_data(doc, data_range="A1:B500000")
     assert data is None
     assert err == "Data range has 500000 cells; maximum is 250000."

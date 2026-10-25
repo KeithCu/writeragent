@@ -19,7 +19,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple, cast
+from typing import Any, cast
 import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
@@ -79,7 +79,7 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     return sheet, col, row
 
 
-def get_cell_geometry(sheet: Any, cell: Any) -> Tuple[Any, Any]:
+def get_cell_geometry(sheet: Any, cell: Any) -> tuple[Any, Any]:
     """Return (Position, Size) for *cell*, collapsing merged areas to get correct coordinates.
 
     Standard ``cell.Position`` / ``cell.Size`` return the top-left sub-cell geometry
@@ -128,8 +128,6 @@ def _runtime_formula_result_value() -> int:
     if _formula_result_value_code is not None:
         return _formula_result_value_code
     try:
-        import uno
-
         # String name, not an import: FormulaResult is absent from the type
         # stubs, and ty rejects int() on the untyped constant. The runtime
         # value is a plain int (0 on some builds, 1 on others).
@@ -215,6 +213,3 @@ def cell_type_name(cell_type: Any) -> str:
     if cell_type == FORMULA:
         return "formula"
     return "unknown"
-
-
-_formula_cell_result = formula_cell_result
