@@ -290,7 +290,9 @@ class _GrammarDocumentEventListener(BaseDocumentEventListener):
 
     def on_document_event(self, Event: Any) -> None:
         name = getattr(Event, "EventName", "") or ""
-        if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo"):
+        # storeToURL ("Save a Copy") fires OnCopyTo, not OnSaveTo, so the copy
+        # would otherwise be written without the grammar cache.
+        if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"):
             self._outer._persist_to_udprops()
         elif name == "OnUnload":
             self._outer._teardown()
@@ -355,8 +357,8 @@ class DocumentPersistence:
         try:
             self._load_from_udprops()
         finally:
+            self._register_listeners()
             self._load_done.set()
-        self._register_listeners()
         log.debug("[grammar] DocumentPersistence: bound model for doc_id=%s", self._doc_id[:32] if self._doc_id else "")
 
     def _register_listeners(self) -> None:
@@ -618,17 +620,22 @@ class DocumentPersistence:
         # from the persisted user-defined property payload.
         from plugin.doc.udprops import set_document_property
 
-        if not self._model:
-            return
         try:
+            # Resolve the checker identity before taking _lock: it imports
+            # model_fetcher and reads config.
+            current = grammar_checker_identity()
             with self._lock:
+                # Capture the model once; _teardown can clear it mid-save and
+                # set_document_property(None, ...) would raise.
+                model = self._model
+                if self._teardown_done or model is None:
+                    return
                 if self._blob_identity == _V2_LLM_PENDING:
                     log.debug(
                         "[grammar] DocumentPersistence: skip save; v2 LLM blob not yet adopted (doc_id=%s)",
                         self._doc_id[:32] if self._doc_id else "",
                     )
                     return
-                current = grammar_checker_identity()
                 if (
                     self._session_identity is None
                     and self._blob_identity
@@ -684,7 +691,7 @@ class DocumentPersistence:
             if len(payload) > GRAMMAR_CACHE_MAX_CHARS:
                 log.warning("[grammar] DocumentPersistence: cache JSON too large (%s chars), skip write", len(payload))
                 return
-            set_document_property(self._model, GRAMMAR_DOC_CACHE_UDPROP, payload)
+            set_document_property(model, GRAMMAR_DOC_CACHE_UDPROP, payload)
             log.debug(
                 "[grammar] DocumentPersistence: saved %s sentences (%s chars) to udprop (doc_id=%s, v=%s, model=%s)",
                 n_saved,
@@ -697,9 +704,12 @@ class DocumentPersistence:
             log.exception("[grammar] DocumentPersistence: save user property failed")
 
     def _teardown(self) -> None:
-        if self._teardown_done:
-            return
-        self._teardown_done = True
+        # Two listener paths (document event + disposing) can call this at
+        # the same time; the flag transition is the once-only gate.
+        with self._lock:
+            if self._teardown_done:
+                return
+            self._teardown_done = True
         self._load_done.set()
         self._unregister_listeners()
         with self._lock:
