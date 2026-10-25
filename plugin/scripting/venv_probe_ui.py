@@ -12,7 +12,8 @@ from typing import Any, Callable
 from plugin.chatbot.dialogs import (
     get_control_text,
     get_optional,
-    load_writeragent_dialog,
+    load_writeragent_dialog_detail,
+    msgbox,
     set_control_enabled,
     set_control_text,
 )
@@ -76,46 +77,60 @@ class VenvProbeProgressDialog:
         append_log: bool = False,
     ) -> None:
         """Show a modal dialog and run *probe_fn(on_display, on_status)* in a worker."""
-        self._create_dialog(title=title)
-        self._append_log = append_log
-        self._log_parts = []
-        dlg = self._dlg
-        if dlg is None:
-            return
-
-        def on_display(text: str) -> None:
-            post_to_main_thread(lambda body=text: self.set_display(body))
-
-        def on_status(text: str) -> None:
-            post_to_main_thread(lambda status=text: self.set_status(status))
-
-        def work() -> None:
-            try:
-                ok, _msg = probe_fn(on_display, on_status)
-
-                def finish_ui() -> None:
-                    self.finish(success_title if ok else failure_title, ok)
-
-                post_to_main_thread(finish_ui)
-            except Exception as exc:
-                log.exception("Scripting venv probe failed")
-
-                def error_ui(exc: Exception = exc) -> None:
-                    self.set_display(str(exc))
-                    self.finish(failure_title, False)
-
-                post_to_main_thread(error_ui)
-
-        run_in_background(work, name="settings-venv-test")
         try:
+            if not self._create_dialog(title=title):
+                return
+            self._append_log = append_log
+            self._log_parts = []
+            dlg = self._dlg
+            if dlg is None:
+                return
+
+            def on_display(text: str) -> None:
+                post_to_main_thread(lambda body=text: self.set_display(body))
+
+            def on_status(text: str) -> None:
+                post_to_main_thread(lambda status=text: self.set_status(status))
+
+            def work() -> None:
+                try:
+                    ok, msg = probe_fn(on_display, on_status)
+
+                    def finish_ui() -> None:
+                        if not ok and msg and self._dlg is not None:
+                            log_ctrl = self._dlg.getControl("LogArea")
+                            if not get_control_text(log_ctrl).strip():
+                                self.set_display(msg)
+                        self.finish(success_title if ok else failure_title, ok)
+
+                    post_to_main_thread(finish_ui)
+                except BaseException as exc:
+                    log.exception("Scripting venv probe failed")
+
+                    def error_ui(exc: BaseException = exc) -> None:
+                        self.set_display(str(exc))
+                        self.finish(failure_title, False)
+
+                    post_to_main_thread(error_ui)
+                    if not isinstance(exc, Exception):
+                        raise
+
+            run_in_background(work, name="settings-venv-test")
             dlg.execute()
         finally:
             self._dispose()
 
-    def _create_dialog(self, *, title: str | None = None) -> None:
-        dlg = load_writeragent_dialog("PythonTestProgressDialog", self._ctx)
+    def _create_dialog(self, *, title: str | None = None) -> bool:
+        dlg, detail = load_writeragent_dialog_detail("PythonTestProgressDialog", self._ctx)
         if dlg is None:
-            raise RuntimeError("Failed to load PythonTestProgressDialog")
+            log.warning("Failed to load PythonTestProgressDialog: %s", detail)
+            msgbox(
+                self._ctx,
+                N_("Python Test"),
+                _("Could not open the Python test progress dialog."),
+                box_type=3,
+            )
+            return False
         self._dlg = dlg
         if title:
             dlg.getModel().Title = _(title)
@@ -129,6 +144,7 @@ class VenvProbeProgressDialog:
             set_control_enabled(btn_close, False)
             btn_close.addActionListener(_VenvProbeCloseListener(self))
         self._parent_progress_dialog(dlg)
+        return True
 
     def _parent_progress_dialog(self, dlg: Any) -> None:
         """Parent this modal to Settings before execute().
