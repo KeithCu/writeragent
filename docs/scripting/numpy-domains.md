@@ -197,7 +197,7 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../../plugin/writer/images/image_tools.py)). Writer and Draw plot inserts unlink the temp file after `GraphicURL` returns, including when insert raises. The path is under the temp directory, so it is embedded rather than linked. Viz templates execute the visible `run_viz(...)` call in the venv; results route via post-venv insert. Tests: [`test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py).
+[`python_runner.py`](../../plugin/scripting/python_runner.py) `execute_and_insert_result()` iterates `get_post_venv_domains()` before the raw-image plot fallback and inserts plots via [`viz.py`](../../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../../plugin/writer/images/image_tools.py)). Writer and Draw plot inserts unlink the temp file after `GraphicURL` returns, including when insert raises. The path is under the temp directory, so it is embedded rather than linked. Viz templates execute the visible `run_viz(...)` call in the venv; results route via post-venv insert. Tests: [`test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py).
 
 #### Phase C — Trusted Viz helpers (shipped)
 
@@ -212,7 +212,7 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 **Run Python Script templates:** **Viz Helpers →** `[Viz] quick_plot`, `[Viz] correlation_heatmap`, `[Viz] time_series`.
 
-**Result contract (draft):** `{status, helper, image: {format, data}, title, legend, chart_type, writer_cleanup_hints}` — image bytes use the same `__wa_payload__: "image"` envelope as Phase A. SVG payloads over 8 MiB are re-rendered as PNG so the image fits the 16 MiB IPC frame cap.
+**Result contract (draft):** The host reads `{status, helper, title, image}` (one envelope, possibly nested; `code`/`message` on error). `chart_type`, `legend`, and `writer_cleanup_hints` are informational with no host consumer. Image bytes use the same `__wa_payload__: "image"` envelope as Phase A. SVG payloads over 8 MiB are re-rendered as PNG so the image fits the 16 MiB IPC frame cap.
 Viz helpers close the matplotlib figure on every exit, including when savefig fails, so a trusted-action error does not leave the figure open on the warm worker.
 
 **Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py)).

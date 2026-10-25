@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -314,6 +315,63 @@ def test_insert_viz_result_into_doc() -> None:
         res = insert_viz_result_into_doc(ctx, doc, result)
         assert res == 1
         mock_insert.assert_called_once_with(ctx, doc, payload, title="Plot")
+
+
+def test_insert_viz_result_error_details_strip_image():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_viz_result_into_doc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    result = {
+        "status": "error",
+        "code": "VIZ_ERROR",
+        "message": "boom",
+        "image": {"__wa_payload__": "image", "format": "png", "data": b"x" * 64},
+    }
+    with pytest.raises(ToolExecutionError) as exc:
+        insert_viz_result_into_doc(ctx, doc, result)
+    assert exc.value.details["viz_result"]["image"] == "<image>"
+
+    def _has_bytes(obj: Any) -> bool:
+        if isinstance(obj, bytes):
+            return True
+        if isinstance(obj, dict):
+            return any(_has_bytes(v) for v in obj.values())
+        if isinstance(obj, (list, tuple)):
+            return any(_has_bytes(item) for item in obj)
+        return False
+
+    assert not _has_bytes(exc.value.details)
+
+
+def test_insert_viz_result_deep_image_details_stripped():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_viz_result_into_doc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    img = {"__wa_payload__": "image", "format": "png", "data": b"x" * 64}
+    node: Any = img
+    # 12 wrappers puts find_image_payloads past its depth limit (reporting no image),
+    # while strip_image_payloads replaces the image payload with '<image>'.
+    for _ in range(12):
+        node = {"n": node}
+    result = {"status": "ok", "helper": "quick_plot", "deep": node}
+
+    with pytest.raises(ToolExecutionError, match="Viz helper returned no image payload.") as exc:
+        insert_viz_result_into_doc(ctx, doc, result)
+
+    def _has_bytes(obj: Any) -> bool:
+        if isinstance(obj, bytes):
+            return True
+        if isinstance(obj, dict):
+            return any(_has_bytes(v) for v in obj.values())
+        if isinstance(obj, (list, tuple)):
+            return any(_has_bytes(item) for item in obj)
+        return False
+
+    assert not _has_bytes(exc.value.details)
 
 
 def test_run_viz_bad_header_row_is_invalid_spec():
@@ -860,6 +918,25 @@ def test_insert_image_payload_calc_does_not_write_its_own_temp():
 
     mock_write.assert_not_called()
     mock_insert.assert_called_once()
+
+
+def test_insert_image_payload_unsupported_doc_raises():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_image_payload_for_doc
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=False),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.is_draw", return_value=False),
+        patch("plugin.scripting.viz.write_image_payload_to_temp") as mock_write,
+        pytest.raises(ToolExecutionError, match="Unsupported document type"),
+    ):
+        insert_image_payload_for_doc(ctx, doc, payload)
+
+    mock_write.assert_not_called()
 
 
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
