@@ -23,6 +23,8 @@ share a pooled document. A keeper hidden Writer is opened once in
 `run_all_tests` so Windows bootstraps do not shut down when a suite closes
 its last hidden Draw doc.
 
+`python -m plugin.testing_runner` aliases `sys.modules["plugin.testing_runner"]` to the `__main__` module before `main()`, so recycle/breadcrumb state lives on one object.
+
 `_ensure_live_ctx` only runs **between suites**, and only if
 `getServiceManager()` already fails. Inside a suite, the next
 `@with_native_doc` open is the first place a dead bridge is noticed.
@@ -144,7 +146,7 @@ Impress + skipped Writer docs; office still alive). Cause:
 `python -m plugin.testing_runner` is `__main__`; tests imported
 `plugin.testing_runner` and set the recycle flag on that copy.
 `request_office_recycle_after_suite` / `consume_office_recycle_request`
-now touch both module objects.
+read and write that one flag (see “What the fixture actually does”).
 
 GHA 34551644954 (`0177648d`): recycle **did** run (`start` / `done`
 pids=`8188,6868`). `test_slash_popup` OK on the new office. Then
