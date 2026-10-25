@@ -23,7 +23,7 @@ import re as re_mod
 from typing import TYPE_CHECKING, Any, Iterator, Literal, overload
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
 from plugin.framework.worker_pool import run_in_background
@@ -606,7 +606,8 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
                 try:
                     if not st.isInUse():
                         continue
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     log.debug("header/footer label: isInUse failed", exc_info=True)
                 for attr, region in (
                     ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
@@ -620,11 +621,13 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
                             result = "%s (page style '%s')" % (region, name) if name else region
                             break
                     except Exception as exc:
+                        reraise_if_disposed(exc)
                         log.debug("header/footer label: %s unreadable: %s", attr, exc)
                         continue
                 if result:
                     break
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("header/footer label: page-style walk failed", exc_info=True)
     if result is None:
         result = "header or footer"
@@ -681,7 +684,8 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
     for i in range(n):
         try:
             shape = container.getByIndex(i)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("iter_draw_shapes: getByIndex(%s) failed", i, exc_info=True)
             continue
         is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape"), False)
@@ -779,7 +783,8 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
     try:
         draw_page = doc.getDrawPage()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.debug("search_in_document: draw-page sweep failed", exc_info=True)
         return
     for shape in iter_draw_shapes(draw_page):
@@ -787,7 +792,8 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
             if shape_is_as_character(shape) or shape_is_text_box(shape):
                 continue
             text = shape.getString() if hasattr(shape, "getString") else ""
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("iter_floating_shape_texts: shape text unreadable", exc_info=True)
             continue
         yield shape, text
@@ -802,18 +808,40 @@ def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
             if not fields.hasMoreElements():
                 return
             field = fields.nextElement()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             return
         try:
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
             content = getattr(field, "Content", "") or ""
             author = (getattr(field, "Author", "") or "").strip()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("comment_matches: annotation field unreadable", exc_info=True)
             continue
         for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
             yield hit, author, content
+
+
+def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
+    for shape, shape_text in iter_floating_shape_texts(doc):
+        hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
+        if not hits:
+            continue
+        sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
+        for hit in hits:
+            yield hit, "shape '%s'" % sname, shape_text.strip()
+
+
+def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
+    for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
+        yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
+
+
+def iter_extra_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
+    yield from iter_shape_hits(doc, pattern, use_regex, case_sensitive)
+    yield from iter_comment_hits(doc, pattern, use_regex, case_sensitive)
 
 
 @overload
@@ -875,31 +903,18 @@ def all_start_indices(haystack: str, needle: str) -> list[int]:
 
 def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
     """Edit-reachable draw-layer hits for dry_run (same skip rules as search sweep)."""
-    matches: list[dict[str, str]] = []
-    for shape, shape_text in iter_floating_shape_texts(doc):
-        hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
-        if not hits:
-            continue
-        sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
-        for hit in hits:
-            matches.append({
-                "text": hit,
-                "location": "shape '%s'" % sname,
-                "context": shape_text.strip(),
-            })
-            if len(matches) >= limit:
-                return matches
+    matches: list[dict[str, Any]] = []
+    for hit, location, context in iter_shape_hits(doc, pattern, use_regex, case_sensitive):
+        matches.append({"text": hit, "location": location, "context": context})
+        if len(matches) >= limit:
+            break
     return matches
 
 
 def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
-    matches = []
-    for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
-        matches.append({
-            "text": hit,
-            "location": "comment by '%s'" % (author or "unknown"),
-            "context": content.strip(),
-        })
+    matches: list[dict[str, Any]] = []
+    for hit, location, context in iter_comment_hits(doc, pattern, use_regex, case_sensitive):
+        matches.append({"text": hit, "location": location, "context": context})
         if len(matches) >= limit:
             break
     return matches
@@ -978,6 +993,7 @@ class SearchInDocument(ToolBase):
             sd.SearchCaseSensitive = bool(case_sensitive)
             found = doc.findFirst(sd)
         except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("search_in_document: createSearchDescriptor / findFirst failed")
             return self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
 
@@ -992,7 +1008,8 @@ class SearchInDocument(ToolBase):
             guard += 1
             try:
                 hit_text = found.getString()
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 log.exception("search_in_document: getString failed")
                 read_failed = True
                 break
@@ -1010,46 +1027,23 @@ class SearchInDocument(ToolBase):
                     "context": enclosing_paragraph_text(found),
                 })
             try:
-                found = find_next_after_match(doc, found, sd)
-            except Exception:
+                # hit_text is non-empty here, so skip find_next_after_match's second getString.
+                found = doc.findNext(found.getEnd(), sd)
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 log.exception("search_in_document: findNext failed")
                 find_next_failed = True
                 break
         if guard >= MAX_SEARCH_HITS or total_count >= MAX_SEARCH_HITS:
             hit_capped = True
 
-        for shape, shape_text in iter_floating_shape_texts(doc):
-            hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
-            if not hits:
-                continue
-            sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
-            shape_broken = False
-            for hit in hits:
-                if total_count >= MAX_SEARCH_HITS:
-                    hit_capped = True
-                    shape_broken = True
-                    break
-                total_count += 1
-                if len(matches) < max_results:
-                    matches.append({
-                        "text": hit,
-                        "location": "shape '%s'" % sname,
-                        "context": shape_text.strip(),
-                    })
-            if shape_broken:
-                break
-
-        for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
+        for hit, location, context in iter_extra_hits(doc, pattern, use_regex, case_sensitive):
             if total_count >= MAX_SEARCH_HITS:
                 hit_capped = True
                 break
             total_count += 1
             if len(matches) < max_results:
-                matches.append({
-                    "text": hit,
-                    "location": "comment by '%s'" % (author or "unknown"),
-                    "context": content.strip(),
-                })
+                matches.append({"text": hit, "location": location, "context": context})
 
         result = {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
         if total_count == 0 and document_has_tracked_deletions(doc):
