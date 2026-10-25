@@ -202,7 +202,7 @@ def test_stream_done_no_text_includes_debug_sidebar():
 
     append_texts = [e.text for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"]
     assert any("No text from model" in t for t in append_texts)
-    debug_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.is_empty_model_debug)
+    debug_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.EMPTY_MODEL_DEBUG)
     assert debug_eff.round_num == 2
     assert debug_eff.response == response
     debug_line = format_empty_model_response_debug(debug_eff.round_num, debug_eff.response)
@@ -816,7 +816,7 @@ def test_stream_done_non_list_tool_calls_emits_empty_banner():
     tr = next_state(state, event)
     append_texts = [e.text for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"]
     assert any("No text from model" in t for t in append_texts)
-    debug_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.is_empty_model_debug)
+    debug_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.EMPTY_MODEL_DEBUG)
     debug_text = format_empty_model_response_debug(debug_eff.round_num, debug_eff.response)
     assert "tool_calls=present" in debug_text
 

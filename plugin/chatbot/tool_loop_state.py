@@ -112,7 +112,6 @@ class UIEffectKind(StrEnum):
     APPEND = "append"
     STATUS = "status"
     DEBUG = "debug"
-    INFO = "info"
     TOOL_RUNNING = "tool_running"
     TOOL_RESULT = "tool_result"
     EMPTY_MODEL_DEBUG = "empty_model_debug"
@@ -161,7 +160,6 @@ class SpawnToolWorkerEffect:
 class ToolLoopUIEffect:
     kind: UIEffectKind
     text: str = ""
-    is_empty_model_debug: bool = False
     func_name: str = ""
     func_args: Optional[Dict[str, Any]] = None
     func_args_str: str = ""
@@ -342,7 +340,6 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     effects.append(
                         ToolLoopUIEffect(
                             kind=UIEffectKind.EMPTY_MODEL_DEBUG,
-                            is_empty_model_debug=True,
                             round_num=state.round_num,
                             response=response,
                         )
