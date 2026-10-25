@@ -17,7 +17,7 @@ import sys
 from typing import Any
 
 from plugin.chatbot.dialogs import msgbox
-from plugin.framework.config import get_config_file_path, init_config
+from plugin.framework.config import atomic_write_text, get_config_file_path, init_config
 from plugin.framework.i18n import _
 
 
@@ -53,8 +53,7 @@ def _ensure_config_file(path: str) -> tuple[bool, str | None]:
     try:
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("{}\n")
+        atomic_write_text(path, "{}\n")
         return True, None
     except OSError as e:
         return False, str(e)
@@ -64,7 +63,14 @@ def _popen_detached(argv: list[str]) -> None:
     kwargs: dict[str, Any] = {}
     if sys.platform != "win32":
         kwargs["start_new_session"] = True
-    subprocess.Popen(argv, close_fds=True, **kwargs)  # noqa: S603 — argv from resolve_editor_argv only
+    subprocess.Popen(  # noqa: S603 — argv from resolve_editor_argv only
+        argv,
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **kwargs,
+    )
 
 
 def open_writeragent_json_in_editor(ctx: Any) -> None:
@@ -87,7 +93,7 @@ def open_writeragent_json_in_editor(ctx: Any) -> None:
         except OSError:
             notepad = shutil.which("notepad.exe")
             if notepad:
-                subprocess.Popen([notepad, path], close_fds=True)  # noqa: S603
+                _popen_detached([notepad, path])
             else:
                 msgbox(ctx, _("Error"), _("Could not open an editor. Path:\n{0}").format(path))
         return

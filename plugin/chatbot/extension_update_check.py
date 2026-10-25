@@ -10,7 +10,8 @@
 
 Shared by WriterAgent, LibrePy, and LibreHarper. Scheduling is once per process per
 product (sidebar wire / StartupJob / HarperProofreader); this module owns fetch,
-compare, notify, and the schedule helper.
+compare, notify, and the schedule helper. A transient fetch/parse failure records a
+~6 h retry instead of waiting a full week.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from plugin.framework.thread_guard import background
 log = logging.getLogger(__name__)
 
 _WEEK_SECONDS = 7 * 24 * 3600
+_FAILURE_RETRY_SECONDS = 6 * 3600
 _FETCH_TIMEOUT = 15
 _GITHUB_RAW = "https://raw.githubusercontent.com/KeithCu/writeragent/refs/heads/master"
 
@@ -98,21 +100,13 @@ def parse_update_xml(data: bytes) -> tuple[str | None, str | None]:
         return None, None
     ident: str | None = None
     ver: str | None = None
-    for el in root.iter():
+    for el in root:
         tag = el.tag.split("}")[-1]
         if tag == "identifier":
             ident = el.get("value")
         elif tag == "version":
             ver = el.get("value")
     return ident, ver
-
-
-def remote_is_newer(remote: str, local: str) -> bool:
-    rt = version_tuple(remote)
-    lt = version_tuple(local)
-    if rt is None or lt is None:
-        return False
-    return rt > lt
 
 
 def schedule_extension_update_check_once(ctx: Any, extension_id: str | None = None) -> None:
@@ -126,12 +120,12 @@ def schedule_extension_update_check_once(ctx: Any, extension_id: str | None = No
         return
     with _schedule_lock:
         if eid in _scheduled_extension_ids:
-            log.info("extension update check: already queued this process for %s, skipping", eid)
+            log.debug("extension update check: already queued this process for %s, skipping", eid)
             return
         _scheduled_extension_ids.add(eid)
     from plugin.framework.worker_pool import run_in_background
 
-    log.info("extension update check: scheduling background worker for %s", eid)
+    log.debug("extension update check: scheduling background worker for %s", eid)
     run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=eid, dedicated=True)
 
 
@@ -156,9 +150,9 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
         log.info("extension update check: no profile for %r, not running", eid)
         return
 
-    attempted = False
+    retry_delay: float | None = None
     try:
-        log.info(
+        log.debug(
             "extension update check: worker started (product=%s local EXTENSION_VERSION=%r, url=%s)",
             profile.display_name,
             EXTENSION_VERSION,
@@ -179,15 +173,15 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
             )
             return
 
-        attempted = True
-        log.info("extension update check: fetching %s …", profile.update_xml_url)
-        raw = sync_request(profile.update_xml_url, parse_json=False, timeout=_FETCH_TIMEOUT)
+        retry_delay = _FAILURE_RETRY_SECONDS
+        log.debug("extension update check: fetching %s …", profile.update_xml_url)
+        raw = sync_request(profile.update_xml_url, parse_json=False, timeout=_FETCH_TIMEOUT, max_bytes=64 * 1024)
         if not isinstance(raw, bytes):
             log.warning("extension update check: unexpected response type %s", type(raw).__name__)
             return
-        log.info("extension update check: received %s bytes", len(raw))
+        log.debug("extension update check: received %s bytes", len(raw))
         ident, remote_ver = parse_update_xml(raw)
-        log.info("extension update check: parsed identifier=%r remote_version=%r", ident, remote_ver)
+        log.debug("extension update check: parsed identifier=%r remote_version=%r", ident, remote_ver)
         if ident != profile.extension_id:
             log.info(
                 "extension update check: identifier mismatch (got %r, expected %r), not notifying",
@@ -200,7 +194,8 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
             return
         rt = version_tuple(remote_ver)
         lt = version_tuple(EXTENSION_VERSION)
-        log.info("extension update check: comparing remote_tuple=%s local_tuple=%s (local %r)", rt, lt, EXTENSION_VERSION)
+        log.debug("extension update check: comparing remote_tuple=%s local_tuple=%s (local %r)", rt, lt, EXTENSION_VERSION)
+        retry_delay = _WEEK_SECONDS
         if rt is None or lt is None or rt <= lt:
             log.info(
                 "extension update check: not notifying (remote %s is not newer than local %s)",
@@ -235,9 +230,9 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
     except Exception as e:
         log.warning("extension update check failed (%s): %s", profile.display_name, e, exc_info=True)
     finally:
-        if attempted:
+        if retry_delay is not None:
             try:
-                set_config(profile.config_key_epoch, time.time())
-                log.info("extension update check: recorded %s in config (attempt finished)", profile.config_key_epoch)
+                set_config(profile.config_key_epoch, time.time() - _WEEK_SECONDS + retry_delay)
+                log.debug("extension update check: recorded %s in config (next check in %.1f h)", profile.config_key_epoch, retry_delay / 3600.0)
             except Exception as e:
                 log.warning("extension update check: failed to record %s in config: %s", profile.config_key_epoch, e)
