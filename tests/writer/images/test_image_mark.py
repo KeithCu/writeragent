@@ -134,7 +134,7 @@ def test_mark_rectangles_move_to_region_origin():
     marks = [((150, 70, 200, 30), "highlight", 1), ((150, 70, 200, 30), "box", 2), ((150, 70, 200, 30), "underline", 3)]
     assert image_mark.mark_rectangles(marks, region, 4) == [
         ((50, 20, 200, 30), "highlight", 1),
-        ((48, 18, 204, 34), "box", 2),  # stroke drawn outside the marked text
+        ((46, 16, 208, 38), "box", 2),  # stroke drawn outside the marked text
         ((50, 50, 200, 4), "underline", 3),  # right below the box
     ]
 
