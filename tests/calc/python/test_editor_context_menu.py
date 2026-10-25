@@ -24,18 +24,54 @@ from plugin.framework.uno_context import reset_package_extension_id_for_tests, s
 
 
 @pytest.mark.parametrize(
-    "value, expected",
+    "cmds, expected",
     [
-        pytest.param(".uno:Cut", True, id="test_looks_like_cell_context_menu_matches_cut"),
-        pytest.param(".uno:Insert", False, id="test_looks_like_cell_context_menu_rejects_other_menus"),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:PasteSpecialMenu", ".uno:InsertCell"),
+            True,
+            id="cell",
+        ),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:PasteSpecialMenu", ".uno:MergeCells"),
+            True,
+            id="sparkline",
+        ),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:PasteSpecial"),
+            False,
+            id="rowheader_colheader",
+        ),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:SelectAll"),
+            False,
+            id="celledit_formulabar",
+        ),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:Position"),
+            False,
+            id="draw_graphic",
+        ),
+        pytest.param(
+            (".uno:Cut", ".uno:Copy", ".uno:Paste", ".uno:DeleteBreak"),
+            False,
+            id="pagebreak",
+        ),
+        pytest.param(
+            (".uno:Cut",),
+            False,
+            id="cut_only",
+        ),
     ],
 )
-def test_looks_like_cell_context_menu_matches_cut(value, expected):
-    first = MagicMock()
-    first.getPropertyValue.return_value = value
+def test_looks_like_cell_context_menu_matrix(cmds: tuple[str, ...], expected: bool) -> None:
+    items = []
+    for cmd in cmds:
+        item = MagicMock()
+        item.getPropertyValue.return_value = cmd
+        items.append(item)
     container = MagicMock()
-    container.getCount.return_value = 1
-    container.getByIndex.return_value = first
+    container.getCount.return_value = len(items)
+    container.getByIndex.side_effect = lambda idx: items[idx]
     assert _looks_like_cell_context_menu(container) is expected
 
 
@@ -97,7 +133,9 @@ def test_notify_inserts_entry_when_source_window_has_no_controller():
 
         container = MagicMock()
         container.getCount.return_value = 2
-        container.getByIndex.side_effect = lambda idx: cut_item if idx == 0 else MagicMock()
+        insert_cell_item = MagicMock()
+        insert_cell_item.getPropertyValue.return_value = ".uno:InsertCell"
+        container.getByIndex.side_effect = lambda idx: cut_item if idx == 0 else insert_cell_item
         container.queryInterface.return_value = factory
 
         class PlainSourceWindow:
@@ -195,6 +233,63 @@ def test_register_controller_dedups_uno_identity():
         assert c4 in mod._registered_controllers
 
 
+def test_prune_survives_disposed_exception():
+    class DisposedException(Exception):
+        pass
+
+    mod._registered_controllers.clear()
+
+    model1 = MagicMock()
+    model1.supportsService.return_value = True
+    c1 = MagicMock()
+    c1.getModel.return_value = model1
+    c1.queryInterface.return_value = c1
+    c1.registered_count = 0
+
+    def c1_reg(interceptor: Any) -> None:
+        c1.registered_count += 1
+
+    c1.registerContextMenuInterceptor.side_effect = c1_reg
+
+    model2 = MagicMock()
+    model2.supportsService.return_value = True
+    c2 = MagicMock()
+    c2.getModel.return_value = model2
+    c2.queryInterface.return_value = c2
+    c2.registered_count = 0
+
+    def c2_reg(interceptor: Any) -> None:
+        c2.registered_count += 1
+
+    c2.registerContextMenuInterceptor.side_effect = c2_reg
+
+    with patch.object(mod, "_get_interceptor", return_value=MagicMock()):
+        mod._register_controller(c1)
+        assert c1.registered_count == 1
+        assert c1 in mod._registered_controllers
+
+        c1.getModel.side_effect = DisposedException("gone")
+        mod._register_controller(c2)
+
+        assert c2.registered_count == 1
+        assert c1 not in mod._registered_controllers
+        assert c2 in mod._registered_controllers
+
+
+def test_register_ignores_non_calc_controller():
+    mod._registered_controllers.clear()
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    controller = MagicMock()
+    controller.getModel.return_value = model
+
+    with patch.object(mod, "_get_interceptor", return_value=MagicMock()):
+        mod._register_controller(controller)
+        controller.registerContextMenuInterceptor.assert_not_called()
+        assert len(mod._registered_controllers) == 0
+
+
 def test_register_frame_uses_uno_type_by_name():
     mod._registered_controllers.clear()
 
@@ -243,6 +338,31 @@ def test_install_attaches_global_document_event_listener():
         mod.install_calc_cell_context_menu(ctx)
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.frame.GlobalEventBroadcaster", ctx)
     assert broadcaster.addDocumentEventListener.call_count == 1
+
+
+def test_install_registers_all_frames():
+    mod._registered_controllers.clear()
+    desktop = MagicMock()
+    frames = MagicMock()
+    frame0 = MagicMock()
+
+    frames.getCount.return_value = 2
+
+    def get_by_index(idx: int) -> Any:
+        if idx == 0:
+            return frame0
+        raise RuntimeError("boom")
+
+    frames.getByIndex.side_effect = get_by_index
+    desktop.getFrames.return_value = frames
+
+    ctx = MagicMock()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with patch.object(mod, "_install_doc_event_listener"):
+            with patch.object(mod, "_register_frame") as mock_register_frame:
+                mod.install_calc_cell_context_menu(ctx)
+
+                mock_register_frame.assert_called_once_with(frame0)
 
 
 def test_new_doc_listener_on_document_event():
