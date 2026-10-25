@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from plugin.notebook.cell_registry import (
     NOTEBOOK_REGISTRY_UDPROP,
     NOTEBOOK_SOURCE_PATH_UDPROP,
@@ -53,6 +55,14 @@ def test_state_from_json_infers_next_execution_count():
     assert restored.next_execution_count == 4
 
 
+def test_state_from_json_bad_next_execution_count_falls_back():
+    cell = new_code_cell_entry(0, 3, "nb_cell_0_code")
+    raw = json.dumps({"version": 1, "next_execution_count": "n/a", "code_cells": [cell.to_dict()]})
+    restored = state_from_json(raw)
+    assert restored is not None
+    assert restored.next_execution_count == 4
+
+
 def test_new_code_cell_entry_bookmark_name_matches_id():
     cell = new_code_cell_entry(2, None, "nb_cell_2_code")
     assert cell.output_start_bookmark == f"nb_out_{cell.cell_id.replace('-', '')}"
@@ -83,6 +93,13 @@ def test_state_from_json_all_bad_cells_returns_empty_code_cells():
     assert len(restored.code_cells) == 0
 
 
+def test_state_from_json_non_list_code_cells():
+    raw = json.dumps({"version": 1, "code_cells": {"a": 1}})
+    restored = state_from_json(raw)
+    assert restored is not None
+    assert restored.code_cells == []
+
+
 def test_load_save_registry_on_mock_doc(monkeypatch):
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
@@ -98,6 +115,19 @@ def test_load_save_registry_on_mock_doc(monkeypatch):
     assert loaded.code_cells[0].cell_id == cell.cell_id
     assert get_document_property(doc, NOTEBOOK_REGISTRY_UDPROP) is not None
     assert get_document_property(doc, NOTEBOOK_SOURCE_PATH_UDPROP) == "/x.ipynb"
+
+
+def test_save_registry_stamps_current_version(monkeypatch):
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    monkeypatch.setattr("plugin.doc.udprops.uno.getConstantByName", lambda _name: 1)
+
+    state = NotebookDocState(version=99, code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")])
+    save_registry(doc, state)
+
+    loaded = load_registry(doc)
+    assert loaded is not None
+    assert loaded.version == 1
 
 
 def test_has_notebook_registry_false_when_missing():
@@ -140,12 +170,27 @@ def test_insert_output_start_bookmark_existing_name_ok():
     doc.getText.assert_not_called()
 
 
+def test_insert_output_start_bookmark_propagates_disposal():
+    from plugin.framework.errors import DocumentDisposedError
+
+    doc = MagicMock()
+    doc.getBookmarks.side_effect = DocumentDisposedError("closed", object_type="Document")
+    with pytest.raises(DocumentDisposedError):
+        insert_output_start_bookmark(doc, "nb_out_closed")
+
+
+def test_insert_output_start_bookmark_runtime_error_returns_false():
+    doc = MagicMock()
+    doc.getBookmarks.side_effect = RuntimeError("no bookmarks")
+    assert insert_output_start_bookmark(doc, "nb_out_error") is False
+
+
 def test_notebook_code_cell_from_dict():
     d = {
         "cell_id": "a",
         "index": 1,
         "code_field_name": "nb_cell_1_code",
-        "execution_count": 3,
+        "execution_count": "3",
         "output_start_bookmark": "nb_out_a",
         "last_run_status": "ok",
     }
