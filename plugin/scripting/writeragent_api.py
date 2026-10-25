@@ -108,7 +108,6 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'rename_slide',
                 'set_active_page',
                 'set_placeholder_text'],
-    'embedded': ['embedded_edit', 'embedded_insert'],
     'error': ['detect_and_explain_errors', 'evaluate_formula'],
     'field': ['fields_delete', 'fields_insert', 'fields_list', 'fields_update_all'],
     'footnote': [   'footnotes_delete',
@@ -254,8 +253,6 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'detect_and_explain_errors': ('error', 'detect_and_explain_errors'),
     'distribute_shapes': ('shape', 'distribute_shapes'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
-    'embedded_edit': ('embedded', 'edit'),
-    'embedded_insert': ('embedded', 'insert'),
     'evaluate_formula': ('error', 'evaluate_formula'),
     'extract_structure_from_image': ('vision', 'extract_structure_from_image'),
     'fields_delete': ('field', 'delete'),
@@ -414,7 +411,6 @@ __all__ = [   'DOMAIN_TOOLS',
     'conditional_formatting',
     'core',
     'draw',
-    'embedded',
     'error',
     'field',
     'footnote',
@@ -490,7 +486,7 @@ class _BookmarkProxy:
         return _rpc_call("bookmark_rename", old_name=old_name, new_name=new_name)
 
     def resolve(self, name: str) -> dict[str, Any]:
-        """Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index.
+        """Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use bookmark_resolve only when you need the raw paragraph index.
 
         Args:
             name (required): Bookmark name (e.g. _mcp_a1b2c3d4).
@@ -933,30 +929,6 @@ class _DrawProxy:
         return _rpc_call("set_placeholder_text", text=text, role=role, index=index, page=page)
 
 draw = _DrawProxy()
-
-
-class _EmbeddedProxy:
-    """Proxy for embedded tools."""
-
-    def edit(self, *, name: str | None = None) -> dict[str, Any]:
-        """Activate or edit an embedded OLE object (planned).
-
-        Args:
-            name (optional): Object name or anchor hint when available.
-        """
-        return _rpc_call("embedded_edit", name=name)
-
-    def insert(self, *, object_type: str | None = None, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
-        """Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation.
-
-        Args:
-            object_type (optional): Target type, e.g. spreadsheet, chart.
-            target (optional): Where to insert the embedded object. One of: beginning, end, selection, full_document, search.
-            old_content (optional): Text to find and replace if target = 'search'.
-        """
-        return _rpc_call("embedded_insert", object_type=object_type, target=target, old_content=old_content)
-
-embedded = _EmbeddedProxy()
 
 
 class _ErrorProxy:
@@ -1440,11 +1412,11 @@ class _MailMergeProxy:
         return _rpc_call("mail_merge_list_sources", include_tables=include_tables, data_source_name=data_source_name)
 
     def register_source(self, name: str, *, file_path: str | None = None, action: str = 'register') -> dict[str, Any]:
-        """Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named data source in LibreOffice, making it available for mail merge operations and merge fields.
+        """Register or unregister an .odb database file as a named data source in LibreOffice, making it available for mail merge operations and merge fields.
 
         Args:
             name (required): The unique registration name for the data source (e.g., 'Customers', 'NewsletterList').
-            file_path (optional): Path to the .ods, .csv, or .odb file to register. Required when action is 'register'.
+            file_path (optional): Path to the .odb file to register. Required when action is 'register'.
             action (optional): Action to perform: 'register' to add/update, or 'unregister' to remove. One of: register, unregister.
         """
         return _rpc_call("mail_merge_register_source", name=name, file_path=file_path, action=action)
@@ -1456,7 +1428,7 @@ class _MailMergeProxy:
             data_source_name (required): Name of the registered data source to merge from.
             table_name (required): Name of the table, query, or sheet in the data source.
             command_type (optional): Command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
-            output_type (optional): Destination for merge results: 'file' (default), 'printer', or 'mail'. One of: file, printer, mail.
+            output_type (optional): Destination for merge results: 'file' (default) or 'printer'. One of: file, printer.
             output_path (optional): Directory path to save output files when output_type='file'.
             save_as_single_file (optional): If True, merges all records into a single multi-page document. If False, creates separate files per record.
             file_format (optional): Output file format: 'odt' or 'pdf'. Default 'odt'. One of: odt, pdf.
@@ -2288,7 +2260,7 @@ class _TextframeProxy:
     """Proxy for textframe tools."""
 
     def frame_get_info(self, name: str) -> dict[str, Any]:
-        """Get detailed info about a text frame.
+        """Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -2300,15 +2272,15 @@ class _TextframeProxy:
         return _rpc_call("frame_list")
 
     def frame_set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> dict[str, Any]:
-        """Resize or reposition a text frame.
+        """Resize, re-anchor, or set the orientation of a text frame.
 
         Args:
             name (required): Name of the text frame (from frame_list).
-            width_mm (optional): New width in millimetres.
-            height_mm (optional): New height in millimetres.
+            width_mm (optional): New width in millimetres (> 0).
+            height_mm (optional): New height in millimetres (> 0).
             anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
-            hori_orient (optional): Horizontal orientation constant.
-            vert_orient (optional): Vertical orientation constant.
+            hori_orient (optional): Raw UNO horizontal orientation integer.
+            vert_orient (optional): Raw UNO vertical orientation integer.
         """
         return _rpc_call("frame_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient)
 
