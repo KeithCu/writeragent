@@ -48,11 +48,18 @@ class WriterCompoundUndo:
             if um is None:
                 log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
                 return
+            # Bugfix: what was wrong: enterUndoContext on a locked XUndoManager silently failed,
+            # but left entered=True / _open=True, causing mismatched leave and inaccurate status.
+            # How it happened: XUndoManager ignores enterUndoContext when locked without raising.
+            # Why this change fixes it: checks isLocked() upfront and aborts grouping early.
+            if hasattr(um, "isLocked") and um.isLocked():
+                log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
+                return
             # Probe undo manager state to detect prior unclosed contexts (best-effort; UNO may not expose these).
             try:
                 is_in_ctx = um.isInContext()
                 undo_enabled = um.isUndoEnabled()
-                log.info("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
+                log.debug("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
             except Exception as probe_e:
                 log.debug("WriterCompoundUndo: could not probe undo manager state: %s", probe_e)
             um.enterUndoContext(title)
@@ -60,8 +67,14 @@ class WriterCompoundUndo:
             self._open = True
             self.entered = True
             # Log after success so we always see this when the context is live.
-            log.info("WriterCompoundUndo: context entered %r", title)
+            log.debug("WriterCompoundUndo: context entered %r", title)
         except Exception as e:
+            from plugin.framework.errors import reraise_if_disposed
+
+            # Bugfix: what was wrong: enterUndoContext swallowed DisposedException behind warning log.
+            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
+            # Why this change fixes it: re-raises disposed exceptions per project error policy.
+            reraise_if_disposed(e)
             # Upgrade from debug to warning so failures are visible without debug logging.
             # "Insert $1" in the undo menu means this context was never opened.
             log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
@@ -73,18 +86,29 @@ class WriterCompoundUndo:
         # Do not swallow exceptions; only close the undo group.
         self.close()
 
-    def close(self) -> None:
-        """End the compound undo context if :meth:`__init__` opened one."""
+    def close(self) -> bool:
+        """End the compound undo context. True when no context remains open."""
         if not self._open:
             log.debug("WriterCompoundUndo.close: already closed or never opened (title=%r)", self._title)
-            return
-        self._open = False
+            return True
         um = self._undo_manager
-        self._undo_manager = None
         if um is None:
-            return
+            self._open = False
+            return True
         try:
-            log.info("WriterCompoundUndo: leaving context %r", self._title)
+            log.debug("WriterCompoundUndo: leaving context %r", self._title)
             um.leaveUndoContext()
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import reraise_if_disposed
+
+            # Bugfix: what was wrong: leaveUndoContext swallowed DisposedException behind error log.
+            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
+            # Why this change fixes it: re-raises disposed exceptions per project error policy.
+            reraise_if_disposed(e)
+            # Keep _open/_undo_manager so a later close() can retry; clearing them
+            # here left the undo context open for the rest of the session.
             log.exception("leaveUndoContext failed (title=%r)", self._title)
+            return False
+        self._open = False
+        self._undo_manager = None
+        return True

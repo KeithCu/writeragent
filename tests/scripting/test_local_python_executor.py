@@ -1273,6 +1273,27 @@ def test_slice9_timeout_validation_and_unwinding():
     assert val_at_timeout == val_after_wait
 
 
+def test_timeout_restores_handler_when_alarm_arming_fails(monkeypatch):
+    import signal
+
+    from plugin.contrib.smolagents.local_python_executor import timeout
+
+    original = signal.getsignal(signal.SIGALRM)
+
+    def _boom(_seconds):
+        raise OSError("no alarm for you")
+
+    monkeypatch.setattr(signal, "alarm", _boom)
+
+    @timeout(1)
+    def run():
+        return "never"
+
+    with pytest.raises(OSError):
+        run()
+    assert signal.getsignal(signal.SIGALRM) == original
+
+
 def test_slice10_import_authorized_default_and_alias():
     from plugin.contrib.smolagents.local_python_executor import check_import_authorized
     from plugin.scripting.sandbox import import_authorized
@@ -2036,6 +2057,23 @@ r5 = operator.methodcaller("upper")("hello")
     mod_b = get_safe_module(operator, list_b)
     assert mod_a1 is mod_a2
     assert mod_a1 is mod_b
+
+
+def test_operator_wrapper_policy_not_shared_between_sessions():
+    from types import ModuleType, SimpleNamespace
+
+    import operator
+
+    from plugin.contrib.smolagents.local_python_executor import get_safe_module
+
+    holder = SimpleNamespace(value=ModuleType("pickle"))
+    first = get_safe_module(operator, [])
+    getter = first.attrgetter("value")
+    with pytest.raises(InterpreterError):
+        getter(holder)  # pickle is in DANGEROUS_MODULES; [] does not authorize it
+    get_safe_module(operator, ["pickle"])
+    with pytest.raises(InterpreterError):
+        getter(holder)  # fails before the fix: the cached wrapper was overwritten with ["pickle"]
 
 
 def test_operator_and_string_star_imports():
