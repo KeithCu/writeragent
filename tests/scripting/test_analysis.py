@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.scripting.analysis and analysis_coerce."""
+"""Tests for plugin.scripting.analysis and plugin.scripting.venv.coerce."""
 
 from __future__ import annotations
 
