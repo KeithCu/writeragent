@@ -224,6 +224,7 @@ def test_disable_header_refuses_while_table_remains(ctx, doc):
 
     res = _set_props(doc, ctx, header_is_on=False)
     assert res["status"] == "error"
+    assert "still has content" in res["message"]
     assert style.getPropertyValue("HeaderIsOn") is True
     # getString() on a header table is empty / not the cell text — the table
     # itself must still be there (the refuse is what keeps it).

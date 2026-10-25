@@ -51,11 +51,6 @@ def _mm_to_hmm(val: Any) -> int:
     return int(round(float(val) * 100))
 
 
-def _uno_len(text: str) -> int:
-    """Length in UTF-16 code units (what LibreOffice XText cursor positions count)."""
-    return len(text.encode("utf-16-le")) // 2
-
-
 _LAYOUT_NAMES = ("ALL", "LEFT", "RIGHT", "MIRRORED")
 
 
@@ -176,19 +171,14 @@ def _region_kind(region: str) -> str:
 
 def _empty_scan() -> dict[str, Any]:
     """The shape _scan_region_content returns, for a region with nothing to scan."""
-    return {"fields": [], "images": [], "paragraph_count": 0}
+    return {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
 
 
-def _region_has_table(text_obj: Any, *, strict: bool = False) -> bool:
-    """True when the region's enumeration includes a text table (letterhead grid).
-
-    ``strict`` re-raises read failures instead of reading them as "no table".
-    """
+def _region_has_table(text_obj: Any) -> bool:
+    """True when the region's enumeration includes a text table (letterhead grid)."""
     try:
         enum = text_obj.createEnumeration()
     except Exception:
-        if strict:
-            raise
         return False
     seen = 0
     while enum.hasMoreElements() is True and seen < _SCAN_PARA_LIMIT:
@@ -196,16 +186,12 @@ def _region_has_table(text_obj: Any, *, strict: bool = False) -> bool:
         try:
             el = enum.nextElement()
         except Exception:
-            if strict:
-                raise
             break
         try:
             # `is True`: MagicMock supportsService() is truthy and would false-positive.
             if el.supportsService("com.sun.star.text.TextTable") is True:
                 return True
-        except Exception:
-            if strict:
-                raise
+        except Exception:  # noqa: S112 - non-standard element may not implement supportsService
             continue
     return False
 
@@ -228,9 +214,7 @@ def _region_holds_content(doc: Any, text_obj: Any | None) -> bool:
     if isinstance(plain, str) and plain.strip():
         return True
     scan = _scan_region_content(doc, text_obj, strict=True)
-    if scan["fields"] or scan["images"]:
-        return True
-    return _region_has_table(text_obj, strict=True)
+    return bool(scan["fields"] or scan["images"] or scan["has_table"])
 
 
 def _region_mirrors_shared(style: Any, region: str) -> bool:
@@ -333,6 +317,17 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
                 raise
             break
         out["paragraph_count"] += 1
+        try:
+            is_table = para.supportsService("com.sun.star.text.TextTable") is True
+        except Exception:
+            if strict:
+                raise
+            is_table = False
+        if is_table:
+            # A TextTable is in the region XText but has no createEnumeration();
+            # walking it made the disable guard report a read failure.
+            out["has_table"] = True
+            continue
         try:
             portions = para.createEnumeration()
         except Exception:
@@ -499,9 +494,8 @@ def _region_has_flow_content(doc: Any, text_obj: Any) -> bool:
         plain = ""
     if isinstance(plain, str) and plain.strip():
         return True
-    if _scan_region_content(doc, text_obj)["fields"]:
-        return True
-    return _region_has_table(text_obj)
+    scan = _scan_region_content(doc, text_obj)
+    return bool(scan["fields"] or scan["has_table"])
 
 
 def _copy_page_regions(
@@ -1236,7 +1230,7 @@ def _same_region_text(selected: Any, needle: str, case_sensitive: bool) -> bool:
 def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tuple[list[tuple[Any, int, int]], list[str]]:
     """Return (paragraph, offset, length) hits and any walk-cap notes.
 
-    The offset and length count UTF-16 code units from the paragraph start. A match may span
+    The offset and length index the portion-walk string that goRight steps through. A match may span
     portions (mixed bold). It does not span a paragraph break.
     """
     hits: list[tuple[Any, int, int]] = []
@@ -1256,13 +1250,7 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
         if hay is None:
             continue
         for offset in _match_offsets(hay, needle, case_sensitive):
-            # What was wrong: Python string indexing counts Unicode code points, but
-            # LibreOffice XText cursor positions count UTF-16 code units. Non-BMP chars
-            # (like emojis) caused goRight to land short and fail the match.
-            # Why this change fixes it: measure uno_offset and uno_length via _uno_len.
-            uno_offset = _uno_len(hay[:offset])
-            uno_length = _uno_len(hay[offset:offset + len(needle)])
-            hits.append((para, uno_offset, uno_length))
+            hits.append((para, offset, len(needle)))
     record_walk_cap(enum, seen, _SCAN_PARA_LIMIT, "paragraphs", notes)
     return hits, notes
 
@@ -1274,39 +1262,12 @@ def _cursor_for_match(text_obj: Any, para: Any, offset: int, length: int) -> Any
     except Exception:
         return None
 
-    # What was wrong: in LibreOffice Writer, XTextCursor.goRight steps by Unicode code points
-    # (characters), but _find_region_matches measures UTF-16 code units (uno_offset and uno_length).
-    # Non-BMP characters (like emojis) have length 2 in UTF-16 but count as 1 character in goRight,
-    # causing goRight to overshoot and getString() to mismatch the needle.
-    # Why this change fixes it: if the paragraph text is available, convert UTF-16 counts to code points.
-    go_offset = offset
-    go_length = length
-    hay = _paragraph_cursor_text(para)
-    if hay:
-        u16_cur = 0
-        char_offset = None
-        char_end = None
-        target_end = offset + length
-        for char_idx, ch in enumerate(hay):
-            if char_offset is None and u16_cur >= offset:
-                char_offset = char_idx
-            if char_end is None and u16_cur >= target_end:
-                char_end = char_idx
-                break
-            u16_cur += 2 if ord(ch) > 0xFFFF else 1
-        if char_offset is None and u16_cur >= offset:
-            char_offset = len(hay)
-        if char_end is None and u16_cur >= target_end:
-            char_end = len(hay)
-        if char_offset is not None and char_end is not None:
-            go_offset = char_offset
-            go_length = char_end - char_offset
-
+    # _match_offsets indexes the same portion-walk string that goRight steps through.
     try:
         # `is False`: a MagicMock goRight() is truthy and must not abort the walk.
-        if go_offset and cursor.goRight(go_offset, False) is False:
+        if offset and cursor.goRight(offset, False) is False:
             return None
-        if cursor.goRight(go_length, True) is False:
+        if cursor.goRight(length, True) is False:
             return None
     except Exception:
         return None
@@ -1711,7 +1672,7 @@ def _page_break_style_request(doc: Any, kwargs: dict[str, Any]) -> tuple[str | N
 
     if restart is not None:
         if isinstance(restart, bool) or not isinstance(restart, int) or restart < 1 or restart > 32767:
-            raise ValueError("restart_page_number must be an integer >= 1.")
+            raise ValueError("restart_page_number must be an integer from 1 to 32767.")
         if not isinstance(style_name, str) or style_name == "":
             raise ValueError("restart_page_number requires page_style.")
 

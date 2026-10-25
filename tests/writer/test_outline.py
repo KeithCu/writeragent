@@ -92,7 +92,7 @@ def test_collect_document_stats_page_failure_keeps_other_counts():
     doc_svc.get_document_length.assert_not_called()
 
 
-def test_collect_document_stats_text_failure_uses_length_and_zero_words():
+def test_collect_document_stats_text_failure_propagates():
     doc = MagicMock()
     doc_svc = MagicMock()
     doc_svc.get_document_length.return_value = 42
@@ -105,12 +105,20 @@ def test_collect_document_stats_text_failure_uses_length_and_zero_words():
         ),
         patch("plugin.writer.outline.build_heading_tree", return_value={"children": []}),
     ):
-        stats = collect_document_stats(doc, doc_svc)
-    assert stats == {
-        "character_count": 42,
-        "word_count": 0,
-        "paragraph_count": 1,
-        "page_count": 4,
-        "heading_count": 0,
-    }
-    doc_svc.get_document_length.assert_called_once_with(doc)
+        with pytest.raises(RuntimeError):
+            collect_document_stats(doc, doc_svc)
+    doc_svc.get_document_length.assert_not_called()
+
+
+def test_collect_document_stats_propagates_disposal_on_the_tool_path():
+    doc = MagicMock()
+    doc.getText.side_effect = DocumentDisposedError("closed", object_type="Document")
+    doc_svc = MagicMock()
+    with pytest.raises(DocumentDisposedError):
+        collect_document_stats(
+            doc,
+            doc_svc,
+            heading_tree={"children": []},
+            paragraph_count=1,
+            page_count=1,
+        )

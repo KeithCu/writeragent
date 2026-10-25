@@ -292,6 +292,9 @@ class WriterDocStub:
             def getEnd(self):
                 return self.el[-1] if self.el else self
 
+            def createTextCursor(self):
+                return MockTextCursor()
+
             def createEnumeration(self):
                 class EnumStub:
                     def __init__(self, el):

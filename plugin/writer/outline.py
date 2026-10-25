@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
 from plugin.writer.specialized_base import enum_param
 
@@ -39,8 +39,6 @@ from plugin.doc.text_helpers import build_heading_tree, get_string_without_track
 
 class GetDocumentTree(ToolBase):
     """Document heading tree with bookmarks, optional content, and document statistics."""
-
-    # FIXME: Consider renaming (e.g. get_document_overview) — tool returns tree + stats, not tree alone.
 
     name: str | None = "get_document_tree"
     intent: str | None = "navigate"
@@ -100,8 +98,7 @@ def collect_document_stats(
 ) -> dict[str, Any]:
     """Character/word/paragraph/page/heading counts for a Writer document.
 
-    Each count degrades on its own. Headings use uno_read so a closed
-    document raises instead of looking like zero headings.
+    Only page_count is best-effort (it is cosmetic). Every other count raises rather than reporting a fabricated 0.
     """
 
     def _visible_counts() -> tuple[int, int]:
@@ -112,31 +109,17 @@ def collect_document_stats(
         full_text = get_string_without_tracked_deletions(cursor)
         return len(full_text), len(full_text.split())
 
-    # None means the read failed; (0, 0) is a real empty document.
-    counted = best_effort(_visible_counts, "character and word counts")
-    if counted is None:
-        char_count = doc_svc.get_document_length(doc)
-        word_count = 0
-    else:
-        char_count, word_count = counted
+    char_count, word_count = _visible_counts()
 
     if paragraph_count is not None:
         para_count = paragraph_count
     else:
-        para_count = best_effort(
-            lambda: len(doc_svc.get_paragraph_ranges(doc)),
-            "paragraph count",
-            0,
-        )
+        para_count = len(doc_svc.get_paragraph_ranges(doc))
 
     if heading_tree is not None:
         heading_count = _count_headings(heading_tree)
     else:
-        heading_count = uno_read(
-            lambda: _count_headings(build_heading_tree(doc)),
-            0,
-            object_type="Document",
-        )
+        heading_count = _count_headings(build_heading_tree(doc))
 
     if page_count is not None:
         final_page_count = page_count
