@@ -17,11 +17,12 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.acp.acp_connection import ACPConnection, _Pending, _QueuedStop, _QueuedWrite
+from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError, _Pending, _QueuedStop, _QueuedWrite, _STDOUT_LINE_MAX
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -172,7 +173,7 @@ class TestACPConnectionReaderExit:
 
         calls = {"n": 0}
 
-        def readline() -> bytes:
+        def readline(limit: int = -1) -> bytes:
             calls["n"] += 1
             if calls["n"] == 1:
                 entered.set()
@@ -238,7 +239,7 @@ class TestACPConnectionReaderExit:
         ]
         calls = {"n": 0}
 
-        def readline() -> bytes:
+        def readline(limit: int = -1) -> bytes:
             calls["n"] += 1
             if calls["n"] == 1:
                 entered.set()
@@ -310,7 +311,7 @@ class TestACPConnectionReaderExit:
         ]
         calls = {"n": 0}
 
-        def readline() -> bytes:
+        def readline(limit: int = -1) -> bytes:
             calls["n"] += 1
             if calls["n"] == 1:
                 entered.set()
@@ -447,7 +448,7 @@ sys.stdout.buffer.flush()
         proc = _live_proc()
         reads = {"n": 0}
 
-        def readline() -> bytes:
+        def readline(limit: int = -1) -> bytes:
             reads["n"] += 1
             return b""
 
@@ -948,7 +949,7 @@ def test_inbound_lines_extend_the_idle_wait():
     bumper.start()
     started = time.monotonic()
     try:
-        with pytest.raises(TimeoutError):
+        with pytest.raises(ACPTimeoutError):
             conn.send_request("session/prompt", {}, timeout=0.3)
     finally:
         conn.stop()
@@ -1035,7 +1036,7 @@ def test_agent_request_ids_are_echoed_and_do_not_complete_an_integer_request():
     done = threading.Event()
     calls = {"n": 0}
 
-    def readline() -> bytes:
+    def readline(limit: int = -1) -> bytes:
         calls["n"] += 1
         index = calls["n"] - 1
         if index < len(lines):
@@ -1216,4 +1217,115 @@ def test_start_keeps_worker_stdio_and_default_drain_name():
             os.environ.pop("WRITERAGENT_ACP_SPAWN_SENTINEL", None)
         else:
             os.environ["WRITERAGENT_ACP_SPAWN_SENTINEL"] = prev_sentinel
+
+
+def test_send_request_and_notification_falsy_params():
+    conn = ACPConnection(cmd_line=["agent"])
+    stdin = _Stdin()
+    proc = _live_proc()
+    proc.stdin = stdin
+    conn._proc = proc
+    conn._running = True
+
+    # send_notification with params=""
+    conn.send_notification("notify", params="")
+    for _ in range(50):
+        if stdin.written:
+            break
+        time.sleep(0.01)
+    assert len(stdin.written) == 1
+    msg0 = json.loads(stdin.written[0].decode("utf-8"))
+    assert msg0["params"] == ""
+    assert '"params": ""' in stdin.written[0].decode("utf-8")
+
+    # send_request("m", params=[])
+    def answer(expected_writes):
+        for _ in range(100):
+            if len(stdin.written) >= expected_writes and conn._pending:
+                break
+            time.sleep(0.01)
+        with conn._lock:
+            for _req_id, pending in conn._pending.items():
+                pending.response = {"result": "ok"}
+                pending.event.set()
+
+    t = threading.Thread(target=answer, args=(2,))
+    t.start()
+    res = conn.send_request("m", params=[], timeout=2)
+    t.join(timeout=2)
+    assert res == "ok"
+    assert len(stdin.written) >= 2
+    msg1 = json.loads(stdin.written[1].decode("utf-8"))
+    assert msg1["params"] == []
+
+    # send_request("m", params=0)
+    t = threading.Thread(target=answer, args=(3,))
+    t.start()
+    res = conn.send_request("m", params=0, timeout=2)
+    t.join(timeout=2)
+    assert res == "ok"
+    assert len(stdin.written) >= 3
+    msg2 = json.loads(stdin.written[2].decode("utf-8"))
+    assert msg2["params"] == 0
+
+
+def test_oversized_stdout_line_discarded_and_next_line_parsed():
+    conn = ACPConnection(cmd_line=["agent"])
+    proc = _live_proc()
+    oversized = b"X" * _STDOUT_LINE_MAX
+    valid_json = b'{"jsonrpc": "2.0", "method": "session/update", "params": {"status": "ok"}}\n'
+    chunks = [oversized, b"tail_of_long_line\n", valid_json, b""]
+    calls = {"n": 0}
+
+    def readline(limit: int = -1) -> bytes:
+        idx = calls["n"]
+        calls["n"] += 1
+        if idx < len(chunks):
+            return chunks[idx]
+        return b""
+
+    proc.stdout.readline.side_effect = readline
+    conn._proc = proc
+    conn._running = True
+
+    received: list[tuple[str, Any, Any]] = []
+    conn.set_notification_callback(lambda m, p, i: received.append((m, p, i)))
+
+    conn._reader_loop()
+
+    assert len(received) == 1
+    assert received[0][0] == "session/update"
+    assert received[0][1] == {"status": "ok"}
+
+
+def test_is_healthy_and_reader_exit_kills_tree(monkeypatch):
+    conn = ACPConnection(cmd_line=["agent"])
+    proc = _live_proc()
+    conn._proc = proc
+    conn._running = False
+    assert conn.is_alive is True
+    assert conn.is_healthy is False
+
+    conn._running = True
+    assert conn.is_alive is True
+    assert conn.is_healthy is True
+
+    proc.poll.return_value = 0
+    assert conn.is_alive is False
+    assert conn.is_healthy is False
+
+    # Reset proc to live for reader EOF test
+    proc.poll.return_value = None
+    proc.stdout.readline.return_value = b""
+    conn._running = True
+
+    killed: list[Any] = []
+    monkeypatch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda p: killed.append(p))
+
+    conn._reader_loop()
+
+    assert conn._running is False
+    assert conn.is_alive is True
+    assert conn.is_healthy is False
+    assert killed == [proc]
 

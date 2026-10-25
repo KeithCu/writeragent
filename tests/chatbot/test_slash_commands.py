@@ -28,6 +28,7 @@ from plugin.chatbot.slash_commands import (
     run_slash_command,
     slash_typed_prefix,
 )
+from plugin.chatbot.send_state import ButtonAction
 
 
 @pytest.fixture
@@ -175,3 +176,56 @@ def test_set_config_raising_still_runs_help():
     with patch("plugin.framework.model_lru.set_config", side_effect=OSError("write failed")):
         assert run_slash_command("help", host) is True
     host.append_output.assert_called_once()
+
+
+def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
+    stop_model = SimpleNamespace(Enabled=True)
+    host = SimpleNamespace(
+        slash_popup=None,
+        query_control=SimpleNamespace(text="/stop"),
+        dispatch=MagicMock(),
+        _approval_event=None,
+        _send_busy=False,
+        exit_hands_free_record=MagicMock(),
+        stop_control=SimpleNamespace(getModel=lambda: stop_model),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+                with patch("plugin.audio.tts_service.stop_speech") as stop_speech:
+                    run_slash_command("stop", host)
+    set_text.assert_not_called()
+    assert host.query_control.text == "/stop"
+    stop_speech.assert_called_once()
+    host.exit_hands_free_record.assert_called_once()
+    host.dispatch.assert_not_called()
+    assert stop_model.Enabled is False
+
+
+def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_ask():
+    from plugin.framework.i18n import _
+
+    stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
+    events_mock = SimpleNamespace(
+        _open_web_search_change_dialog=MagicMock(),
+        _finish_inline_web_approval=MagicMock(),
+    )
+    host = SimpleNamespace(
+        slash_popup=None,
+        query_control=SimpleNamespace(text="keep me"),
+        dispatch=MagicMock(),
+        _approval_event=object(),
+        stop_control=SimpleNamespace(getModel=lambda: stop_model),
+        _stop_button_action=ButtonAction.CHANGE,
+        _events=events_mock,
+        _finish_inline_web_approval=events_mock._finish_inline_web_approval,
+        _open_web_search_change_dialog=events_mock._open_web_search_change_dialog,
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            run_slash_command("stop", host)
+    set_text.assert_not_called()
+    assert host.query_control.text == "keep me"
+    events_mock._open_web_search_change_dialog.assert_called_once_with()
+    events_mock._finish_inline_web_approval.assert_not_called()
+    host.dispatch.assert_not_called()

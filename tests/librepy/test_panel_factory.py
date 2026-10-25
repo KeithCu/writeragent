@@ -22,7 +22,6 @@ def _element():
     el.xParentWindow.getPosSize.return_value = SimpleNamespace(Width=220, Height=400)
     el.ResourceURL = "private:resource/toolpanel/PythonPanel"
     el.toolpanel = None
-    el.m_panelRootWindow = None
     el.controller = None
     return el
 
@@ -124,17 +123,48 @@ def test_get_real_interface_clears_toolpanel_and_retries():
 
 
 def test_get_real_interface_disposes_controller_when_create_fails_late():
-    # What was wrong: late failure was triggered by root.getPosSize() inside
-    # log.info("[LIBREPY FIRST LAYOUT]..."), which is stripped in release bundles.
-    # Why: skip when running against stripped release bundle.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info call site stripped in release bundle")
+    from typing import Any
     from plugin.framework.errors import UnoObjectError
 
     el = _element()
     root = _root_window()
-    root.getPosSize.side_effect = RuntimeError("pos")
+    root.getPosSize.return_value = MagicMock(Width=200, Height=400)
+    controller = MagicMock(name="controller")
+
+    class _FailingPanel:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        @property
+        def resize_listener(self) -> Any:
+            return None
+
+        @resize_listener.setter
+        def resize_listener(self, val: Any) -> None:
+            raise RuntimeError("assign resize_listener failed")
+
+    with patch(
+        "plugin.librepy.panel_factory.run_on_main",
+        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
+        el, "_getOrCreatePanelRootWindow", return_value=root
+    ), patch(
+        "plugin.librepy.panel_factory.PythonToolPanel", _FailingPanel
+    ), patch(
+        "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
+    ):
+        with pytest.raises(UnoObjectError):
+            el.getRealInterface()
+
+    controller.disposing.assert_called_once()
+    assert el.toolpanel is None
+    assert el.controller is None
+
+
+def test_get_real_interface_second_create_panel_is_noop():
+    el = _element()
+    root = _root_window()
+    root.getPosSize.return_value = MagicMock(Width=200, Height=400)
     controller = MagicMock(name="controller")
 
     with patch(
@@ -145,12 +175,24 @@ def test_get_real_interface_disposes_controller_when_create_fails_late():
     ), patch(
         "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
     ):
-        with pytest.raises(UnoObjectError):
-            el.getRealInterface()
+        panel1 = el.getRealInterface()
+        assert panel1 is not None
+        assert el.controller is controller
 
-    controller.disposing.assert_called_once()
-    assert el.toolpanel is None
-    assert el.controller is None
+        # Second create call should be a no-op
+        panel2 = el.getRealInterface()
+        assert panel2 is panel1
+        controller.disposing.assert_not_called()
+
+
+def test_get_or_create_root_window_raises_when_ctx_is_none():
+    from plugin.framework.errors import UnoObjectError
+
+    el = _element()
+    el.ctx = None
+    with patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, pytest.raises(UnoObjectError):
+        el._getOrCreatePanelRootWindow()
+    mock_get_ctx.assert_not_called()
 
 
 def test_null_create_container_window_raises_and_retries():
@@ -176,7 +218,7 @@ def test_null_create_container_window_raises_and_retries():
             el.getRealInterface()
         assert el.toolpanel is None
         assert raised.value.__cause__ is not None
-        assert "no window" in raised.value.__cause__.message
+        assert "no window" in str(raised.value.__cause__)
         result = el.getRealInterface()
 
     assert result is el.toolpanel
@@ -196,3 +238,35 @@ def test_element_disposing_runs_controller_and_clears_it():
     controller.disposing.side_effect = RuntimeError("already dead")
     el.disposing(None)
     assert el.controller is None
+
+
+def test_window_on_disposing_nulls_toolpanel_and_rebuilds():
+    el = _element()
+    root = _root_window()
+    root.getPosSize.return_value = MagicMock(Width=200, Height=400)
+    controller1 = MagicMock(name="controller1")
+    controller2 = MagicMock(name="controller2")
+
+    with patch(
+        "plugin.librepy.panel_factory.run_on_main",
+        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
+        el, "_getOrCreatePanelRootWindow", return_value=root
+    ), patch(
+        "plugin.librepy.python_sidebar.PythonSidebarController", side_effect=[controller1, controller2]
+    ) as mock_ctrl_cls:
+        panel1 = el.getRealInterface()
+        assert el.toolpanel is not None
+        assert el.controller is controller1
+
+        # Simulate on_torn_down callback being invoked from window dispose
+        on_torn_down = mock_ctrl_cls.call_args.kwargs["on_torn_down"]
+        on_torn_down()
+        assert el.toolpanel is None
+        assert el.controller is None
+
+        # Next call to getRealInterface builds a new panel
+        panel2 = el.getRealInterface()
+        assert el.toolpanel is not None
+        assert el.controller is controller2
+        assert panel2 is not panel1

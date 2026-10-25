@@ -811,6 +811,7 @@ def make_mock_send_button_listener(
 ) -> Any:
     """Build a SendButtonListener with real __init__ run and mocked controls."""
     from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.panel_events import PanelEventsController
 
     if session is None:
         session = MagicMock()
@@ -821,7 +822,7 @@ def make_mock_send_button_listener(
     with patch("plugin.framework.config.get_config_str", return_value=""), \
          patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), \
          patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True), \
-         patch.object(SendButtonListener, "_subscribe_mcp_events", lambda self: None):
+         patch.object(PanelEventsController, "_subscribe_mcp_events", lambda self: None):
         listener = SendButtonListener(
             ctx,
             MagicMock(),  # frame

@@ -40,11 +40,37 @@ from plugin.scripting.ipc import (  # noqa: E402
     read_pickle_frame,
     write_pickle_frame,
 )
-from plugin.audio.kokoro_g2p import misaki_frontend  # noqa: E402
+from plugin.audio.kokoro_g2p import (  # noqa: E402
+    KOKORO_PIP_INSTALL,
+    KOKORO_VOICE_PREFIX_TO_LANG,
+    kokoro_g2p_lang,
+    misaki_frontend,
+)
 
 # Held for the life of the process. Replaced only when the model paths change.
 _loaded_key: tuple[str, str] | None = None
 _loaded: Any = None
+_kokoro_cls: Any = None
+_soundfile: Any = None
+_import_failure: BaseException | None = None
+
+
+def _load_venv_audio() -> tuple[Any, Any]:
+    global _kokoro_cls, _soundfile, _import_failure
+    if isinstance(_import_failure, ImportError):
+        raise _import_failure
+    if _kokoro_cls is not None and _soundfile is not None:
+        return _kokoro_cls, _soundfile
+    try:
+        from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
+        import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
+
+        _kokoro_cls = Kokoro
+        _soundfile = sf
+        return _kokoro_cls, _soundfile
+    except ImportError as exc:
+        _import_failure = exc
+        raise
 
 
 def run_kokoro_stdio_loop(
@@ -101,7 +127,7 @@ def _has_voice(kokoro: Any, name: str) -> bool:
         return False
 
 
-def _fallback_voice(kokoro: Any) -> str:
+def _fallback_voice(kokoro: Any, requested: str) -> str:
     """Choose a fallback voice if the requested voice is missing.
 
     What was wrong: voices[0] on an NpzFile raises KeyError ('0 is not a file
@@ -111,6 +137,14 @@ def _fallback_voice(kokoro: Any) -> str:
     Why this change: next(iter(...)) yields the archive keys, matching
     KOKORO_ONNX_SCRIPT which lists keys from iteration.
     """
+    family = requested[:1].lower()
+    if family in KOKORO_VOICE_PREFIX_TO_LANG:
+        try:
+            for name in _voice_names(kokoro):
+                if str(name)[:1].lower() == family:
+                    return str(name)
+        except TypeError:
+            pass
     if _has_voice(kokoro, "af_sky"):
         return "af_sky"
     voices = _voice_names(kokoro)
@@ -126,10 +160,9 @@ def _get_kokoro(model_path: str, voices_path: str) -> Any:
     key = (model_path, voices_path)
     if _loaded is not None and _loaded_key == key:
         return _loaded
-    # kokoro-onnx lives in the user venv, not LibreOffice's or CI's site-packages.
-    from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
+    kokoro_cls, _sf = _load_venv_audio()
 
-    inst = Kokoro(model_path, voices_path)
+    inst = kokoro_cls(model_path, voices_path)
     _loaded = inst
     _loaded_key = key
     return inst
@@ -164,6 +197,12 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
 
     try:
         kokoro = _get_kokoro(model_path, voices_path)
+        _cls, sf = _load_venv_audio()
+    except ImportError as exc:
+        return {
+            "status": "error",
+            "error": f"Kokoro dependency missing ({exc}). Install with: {KOKORO_PIP_INSTALL}",
+        }
     except Exception as exc:
         return {"status": "error", "error": f"Kokoro load failed: {exc}"}
 
@@ -172,24 +211,38 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         # Same substitution as the one-shot script in tts_service: a voices
         # file that lacks the requested id (English-only pack, custom path)
         # keeps speaking instead of failing the sentence.
-        fallback = _fallback_voice(kokoro)
+        fallback = _fallback_voice(kokoro, voice)
         warning = f"Kokoro voice {voice!r} is not in {voices_path}; using {fallback}"
         voice = fallback
+
+    # Recompute lang from the voice actually used: a substitute voice must not
+    # get phonemes for the requested voice's language.
+    lang = kokoro_g2p_lang(text, voice)
 
     phonemes, g2p_warning = misaki_frontend(text, lang)
     if g2p_warning:
         warning = f"{warning} {g2p_warning}".strip() if warning else g2p_warning
 
     try:
-        # soundfile is the same venv-only dependency as kokoro-onnx.
-        import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
-
         if phonemes:
             samples, rate = kokoro.create(
                 phonemes, voice=voice, speed=speed, lang=lang, is_phonemes=True
             )
         else:
             samples, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
+
+        # An empty samples array would write a header-only wav that the parent
+        # accepts as success (size > 0).
+        try:
+            empty = samples is None or len(samples) == 0
+        except TypeError:
+            empty = True
+        if empty:
+            return {
+                "status": "error",
+                "error": "Kokoro returned no audio samples",
+                "warning": warning,
+            }
         sf.write(out_path, samples, rate)
     except Exception as exc:
         return {"status": "error", "error": f"Kokoro synthesis failed: {exc}", "warning": warning}

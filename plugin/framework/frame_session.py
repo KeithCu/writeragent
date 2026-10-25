@@ -298,10 +298,10 @@ class FrameSession:
             return False
         return True
 
-    def install(self, ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
+    def install(self, query: Any = None, leave_query_controls: Any = None) -> None:
         """Attach this frame's focus and click listeners.
 
-        *ctx* is the extension context the panel already holds. The document
+        The document
         controller comes from ``frame.getController()``, not from *ctx* via
         ``getCurrentComponent()``. A ``UNO thread violation`` from
         ``getController`` / ``addFocusListener`` / ``addMouseListener`` /
@@ -311,7 +311,6 @@ class FrameSession:
         """
         if self._closed:
             return
-        del ctx  # the frame, not Desktop, names the document
         self._attach_query_listener(query)
         for control in leave_query_controls or ():
             if control is not None and control is not query:
@@ -457,13 +456,6 @@ class FrameSession:
             log.debug("frame controller: %s", exc)
             return None
 
-    def _same_controller(self, left: Any, right: Any) -> bool:
-        if left is None or right is None:
-            return False
-        if left is right:
-            return True
-        return _same_frame(left, right)
-
     def _drop_tracker(self, listener: Any) -> None:
         try:
             self._trackers.remove(listener)
@@ -531,7 +523,7 @@ class FrameSession:
         if control is None:
             return
         for existing, _mouse, _focus in self._leave:
-            if self._same_controller(existing, control):
+            if _same_frame(existing, control):
                 return
         try:
             import unohelper
@@ -623,7 +615,7 @@ class FrameSession:
         controller = self._controller()
         if controller is None or not hasattr(controller, "addMouseClickHandler"):
             return
-        if self._click_handler is not None and self._same_controller(self._click_controller, controller):
+        if self._click_handler is not None and _same_frame(self._click_controller, controller):
             return
         if self._click_handler is not None:
             self._remove(self._click_controller, "removeMouseClickHandler", self._click_handler)

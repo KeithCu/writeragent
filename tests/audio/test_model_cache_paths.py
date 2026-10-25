@@ -8,6 +8,8 @@ from plugin.audio.model_cache_paths import KOKORO_MODEL_FILENAME, KOKORO_VOICES_
 
 
 def _home(monkeypatch, tmp_path: Path) -> Path:
+    from plugin.audio.model_cache_paths import _warned_overrides
+    _warned_overrides.clear()
     home = tmp_path / "home"
     home.mkdir()
     # Path.home() reads HOME on POSIX and USERPROFILE on Windows
@@ -263,3 +265,110 @@ def test_directory_is_writable_matches_create(tmp_path):
     assert _directory_is_writable(tmp_path) is True
     assert _directory_is_writable(tmp_path / "missing") is False
     assert list(tmp_path.glob(".writeragent-write-probe-*")) == []
+
+
+def test_kokoro_zero_byte_in_probe_is_not_a_hit(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    pipecat = home / ".cache" / "pipecat" / "kokoro-onnx"
+    pipecat.mkdir(parents=True)
+    (pipecat / KOKORO_MODEL_FILENAME).write_bytes(b"")
+    (pipecat / KOKORO_VOICES_FILENAME).write_bytes(b"voices")
+    monkeypatch.setattr("plugin.audio.model_cache_paths._directory_is_writable", lambda _directory: False)
+
+    found_model, found_voices = resolve_kokoro_model_paths()
+
+    assert found_voices == pipecat / KOKORO_VOICES_FILENAME
+    assert found_model == home / ".cache" / "kokoro" / KOKORO_MODEL_FILENAME
+    assert kokoro_should_download(found_model, "KOKORO_MODEL_PATH") is True
+
+
+def test_kokoro_both_canonical_files_zero_bytes(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    canonical = home / ".cache" / "kokoro"
+    canonical.mkdir(parents=True)
+    (canonical / KOKORO_MODEL_FILENAME).write_bytes(b"")
+    (canonical / KOKORO_VOICES_FILENAME).write_bytes(b"")
+
+    found_model, found_voices = resolve_kokoro_model_paths()
+
+    assert found_model == canonical / KOKORO_MODEL_FILENAME
+    assert found_voices == canonical / KOKORO_VOICES_FILENAME
+    assert kokoro_should_download(found_model, "KOKORO_MODEL_PATH") is True
+    assert kokoro_should_download(found_voices, "KOKORO_VOICES_PATH") is True
+
+
+def test_piper_zero_byte_in_probe_is_not_a_hit(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    pipecat = home / ".cache" / "pipecat" / "piper"
+    pipecat.mkdir(parents=True)
+    (pipecat / "en_US-lessac-medium.onnx").write_bytes(b"")
+    (pipecat / "en_US-lessac-medium.onnx.json").write_bytes(b"{}")
+
+    onnx, config = resolve_piper_voice_paths("en_US-lessac-medium")
+
+    assert onnx == home / ".cache" / "piper" / "en_US-lessac-medium.onnx"
+    assert config == home / ".cache" / "piper" / "en_US-lessac-medium.onnx.json"
+
+
+def test_kokoro_whitespace_override_is_ignored(monkeypatch, tmp_path, caplog):
+    import logging
+    home = _home(monkeypatch, tmp_path)
+    pipecat = home / ".cache" / "pipecat" / "kokoro-onnx"
+    model, voices = _touch_kokoro(pipecat)
+    monkeypatch.setenv("KOKORO_MODEL_PATH", "   ")
+
+    with caplog.at_level(logging.WARNING, logger="plugin.audio.model_cache_paths"):
+        found_model, found_voices = resolve_kokoro_model_paths()
+
+    assert found_model == model
+    assert found_voices == voices
+    assert not [r for r in caplog.records if r.name == "plugin.audio.model_cache_paths"]
+
+
+def test_kokoro_tilde_override_expanded_and_warns_once(monkeypatch, tmp_path, caplog):
+    import logging
+    home = _home(monkeypatch, tmp_path)
+    monkeypatch.setenv("KOKORO_MODEL_PATH", "~/missing-model.onnx")
+
+    with caplog.at_level(logging.WARNING, logger="plugin.audio.model_cache_paths"):
+        found_model1, _ = resolve_kokoro_model_paths()
+        found_model2, _ = resolve_kokoro_model_paths()
+
+    assert found_model1 == home / "missing-model.onnx"
+    assert found_model2 == home / "missing-model.onnx"
+    assert kokoro_should_download(found_model1, "KOKORO_MODEL_PATH") is False
+
+    warnings = [r for r in caplog.records if r.name == "plugin.audio.model_cache_paths"]
+    assert len(warnings) == 1
+    assert "KOKORO_MODEL_PATH" in warnings[0].message
+    assert "not a usable file" in warnings[0].message
+
+
+def test_relative_xdg_cache_home_uses_home_cache(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    monkeypatch.setenv("XDG_CACHE_HOME", "relative/cache")
+
+    assert shared_cache_root() == home / ".cache"
+
+
+def test_piper_voice_id_cannot_escape_cache(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    for bad_id in ("../x", "a/b", "..", "", "..\\x"):
+        onnx, config = resolve_piper_voice_paths(bad_id)
+        assert onnx.name == "en_US-lessac-medium.onnx"
+        assert config.name == "en_US-lessac-medium.onnx.json"
+        assert ".." not in onnx.parts
+        assert ".." not in config.parts
+        assert onnx.is_relative_to(home / ".cache")
+        assert config.is_relative_to(home / ".cache")
+
+
+def test_piper_escape_does_not_hit_outside_files(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    (home / "x.onnx").write_bytes(b"onnx")
+    (home / "x.onnx.json").write_bytes(b"{}")
+
+    onnx, _config = resolve_piper_voice_paths("../../x")
+
+    assert onnx != home / "x.onnx"
+    assert onnx.name == "en_US-lessac-medium.onnx"

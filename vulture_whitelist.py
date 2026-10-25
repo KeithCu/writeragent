@@ -382,7 +382,6 @@ _.clear_all_document_persistence  # function: plugin/writer/locale/grammar_persi
 _.clear_all_sandbox_sessions  # function: plugin/scripting/venv/venv_sandbox.py:1116
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
 _.clear_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:926
-_.clear_faster_whisper_probe_cache  # function: plugin/audio/stt_service.py:224
 _.clear_for_doc  # method: plugin/writer/locale/grammar_persistence.py:173
 _.clear_page_shapes  # function: plugin/ppt_master/adapter/uno_shape_postprocess.py:225
 _.clear_python_code_hot_cache  # function: plugin/scripting/sandbox_cache.py:230

@@ -6,6 +6,7 @@ from plugin.chatbot.record_gesture import (
     EMPTY_TAKES_EXIT,
     HANDS_FREE_STATUS,
     RecordGesture,
+    RecordPhase,
     StickyRestart,
     TakeStop,
     exit_sticky,
@@ -151,3 +152,26 @@ def test_hands_free_silence_text_keeps_mode_visible() -> None:
 
 def test_empty_takes_exit_after_two() -> None:
     assert EMPTY_TAKES_EXIT == 2
+
+
+def test_press_no_release_then_press_again() -> None:
+    g0 = RecordGesture()
+    s1 = gesture_press(g0, label_is_record=True)
+    assert s1.start_timer is True
+    assert s1.gesture.phase == RecordPhase.DOWN
+    # Press again without release:
+    s2 = gesture_press(s1.gesture, label_is_record=True)
+    assert s2.start_timer is True
+    assert s2.gesture.phase == RecordPhase.DOWN
+
+
+def test_press_while_holding_when_not_record_is_noop() -> None:
+    g0 = RecordGesture()
+    s1 = gesture_press(g0, label_is_record=True)
+    assert s1.gesture.phase == RecordPhase.DOWN
+    # Press while holding when label is not Record cancels hold timer and returns IDLE
+    s2 = gesture_press(s1.gesture, label_is_record=False)
+    assert s2.start_timer is False
+    assert s2.dispatch_record is False
+    assert s2.cancel_timer is True
+    assert s2.gesture.phase == RecordPhase.IDLE

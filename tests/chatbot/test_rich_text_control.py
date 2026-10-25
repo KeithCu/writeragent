@@ -277,7 +277,7 @@ class TestAppendTextChunk:
         mock_scroll.assert_called_once()
         # The only restores per chunk are the pair inside _scroll_rich_to_tail
         # (patched out here). A third one after it was a redundant GrabFocus.
-        assert mock_scroll.call_args.args[3] is restore
+        assert mock_scroll.call_args.kwargs["restore_focus"] is restore
         restore.assert_not_called()
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
@@ -309,7 +309,26 @@ class TestAppendTextChunk:
             rtc._scroll_rich_to_tail(control, ctx=None)
 
         assert calls["n"] == 1
-        assert rtc._IN_SCROLL_TO_TAIL is False
+        assert id(control) not in rtc._IN_SCROLL_TO_TAIL
+        assert len(rtc._IN_SCROLL_TO_TAIL) == 0
+
+    def test_scroll_rich_to_tail_nested_different_control_runs(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        ctrl1 = MagicMock()
+        ctrl2 = MagicMock()
+        calls = []
+
+        def nested(control, _command, _ctx):
+            calls.append(control)
+            if control is ctrl1:
+                rtc._scroll_rich_to_tail(ctrl2, ctx=None)
+
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
+            rtc._scroll_rich_to_tail(ctrl1, ctx=None)
+
+        assert calls == [ctrl1, ctrl2]
+        assert len(rtc._IN_SCROLL_TO_TAIL) == 0
 
     def test_sync_bounds_scrolls_tail_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace
@@ -324,9 +343,10 @@ class TestAppendTextChunk:
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
         with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll:
-            sync_rich_control_bounds(rich, None, placeholder)
+            res = sync_rich_control_bounds(rich, None, placeholder)
 
         mock_scroll.assert_called_once()
+        assert res is False
         # reveal_caret is the flash path; resize uses Hidden SelectAll like stream.
 
     def test_sync_bounds_skips_scroll_when_empty(self):
@@ -342,9 +362,29 @@ class TestAppendTextChunk:
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
         with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll:
-            sync_rich_control_bounds(rich, None, placeholder)
+            res = sync_rich_control_bounds(rich, None, placeholder)
 
         mock_scroll.assert_not_called()
+        assert res is False
+
+    def test_sync_bounds_returns_true_when_already_matching(self):
+        from types import SimpleNamespace
+        from plugin.chatbot.rich_text_control import sync_rich_control_bounds
+
+        rich = MagicMock()
+        # placeholder rect at (4, 16, 200, 300) -> inset 8 -> (12, 24, 184, 284)
+        rich.getPosSize.return_value = SimpleNamespace(X=12, Y=24, Width=184, Height=284)
+        rich.getModel.return_value = MagicMock(Text="")
+        placeholder = MagicMock()
+        placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
+
+        res = sync_rich_control_bounds(rich, None, placeholder)
+        assert res is True
+
+    def test_sync_bounds_returns_false_when_inputs_none(self):
+        from plugin.chatbot.rich_text_control import sync_rich_control_bounds
+        assert sync_rich_control_bounds(None, None, MagicMock()) is False
+        assert sync_rich_control_bounds(MagicMock(), None, None) is False
 
     def test_clear_control(self):
         control = MagicMock()
@@ -903,3 +943,47 @@ class TestControlTextLength:
         control = MagicMock()
         control.getModel.return_value = MagicMock(Text="")
         assert get_control_text_length(control) == 0
+
+
+def test_widget_replace_control():
+    from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+    old_ctrl = MagicMock()
+    widget = RichTextChatWidget(MagicMock(), old_ctrl)
+    widget._shown = [("u", "hello")]
+    widget._formatted_rows = 1
+    widget._formatted_len = 5
+
+    new_ctrl = MagicMock()
+    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear:
+        widget.replace_control(new_ctrl)
+        mock_clear.assert_called_once_with(old_ctrl)
+
+    assert widget.control is new_ctrl
+    assert widget._shown is None
+    assert widget._formatted_rows == 0
+    assert widget._formatted_len is None
+
+    # Second replace with same object does not clear again
+    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear2:
+        widget.replace_control(new_ctrl)
+        mock_clear2.assert_not_called()
+
+
+def test_deferred_init_failure_clears_init_flags():
+    import plugin.chatbot.rich_text_control as rtc
+    from plugin.chatbot.rich_text_control import RichTextControlListener
+
+    root = MagicMock()
+    listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+    with patch("plugin.framework.queue_executor.post_to_main_thread"):
+        listener._begin_deferred_init()
+    assert listener.initialized is True
+    assert id(root) in rtc._CONTROL_INIT_STARTED
+
+    with patch("plugin.chatbot.rich_text_control.create_sidebar_rich_text_control", return_value=None):
+        listener._deferred_init()
+
+    assert listener.initialized is False
+    assert id(root) not in rtc._CONTROL_INIT_STARTED
+

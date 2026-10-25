@@ -28,6 +28,11 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.status_history = []
         self._terminal_status = None
         self._record_assistant_start = False
+        from plugin.chatbot.panel_voice import PanelVoiceController
+        self._voice = PanelVoiceController(self)
+        self.audio_wav_path = None
+        self._stt_inflight = False
+        self._stt_kill = None
         setattr(self, "session", MagicMock())
         setattr(self, "response_control", MagicMock())
 
@@ -84,6 +89,7 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
+        patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
 
@@ -107,6 +113,7 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch("plugin.mcp.is_mcp_server_running", return_value=True),
+        patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
 
@@ -1588,8 +1595,29 @@ def test_handler_errors_persist_assistant_banner():
         _drive_unified_drain(panel, worker, handler_type)
         content = panel.session.add_assistant_message.call_args.kwargs["content"]
         assert needle in content
-        assert content == content.strip()
-        assert needle in "".join(panel.responses)
+        assert content == "".join(panel.responses)
+
+
+def test_on_error_after_stopped_or_done_writes_no_history_row():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.chatbot.state_machine import SendHandlerState, EffectInterpreter
+
+    for status in ("stopped", "done"):
+        panel = DummyChatbotPanel()
+        begin_send_turn(panel, "web")
+        state = SendHandlerState(handler_type="web", status=status)
+        interpreter = EffectInterpreter(panel)
+        q = StreamQueue()
+
+        def fake_drain_loop(drain_q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+            on_error(RuntimeError("late error"))
+            job_done[0] = True
+
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
+                panel._run_unified_worker_drain_loop(q, lambda: None, state, interpreter)
+
+        assert panel.session.add_assistant_message.call_count == 0
 
 
 def test_thinking_chunk_reaches_append_as_thinking():
@@ -1960,11 +1988,11 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
         return "hello"
 
     with (
-        patch("plugin.chatbot.send_handlers.run_blocking_in_thread", side_effect=_run_blocking_now),
+        patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
         patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
         patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing"),
     ):
-        result = panel._transcribe_audio(str(wav), "base")
+        result = panel._voice._transcribe_audio(str(wav), "base")
 
     assert result == "hello"
     assert panel._terminal_status == "Stopped"
@@ -1988,17 +2016,17 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     nested = {}
 
     def fake_transcribe(_path, **_kwargs):
-        nested["result"] = panel._transcribe_audio(str(inner), "base")
+        nested["result"] = panel._voice._transcribe_audio(str(inner), "base")
         nested["outer_exists"] = outer.exists()
         nested["inner_exists"] = inner.exists()
         return "hello"
 
     with (
-        patch("plugin.chatbot.send_handlers.run_blocking_in_thread", side_effect=_run_blocking_now),
+        patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
         patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
         patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing"),
     ):
-        text = panel._transcribe_audio(str(outer), "base")
+        text = panel._voice._transcribe_audio(str(outer), "base")
 
     assert text == "hello"
     assert nested["result"] == ""
@@ -2018,12 +2046,12 @@ class TestSTTClientReset:
 
         # Stop effect is intercepted so we just observe the scope
         with (
-            patch("plugin.chatbot.send_handlers.get_api_config", return_value={"model": "fake", "provider": "openai"}),
+            patch("plugin.chatbot.panel_voice.get_api_config", return_value={"model": "fake", "provider": "openai"}),
             patch("plugin.framework.client.llm_client.LlmClient.stop") as mock_stop,
             patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing..."),
-            patch("plugin.chatbot.send_handlers.run_blocking_in_thread", return_value="hello world")
+            patch("plugin.chatbot.panel_voice.run_blocking_in_thread", return_value="hello world")
         ):
-            panel._transcribe_audio("fake.wav", "stt-model")
+            panel._voice._transcribe_audio("fake.wav", "stt-model")
 
         # Cancelling the scope must not call stop on the created LlmClient
         scope.cancel()
@@ -2036,12 +2064,12 @@ class TestSTTClientReset:
         host.client.api_key = "old-key"
 
         with (
-            patch("plugin.chatbot.send_handlers.get_api_config"),
-            patch("plugin.chatbot.send_handlers.LlmClient") as mock_llm_client,
-            patch("plugin.chatbot.send_handlers.run_blocking_in_thread"),
-            patch("plugin.chatbot.send_handlers.capture_send_stop", return_value=(MagicMock(), lambda: False))
+            patch("plugin.chatbot.panel_voice.get_api_config"),
+            patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
+            patch("plugin.chatbot.panel_voice.run_blocking_in_thread"),
+            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(MagicMock(), lambda: False))
         ):
-            host._transcribe_audio("fake.wav", "stt-model")
+            host._voice._transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
 
     def test_local_stt_does_not_build_llm_client(self) -> None:
@@ -2050,13 +2078,13 @@ class TestSTTClientReset:
 
         with (
             patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
-            patch("plugin.chatbot.send_handlers.get_api_config") as mock_get_api_config,
-            patch("plugin.chatbot.send_handlers.LlmClient") as mock_llm_client,
-            patch("plugin.chatbot.send_handlers.run_blocking_in_thread", side_effect=_run_blocking_now),
+            patch("plugin.chatbot.panel_voice.get_api_config") as mock_get_api_config,
+            patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
+            patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
             patch("plugin.audio.stt_service.transcribe", return_value="hi"),
-            patch("plugin.chatbot.send_handlers.capture_send_stop", return_value=(MagicMock(), lambda: False)),
+            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(MagicMock(), lambda: False)),
         ):
-            res = host._transcribe_audio("fake.wav", "stt-model")
+            res = host._voice._transcribe_audio("fake.wav", "stt-model")
             assert res == "hi"
             mock_llm_client.assert_not_called()
             mock_get_api_config.assert_not_called()

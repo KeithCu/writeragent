@@ -42,13 +42,18 @@ class SlashCommand:
     clears_ask: bool = True
 
 
-# Help and clear replace the draft. /stop must not: the Stop button
-# leaves whatever the user typed.
-# Default product commands only.
+# Wired: /help /clear /stop. The rest exist so prefix + LRU tests do not
+# depend on future product commands. Consider-list names are tagged mock.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", _("Print the command list"), "wired", clears_ask=True),
     SlashCommand("clear", _("Start a new chat"), "wired", clears_ask=True),
     SlashCommand("stop", _("Cancel the in-flight send"), "wired", clears_ask=False),
+    SlashCommand("mock-alpha", _("Mock command (echo only)"), "mock", clears_ask=True),
+    SlashCommand("mock-bravo", _("Mock command (echo only)"), "mock", clears_ask=True),
+    SlashCommand("mock-charlie", _("Mock command (echo only)"), "mock", clears_ask=True),
+    SlashCommand("apply", _("Apply last draft (mock)"), "mock", clears_ask=True),
+    SlashCommand("web", _("Web research (mock)"), "mock", clears_ask=True),
+    SlashCommand("model", _("Switch model (mock)"), "mock", clears_ask=True),
 )
 
 SLASH_COMMANDS_BY_NAME: dict[str, SlashCommand] = {cmd.name: cmd for cmd in SLASH_COMMANDS}
@@ -149,13 +154,43 @@ def record_slash_lru(name: str) -> None:
     )
 
 
+def _append_sidebar_line(host: Any, text: str) -> None:
+    append = getattr(host, "append_output", None) or getattr(host, "_append_response", None)
+    if callable(append):
+        append(text, role="assistant")
+        return
+    response = getattr(host, "response_control", None)
+    if response is None:
+        return
+    from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+    current = get_control_text(response) or ""
+    set_control_text(response, current + text)
+
+
+def _clear_ask_box(host: Any) -> None:
+    clear_ask_fn = getattr(host, "clear_ask", None)
+    if callable(clear_ask_fn):
+        clear_ask_fn()
+        return
+    from plugin.chatbot.dialogs import set_control_text
+    from plugin.chatbot.send_state import SendEvent, SendEventKind
+
+    query = getattr(host, "query_control", None)
+    set_control_text(query, "")
+    dispatch = getattr(host, "dispatch", None)
+    if callable(dispatch):
+        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
+
+
 def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | None = None) -> bool:
     """Run a registry command on the live send listener. Not a chat turn.
 
-    ``/help`` prints the static list. ``/clear`` clears the chat. Those and
-    mocks clear Ask. ``/stop`` does not: it runs the Stop button flow
-    (TTS, inline web approval, hands-free, and STOP_CLICKED), same as the
-    Stop button, and leaves the draft.
+    Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
+    prints the static list. ``/clear`` uses ClearButtonListener. Those and
+    mocks clear Ask. ``/stop`` does not: it runs ``StopButtonListener`` (TTS,
+    inline web approval, hands-free, and ``STOP_CLICKED``), same as the Stop
+    button, and leaves the draft.
     """
     clean = (name or "").lstrip("/").strip().lower()
     cmd = (
@@ -173,29 +208,32 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
         host.slash_popup.hide()
 
     if cmd.name == "stop":
-        # /stop is the Stop button's flow: speech, the inline approval
-        # dialog, and hands-free exit. Clearing Ask and dispatching only
-        # STOP_CLICKED wipes the draft and skips those.
         stop_fn = getattr(host, "stop_in_flight", None)
         if callable(stop_fn):
             stop_fn()
+        else:
+            from plugin.chatbot.panel import StopButtonListener
+
+            StopButtonListener(host).on_action_performed(None)
         return True
     if cmd.clears_ask:
-        clear_ask_fn = getattr(host, "clear_ask", None)
-        if callable(clear_ask_fn):
-            clear_ask_fn()
-    append_fn = getattr(host, "append_output", None) or getattr(host, "_append_response", None)
+        _clear_ask_box(host)
     if cmd.name == "help":
-        if callable(append_fn):
-            append_fn("\n" + format_help_text(commands) + "\n")
+        _append_sidebar_line(host, "\n" + format_help_text(commands) + "\n")
         return True
     if cmd.name == "clear":
         clear_chat_fn = getattr(host, "clear_chat", None)
         if callable(clear_chat_fn):
             clear_chat_fn()
-        elif hasattr(host, "clear_listener") and getattr(getattr(host, "clear_listener", None), "on_action_performed", None):
-            host.clear_listener.on_action_performed(None)
+        else:
+            clear_listener = getattr(host, "clear_listener", None)
+            action = getattr(clear_listener, "on_action_performed", None)
+            if callable(action):
+                action(None)
+            else:
+                session = getattr(host, "session", None)
+                if session is not None and hasattr(session, "clear"):
+                    session.clear()
         return True
-    if callable(append_fn):
-        append_fn("\nslash: /%s\n" % cmd.name)
+    _append_sidebar_line(host, "\nslash: /%s\n" % cmd.name)
     return True

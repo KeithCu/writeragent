@@ -1,18 +1,27 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional, assert_never
 
 from plugin.framework.service import BaseState, FsmTransition
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
-_VALID_AUDIO_STATUSES = ("idle", "initializing", "recording", "error")
+
+class AudioStatus(str, Enum):
+    IDLE = "idle"
+    INITIALIZING = "initializing"
+    RECORDING = "recording"
+    ERROR = "error"
+
+
+_VALID_AUDIO_STATUSES = tuple(AudioStatus)
 
 # --- State ---
 
 
 @dataclass(frozen=True)
 class AudioRecorderState(BaseState):
-    status: str  # 'idle', 'initializing', 'recording', 'error'
+    status: AudioStatus
     error_message: Optional[str] = None
 
 
@@ -96,25 +105,25 @@ def next_state(state: AudioRecorderState, event: AudioRecorderEvent) -> FsmTrans
         case ErrorOccurredEvent(error_message=msg):
             effects.append(StopRecordingEffect())
             effects.append(ReportErrorEffect(msg))
-            new_state = AudioRecorderState(status="error", error_message=msg)
+            new_state = AudioRecorderState(status=AudioStatus.ERROR, error_message=msg)
             return FsmTransition(new_state, effects)
 
         case StartRequestedEvent():
             if state.status in ("idle", "error"):
                 effects.append(InitializeDeviceEffect())
-                return FsmTransition(AudioRecorderState(status="initializing"), effects)
+                return FsmTransition(AudioRecorderState(status=AudioStatus.INITIALIZING), effects)
             return FsmTransition(state, effects)
 
         case DeviceReadyEvent():
             if state.status == "initializing":
                 effects.append(StartRecordingEffect())
-                return FsmTransition(AudioRecorderState(status="recording"), effects)
+                return FsmTransition(AudioRecorderState(status=AudioStatus.RECORDING), effects)
             return FsmTransition(state, effects)
 
         case StopRequestedEvent():
             if state.status in ("initializing", "recording"):
                 effects.append(StopRecordingEffect())
-                return FsmTransition(AudioRecorderState(status="idle"), effects)
+                return FsmTransition(AudioRecorderState(status=AudioStatus.IDLE), effects)
             return FsmTransition(state, effects)
 
     assert_never(event)

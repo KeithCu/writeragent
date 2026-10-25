@@ -276,3 +276,45 @@ def test_initialize_auto_discovers_expected_tools() -> None:
     assert set(registry.tool_names) == expected
 
 
+def test_initialize_import_failure_still_registers_selection_actions(monkeypatch) -> None:
+    from plugin.chatbot import ChatbotModule
+    from plugin.framework.main_shared import get_action_handler
+    import plugin.chatbot.__init__ as chatbot_init
+
+    orig_import = chatbot_init.import_module
+
+    def _failing_import(name: str):
+        if name.endswith("ppt_master"):
+            raise ImportError("boom")
+        return orig_import(name)
+
+    monkeypatch.setattr(chatbot_init, "import_module", _failing_import)
+    services = SimpleNamespace(tools=SimpleNamespace(auto_discover=MagicMock()))
+
+    ChatbotModule().initialize(services)
+    assert get_action_handler("chatbot.extend_selection") is not None
+    assert get_action_handler("chatbot.edit_selection") is not None
+
+
+def test_initialize_registers_all_module_yaml_actions() -> None:
+    from pathlib import Path
+    import yaml
+    from plugin.chatbot import ChatbotModule
+    from plugin.framework.main_shared import get_action_handler
+
+    yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "chatbot" / "module.yaml"
+    with open(yaml_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    actions = data.get("actions", {})
+    assert actions, "module.yaml has no actions"
+
+    services = SimpleNamespace(tools=SimpleNamespace(auto_discover=MagicMock()))
+    ChatbotModule().initialize(services)
+
+    for action_key in actions:
+        handler = get_action_handler(f"chatbot.{action_key}")
+        assert handler is not None, f"Missing handler for chatbot.{action_key}"
+
+
+
