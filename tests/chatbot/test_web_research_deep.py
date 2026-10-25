@@ -10,16 +10,18 @@ from unittest.mock import MagicMock, patch
 from plugin.chatbot.web_research_deep import (
     ResearchProgress,
     _ResearchAccumulator,
+    _coerce_agent_result,
+    _extract_urls_from_text,
     _process_one_sub_query,
     _run_sub_queries_parallel,
     assess_research_coverage,
     parse_assessment_response,
-    parse_follow_up_questions_response,
     parse_research_results_response,
     parse_search_queries_response,
     run_deep_research,
     trim_context_to_word_limit,
 )
+from plugin.framework.errors import ToolExecutionError
 
 
 class TestDeepResearchParsers:
@@ -43,12 +45,6 @@ class TestDeepResearchParsers:
             {"query": "foo bar", "researchGoal": "Research: foo bar"},
             {"query": "climate policy", "researchGoal": "Research: climate policy"}
         ]
-
-    def test_parse_follow_up_questions_json(self):
-        raw = '{"questions": ["What changed in 2024?", "Who leads the field?"]}'
-        out = parse_follow_up_questions_response(raw, 3)
-        assert len(out) == 2
-        assert "2024" in out[0]
 
     def test_parse_research_results_json_duplicate_learnings(self):
         raw = (
@@ -161,8 +157,6 @@ class TestRunDeepResearch:
             return '[{"query": "sub one", "researchGoal": "goal one"}]'
         if "extract key learnings" in combined:
             return '{"learnings": [{"insight": "Finding X", "sourceUrl": "https://a.test"}], "followUpQuestions": []}'
-        if "follow-up questions" in combined.lower() or ('"questions"' in combined and "JSON object" in combined):
-            return '{"questions": ["Aspect A?"]}'
         if "evaluate whether web research" in combined or "Quality threshold" in combined:
             return '{"score": 9, "knowledge_gaps": [], "suggested_queries": [], "stop": true, "reasoning": "sufficient"}'
         if "plain-text research report" in combined or "Collected evidence" in combined:
@@ -229,8 +223,6 @@ class TestRunDeepResearch:
                     '{"query": "q2", "researchGoal": "g2"}, '
                     '{"query": "q3", "researchGoal": "g3"}]'
                 )
-            if "follow-up questions" in combined.lower():
-                return '{"questions": ["Aspect?"]}'
             if "extract key learnings" in combined:
                 return '{"learnings": [{"insight": "L", "sourceUrl": ""}], "followUpQuestions": []}'
             if "evaluate whether web research" in combined:
@@ -375,6 +367,31 @@ class TestRunDeepResearch:
             None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=lambda sub_query, _goal, _history: "Extracted failure context https://source.test for " + sub_query,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=1,
+            max_sub_queries=1,
+            plain_text_format="Use plain text.",
+            initial_search_snippet="preview hit",
+        )
+        assert result == "Final synthesized report."
+        assert extract_calls["n"] == 1
+
+    def test_extraction_failure_without_context_still_errors(self):
+        extract_calls = {"n": 0}
+
+        def llm_router(messages):
+            if "expert researcher analyzing search results" in messages[0]["content"]:
+                extract_calls["n"] += 1
+                raise Exception("JSON decode error from LLM")
+            return self._llm_router(messages)
+
+        result = run_deep_research(
+            "main topic",
+            None,
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=lambda sub_query, _goal, _history: "",
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -636,23 +653,6 @@ def test_generate_search_queries_includes_local_clock_stamp():
     assert "Today's date is" not in captured["user"]
 
 
-def test_generate_research_plan_uses_llm_client_datetime_format():
-    from plugin.chatbot.web_research_deep import generate_research_plan
-
-    captured: dict[str, str] = {}
-
-    def fake_llm(messages, max_tokens):
-        captured["user"] = messages[-1]["content"]
-        return '{"questions": ["q1", "q2"]}'
-
-    frozen, stamp = _frozen_clock_stamp()
-    with patch("plugin.chatbot.web_research_deep.now_aware", return_value=frozen):
-        out = generate_research_plan(fake_llm, "some topic", "snippet", num_questions=2)
-
-    assert len(out) == 2
-    assert f"Current time: {stamp}" in captured["user"]
-
-
 def test_chat_completion_sync_stop_checker_not_finish_reason():
     from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.errors import ToolExecutionError
@@ -817,9 +817,6 @@ class _RecordingClient:
         if "evaluate whether web research" in combined or "Quality threshold" in combined:
             self.kinds.append("assess")
             return '{"score": 9, "knowledge_gaps": [], "suggested_queries": [], "stop": true}'
-        if '"questions"' in combined and "JSON object" in combined:
-            self.kinds.append("plan")
-            return '{"questions": ["Aspect A?"]}'
         self.kinds.append("other")
         return "{}"
 
@@ -907,6 +904,37 @@ def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
         else:
             assert "synth" not in parent.kinds
             assert all("synth" not in worker.kinds for worker in workers)
+
+
+def test_coerce_agent_result():
+    assert _coerce_agent_result("text") == "text"
+    assert _coerce_agent_result({"status": "ok", "result": "x"}) == "x"
+    assert _coerce_agent_result({"result": 3}) == "3"
+    assert _coerce_agent_result(None) == ""
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _coerce_agent_result({"status": "error", "code": "USER_STOPPED", "message": "stopped"})
+    assert exc_info.value.code == "USER_STOPPED"
+
+    with pytest.raises(ToolExecutionError):
+        _coerce_agent_result({"unexpected": 1})
+
+
+def test_extract_urls_from_text():
+    assert _extract_urls_from_text("see https://a.test/1 and https://b.test/2 and https://a.test/1") == [
+        "https://a.test/1",
+        "https://b.test/2",
+    ]
+
+
+def test_parse_assessment_response_prose_fallback():
+    assert parse_assessment_response("not json at all") == {
+        "score": 0.0,
+        "knowledge_gaps": [],
+        "suggested_queries": [],
+        "stop": False,
+        "reasoning": "",
+    }
 
 
 def _alive_deep_threads():
