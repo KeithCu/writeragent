@@ -63,8 +63,6 @@ def _reset_drain_and_watchdog():
 def _audio_listener() -> SendButtonListener:
     listener = _make_send_listener()
     listener._terminal_status = ""
-    listener.sidebar_state = MagicMock()
-    listener.sidebar_state.send.is_recording = False
     text_part = {"type": "text", "text": "hello"}
     audio_part = {"type": "input_audio", "input_audio": {"data": "YmFzZTY0", "format": "wav"}}
     listener.session.messages = [{"role": "user", "content": [text_part, audio_part]}]
@@ -165,8 +163,6 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
     import plugin.framework.logging as logging_mod
 
     listener = _audio_listener()
-    listener.sidebar_state.agent = MagicMock()
-    listener.sidebar_state.agent.is_closing = False
 
     status_ctrl = MagicMock()
     rearm = _Rearm()

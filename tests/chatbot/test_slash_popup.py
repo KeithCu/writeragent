@@ -414,7 +414,7 @@ def test_esc_defers_hide_and_restores_send_for_slash_draft():
     assert query.text == "/he"
     event = send.dispatch.call_args[0][0]
     assert event.kind is SendEventKind.TEXT_UPDATED
-    assert event.data == {"has_text": True}
+    assert event.has_text is True
 
 
 def test_accept_defers_command_so_dispose_is_not_inside_callback():

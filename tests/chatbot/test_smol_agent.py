@@ -89,6 +89,14 @@ from plugin.framework.tool import ToolBase
 
 
 def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
+    import types
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.panel_voice import PanelVoiceController
+    from plugin.chatbot.record_gesture import RecordGesture
+    from plugin.chatbot.send_state import SendButtonState
+    from plugin.chatbot.sidebar_state import SidebarCompositeState
+
     query_control = MagicMock()
     query_control.getModel.return_value = True
 
@@ -102,13 +110,20 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _do_send_chat_with_tools=MagicMock(),
     )
 
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-    from plugin.chatbot.record_gesture import RecordGesture
+    send_initial = SendButtonState(
+        is_busy=False,
+        is_recording=False,
+        has_text=False,
+        has_audio=False,
+        audio_supported=True,
+    )
+    sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
 
-    return SimpleNamespace(
+    listener = SimpleNamespace(
         ctx=MagicMock(),
         frame_session=None,
         sidebar_mode_flags=SidebarModeFlags(),
+        sidebar_state=sidebar_state,
         _record_gesture=RecordGesture(),
         _empty_take_count=0,
         ensure_path_fn=None,
@@ -131,6 +146,12 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _send_handlers=send_handlers,
         _tool_calling=tool_calling,
     )
+    listener._require_send_document = types.MethodType(SendButtonListener._require_send_document, listener)
+    listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)
+    listener._read_and_clear_query = types.MethodType(SendButtonListener._read_and_clear_query, listener)
+    listener._route_sidebar_mode = types.MethodType(SendButtonListener._route_sidebar_mode, listener)
+    listener._voice = PanelVoiceController(listener)
+    return listener
 
 
 # =============================================================================
