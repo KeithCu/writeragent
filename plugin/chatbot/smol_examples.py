@@ -9,24 +9,22 @@
 
 - **librarian** — onboarding (`reply_to_user`; leave with ``switch_to_document_mode=true``).
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
+- **writing_plan** — document section drafting (`reply_to_user`, `write_document_section`).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
-- **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
-- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
+- **ppt-master** / **ppt_master** — venv PPT-Master agent (`ppt_master_finished`).
+- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
 - **``domain_tools:shapes``** — inner agent after that hop: one ``run_venv_python_script`` with the for-loop, then ``specialized_workflow_finished``. Not the outer ``*:python`` block (that block calls ``delegate_tool_domains``, which the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
+- **``document_research:*``** — document exploration and search (`specialized_workflow_finished`).
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
-
-Refresh librarian text with: ``python scripts/generate_smol_examples.py``
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK, WEB_RESEARCH_EXAMPLES_BLOCK
-from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
 log = logging.getLogger("writeragent.smol_examples")
 
@@ -172,13 +170,8 @@ Observation: {"status": "finished"}
 
 """
 
-# Venv guidance for python few-shots (prepended to the block; not part of the Task: line).
-PYTHON_SPECIALIZED_EXAMPLES_NOTES = format_venv_import_policy_for_prompt(compact=True) + "\n\n"
-
 # Specialized domain python (Writer/Calc/Draw): teach venv script shape + pre-imported np/sp/pd.
-PYTHON_SPECIALIZED_EXAMPLES = (
-    PYTHON_SPECIALIZED_EXAMPLES_NOTES
-    + """Task: "Calculate prime numbers from the 1010th prime to the 1020th prime as a NumPy array."
+PYTHON_SPECIALIZED_EXAMPLES = """Task: "Calculate prime numbers from the 1010th prime to the 1020th prime as a NumPy array."
 
 Action:
 {
@@ -223,7 +216,6 @@ Action:
   "arguments": {"answer": "Placed a ring of 8 blue circles via the shapes domain."}
 }
 """
-)
 
 # Inner agent after delegate_tool_domains(domains=["shapes"]).
 # One script loops the allowlisted shape API; per-shape LLM tools are not on this list.
@@ -334,6 +326,18 @@ Observation: {"status": "ok"}
 """
 
 
+_EXACT_EXAMPLES: dict[str, str] = {
+    "librarian": LIBRARIAN_EXAMPLES,
+    "brainstorming": BRAINSTORMING_EXAMPLES,
+    "writing_plan": WRITING_PLAN_EXAMPLES,
+    "deep_research": DEEP_RESEARCH_EXAMPLES,
+    "ppt-master": PPT_MASTER_EXAMPLES,
+    "ppt_master": PPT_MASTER_EXAMPLES,
+    "web_research": WEB_RESEARCH_EXAMPLES_BLOCK,
+    "domain_tools:shapes": INNER_SHAPES_SCRIPT_EXAMPLES,
+}
+
+
 def get_examples_block(key: str) -> str:
     """Return the few-shot block for *key*.
 
@@ -344,42 +348,13 @@ def get_examples_block(key: str) -> str:
     ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``delegate_tool_domains``).
     Keys ending in ``:images`` use ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
-    if key == "librarian":
-        return LIBRARIAN_EXAMPLES
-    if key == "brainstorming":
-        return BRAINSTORMING_EXAMPLES
-    if key == "writing_plan":
-        return WRITING_PLAN_EXAMPLES
-    if key == "deep_research":
-        return DEEP_RESEARCH_EXAMPLES
-    if key == "ppt-master":
-        return PPT_MASTER_EXAMPLES
-    if key == "web_research":
-        return WEB_RESEARCH_EXAMPLES_BLOCK
-    if key == "domain_tools:shapes":
-        return INNER_SHAPES_SCRIPT_EXAMPLES
+    if key in _EXACT_EXAMPLES:
+        return _EXACT_EXAMPLES[key]
     if key.endswith(":python"):
         return PYTHON_SPECIALIZED_EXAMPLES
     if key.endswith(":images"):
         return IMAGES_SPECIALIZED_EXAMPLES
+    if not (":" in key or key.startswith("domain_tools:")):
+        log.warning("Unknown smol examples key %r; falling back to generic delegate demo", key)
     return DELEGATE_GENERIC_EXAMPLES_BLOCK
-
-
-def normalize_html_content_array(content: Any) -> list[str] | None:
-    """Accept list of HTML strings or a single string (coerce to one-element list)."""
-    if content is None:
-        return None
-    if isinstance(content, str):
-        text = content.strip()
-        return [text] if text else None
-    if isinstance(content, list):
-        out: list[str] = []
-        for item in content:
-            if item is None:
-                continue
-            s = str(item).strip()
-            if s:
-                out.append(s)
-        return out if out else None
-    return None
 

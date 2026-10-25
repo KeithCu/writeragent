@@ -188,7 +188,32 @@ def test_full_manual_impress_uses_draw_sections():
     assert "TRACKED CHANGES" not in full_manual("Impress")
     assert full_manual(" Writer ") == full_manual("writer")
     assert "TRACKED CHANGES" in full_manual(" Writer ")
-    assert full_manual(" Nope ") == full_manual("writer")
+    assert full_manual(" Nope ") == full_manual("generic")
+
+
+def test_writer_topic_strings_contain_exact_writer_topics():
+    from plugin.mcp.mcp_protocol import _MCP_GUIDANCE_POINTER
+
+    expected_topics = list_topics("writer")
+    guidance_desc = GetGuidance.description
+    mcp_pointer = _MCP_GUIDANCE_POINTER
+
+    for topic in expected_topics:
+        assert topic in guidance_desc
+        assert topic in mcp_pointer
+
+    import re
+    # Extract topics in "(for Writer: ...)"
+    pattern = r"\(for Writer:\s*([^)]+)\)"
+    match_desc = re.search(pattern, guidance_desc)
+    assert match_desc is not None
+    desc_topics = [t.strip() for t in match_desc.group(1).split(",")]
+    assert desc_topics == expected_topics
+
+    match_mcp = re.search(pattern, mcp_pointer)
+    assert match_mcp is not None
+    mcp_topics = [t.strip() for t in match_mcp.group(1).split(",")]
+    assert mcp_topics == expected_topics
 
 
 # ---- GetGuidance tool --------------------------------------------------------

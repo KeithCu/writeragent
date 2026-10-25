@@ -26,10 +26,21 @@ from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCa
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.chatbot import smol_examples
-from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError, make_tool_error
+from plugin.framework.client import llm_client
 from plugin.framework.client.llm_client import LlmClient
+_ORIGINAL_LLM_CLIENT = LlmClient
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
+
+
+def get_api_config() -> dict[str, Any]:
+    from plugin.framework.config import get_api_config as _gac
+    return _gac()
+
+
+def get_config_int(key: str) -> int:
+    from plugin.framework.config import get_config_int as _gci
+    return _gci(key)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -44,33 +55,27 @@ log = logging.getLogger("writeragent.smol_agent")
 _spec_log = logging.getLogger("writeragent.specialized")
 
 SmolInputsStyle = Literal["librarian", "specialized"]
+_SMOL_WIRE_KEYS = frozenset({"messages", "tools", "response_format"})
 
 
 def to_smol_inputs(parameters: dict[str, Any] | None, *, style: SmolInputsStyle = "librarian") -> dict[str, dict[str, Any]]:
     """Convert ToolBase ``parameters`` (JSON Schema) to smolagents ``inputs`` dict.
 
-    * **librarian** — minimal keys, ``nullable`` from ``required`` (legacy librarian onboarding).
-    * **specialized** — merge each property schema so ``enum`` and extra keys are preserved;
-      default missing ``type`` to ``\"any\"`` (legacy specialized delegation).
+    Always copy ``enum`` and ``items`` when present. Default type is ``string`` for
+    librarian style, ``any`` for specialized style.
     """
     schema = parameters or {}
     props = schema.get("properties") or {}
-    if style == "librarian":
-        required = set(schema.get("required") or [])
-        out: dict[str, dict[str, Any]] = {}
-        for p_name, p_schema in props.items():
-            out[p_name] = {"type": p_schema.get("type", "string"), "description": p_schema.get("description", ""), "nullable": p_name not in required}
-        return out
-
     required = set(schema.get("required") or [])
-    out_sp: dict[str, dict[str, Any]] = {}
+    default_type = "string" if style == "librarian" else "any"
+    out: dict[str, dict[str, Any]] = {}
     for param_name, spec in props.items():
         merged = dict(spec)
-        merged["type"] = spec.get("type", "any")
+        merged["type"] = spec.get("type", default_type)
         merged["description"] = spec.get("description", "")
         merged["nullable"] = param_name not in required
-        out_sp[param_name] = merged
-    return out_sp
+        out[param_name] = merged
+    return out
 
 
 class SmolToolAdapter(SmolTool):
@@ -109,9 +114,6 @@ class SmolToolAdapter(SmolTool):
             self.output_type = "object"
         super().__init__()
 
-    def __call__(self, *args: Any, sanitize_inputs_outputs: bool = False, **kwargs: Any) -> Any:
-        return super().__call__(*args, sanitize_inputs_outputs=sanitize_inputs_outputs, **kwargs)
-
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         # Handle positional args robustly
         if len(args) == 1 and isinstance(args[0], dict):
@@ -148,8 +150,8 @@ class SmolToolAdapter(SmolTool):
         else:
             from plugin.framework.queue_executor import execute_on_main_thread
 
-            # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool
-            # or StickyReplyToUserTool) are marshalled to the main thread here if they are sync.
+            # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool)
+            # are marshalled to the main thread here if they are sync.
             # This sync-default policy is intentional and the extra hop is acceptable.
             _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
             result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
@@ -177,9 +179,9 @@ class WriterAgentSmolModel(Model):
         max_tokens: int = 1024,
         status_callback: Any = None,
         stop_checker: Any = None,
-        **kwargs: Any,
     ) -> None:
-        super().__init__(**kwargs)
+        # Note: Model.kwargs are intentionally ignored; request_with_tools defines wire keys.
+        super().__init__()
         self.api = llm_client
         self.max_tokens = max_tokens
         self.model_id = self.api.config.get("model")
@@ -194,9 +196,20 @@ class WriterAgentSmolModel(Model):
         tools_to_call_from: list[SmolTool] | None = None,
         **kwargs: Any,
     ) -> ChatMessage:
-        completion_kwargs = self._prepare_completion_kwargs(messages=cast("list[ChatMessage | dict[str, Any]]", messages), stop_sequences=stop_sequences, tools_to_call_from=tools_to_call_from, **kwargs)
+        completion_kwargs = self._prepare_completion_kwargs(
+            messages=cast("list[ChatMessage | dict[str, Any]]", messages),
+            stop_sequences=stop_sequences,
+            tools_to_call_from=tools_to_call_from,
+            **kwargs,
+        )
+
+        dropped = set(completion_kwargs.keys()) - _SMOL_WIRE_KEYS
+        if dropped:
+            log.debug("Smol completion kwargs dropped: %s", dropped)
 
         msg_dicts = completion_kwargs.get("messages", [])
+        tools = completion_kwargs.get("tools", None)
+        fmt = completion_kwargs.get("response_format", response_format)
 
         if self._status_callback:
             self._status_callback("Thinking...")
@@ -204,13 +217,12 @@ class WriterAgentSmolModel(Model):
         # Preserve the known-good smolagents request shape: schemas are both in the
         # smol prompt and on the wire. Some local backends select a different parser
         # path when OpenAI-style tools are present.
-        tools = completion_kwargs.get("tools", None)
         result = self.api.request_with_tools(
             msg_dicts,
             max_tokens=self.max_tokens,
             tools=tools,
             model=self.model_id,
-            response_format=response_format,
+            response_format=fmt,
             prepend_dev_build_system_prefix=False,
             stop_checker=self._stop_checker,
         )
@@ -255,7 +267,7 @@ class SmolAgentExecutor:
                 interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
-    def run(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None) -> Any:
+    def run(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None) -> Any:
         """Run the agent and stream its steps.
 
         Args:
@@ -265,8 +277,6 @@ class SmolAgentExecutor:
                               If provided, it should handle UI reporting for tools.
                               If it returns a value that is not None, the loop exits
                               and returns that value (useful for error payloads).
-            action_step_handler: Optional callback to handle ActionStep steps.
-                                If it returns a non-None value, the loop exits and returns that value.
 
         Returns:
             The final answer from the agent.
@@ -277,61 +287,66 @@ class SmolAgentExecutor:
         final_ans = None
         stream_iter = iter(cast("Iterable[Any]", agent.run(task, stream=True)))
 
-        while True:
-            self._abort_if_stopped(agent)
-            try:
-                step = next(stream_iter)
-            except StopIteration:
-                break
-            self._abort_if_stopped(agent)
+        try:
+            while True:
+                self._abort_if_stopped(agent)
+                try:
+                    step = next(stream_iter)
+                except StopIteration:
+                    break
+                self._abort_if_stopped(agent)
 
-            if isinstance(step, ToolCall):
-                if tool_call_handler:
-                    res = tool_call_handler(step)
-                    if res is not None:
-                        return res
-                else:
-                    # Default ToolCall handling
-                    if self.append_thinking_callback:
-                        self.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-                    if self.status_callback:
-                        self.status_callback(f"Tool: {step.name}...")
-
-            elif isinstance(step, ActionStep):
-                if action_step_handler:
-                    res = action_step_handler(step)
-                    if res is not None:
-                        return res
-
-                if self.append_thinking_callback:
-                    msg = f"Step {step.step_number}:\n"
-                    if step.model_output:
-                        mo = step.model_output
-                        msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
+                if isinstance(step, ToolCall):
+                    if tool_call_handler:
+                        res = tool_call_handler(step)
+                        if res is not None:
+                            interrupt = getattr(agent, "interrupt", None)
+                            if callable(interrupt):
+                                interrupt()
+                            return res
                     else:
-                        mom = getattr(step, "model_output_message", None)
-                        if mom is not None and getattr(mom, "content", None):
-                            mc = mom.content
-                            msg += f"{(mc.strip() if isinstance(mc, str) else str(mc).strip())}\n"
+                        # Default ToolCall handling
+                        if self.append_thinking_callback:
+                            self.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+                        if self.status_callback:
+                            self.status_callback(f"Tool: {step.name}...")
 
-                    if step.observations:
-                        msg += f"Observation: {str(step.observations).strip()}\n"
+                elif isinstance(step, ActionStep):
+                    if self.append_thinking_callback:
+                        msg = f"Step {step.step_number}:\n"
+                        if step.model_output:
+                            mo = step.model_output
+                            msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
+                        else:
+                            mom = getattr(step, "model_output_message", None)
+                            if mom is not None and getattr(mom, "content", None):
+                                mc = mom.content
+                                msg += f"{(mc.strip() if isinstance(mc, str) else str(mc).strip())}\n"
 
-                    self.append_thinking_callback(msg + "\n")
+                        if step.observations:
+                            msg += f"Observation: {str(step.observations).strip()}\n"
 
-            elif isinstance(step, FinalAnswerStep):
-                final_ans = step.output
+                        self.append_thinking_callback(msg + "\n")
 
-        return final_ans
+                elif isinstance(step, FinalAnswerStep):
+                    final_ans = step.output
 
-    def execute_safe(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
+            return final_ans
+        finally:
+            close_fn = getattr(stream_iter, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception as err:
+                    log.debug("Error closing agent run generator: %s", err)
+
+    def execute_safe(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
         """Execute the agent safely, catching errors and formatting them for the UI.
 
         Args:
             agent: The smolagents Agent instance to run.
             task: The task string for the agent.
             tool_call_handler: Optional callback to handle ToolCall steps.
-            action_step_handler: Optional callback to handle ActionStep steps.
             stop_message: Message to show if the user stops the task.
             error_prefix: Prefix for general error messages.
 
@@ -342,7 +357,7 @@ class SmolAgentExecutor:
         from plugin.framework.i18n import _
 
         try:
-            return self.run(agent, task, tool_call_handler=tool_call_handler, action_step_handler=action_step_handler)
+            return self.run(agent, task, tool_call_handler=tool_call_handler)
         except ToolExecutionError as e:
             if e.code == "USER_STOPPED":
                 err = ToolExecutionError(_(stop_message), code="USER_STOPPED")
@@ -356,20 +371,41 @@ class SmolAgentExecutor:
             return format_error_payload(err)
 
 
-def get_examples_block(key: str) -> str:
-    return smol_examples.get_examples_block(key)
+def create_smol_model(
+    ctx: ToolContext | None = None,
+    *,
+    client: LlmClient | None = None,
+    max_tokens: int | None = None,
+    status_callback: object | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    cancellation_scope: Any | None = None,
+) -> WriterAgentSmolModel:
+    """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
+    if max_tokens is None:
+        max_tokens = get_config_int("chat_max_tokens")
+    if stop_checker is None and ctx is not None:
+        stop_checker = getattr(ctx, "stop_checker", None)
+    if cancellation_scope is None and ctx is not None:
+        cancellation_scope = getattr(ctx, "send_cancellation", None)
+    if status_callback is None and ctx is not None:
+        status_callback = getattr(ctx, "status_callback", None)
+    if client is None:
+        uno_ctx = ctx.ctx if ctx is not None else None
+        config = get_api_config()
+        client_cls = LlmClient if LlmClient is not _ORIGINAL_LLM_CLIENT else llm_client.LlmClient
+        client = client_cls(config, uno_ctx, cancellation_scope=cancellation_scope)
+    return WriterAgentSmolModel(
+        client,
+        max_tokens=max_tokens,
+        status_callback=status_callback,
+        stop_checker=stop_checker,
+    )
 
 
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
-    uno_ctx = ctx.ctx
-    config = get_api_config()
-    max_tokens = get_config_int("chat_max_tokens")
     max_steps = get_config_int("chatbot.max_tool_rounds")
-
-    stop_checker = getattr(ctx, "stop_checker", None)
-    cancel_scope = getattr(ctx, "send_cancellation", None)
-    smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
+    smol_model = create_smol_model(ctx, status_callback=status_callback)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
 
 
@@ -386,7 +422,7 @@ def run_inner_tool_agent(
     tool_call_handler: Callable[[Any], Any] | None = None,
 ) -> Any:
     """Build and execute a tool-calling agent loop safely."""
-    examples_block = get_examples_block(examples_key)
+    examples_block = smol_examples.get_examples_block(examples_key)
     agent = build_toolcalling_agent(
         ctx,
         tools,
@@ -395,6 +431,9 @@ def run_inner_tool_agent(
         examples_block=examples_block,
         status_callback=getattr(ctx, "status_callback", None),
     )
+    # execute_safe calls interrupt() before it reports USER_STOPPED, which
+    # closes the model's HTTP client. Returning from this loop without that
+    # leaves agent.run() going after the sidebar has stopped.
     return SmolAgentExecutor(ctx).execute_safe(
         agent,
         task,
@@ -444,6 +483,9 @@ def run_smol_side_turn(
     status_message: str,
     stop_message: str,
     error_prefix: str,
+    collector_safe: bool = True,
+    inputs_style: SmolInputsStyle = "specialized",
+    tool_call_handler: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
     """One smol turn shared by brainstorming, writing plan, and deep research.
 
@@ -451,19 +493,37 @@ def run_smol_side_turn(
     whether a document open is written into the chat stay arguments so deep
     research can keep the executor's default tool status.
     """
+    from plugin.chatbot.web_research_chat import clip_sub_agent_history
+
     status_callback = getattr(ctx, "status_callback", None)
-    if history_text and len(history_text) > 4000:
-        history_text = "..." + history_text[-4000:]
+    history_text = clip_sub_agent_history(history_text)
     if status_callback:
         status_callback(status_message)
 
-    smol_tools: list[SmolTool] = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in collector(ctx)]
+    reply_tool: Any | None = None
     if reply_spec is not None:
         from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
-        smol_tools.append(SmolToolAdapter(StickyReplyToUserTool(reply_spec), ctx, safe=False, inputs_style="librarian"))
+        reply_tool = StickyReplyToUserTool(reply_spec)
+
+    class _ObservedSmolToolAdapter(SmolToolAdapter):
+        def forward(self, *args: Any, **kwargs: Any) -> Any:
+            result = super().forward(*args, **kwargs)
+            if reply_tool is not None:
+                reply_tool.record_tool_result(self.name or "", result)
+            return result
+
+    collector_tools = collector(ctx)
+    adapter_cls = _ObservedSmolToolAdapter if reply_tool is not None else SmolToolAdapter
+    smol_tools: list[SmolTool] = [
+        adapter_cls(t, ctx, safe=collector_safe, inputs_style=inputs_style) for t in collector_tools
+    ]
+
+    if reply_tool is not None:
+        smol_tools.append(SmolToolAdapter(reply_tool, ctx, safe=False, inputs_style="librarian"))
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
+    effective_handler = tool_call_handler or (_document_open_tool_handler(ctx) if report_document_opens else None)
     res = run_inner_tool_agent(
         ctx,
         smol_tools,
@@ -473,7 +533,7 @@ def run_smol_side_turn(
         task=task,
         stop_message=stop_message,
         error_prefix=error_prefix,
-        tool_call_handler=_document_open_tool_handler(ctx) if report_document_opens else None,
+        tool_call_handler=effective_handler,
     )
     if isinstance(res, dict) and res.get("status") == "error":
         return res

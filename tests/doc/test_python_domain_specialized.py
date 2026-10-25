@@ -135,6 +135,8 @@ def test_python_hint_and_examples_require_delegate_before_finish():
 
     block = get_examples_block("writer:python")
     assert block == PYTHON_SPECIALIZED_EXAMPLES
+    assert "PYTHON VENV SANDBOX:" not in block
+    assert (writer + "\n\n" + block).count("PYTHON VENV SANDBOX:") == 1
     parts = block.split('Task: "')
     assert "delegate_tool_domains" not in parts[1]
     assert '"domains": ["footnotes"]' in parts[2]

@@ -98,7 +98,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### smolagents and FSM helpers
 
 - **`model_output`** not always **`str`**: guard with **`isinstance`** or **`str(...)`** before **`strip()`** (several agent/chat paths).
-- **`EffectInterpreter.current_state`**: declare **`SendHandlerState | None`** where **`None`** is a real state (**`send_handlers`**).
+- **`EffectInterpreter.interpret`**: takes the `state` argument explicitly; there is no `EffectInterpreter.current_state` side channel (**`send_handlers`**).
 
 ### Cross-check workflow
 
@@ -136,7 +136,7 @@ Runtime UNO uses **`queryInterface`** heavily; return types are often opaque. Cl
 
 ### 5. Host protocols: **`Protocol` for the host**
 
-`ToolCallingMixin` and `SendHandlersMixin` are composed onto `SendButtonListener`. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/chatbot/send_handlers.py`](../../plugin/chatbot/send_handlers.py) declare the attributes and methods expected on `self._panel` so code is checkable without circular imports.
+`ToolCallingMixin` and `SendHandlersMixin` are composed onto `SendButtonListener`. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) declares the attributes and methods expected on `self._panel` so code is checkable without circular imports.
 
 ### 6. `TYPE_CHECKING` imports
 

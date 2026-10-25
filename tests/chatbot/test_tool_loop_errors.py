@@ -9,7 +9,6 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.chatbot.tool_loop_actions import build_tool_execute_fn, current_turn, take_stop_partial
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_state import ToolLoopState
-from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.chatbot.send_state import SendButtonState
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 
@@ -40,7 +39,6 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(False, False, False, False, False),
             tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
         )
         self.model_selector = None
         self.image_model_selector = None
@@ -244,7 +242,8 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     test_instance._spawn_llm_worker = MagicMock()
     test_instance._do_send_chat_with_tools = MagicMock()
     test_instance._start_tool_calling_async = MagicMock()
-    test_instance._transcribe_audio = MagicMock(return_value="spoken words")
+    test_instance._voice = MagicMock()
+    test_instance._voice._transcribe_audio = MagicMock(return_value="spoken words")
 
     with (
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
@@ -256,7 +255,7 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
     assert recovered is True
-    test_instance._transcribe_audio.assert_called_once_with("/fake/path/audio.wav", "stt-model")
+    test_instance._voice._transcribe_audio.assert_called_once_with("/fake/path/audio.wav", "stt-model")
     test_instance._spawn_llm_worker.assert_called_once()
     test_instance._do_send_chat_with_tools.assert_not_called()
     test_instance._start_tool_calling_async.assert_not_called()
@@ -286,7 +285,8 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     live.active_max_tokens = 128
     live.active_tools = []
     test_instance._spawn_llm_worker = MagicMock()
-    test_instance._transcribe_audio = MagicMock(return_value="   ")
+    test_instance._voice = MagicMock()
+    test_instance._voice._transcribe_audio = MagicMock(return_value="   ")
     test_instance.sidebar_state = dataclasses.replace(
         test_instance.sidebar_state,
         tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),
@@ -965,7 +965,7 @@ def test_native_audio_stt_fallback_replaces_db_row():
     def _stopped(_path, _model):
         return "spoken words"
 
-    host._transcribe_audio.side_effect = _stopped
+    host._voice._transcribe_audio.side_effect = _stopped
     with (
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
         patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
@@ -1008,7 +1008,7 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
         host._terminal_status = "Stopped"
         return ""
 
-    host._transcribe_audio.side_effect = _stopped
+    host._voice._transcribe_audio.side_effect = _stopped
     with (
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
         patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
@@ -1051,7 +1051,7 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
     host.session.messages = [audio_msg]
     host.session.db = MagicMock()
     host.session.db.get_messages.return_value = [{"role": "user", "content": "[Voice message]"}]
-    host._transcribe_audio.return_value = "spoken words"
+    host._voice._transcribe_audio.return_value = "spoken words"
 
     with (
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="newly-selected-model"),

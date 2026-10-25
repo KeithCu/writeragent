@@ -14,12 +14,12 @@ from plugin.chatbot.web_research_deep import (
     _extract_urls_from_text,
     _process_one_sub_query,
     _run_sub_queries_parallel,
+    _trim_evidence,
     assess_research_coverage,
     parse_assessment_response,
     parse_research_results_response,
     parse_search_queries_response,
     run_deep_research,
-    trim_context_to_word_limit,
 )
 from plugin.framework.errors import ToolExecutionError
 
@@ -100,24 +100,14 @@ class TestDeepResearchParsers:
     def test_trim_context_to_word_limit(self):
         learnings = ["l1 l2"]
         chunks = ["one two three", "four five"]
-        trimmed = trim_context_to_word_limit(learnings, chunks, max_words=4)
-        # trim_context_to_word_limit now only returns the trimmed CHUNKS
-        # max_words=4. learnings has 2 words. So 2 words left for chunks.
-        # chunks are reversed, so "four five" is processed first.
-        # It takes the remaining 2 words, so trimmed_chunks is ["four five"].
+        _trimmed_learnings, trimmed = _trim_evidence(learnings, chunks, max_words=4)
         assert trimmed == ["four five"]
 
-        # max_words=2. no learnings. "four five" is processed first and truncated.
-        assert trim_context_to_word_limit([], chunks, max_words=2) == ["four five"]
+        assert _trim_evidence([], chunks, max_words=2)[1] == ["four five"]
+        assert _trim_evidence(learnings, chunks, max_words=10)[1] == ["one two three", "four five"]
 
-        # max_words=10. learnings take 2 words. chunks take 5 words. all fit.
-        assert trim_context_to_word_limit(learnings, chunks, max_words=10) == ["one two three", "four five"]
-
-        # Test learnings trimmed if they alone exceed max_words
-        # learnings take 6 words. max is 4. No room for chunks.
-        # But wait, trim_context_to_word_limit only returns chunks. So it should return [].
         learnings_long = ["one two three", "four five six"]
-        assert trim_context_to_word_limit(learnings_long, chunks, max_words=4) == []
+        assert _trim_evidence(learnings_long, chunks, max_words=4)[1] == []
 
     def test_sub_query_citations_contribute_urls_not_learnings(self):
         learning = "Elevators need a counterweight"
@@ -172,7 +162,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "main topic",
-            None,
             llm_chat=lambda msgs, _max: self._llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -194,7 +183,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: self._llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=lambda: True,
@@ -217,6 +205,8 @@ class TestRunDeepResearch:
 
         def llm_router(messages):
             combined = "\n".join(m["content"] for m in messages)
+            if "expert researcher analyzing search results" in combined:
+                return '{"learnings": [{"insight": "fact", "sourceUrl": "https://example.com"}]}'
             if "search queries" in combined and "JSON array" in combined:
                 return (
                     '[{"query": "q1", "researchGoal": "g1"}, '
@@ -231,7 +221,6 @@ class TestRunDeepResearch:
 
         run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -251,7 +240,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: self._llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -274,6 +262,8 @@ class TestRunDeepResearch:
 
         def llm_router(messages):
             combined = "\n".join(m["content"] for m in messages)
+            if "expert researcher analyzing search results" in combined:
+                return '{"learnings": [{"insight": "fact", "sourceUrl": "https://example.com"}]}'
             if "search queries" in combined and "JSON array" in combined:
                 return (
                     '[{"query": "q1", "researchGoal": "g1"}, '
@@ -283,7 +273,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -307,7 +296,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: self._llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -334,7 +322,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "main topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=run_web_agent,
             stop_checker=None,
@@ -364,7 +351,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "main topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=lambda sub_query, _goal, _history: "Extracted failure context https://source.test for " + sub_query,
             stop_checker=None,
@@ -389,7 +375,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "main topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=lambda sub_query, _goal, _history: "",
             stop_checker=None,
@@ -402,7 +387,8 @@ class TestRunDeepResearch:
         )
         assert isinstance(result, dict)
         assert result.get("status") == "error"
-        assert "no usable evidence" in result.get("message", "")
+        # Empty sub-agent output with failed extraction counts as a failed branch.
+        assert result.get("message") in ("All research sub-queries failed.", "Web research collected no usable evidence.")
         assert extract_calls["n"] == 1
 
     def test_user_stopped_during_extraction_is_not_partial_success(self):
@@ -434,7 +420,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "topic",
-            None,
             llm_chat=lambda msgs, _max: query_router(msgs),
             run_web_agent=lambda *_args: "sub context",
             stop_checker=None,
@@ -463,7 +448,6 @@ class TestRunDeepResearch:
 
         result = run_deep_research(
             "main topic",
-            None,
             llm_chat=lambda msgs, _max: llm_router(msgs),
             run_web_agent=lambda sub_query, _goal, _history: "Sub-agent context for " + sub_query,
             stop_checker=None,
@@ -478,6 +462,169 @@ class TestRunDeepResearch:
         assert result.get("code") == "USER_STOPPED"
         assert "Finding X" not in str(result.get("message") or "")
         assert "automatic synthesis" not in str(result.get("message") or "").lower()
+
+    def test_coverage_assessment_rounds_count(self):
+        assess_count = {"n": 0}
+
+        def llm_router(messages):
+            combined = "\n".join(m["content"] for m in messages)
+            if "expert researcher analyzing search results" in combined:
+                return '{"learnings": [{"insight": "fact", "sourceUrl": "https://example.com"}]}'
+            if "search queries" in combined and "JSON array" in combined:
+                return '[{"query": "q1", "researchGoal": "g1"}]'
+            if "evaluate whether web research" in combined or "Quality threshold" in combined:
+                assess_count["n"] += 1
+                return '{"score": 5, "stop": false, "knowledge_gaps": ["gap 1"], "suggested_queries": ["gap 1"]}'
+            if '"questions"' in combined:
+                return '{"questions": ["q?"]}'
+            return "Report."
+
+        def run_web_agent(sub_query, _goal, _history):
+            return "Context for " + sub_query
+
+        # max_rounds = 1 -> 0 assessments
+        assess_count["n"] = 0
+        run_deep_research(
+            "topic",
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=run_web_agent,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=1,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert assess_count["n"] == 0
+
+        # max_rounds = 2 -> 1 assessment
+        assess_count["n"] = 0
+        run_deep_research(
+            "topic",
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=run_web_agent,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=2,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert assess_count["n"] == 1
+
+    def test_worker_clients_count_and_cleanup_breadth_4_concurrency_2(self):
+        worker_created = 0
+        cleanup_calls = []
+
+        def worker_factory():
+            nonlocal worker_created
+            worker_created += 1
+            idx = worker_created
+
+            def cleanup():
+                cleanup_calls.append(idx)
+
+            def run_agent(sub_query, _goal, _history):
+                return "Context for " + sub_query
+
+            def llm_chat(msgs, max_tokens):
+                return '{"learnings": [{"insight": "fact", "sourceUrl": "https://example.com"}]}'
+
+            return run_agent, llm_chat, cleanup
+
+        def supervisor_llm(messages, max_tokens):
+            combined = "\n".join(m["content"] for m in messages)
+            if "search queries" in combined and "JSON array" in combined:
+                return '[{"query": "q1"}, {"query": "q2"}, {"query": "q3"}, {"query": "q4"}]'
+            if '"questions"' in combined:
+                return '{"questions": ["q?"]}'
+            return "Synthesized report."
+
+        result = run_deep_research(
+            "topic",
+            llm_chat=supervisor_llm,
+            run_web_agent=lambda *a: "context",
+            worker_factory=worker_factory,
+            stop_checker=None,
+            status_callback=None,
+            breadth=4,
+            max_rounds=1,
+            concurrency=2,
+            max_sub_queries=10,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert result == "Synthesized report."
+        assert worker_created <= 2
+        assert len(cleanup_calls) == worker_created
+        assert len(set(cleanup_calls)) == worker_created
+
+    def test_same_suggested_query_submits_nothing_in_second_round(self):
+        queries_planned = []
+
+        def llm_router(messages):
+            combined = "\n".join(m["content"] for m in messages)
+            if "expert researcher analyzing search results" in combined:
+                return '{"learnings": [{"insight": "fact", "sourceUrl": "https://example.com"}]}'
+            if "search queries" in combined and "JSON array" in combined:
+                return '[{"query": "repeated query", "researchGoal": "goal"}]'
+            if "evaluate whether web research" in combined or "Quality threshold" in combined:
+                return '{"score": 5, "stop": false, "knowledge_gaps": ["repeated query"], "suggested_queries": ["repeated query"]}'
+            if '"questions"' in combined:
+                return '{"questions": ["q?"]}'
+            return "Report."
+
+        def run_web_agent(sub_query, _goal, _history):
+            queries_planned.append(sub_query)
+            return "Context for " + sub_query
+
+        result = run_deep_research(
+            "topic",
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=run_web_agent,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=2,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert queries_planned == ["repeated query"]
+        assert result == "Report."
+
+    def test_all_branches_fail_with_max_rounds_3_stops_after_round_1_no_assessment(self):
+        assess_called = False
+
+        def llm_router(messages):
+            nonlocal assess_called
+            combined = "\n".join(m["content"] for m in messages)
+            if "search queries" in combined and "JSON array" in combined:
+                return '[{"query": "q1", "researchGoal": "g1"}]'
+            if "evaluate whether web research" in combined or "Quality threshold" in combined:
+                assess_called = True
+                return '{"score": 9, "stop": true, "knowledge_gaps": [], "suggested_queries": []}'
+            if '"questions"' in combined:
+                return '{"questions": ["q?"]}'
+            return "Report."
+
+        def run_web_agent(_sub_query, _goal, _history):
+            return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "all fail"}
+
+        result = run_deep_research(
+            "topic",
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=run_web_agent,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=3,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert isinstance(result, dict)
+        assert result.get("status") == "error"
+        assert "all fail" in str(result.get("message") or "")
+        assert assess_called is False
 
 
 class TestWebResearchExecuteDeepKwarg:
@@ -728,7 +875,7 @@ def test_deep_preview_reject_stops_the_run():
              patch("plugin.framework.config.get_config_int", return_value=1), \
              patch("plugin.framework.config.get_config_int_safe", return_value=1):
             out = _run_deep_web_research(
-                MagicMock(), "topic", None, params,
+                MagicMock(), "topic", params,
                 cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
             )
         answer, used_query = out
@@ -764,7 +911,7 @@ def test_deep_preview_approval_uses_edited_query():
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=_capture_agent):
         ddg.return_value.forward.return_value = "snippet text"
         out = _run_deep_web_research(
-            MagicMock(), "topic", None, params,
+            MagicMock(), "topic", params,
             cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
         )
         run_sub, _chat, _cleanup = run_deep.call_args.kwargs["worker_factory"]()

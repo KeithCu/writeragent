@@ -78,6 +78,8 @@ class DummyEventsPanel:
 
         self._set_status_calls: list[str] = []
         self._append_response_calls: list[str] = []
+        self._events: Any = None
+        self._subscriptions: list[Any] = []
 
     def _mnemonic_cache(self) -> dict[str, str]:
         return self._button_mnemonics
@@ -88,6 +90,12 @@ class DummyEventsPanel:
 
     def _append_response(self, text: str) -> None:
         self._append_response_calls.append(text)
+
+    def _subscribe(self, bus: Any, event_name: str, handler: Any) -> None:
+        bus.subscribe(event_name, handler, weak=True)
+        if not hasattr(self, "_subscriptions"):
+            self._subscriptions = []
+        self._subscriptions.append((bus, event_name, handler))
 
     def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
         if hasattr(self, "_events"):
@@ -160,8 +168,19 @@ def test_subscribe_mcp_events():
         controller._subscribe_mcp_events()
 
     assert panel._mcp_event_bus is bus
-    bus.subscribe.assert_any_call("mcp:request", panel._on_mcp_request, weak=True)
-    bus.subscribe.assert_any_call("mcp:result", panel._on_mcp_result, weak=True)
+    bus.subscribe.assert_any_call("mcp:request", controller._on_mcp_request, weak=True)
+    bus.subscribe.assert_any_call("mcp:result", controller._on_mcp_result, weak=True)
+
+
+def test_independent_ui_restore_for_clear():
+    panel = DummyEventsPanel()
+    controller = PanelEventsController(panel)
+    panel._events = controller
+    panel.clear_control.model.Label = "Reject"
+    panel._approval_event = threading.Event()
+    panel._approval_ui_backup = {"clear_label": "Clear"}
+    controller._finish_inline_web_approval(False)
+    assert panel.clear_control.model.Label == "Clear"
 
 
 def test_inline_web_approval_lifecycle():
@@ -211,7 +230,7 @@ def test_http_server_status():
     controller = PanelEventsController(panel)
     panel._events = controller
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, arg: fn(arg)):
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()):
         controller._on_http_server_started("http://localhost:8000")
         assert any("MCP server started http://localhost:8000" in s for s in panel._set_status_calls)
 

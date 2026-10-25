@@ -125,7 +125,7 @@ def _filter_document_research_tools(tools: list[ToolBase], parent_ctx: ToolConte
     from plugin.doc.document_research import filter_document_research_discovery_tools
     from plugin.doc.peer_message import filter_peer_tools_for_specialized
 
-    filtered = filter_document_research_discovery_tools(tools, parent_ctx.ctx)
+    filtered = filter_document_research_discovery_tools(tools)
     return filter_peer_tools_for_specialized(filtered, parent_ctx.ctx, parent_ctx.doc)
 
 

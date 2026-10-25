@@ -120,7 +120,7 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 
     agent = MagicMock()
-    agent.run.return_value = [FinalAnswerStep(output="<p>Question?</p>")]
+    agent.run.return_value = [FinalAnswerStep(output={"status": "ok", "result": "<p>Question?</p>"})]
     mock_build.return_value = agent
 
     registry = ToolRegistry(services={})
@@ -141,3 +141,67 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     tools = mock_build.call_args.args[1]
     assert any(tool_adapter.name == "reply_to_user" for tool_adapter in tools)
     assert mock_build.call_args.kwargs["examples_block"] == ""
+
+
+def test_write_document_section_rejects_dict_item():
+    apply_stub = _ApplyDocumentContentStub()
+    registry = ToolRegistry(services={})
+    registry.register(apply_stub)
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
+
+    tool = WriteDocumentSection()
+    res = tool.execute(ctx, content=[{"bad": 1}])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_CONTENT"
+    apply_stub.execute_safe.assert_not_called()
+
+
+def test_write_document_section_rejects_empty_content():
+    registry = ToolRegistry(services={})
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
+    tool = WriteDocumentSection()
+    res = tool.execute(ctx, content=[])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_CONTENT"
+
+
+def test_write_document_section_coerces_unknown_target_to_end():
+    apply_stub = _ApplyDocumentContentStub()
+    registry = ToolRegistry(services={})
+    registry.register(apply_stub)
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
+
+    tool = WriteDocumentSection()
+    tool.execute(ctx, content=["<p>Hello</p>"], target="unknown_location")
+    apply_stub.execute_safe.assert_called_once_with(ctx, content=["<p>Hello</p>"], target="end")
+
+
+def test_write_document_section_missing_apply_tool_errors():
+    registry = ToolRegistry(services={})
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
+    tool = WriteDocumentSection()
+    res = tool.execute(ctx, content=["<p>Hi</p>"])
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_NOT_FOUND"
+
+
+def test_write_document_section_is_async():
+    tool = WriteDocumentSection()
+    assert tool.is_async() is True
+
+
+def test_writing_plan_session_tool_supports_writer_not_calc():
+    from plugin.framework.tool import tool_supports_document
+
+    tool = WritingPlanSessionTool()
+    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
+    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False
+
+
+def test_collect_writing_tools_does_not_include_apply_document_content():
+    registry = ToolRegistry(services={})
+    registry.register(WritingResearchWeb())
+    registry.register(WriteDocumentSection())
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
+    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
+    assert "apply_document_content" not in names

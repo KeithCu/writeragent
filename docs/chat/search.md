@@ -138,7 +138,7 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 **Flow (adaptive deep mode):**
 
 1. **Round loop** (up to `chatbot.deep_research_max_rounds`, default 3):
-   - **Breadth** — LLM generates N search queries per round (`chatbot.deep_research_breadth`, default 4). Round 1 generates the queries directly from the user query, conversation history, and the optional DuckDuckGo preview snippet (there is no separate planning call).
+   - **Breadth** — LLM generates N search queries per round (`chatbot.deep_research_breadth`, default 4). Round 1 generates the queries directly from the user query and the optional DuckDuckGo preview snippet (there is no separate planning call).
    - **Parallel sub-queries** — up to `chatbot.deep_research_concurrency` shallow ReAct sub-agents run at once (global cap: `chatbot.deep_research_max_sub_queries`, default 14).
    - **Per sub-query** — `_run_web_agent` with research goal, visited-URL dedup, and optional extra step budget.
    - **Extract** — LLM pulls learnings, citations, and source URLs from each sub-report.

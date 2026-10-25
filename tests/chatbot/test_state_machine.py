@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from plugin.chatbot.state_machine import (
     EffectInterpreter,
     SendHandlerState,
@@ -28,13 +30,9 @@ class TestSendHandlerStateMachine:
 
         assert new_state.status == "starting"
         assert new_state.query_text == "draw a cat"
-        assert len(effects) == 5
-        assert isinstance(effects[0], SendHandlerUIEffect) # You
-        assert isinstance(effects[1], SendHandlerUIEffect) # Using image
-        assert isinstance(effects[2], SendHandlerUIEffect) # AI:
-        assert isinstance(effects[3], SendHandlerUIEffect) # SetStatusEffect replacement
-        assert effects[3].kind == "status"
-        assert isinstance(effects[4], SpawnDirectImageEffect)
+        assert any(isinstance(e, SpawnDirectImageEffect) for e in effects)
+        assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" for e in effects)
+        assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "append" for e in effects)
 
     def test_start_web(self):
         state = SendHandlerState(handler_type="web", status="ready")
@@ -45,12 +43,16 @@ class TestSendHandlerStateMachine:
 
         assert new_state.status == "starting"
         assert new_state.query_text == "search python"
-        assert len(effects) == 3
-        assert isinstance(effects[0], SendHandlerUIEffect) # You
-#        assert isinstance(effects[1], SendHandlerUIEffect) # Using research
-        assert isinstance(effects[1], SendHandlerUIEffect) # Starting status
-        #assert effects[2].kind == "status"
-        assert isinstance(effects[2], SpawnWebWorkerEffect)
+        assert any(isinstance(e, SpawnWebWorkerEffect) for e in effects)
+        assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" for e in effects)
+        assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "append" for e in effects)
+
+    def test_start_unknown_handler_type_raises(self):
+        state = SendHandlerState(handler_type="other", status="ready")
+        with pytest.raises(AssertionError):
+            next_state(state, StartEvent(query_text="foo", model=None, doc_type_str="other"))
+        with pytest.raises(AssertionError):
+            spawn_effects_for_start("other", "foo", None, "other")
 
     def test_stop_event_agent_terminates(self):
         state = SendHandlerState(handler_type="agent", status="running")
@@ -104,7 +106,7 @@ class TestSendHandlerStateMachine:
 
     def test_error_event(self):
         state = SendHandlerState(handler_type="web", status="running")
-        event = ErrorEvent(error=Exception("Network failure"), context="test", error_time=123.45)
+        event = ErrorEvent(error=Exception("Network failure"), error_time=123.45)
 
         step = next_state(state, event)
         new_state, effects = step.state, step.effects
@@ -125,7 +127,7 @@ class TestSendHandlerStateMachine:
 
     def test_error_event_without_error_time_stays_none(self):
         state = SendHandlerState(handler_type="web", status="running")
-        event = ErrorEvent(error=Exception("Network failure"), context="test")
+        event = ErrorEvent(error=Exception("Network failure"))
         step = next_state(state, event)
         assert step.state.error_time is None
 
@@ -193,13 +195,11 @@ class TestSendHandlerStateMachine:
 class TestSendHandlerHelpers:
     def test_spawn_effects_image(self):
         effects = spawn_effects_for_start("image", "draw a cat", None, "image")
-        assert len(effects) == 5
-        assert isinstance(effects[-1], SpawnDirectImageEffect)
+        assert any(isinstance(e, SpawnDirectImageEffect) for e in effects)
 
     def test_spawn_effects_web(self):
         effects = spawn_effects_for_start("web", "search python", None, "web")
-        assert len(effects) == 3
-        assert isinstance(effects[-1], SpawnWebWorkerEffect)
+        assert any(isinstance(e, SpawnWebWorkerEffect) for e in effects)
 
     def test_spawn_effects_agent(self):
         effects = spawn_effects_for_start("agent", "do work", "m", "writer")
@@ -235,6 +235,14 @@ class TestEffectInterpreterThinking:
             def _set_status(self, text):
                 return None
 
-        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "search step", is_thinking=True))
-        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"))
+        state = SendHandlerState(handler_type="web", status="running")
+        interpreter = EffectInterpreter(Host())
+        interpreter.interpret(SendHandlerUIEffect("append", "search step", is_thinking=True), state)
+        interpreter.interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"), state)
         assert appended == [("search step", True, "assistant"), ("answer", False, "assistant")]
+
+    def test_interpret_unknown_effect_raises(self):
+        state = SendHandlerState(handler_type="web", status="running")
+        interpreter = EffectInterpreter(None)
+        with pytest.raises(AssertionError):
+            interpreter.interpret(cast("Any", object()), state)

@@ -188,7 +188,7 @@ def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: 
         "PPT-MASTER MODE (venv worker):\n",
         "Follow the loaded SKILL workflow. Use scripts and project files on disk; export via host UNO tools.\n",
         ctx_block,
-        get_chat_response_format_instructions(None),
+        get_chat_response_format_instructions(),
     ]
     if topic and topic.strip():
         parts.append(f"\n[PPT-MASTER TOPIC]\n{topic.strip()}\n")
@@ -287,8 +287,9 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
         system_prompt_examples=get_examples_block("ppt-master"),
     )
 
-    if history_text and len(str(history_text)) > 4000:
-        history_text = "..." + str(history_text)[-4000:]
+    from plugin.chatbot.web_research_chat import clip_sub_agent_history
+
+    history_text = clip_sub_agent_history(history_text)
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
 
     final_ans = None

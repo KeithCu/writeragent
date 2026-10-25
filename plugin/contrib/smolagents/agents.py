@@ -1113,7 +1113,10 @@ class ToolCallingAgent(MultiStepAgent):
                 self.state[observation_name] = tool_call_result
                 observation = f"Stored '{observation_name}' in memory."
             else:
-                observation = str(tool_call_result).strip()
+                if isinstance(tool_call_result, (dict, list)):
+                    observation = json.dumps(tool_call_result, default=str, ensure_ascii=False)
+                else:
+                    observation = str(tool_call_result).strip()
             self.logger.log(
                 f"Observations: {observation.replace('[', '|')}",  # escape potential rich-tag-like components
                 level=LogLevel.INFO,

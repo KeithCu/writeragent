@@ -1,8 +1,16 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """Minimal skills support, starting with the humanizer (inspired by Hermes-agent).
 
 Re-uses the exact same user profile storage pattern as MemoryStore (user_config_dir + subdirectory).
 The primary delivery mechanism is **ambient prompt injection** (see get_chat_system_prompt_for_document),
-exactly like the existing (partial) memory injection. This gives the model the rules "for free"
+exactly like memory injection. This gives the model the rules "for free"
 during any writing or document work without a separate tool call.
 
 Users can turn the skill on/off via Settings and edit the rules by editing the SKILL.md file
@@ -45,6 +53,25 @@ When revising via apply_document_content, run the output through these rules (si
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
 
+
+def strip_skill_front_matter(content: str) -> str:
+    """Strip leading YAML front matter delimited by exact '---' lines."""
+    if not content:
+        return ""
+    text = content
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text.strip()
+
+    # Very light front-matter strip (--- ... --- or just the body after first ---)
+    for idx, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[idx + 1:]).strip()
+    return text.strip()
+
+
 class SkillStore:
     """File-backed skill storage, modeled directly on MemoryStore for minimal new concepts.
 
@@ -53,20 +80,19 @@ class SkillStore:
     to find and edit their agent "personality" files.
     """
 
-    config_dir: str | None
+    config_dir: str
     skills_dir: str
 
-    def __init__(self, ctx: Any) -> None:
-        self.config_dir = user_config_dir()
-        if self.config_dir is None:
-            raise ConfigError("UNO context is required to resolve skill store path")
+    def __init__(self, ctx: Any = None) -> None:
+        del ctx
+        config_dir = user_config_dir()
+        if config_dir is None:
+            raise ConfigError("User configuration directory is not available to resolve skill store path")
+        self.config_dir = config_dir
         self.skills_dir = os.path.join(self.config_dir, "skills")
-        os.makedirs(self.skills_dir, exist_ok=True)
 
     def _humanizer_path(self) -> str:
-        skill_dir = os.path.join(self.skills_dir, "humanizer")
-        os.makedirs(skill_dir, exist_ok=True)
-        return os.path.join(skill_dir, "SKILL.md")
+        return os.path.join(self.skills_dir, "humanizer", "SKILL.md")
 
     def get_humanizer_guidance(self) -> str:
         """Return the current humanizer rules.
@@ -75,30 +101,25 @@ class SkillStore:
         Strips a simple YAML front-matter block if present (for Hermes compatibility).
 
         On first access we proactively write the default SKILL.md into the user's profile
-        so they can immediately open and customize it (matches the "edit it" requirement
-        with zero extra UI for the happy path).
+        so they can immediately open and customize it.
         """
         path = self._humanizer_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                if content:
-                    # Very light front-matter strip (--- ... --- or just the body after first ---)
-                    if content.startswith("---"):
-                        parts = content.split("---", 2)
-                        if len(parts) >= 3:
-                            content = parts[2].strip()
-                    # A front-matter-only file splits to an empty body.
-                    # That is the same as a missing file: use HUMANIZER_GUIDANCE
-                    # so the prompt still gets the humanizer rules.
-                    if content:
-                        return content
-            except Exception as e:
-                log.debug("Failed to read user humanizer skill: %s", e)
-        else:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            stripped = strip_skill_front_matter(content)
+            # A front-matter-only file splits to an empty body.
+            # That is the same as a missing file: use HUMANIZER_GUIDANCE
+            # so the prompt still gets the humanizer rules.
+            if stripped:
+                return stripped
+        except FileNotFoundError:
             # Seed the editable file from the built-in default the first time anyone asks for it.
             self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
+            return HUMANIZER_GUIDANCE
+        except (OSError, UnicodeDecodeError) as e:
+            log.warning("Failed to read user humanizer skill: %s", e)
+            return HUMANIZER_GUIDANCE
 
         return HUMANIZER_GUIDANCE
 
@@ -106,6 +127,7 @@ class SkillStore:
         """Persist a user-edited version of the humanizer rules."""
         try:
             path = self._humanizer_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
             return True
         except OSError as e:
@@ -117,4 +139,4 @@ class SkillStore:
         return self._humanizer_path()
 
 
-__all__ = ["SkillStore", "HUMANIZER_GUIDANCE"]
+__all__ = ["SkillStore", "HUMANIZER_GUIDANCE", "strip_skill_front_matter"]

@@ -66,7 +66,6 @@ from plugin.chatbot.smol_agent import (
     build_toolcalling_agent,
     to_smol_inputs,
 )
-from plugin.chatbot.sub_agent_tools import run_subagent_tool
 from plugin.chatbot.librarian import (
     LibrarianOnboardingTool,
     get_libreoffice_user_display_name,
@@ -89,12 +88,19 @@ from plugin.framework.tool import ToolBase
 
 
 def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
+    import types
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.panel_voice import PanelVoiceController
+    from plugin.chatbot.record_gesture import RecordGesture
+    from plugin.chatbot.send_state import SendButtonState
+    from plugin.chatbot.sidebar_state import SidebarCompositeState
+
     query_control = MagicMock()
     query_control.getModel.return_value = True
 
     send_handlers = SimpleNamespace(
-        _run_writing_plan=MagicMock(),
-        _run_librarian=MagicMock(),
+        _run_specialized=MagicMock(),
         _do_send_direct_image=MagicMock(),
         _do_send_via_agent_backend=MagicMock(),
     )
@@ -102,13 +108,20 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _do_send_chat_with_tools=MagicMock(),
     )
 
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-    from plugin.chatbot.record_gesture import RecordGesture
+    send_initial = SendButtonState(
+        is_busy=False,
+        is_recording=False,
+        has_text=False,
+        has_audio=False,
+        audio_supported=True,
+    )
+    sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
 
-    return SimpleNamespace(
+    listener = SimpleNamespace(
         ctx=MagicMock(),
         frame_session=None,
         sidebar_mode_flags=SidebarModeFlags(),
+        sidebar_state=sidebar_state,
         _record_gesture=RecordGesture(),
         _empty_take_count=0,
         ensure_path_fn=None,
@@ -131,6 +144,12 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _send_handlers=send_handlers,
         _tool_calling=tool_calling,
     )
+    listener._require_send_document = types.MethodType(SendButtonListener._require_send_document, listener)
+    listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)
+    listener._read_and_clear_query = types.MethodType(SendButtonListener._read_and_clear_query, listener)
+    listener._route_sidebar_mode = types.MethodType(SendButtonListener._route_sidebar_mode, listener)
+    listener._voice = PanelVoiceController(listener)
+    return listener
 
 
 # =============================================================================
@@ -215,8 +234,6 @@ class TestToolcallingPromptExamples:
         assert (block) == (PYTHON_SPECIALIZED_EXAMPLES)
         assert ("run_venv_python_script") in (block)
         assert ("sp.prime(1010)") in (block)
-        assert ("scipy") in (block)
-        assert ("DO NOT import numpy") in (block)
         assert ('"code": "import') not in (block)
         assert ("specialized_workflow_finished") in (block)
         assert ("delegate_tool_domains") in (block)
@@ -253,6 +270,107 @@ class TestToolcallingPromptExamples:
         prompt = agent.initialize_system_prompt()
         assert ("specialized_workflow_finished") in (prompt)
         assert (get_examples_block("calc:charts")) == (DELEGATE_GENERIC_EXAMPLES_BLOCK)
+
+    def test_examples_action_bodies_parse_and_use_allowed_tools(self, caplog):
+        import json
+        import logging
+        from typing import Any
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        decoder = json.JSONDecoder()
+
+        dedicated_specs = {
+            "librarian": {
+                "allowed": {"upsert_memory", "reply_to_user"},
+                "finish": "reply_to_user",
+            },
+            "brainstorming": {
+                "allowed": {"get_document_tree", "save_design_spec", "reply_to_user"},
+                "finish": "reply_to_user",
+            },
+            "writing_plan": {
+                "allowed": {"write_document_section", "reply_to_user"},
+                "finish": "reply_to_user",
+            },
+            "deep_research": {
+                "allowed": {"deep_research_web", "apply_document_content", "reply_to_user"},
+                "finish": "reply_to_user",
+            },
+            "web_research": {
+                "allowed": {"web_search", "final_answer"},
+                "finish": "final_answer",
+            },
+            "ppt-master": {
+                "allowed": {"validate_ppt_master_project", "export_presentation_project", "ppt_master_finished"},
+                "finish": "ppt_master_finished",
+            },
+            "ppt_master": {
+                "allowed": {"validate_ppt_master_project", "export_presentation_project", "ppt_master_finished"},
+                "finish": "ppt_master_finished",
+            },
+            "writer:python": {
+                "allowed": {"run_venv_python_script", "delegate_tool_domains", "specialized_workflow_finished"},
+                "finish": "specialized_workflow_finished",
+            },
+            "writer:images": {
+                "allowed": {"image_generate", "specialized_workflow_finished"},
+                "finish": "specialized_workflow_finished",
+            },
+            "domain_tools:shapes": {
+                "allowed": {"run_venv_python_script", "specialized_workflow_finished"},
+                "finish": "specialized_workflow_finished",
+            },
+        }
+
+        def parse_actions(block: str) -> list[dict[str, Any]]:
+            actions = []
+            idx = 0
+            while True:
+                pos = block.find("Action:", idx)
+                if pos == -1:
+                    break
+                json_start = block.find("{", pos + len("Action:"))
+                assert json_start != -1
+                obj, end_pos = decoder.raw_decode(block[json_start:])
+                actions.append(obj)
+                idx = json_start + end_pos
+            return actions
+
+        for key, spec in dedicated_specs.items():
+            block = get_examples_block(key)
+            actions = parse_actions(block)
+            assert len(actions) > 0
+            for action in actions:
+                assert "name" in action
+                assert "arguments" in action
+                assert action["name"] in spec["allowed"], f"Tool {action['name']} not allowed in {key}"
+                if action["name"] != "final_answer":
+                    assert isinstance(action["arguments"], dict), f"Tool {action['name']} arguments must be dict in {key}"
+                else:
+                    assert isinstance(action["arguments"], (dict, str))
+            assert actions[-1]["name"] == spec["finish"], f"Last action in {key} must be {spec['finish']}"
+
+        # domain_tools:shapes must not contain delegate_tool_domains
+        shapes_block = get_examples_block("domain_tools:shapes")
+        assert "delegate_tool_domains" not in shapes_block
+
+        # Generic / non-shapes domain_tools:*
+        for generic_key in ("domain_tools:calc", "writer:shapes", "unknown_custom_domain:foo"):
+            block = get_examples_block(generic_key)
+            actions = parse_actions(block)
+            assert len(actions) > 0
+            assert actions[-1]["name"] == "specialized_workflow_finished"
+
+        # Unknown key warning and generic fallback
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            unknown_block = get_examples_block("completely_unknown_key")
+            assert "Unknown smol examples key 'completely_unknown_key'" in caplog.text
+            unknown_actions = parse_actions(unknown_block)
+            assert unknown_actions[-1]["name"] == "specialized_workflow_finished"
+
+        # ppt_master alias
+        assert get_examples_block("ppt_master") == get_examples_block("ppt-master")
 
 
 # =============================================================================
@@ -629,6 +747,27 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
     assert tca_kw["system_prompt_examples"] == "examples"
 
 
+def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
+    from plugin.chatbot.smol_agent import create_smol_model
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = MagicMock()
+    ctx.status_callback = MagicMock()
+
+    with patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "m"}), \
+         patch("plugin.chatbot.smol_agent.get_config_int", return_value=2048), \
+         patch("plugin.chatbot.smol_agent.LlmClient"), \
+         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel") as mock_wsm:
+
+        create_smol_model(ctx)
+        assert mock_wsm.call_args.kwargs["max_tokens"] == 2048
+
+        create_smol_model(ctx, max_tokens=4096)
+        assert mock_wsm.call_args.kwargs["max_tokens"] == 4096
+
+
 def test_run_smol_side_turn_trims_history_and_reports_document_opens():
     from plugin.chatbot.smol_agent import run_smol_side_turn
     from plugin.chatbot.smol_examples import get_examples_block
@@ -853,7 +992,7 @@ class TestLibrarianSmol:
             arguments={"key": "nickname", "content": "Bob"},
             id="c1",
         )
-        fa = FinalAnswerStep(output="Hello")
+        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
@@ -875,7 +1014,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
 
-        fa = FinalAnswerStep(output="Hello")
+        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
              patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
@@ -902,7 +1041,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
         long_mem = "U" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 500)
-        fa = FinalAnswerStep(output="Hello")
+        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
             "plugin.chatbot.smol_agent.ToolCallingAgent"
@@ -923,7 +1062,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
 
-        fa = FinalAnswerStep(output="Hello")
+        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
              patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
@@ -944,7 +1083,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
 
-        fa = FinalAnswerStep(output="Hello")
+        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
              patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
@@ -1054,7 +1193,8 @@ def test_do_send_enters_librarian_when_selector_is_librarian():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._send_handlers._run_librarian.assert_called_once()
+    listener._send_handlers._run_specialized.assert_called_once()
+    assert listener._send_handlers._run_specialized.call_args.kwargs.get("mode") == CHAT_MODE_LIBRARIAN
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
 
 
@@ -1066,7 +1206,8 @@ def test_do_send_writer_writing_plan_uses_subagent():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._send_handlers._run_writing_plan.assert_called_once()
+    listener._send_handlers._run_specialized.assert_called_once()
+    assert listener._send_handlers._run_specialized.call_args.kwargs.get("mode") == CHAT_MODE_WRITING_PLAN
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
 
 
@@ -1079,7 +1220,7 @@ def test_do_send_calc_writing_plan_stays_on_chat_tools():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._send_handlers._run_writing_plan.assert_not_called()
+    listener._send_handlers._run_specialized.assert_not_called()
     listener._tool_calling._do_send_chat_with_tools.assert_called_once()
 
 
@@ -1095,7 +1236,7 @@ def test_do_send_chat_even_when_user_memory_missing():
         mock_store.return_value.read.return_value = ""
         SendButtonListener._do_send(listener)
 
-    listener._send_handlers._run_librarian.assert_not_called()
+    listener._send_handlers._run_specialized.assert_not_called()
     listener._tool_calling._do_send_chat_with_tools.assert_called_once()
     mock_store.assert_not_called()
 
@@ -1108,7 +1249,7 @@ def test_do_send_uses_document_chat_when_selector_is_chat():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         SendButtonListener._do_send(listener)
 
-    listener._send_handlers._run_librarian.assert_not_called()
+    listener._send_handlers._run_specialized.assert_not_called()
     listener._tool_calling._do_send_chat_with_tools.assert_called_once()
 
 
@@ -1399,45 +1540,6 @@ class TestSmolImplicitFinalAnswerJson:
         assert ('{"answer"') not in (str(final_outputs[0].output))
 
 
-class TestRunSubagentTool:
-    def test_run_subagent_tool_success(self):
-        ctx = MagicMock()
-        runner = MagicMock(return_value={"status": "ok", "result": "done"})
-
-        result = run_subagent_tool("Writing plan", runner, ctx, query="Draft essay", history_text="hi", topic="AI")
-
-        assert (result) == ({"status": "ok", "result": "done"})
-        runner.assert_called_once_with(ctx, query="Draft essay", history_text="hi", topic="AI")
-
-    def test_run_subagent_tool_catches_exception_and_formats_error(self, caplog):
-        ctx = MagicMock()
-
-        def failing_runner(c, **kwargs):
-            raise RuntimeError("API timeout")
-
-        with caplog.at_level("ERROR", logger="writeragent.sub_agent_tools"):
-            result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
-
-        assert (result.get("status")) == ("error")
-        message = result.get("message", "")
-        assert ("Brainstorming failed: API timeout") in (message)
-        assert ("Traceback") not in (message)
-        assert ("RuntimeError") not in (message)
-        assert (result.get("details")) == ({"query": "Brainstormideas".replace("Brainstormideas", "Brainstorm ideas")})
-        assert any(r.exc_info is not None and "Brainstorming execution failed" in r.message for r in caplog.records)
-
-    def test_run_subagent_tool_with_no_query_in_kwargs(self):
-        ctx = MagicMock()
-
-        def failing_runner(c, **kwargs):
-            raise ValueError("bad input")
-
-        result = run_subagent_tool("Deep research", failing_runner, ctx)
-
-        assert (result.get("status")) == ("error")
-        assert ("Deep research failed: bad input") in (result.get("message", ""))
-        assert (result.get("details")) == ({"query": None})
-
 
 class TestSmolToolMarshaling:
     @patch("plugin.framework.queue_executor.execute_on_main_thread")
@@ -1474,14 +1576,9 @@ class TestSmolToolMarshaling:
 
     @patch("plugin.framework.queue_executor.execute_on_main_thread")
     def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_execute_on_main_thread):
-        """Verify StickyReplyToUserTool executes via main thread marshalling and returns expected payload."""
+        """Verify StickyReplyToUserTool is async and executes directly on worker without main-thread marshal."""
         from plugin.chatbot.smol_agent import SmolToolAdapter
         from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
-
-        def fake_execute_on_main_thread(func, *args, **kwargs):
-            return func(*args, **kwargs)
-
-        mock_execute_on_main_thread.side_effect = fake_execute_on_main_thread
 
         ctx = MagicMock()
         tool = SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False)
@@ -1491,9 +1588,30 @@ class TestSmolToolMarshaling:
         assert (res.get("status")) == (LIBRARIAN_REPLY_SPEC.leave_status)
         assert (res.get("result")) == ("All done")
         assert (res.get("message")) == ("All done")
-        assert (mock_execute_on_main_thread.call_count) == (1)
+        assert (mock_execute_on_main_thread.call_count) == (0)
 
         res2 = tool.forward(answer="Hello")
-        assert (res2) == ("Hello")
-        assert (mock_execute_on_main_thread.call_count) == (2)
+        assert res2 == {"status": "ok", "result": "Hello"}
+        assert (mock_execute_on_main_thread.call_count) == (0)
+
+    def test_max_steps_string_with_reply_spec_is_incomplete(self):
+        """When agent reaches max steps and returns a string without reply_to_user, status is incomplete."""
+        from plugin.chatbot.smol_agent import run_smol_side_turn
+        from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
+
+        ctx = MagicMock()
+        with patch("plugin.chatbot.smol_agent.run_inner_tool_agent", return_value="Reached max steps"):
+            res = run_smol_side_turn(
+                ctx,
+                query="design",
+                history_text=None,
+                collector=lambda c: [],
+                instructions="",
+                examples_key="brainstorming",
+                reply_spec=BRAINSTORMING_REPLY_SPEC,
+                status_message="",
+                stop_message="",
+                error_prefix="",
+            )
+            assert res == {"status": "incomplete", "result": "Reached max steps"}
 

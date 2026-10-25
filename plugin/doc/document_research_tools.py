@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
+from plugin.chatbot.agent_manual import writer_topic_list_text
 from plugin.doc.document_research import list_nearby_files
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
@@ -113,8 +114,7 @@ class GetGuidance(ToolBase):
     description: str = (
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
-        "open document's type (for Writer: editing, editing-html, review-modes, search, navigation, "
-        "images, concurrency). Use this when unsure how an edit, the review modes, search, or image ops work. "
+        f"open document's type (for Writer: {writer_topic_list_text()}). Use this when unsure how an edit, the review modes, search, or image ops work. "
         "The no-topic index also returns current_local_datetime."
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of

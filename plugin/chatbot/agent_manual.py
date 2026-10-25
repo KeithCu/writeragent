@@ -79,6 +79,12 @@ class _Topic:
     standalone_suffix: str = ""
 
 
+_CONCURRENCY_TOPIC = _Topic(
+    "concurrency",
+    _MCP_CONCURRENCY_RULES,
+    "same-document edits serialize; retry on HTTP 429; multi-document targeting",
+)
+
 _WRITER_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "editing",
@@ -118,11 +124,7 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
         WRITER_IMAGES_RULES,
         "insert/replace/resize/crop, highlight passages on a picture + how a vision model sees images",
     ),
-    _Topic(
-        "concurrency",
-        _MCP_CONCURRENCY_RULES,
-        "same-document edits serialize; retry on HTTP 429; multi-document targeting",
-    ),
+    _CONCURRENCY_TOPIC,
 )
 
 _GENERIC_TOPICS: tuple[_Topic, ...] = (
@@ -131,11 +133,7 @@ _GENERIC_TOPICS: tuple[_Topic, ...] = (
         GENERIC_EDIT_CONFIRMATION_RULES,
         "use the tools, confirm edits by structured fields, re-read before targeted edits",
     ),
-    _Topic(
-        "concurrency",
-        _MCP_CONCURRENCY_RULES,
-        "same-document edits serialize; retry on HTTP 429; multi-document targeting",
-    ),
+    _CONCURRENCY_TOPIC,
 )
 
 _MANUALS: dict[str, tuple[_Topic, ...]] = {
@@ -143,6 +141,11 @@ _MANUALS: dict[str, tuple[_Topic, ...]] = {
     "calc": _GENERIC_TOPICS,
     "draw": _GENERIC_TOPICS,
     "generic": _GENERIC_TOPICS,
+}
+
+_MANUALS_BY_APP: dict[str, dict[str, _Topic]] = {
+    app: {topic.id: topic for topic in topics}
+    for app, topics in _MANUALS.items()
 }
 
 MANUAL_SECTIONS: dict[str, str] = {topic.id: topic.text for topic in _WRITER_TOPICS}
@@ -171,7 +174,12 @@ def _app(doc_type: str | None) -> str:
     label = str(doc_type).strip().lower()
     if label == "impress":
         return "draw"
-    return label if label in _MANUALS else "writer"
+    return label if label in _MANUALS else "generic"
+
+
+def writer_topic_list_text() -> str:
+    """Comma-separated list of canonical Writer topic ids in display order."""
+    return ", ".join(t.id for t in _WRITER_TOPICS)
 
 
 def list_topics(doc_type: str | None = "writer") -> list[str]:
@@ -192,16 +200,42 @@ def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str |
     return alias if alias in valid_ids else None
 
 
+# Import asserts: non-empty ids and summaries, unique ids per app,
+# every _ALIASES_BY_TOPIC key exists, generic ids are a subset of writer ids,
+# every alias resolves for an app that has that id.
+for _app_name, _topics in _MANUALS.items():
+    _seen_ids: set[str] = set()
+    for _t in _topics:
+        assert _t.id and _t.summary, f"Topic missing id or summary in {_app_name}: {_t}"
+        assert _t.id not in _seen_ids, f"Duplicate topic {_t.id} in {_app_name}"
+        _seen_ids.add(_t.id)
+
+for _canon_id in _ALIASES_BY_TOPIC:
+    assert _canon_id in _MANUALS_BY_APP["writer"], f"Alias key {_canon_id} not in writer topics"
+
+assert set(_MANUALS_BY_APP["generic"]).issubset(set(_MANUALS_BY_APP["writer"])), (
+    "Generic topic ids must be a subset of writer topic ids"
+)
+
+for _app_name, _topics_dict in _MANUALS_BY_APP.items():
+    for _canon_id, _alias_tuple in _ALIASES_BY_TOPIC.items():
+        if _canon_id in _topics_dict:
+            for _alias in _alias_tuple:
+                assert normalize_topic(_alias, _app_name) == _canon_id, (
+                    f"Alias {_alias} did not resolve to {_canon_id} in {_app_name}"
+                )
+
+
 def get_section(topic: str | None, doc_type: str | None = "writer") -> str | None:
     """The manual section for a topic (alias-aware) in that app's manual, or None if unknown."""
-    app = _app(doc_type)
     canon = normalize_topic(topic, doc_type)
     if not canon:
         return None
-    for t in _MANUALS[app]:
-        if t.id == canon:
-            return f"{t.text}{t.standalone_suffix}" if t.standalone_suffix else t.text
-    return None
+    app_topics = _MANUALS_BY_APP.get(_app(doc_type), {})
+    t = app_topics.get(canon)
+    if t is None:
+        return None
+    return f"{t.text}{t.standalone_suffix}" if t.standalone_suffix else t.text
 
 
 def manual_index(doc_type: str | None = "writer") -> str:

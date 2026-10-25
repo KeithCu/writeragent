@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
 
 log = logging.getLogger("plugin.chatbot.panel")
@@ -32,10 +33,22 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     model.Label = label
     if peer is not None and label in mnemonics:
         peer.setProperty("Label", mnemonics[label])
-    if rect is not None and rect.Width > 0:
+    width = getattr(rect, "Width", 0)
+    if rect is not None and isinstance(width, int) and width > 0:
         cur = ctrl.getPosSize()
-        if (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
+        if cur is not None and (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
             ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
+
+
+def _restore_control(ctrl: Any, backup: dict[str, Any], label_key: str, enabled_key: str, mnemonics: dict[str, str]) -> None:
+    """Restore button label and enabled status independently from backup."""
+    if not ctrl or not ctrl.getModel():
+        return
+    m = ctrl.getModel()
+    if label_key in backup:
+        _relabel_button(ctrl, backup[label_key], mnemonics)
+    if enabled_key in backup:
+        m.Enabled = backup[enabled_key]
 
 
 class PanelEventsController:
@@ -82,10 +95,10 @@ class PanelEventsController:
             # Unsubscribing global_event_bus leaves this subscription,
             # which keeps calling a closed panel.
             self._panel._mcp_event_bus = event_bus
-            event_bus.subscribe("mcp:request", self._panel._on_mcp_request, weak=True)
-            event_bus.subscribe("mcp:result", self._panel._on_mcp_result, weak=True)
-            event_bus.subscribe("http:server_started", self._panel._on_http_server_started, weak=True)
-            event_bus.subscribe("http:server_stopped", self._panel._on_http_server_stopped, weak=True)
+            self._panel._subscribe(event_bus, "mcp:request", self._on_mcp_request)
+            self._panel._subscribe(event_bus, "mcp:result", self._on_mcp_result)
+            self._panel._subscribe(event_bus, "http:server_started", self._on_http_server_started)
+            self._panel._subscribe(event_bus, "http:server_stopped", self._on_http_server_stopped)
             log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
@@ -104,10 +117,14 @@ class PanelEventsController:
             return
         if getattr(self._panel, "_approval_event", None) is not None:
             log.warning("begin_inline_web_approval: superseding pending approval")
-            self._panel._finish_inline_web_approval(False)
+            self._finish_inline_web_approval(False)
         self._panel._approval_event = event
         self._panel._approval_query_for_engine = query
-        self._panel._approval_ui_backup = {}
+        self._panel._approval_ui_backup = {
+            "button_action": getattr(self._panel, "_button_action", ButtonAction.RECORD),
+            "stop_button_action": getattr(self._panel, "_stop_button_action", ButtonAction.IGNORE),
+            "clear_button_action": getattr(self._panel, "_clear_button_action", ButtonAction.IGNORE),
+        }
         with suppress_disposed("begin_inline_web_approval backup", logger=log):
             if self._panel.send_control and self._panel.send_control.getModel():
                 m = self._panel.send_control.getModel()
@@ -123,6 +140,10 @@ class PanelEventsController:
                 self._panel._approval_ui_backup["clear_label"] = cm.Label
             if self._panel.status_control:
                 self._panel._approval_ui_backup["status_text"] = self._panel.status_control.getText()
+
+        self._panel._button_action = ButtonAction.ACCEPT
+        self._panel._stop_button_action = ButtonAction.CHANGE
+        self._panel._clear_button_action = ButtonAction.REJECT
 
         with suppress_disposed("begin_inline_web_approval", logger=log):
             if self._panel.send_control and self._panel.send_control.getModel():
@@ -151,7 +172,7 @@ class PanelEventsController:
         if text is None:
             return
         log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))
-        self._panel._finish_inline_web_approval(True, query_override=text)
+        self._finish_inline_web_approval(True, query_override=text)
 
     def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
         ev = getattr(self._panel, "_approval_event", None)
@@ -161,24 +182,14 @@ class PanelEventsController:
         self._panel._approval_query_for_engine = None
         b: dict[str, Any] = self._panel._approval_ui_backup or {}
         self._panel._approval_ui_backup = None
+        self._panel._button_action = b.get("button_action", ButtonAction.RECORD)
+        self._panel._stop_button_action = b.get("stop_button_action", ButtonAction.IGNORE)
+        self._panel._clear_button_action = b.get("clear_button_action", ButtonAction.IGNORE)
         with suppress_disposed("_finish_inline_web_approval restore", logger=log):
-            if self._panel.send_control and self._panel.send_control.getModel():
-                m = self._panel.send_control.getModel()
-                if "send_label" in b:
-                    _relabel_button(self._panel.send_control, b["send_label"], self._panel._mnemonic_cache())
-                if "send_enabled" in b:
-                    m.Enabled = b["send_enabled"]
-            if self._panel.stop_control and self._panel.stop_control.getModel():
-                m = self._panel.stop_control.getModel()
-                if "stop_label" in b:
-                    _relabel_button(self._panel.stop_control, b["stop_label"], self._panel._mnemonic_cache())
-                if "stop_enabled" in b:
-                    m.Enabled = b["stop_enabled"]
-            if self._panel.clear_control and self._panel.clear_control.getModel() and "clear_enabled" in b:
-                cm = self._panel.clear_control.getModel()
-                cm.Enabled = b["clear_enabled"]
-                if "clear_label" in b:
-                    _relabel_button(self._panel.clear_control, b["clear_label"], self._panel._mnemonic_cache())
+            cache = self._panel._mnemonic_cache()
+            _restore_control(self._panel.send_control, b, "send_label", "send_enabled", cache)
+            _restore_control(self._panel.stop_control, b, "stop_label", "stop_enabled", cache)
+            _restore_control(self._panel.clear_control, b, "clear_label", "clear_enabled", cache)
             if self._panel.status_control and "status_text" in b:
                 self._panel.status_control.setText(b["status_text"])
         ev.approved = approved
@@ -190,23 +201,29 @@ class PanelEventsController:
     def _on_http_server_started(self, url: str = "", **kwargs: Any) -> None:
         from plugin.framework.i18n import _
 
-        self._panel._post_server_status((_("MCP server started") + " " + url).strip())
+        self._post_server_status((_("MCP server started") + " " + url).strip())
 
     def _on_http_server_stopped(self, **kwargs: Any) -> None:
         from plugin.framework.i18n import _
 
-        self._panel._post_server_status(_("MCP server stopped"))
+        self._post_server_status(_("MCP server stopped"))
 
     def _post_server_status(self, text: str) -> None:
         """MCP start/stop goes to the status line; a modal box would eat typed prompts."""
         if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
             return
-        # Tip: don't overwrite the status of a running send or approval.
-        if getattr(self._panel, "_send_busy", False) or getattr(self._panel, "_approval_event", None) is not None:
-            return
+
+        def _write() -> None:
+            if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+                return
+            # Tip: don't overwrite the status of a running send or approval.
+            if getattr(self._panel, "_send_busy", False) or getattr(self._panel, "_approval_event", None) is not None:
+                return
+            self._panel._set_status(text)
+
         from plugin.framework.queue_executor import post_to_main_thread
 
-        post_to_main_thread(self._panel._set_status, text)
+        post_to_main_thread(_write)
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
