@@ -182,7 +182,7 @@ def test_prompt_blank_model_does_not_override(mock_get_config_int, mock_api, moc
     assert mock_client_cls.call_args.args[0]["model"] == "cfg"
 
 
-@pytest.mark.parametrize("blank_system", ["   ", "", 0.0])
+@pytest.mark.parametrize("blank_system", [0.0])
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
@@ -258,3 +258,16 @@ def test_prompt_expected_failure_returns_cell_string(mock_get_config_int, mock_a
     mock_run.side_effect = NetworkError("boom")
     out = execute_prompt_addin(MagicMock(), "hello", None, None, None, client_holder=[None])
     assert out.startswith("Error: ")
+
+
+@pytest.mark.parametrize("empty_system", ["", "   "])
+@patch("plugin.calc.prompt_function.run_blocking_in_thread")
+@patch("plugin.calc.prompt_function.LlmClient")
+@patch("plugin.calc.prompt_function.get_api_config")
+@patch("plugin.calc.prompt_function.get_config_str", return_value="Custom")
+@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
+def test_prompt_empty_system_prompt_omits_system_message(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run, empty_system):
+    mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
+    execute_prompt_addin(MagicMock(), "hello", empty_system, None, None, client_holder=[None])
+    messages = mock_run.call_args[0][2]
+    assert messages == [{"role": "user", "content": "hello"}]

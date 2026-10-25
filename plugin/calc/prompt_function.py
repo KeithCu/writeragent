@@ -120,11 +120,12 @@ def _execute_prompt_addin_impl(ctx: Any, message: str, system_prompt: Any, model
         if not str(message or "").strip():
             return "Error: prompt is empty."
 
-        resolved_system = _optional_text(system_prompt)
-        if not resolved_system:
-            resolved_system = get_config_str("extend_selection_system_prompt").strip()
-        if not resolved_system:
-            resolved_system = CALC_PROMPT_CELL_SYSTEM_PROMPT
+        # An explicit empty system_prompt string means "no system message" (as before K032);
+        # None / numeric 0 (empty-cell value) fall back to the configured default.
+        if isinstance(system_prompt, str) and not system_prompt.strip():
+            resolved_system = ""
+        else:
+            resolved_system = _optional_text(system_prompt) or get_config_str("extend_selection_system_prompt").strip() or CALC_PROMPT_CELL_SYSTEM_PROMPT
 
         config = get_api_config()
         model_name = _optional_text(model)
@@ -135,10 +136,10 @@ def _execute_prompt_addin_impl(ctx: Any, message: str, system_prompt: Any, model
 
         resolved_max = _optional_max_tokens(max_tokens)
 
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": resolved_system},
-            {"role": "user", "content": message},
-        ]
+        messages: list[dict[str, str]] = []
+        if resolved_system:
+            messages.append({"role": "system", "content": resolved_system})
+        messages.append({"role": "user", "content": message})
 
         client = client_holder[0]
         if client is None:

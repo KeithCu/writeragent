@@ -36,7 +36,7 @@ Locale argument separator is `;` in many locales and `,` in US English. Examples
 | # | Wizard name | IDL | Required | Meaning |
 | --- | --- | --- | --- | --- |
 | 0 | `message` | `string` | yes | User message. A single cell (`A1`) is coerced to text by Calc. A multi-cell range is **not** delivered as a 2D array (implicit intersection or `#VALUE!`). |
-| 1 | `system_prompt` | `any` | no | `None`, blank, or numeric zero (Calc's empty-cell value) → `extend_selection_system_prompt` if set, else `CALC_PROMPT_CELL_SYSTEM_PROMPT`. Any other value is stripped `str(…)`. |
+| 1 | `system_prompt` | `any` | no | `None` or numeric zero (Calc's empty-cell value) → `extend_selection_system_prompt` if set, else `CALC_PROMPT_CELL_SYSTEM_PROMPT`. An empty (or blank) string omits the system message. Any other value is stripped `str(…)`. |
 | 2 | `model` | `any` | no | `None`, blank, or numeric zero → the configured model. Otherwise the stripped `str(model)` overrides the client config. |
 | 3 | `max_tokens` | `any` | no | Only a finite positive integer `>= 100` wins; `None`, bool, blank, non-finite, and values below 100 → `calc_prompt_max_tokens` (default **4096**). |
 
