@@ -587,3 +587,22 @@ def test_resolve_research_locale_send_cancelled_falls_back():
 
     with patch("plugin.framework.queue_executor.run_on_main", side_effect=SendCancelled()):
         assert resolve_research_locale(None, MagicMock()) == ("en_US", "english")
+
+
+@pytest.mark.parametrize(
+    "snowball_lang, normalized",
+    [("french", "chere"), ("spanish", "algun"), ("portuguese", "ate")],
+)
+def test_fluff_normalizes_accented_stop_words(snowball_lang, normalized):
+    from plugin.chatbot.web_research_cache import get_research_fluff_words
+
+    assert normalized in get_research_fluff_words(snowball_lang=snowball_lang)
+
+
+def test_fluff_keeps_topical_words_after_normalization():
+    from plugin.chatbot.web_research_cache import get_research_fluff_words
+
+    fluff = get_research_fluff_words(snowball_lang="spanish")
+    assert "restaurantes" not in fluff
+    assert "madrid" not in fluff
+    assert "historia" not in fluff
