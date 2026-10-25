@@ -1,10 +1,16 @@
 """Unit tests for paragraph range helpers moved out of document_helpers."""
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges, search_paragraph_texts
+from plugin.doc.paragraph_search import (
+    confirm_paragraph_index,
+    find_paragraph_for_range,
+    get_paragraph_ranges,
+    search_paragraph_texts,
+)
 from plugin.framework.errors import DocumentDisposedError
 
 
@@ -140,17 +146,16 @@ def test_find_paragraph_after_table_keeps_enumeration_index(value, value_2, expe
 
 def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
     """Index 0 is a real hit only when the anchor start is inside that paragraph."""
-    from plugin.doc.paragraph_search import confirm_paragraph_index
-
     elements = [_Para(0, 10), _Para(20, 30)]
     text = _TextObj()
     at_start = _Para(0, 0)
     past_end = _Para(100, 100)
     assert find_paragraph_for_range(at_start, elements, text) == 0
     assert confirm_paragraph_index(text, at_start, elements, 0) == 0
-    # The finder still reports 0 when the point is past the last paragraph.
-    assert find_paragraph_for_range(past_end, elements, text) == 0
+    # The finder returns None when the point is past the last paragraph.
+    assert find_paragraph_for_range(past_end, elements, text) is None
     assert confirm_paragraph_index(text, past_end, elements, 0) is None
+    assert confirm_paragraph_index(text, past_end, elements, None) is None
     assert confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
 
     class _Broken:
@@ -158,6 +163,31 @@ def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
             raise RuntimeError("stale anchor")
 
     assert confirm_paragraph_index(text, _Broken(), elements, 0) is None
+
+
+def test_find_paragraph_for_range_unplaced_returns_none():
+    elements = [_Para(5, 10)]
+    text = _TextObj()
+    assert find_paragraph_for_range(_Para(0, 0), elements, text) is None
+    assert find_paragraph_for_range(_Para(50, 50), elements, text) is None
+    assert find_paragraph_for_range(_Para(0, 0), [], text) is None
+    assert find_paragraph_for_range(_Para(10, 10), elements, text) == 0
+
+
+def test_find_paragraph_for_range_unplaced_logs_debug(caplog):
+    class _BrokenAnchor:
+        def getText(self):
+            return _TextObj()
+
+        def getStart(self):
+            raise RuntimeError("stale anchor")
+
+    elements = [_Para(0, 10)]
+    with caplog.at_level(logging.DEBUG):
+        result = find_paragraph_for_range(_BrokenAnchor(), elements)
+
+    assert result is None
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 def test_find_picks_matching_table_when_two_share_a_gap():
@@ -207,4 +237,83 @@ def test_two_finds_with_shared_entries_calls_supports_service_once():
     assert idx2 == 1
     assert p0.supportsService.call_count == 1
     assert p1.supportsService.call_count == 1
+
+
+def test_search_paragraph_texts_literal_case_insensitive():
+    matches, total = search_paragraph_texts("FOO", ["Foo bar", "nope"])
+    assert total == 1
+    assert matches[0]["text"] == "Foo"
+
+
+def test_search_paragraph_texts_case_sensitive():
+    matches, total = search_paragraph_texts("foo", ["Foo foo"], case_sensitive=True)
+    assert total == 1
+    assert len(matches) == 1
+    assert matches[0]["text"] == "foo"
+
+
+def test_search_paragraph_texts_regex():
+    matches, total = search_paragraph_texts(r"f.o", ["foo bar"], regex=True)
+    assert total == 1
+    assert matches[0]["text"] == "foo"
+
+
+def test_search_paragraph_texts_invalid_regex():
+    with pytest.raises(ValueError, match="Invalid regex"):
+        search_paragraph_texts("(", ["foo"], regex=True)
+
+
+def test_search_paragraph_texts_literal_unicode_offsets():
+    matches, total = search_paragraph_texts("foo", ["İfoo"])
+    assert total == 1
+    assert matches[0]["text"] == "foo"
+
+
+def test_search_paragraph_texts_multiple_matches_per_paragraph():
+    matches, total = search_paragraph_texts("foo", ["foo foo"])
+    assert total == 2
+    assert len(matches) == 2
+
+
+def test_search_paragraph_texts_stops_at_max_results_plus_one():
+    matches, total = search_paragraph_texts("foo", ["foo foo foo", "foo"], max_results=2)
+    assert len(matches) == 2
+    assert total == 3
+
+
+def test_search_paragraph_texts_exact_fit_is_not_truncated():
+    matches, total = search_paragraph_texts("foo", ["foo", "foo"], max_results=2)
+    assert total == len(matches) == 2
+
+
+def test_search_paragraph_texts_does_not_scan_past_cap():
+    scans = []
+
+    def check_stop():
+        scans.append(1)
+        return False
+
+    matches, total = search_paragraph_texts(
+        "foo",
+        ["foo foo foo", "foo"],
+        max_results=2,
+        stop_checker=check_stop,
+    )
+    assert len(matches) == 2
+    assert total == 3
+    assert len(scans) == 1
+
+
+def test_search_paragraph_texts_stop_checker_returns_nothing():
+    matches, total = search_paragraph_texts("foo", ["foo"], stop_checker=lambda: True)
+    assert matches == []
+    assert total == 0
+
+
+def test_search_paragraph_texts_context_at_edges():
+    matches, _ = search_paragraph_texts("hit", ["hit", "a", "b", "hit"], max_results=5, context_paragraphs=1)
+    assert len(matches) == 2
+    assert [c["index"] for c in matches[0]["context"]] == [0, 1]
+    assert [c["index"] for c in matches[1]["context"]] == [2, 3]
+
 
