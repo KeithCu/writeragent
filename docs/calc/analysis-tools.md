@@ -39,7 +39,7 @@ Runs curated numpy/pandas/scipy helpers in the user venv via a fixed RPC stub (n
 * `params`: Helper-specific parameters (object)
 * `data_range`: A1 range to read from the sheet (e.g. `Sheet1.A1:D20`)
 * `output_range`: Optional anchor cell to write a formatted multi-cell report (Calc only). Sheet prefixes match other Calc refs (`Sheet1.B2`, `'Q1.Sales'!B2`). A range writes from its start cell (`Sheet1.A1:C10` starts at A1); `$` locks are ignored. `forecast_data` and `optimize_data` use this same anchor: the parsed sheet is passed into the shared tabular writer, and `CalcBridge.resolve` opens that sheet.
-* `data`: 2D array alternative (e.g. from `read_cell_range`)
+* `data`: 2D array alternative accepted by `execute` only (scripts/tests); the tool schema does not advertise it and the `analysis` domain rejects it — use `data_range`.
 * `headers`: First row is column names (default `true`)
 * `task_hint`: Optional string echoed in result context
 

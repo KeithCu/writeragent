@@ -23,7 +23,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, is_disposed_exception, uno_probe
+from plugin.framework.errors import (
+    ToolExecutionError,
+    UnoObjectError,
+    is_disposed_exception,
+    reraise_if_disposed,
+    uno_probe,
+)
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet_and_cell
@@ -340,7 +346,7 @@ def write_anchor_result(
     output_range: str,
     insert_fn: Any,
 ) -> dict[str, Any]:
-    """Write result to output anchor and record write errors without raising."""
+    """Write result to output anchor; record non-disposal write errors on the result."""
     from plugin.framework.queue_executor import execute_on_main_thread
 
     def _write() -> None:
@@ -351,6 +357,8 @@ def write_anchor_result(
         execute_on_main_thread(_write)
         return result
     except Exception as exc:
+        # Propagate document disposal; ordinary write errors are recorded on the result.
+        reraise_if_disposed(exc, object_type="calc")
         res = dict(result)
         res["sheet_write_error"] = str(exc)
         return res
@@ -394,7 +402,6 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         from plugin.calc.analysis_runner import run_trusted_analysis
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-        from plugin.framework.queue_executor import execute_on_main_thread
 
         try:
             result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
@@ -404,14 +411,7 @@ class AnalyzeDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run analysis: {exc}")
 
         if output_range and result.get("status") == "ok":
-            def _write() -> None:
-                sheet, col, row = parse_output_anchor(output_range)
-                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
-
-            try:
-                execute_on_main_thread(_write)
-            except Exception as exc:
-                return self._tool_error(f"Analysis succeeded but sheet write failed: {exc}")
+            result = write_anchor_result(ctx, result, output_range, insert_analysis_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))

@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from plugin.framework.errors import reraise_if_disposed
+
 AUTO_PLOT_ANALYSIS_HELPERS = frozenset({"run_regression", "cluster_numeric", "monte_carlo", "correlation_matrix"})
 
 _VIZ_HINT_RE = re.compile(r"\b(chart|plot|visual|graph|distribution|histogram|heatmap)\b", re.I)
@@ -47,6 +49,8 @@ def apply_auto_plot_result(
             execute_on_main_thread(lambda: insert(plot_result))
             out["image_inserted"] = True
         except Exception as exc:
+            # Propagate document disposal; ordinary insertion errors are recorded on the result.
+            reraise_if_disposed(exc, object_type="calc")
             out["plot_error"] = str(exc)
     else:
         out["plot_error"] = plot_result.get("message")
