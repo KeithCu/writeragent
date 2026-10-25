@@ -379,6 +379,21 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
     assert status == 408
     assert body.get("code") == "PARSE_ERROR"
 
+    # Before Python 3.10 socket.timeout is a different class from TimeoutError.
+    import socket as _socket
+
+    stalled_socket = _bare_generic_handler({"Content-Length": "8"}, b"")
+
+    def _sock_timeout(n=-1):
+        del n
+        raise _socket.timeout("stalled")
+
+    stalled_socket.rfile.read = _sock_timeout
+    assert stalled_socket._read_body() is None
+    status, body = _response_json(stalled_socket)
+    assert status == 408
+    assert body.get("code") == "PARSE_ERROR"
+
     negative = _bare_generic_handler({"Content-Length": "-1"}, b"{}")
 
     def _refuse_read(n=-1):
@@ -809,4 +824,57 @@ def test_dispatch_resets_response_started_for_subsequent_requests():
     status2, body2 = _response_json(handler)
     assert status2 == 500
     assert "second request failure" in str(body2)
+
+
+def test_dispatch_client_disconnect_is_not_a_500():
+    from http.client import HTTPMessage
+    from unittest.mock import patch
+
+    handler = _bare_generic_handler({}, b"{}")
+    handler.headers = HTTPMessage()
+    handler.headers.add_header("Host", "127.0.0.1")
+    handler.headers.add_header("Content-Length", "2")
+    handler.path = "/mcp"
+    handler.command = "POST"
+    route = MagicMock(raw=False)
+    route.handler.side_effect = ConnectionResetError(104, "Connection reset by peer")
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = route
+
+    with patch("plugin.mcp.server.log") as mock_log:
+        handler._dispatch("POST")
+
+    assert handler.close_connection is True
+    assert handler.wfile.getvalue() == b""
+    mock_log.exception.assert_not_called()
+    mock_log.info.assert_called_once()
+
+
+def test_dispatch_body_read_reset_does_not_write_a_500():
+    from http.client import HTTPMessage
+    from unittest.mock import patch
+
+    handler = _bare_generic_handler({}, b"")
+    handler.headers = HTTPMessage()
+    handler.headers.add_header("Host", "127.0.0.1")
+    handler.headers.add_header("Content-Length", "100")
+    handler.path = "/mcp"
+    handler.command = "POST"
+
+    def _reset(n=-1):
+        del n
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    handler.rfile.read = _reset
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = MagicMock(raw=False)
+
+    with patch("plugin.mcp.server.log") as mock_log:
+        handler._dispatch("POST")
+
+    assert handler.close_connection is True
+    assert handler.wfile.getvalue() == b""
+    mock_log.exception.assert_not_called()
+    mock_log.info.assert_called_once()
+
 
