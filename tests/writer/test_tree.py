@@ -55,6 +55,13 @@ class TestTreeServiceSearch:
         assert (res["para_index"]) == (0)
         assert (res["bookmark"]) == ("bm_intro")
 
+    def test_heading_children_missing_bookmark_uses_resolver_error(self):
+        self.doc.getBookmarks = MagicMock()
+        self.doc.getBookmarks.return_value.hasByName.return_value = False
+        with pytest.raises(ToolExecutionError) as raised:
+            self.tree_svc.get_heading_children(self.doc, heading_bookmark="nope")
+        assert "Bookmark 'nope' not found" in str(raised.value)
+
     @pytest.mark.parametrize(
         "value",
         [
