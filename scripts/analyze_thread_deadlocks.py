@@ -5,22 +5,36 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Static call graph analyzer for thread-boundary transitions and deadlock detection.
 
-Constructs a function-level call graph across the codebase to identify:
-1. Inversion cycles: Call paths starting from synchronous host dispatches (Calc add-in
-   calculation, UNO event listeners) that attempt blocking waits on the main thread (execute_on_main_thread).
-2. Lock inversion hazards: Nested lock acquisitions across worker threads and main thread.
+Constructs a function-level call graph across the codebase to identify call
+paths starting from synchronous host dispatches (Calc add-in calculation) that
+attempt blocking waits on the main thread (execute_on_main_thread).
+Note: execute_on_main_thread is the only blocking wait modeled (there is no
+lock model).
 
 Usage:
     python scripts/analyze_thread_deadlocks.py [plugin_dir]
+
+    If plugin_dir is omitted, defaults to the repository's 'plugin/' directory.
+
+Exit codes:
+    0: Clean (no hazards detected)
+    1: Hazards detected
+    2: Bad root directory
+    3: Parse failure
 """
 
 from __future__ import annotations
 
 import ast
+import io
 import sys
+import tokenize
 from collections import defaultdict
 from pathlib import Path
 from typing import NamedTuple
+
+# Sandbox venvs, third-party and test trees are not host dispatch code
+EXCLUDED_DIR_NAMES = {"contrib", "site-packages", "tests", "venv"}
 
 # Functions executed synchronously while holding a host/bridge dispatch context (Yellow context)
 SYNC_HOST_ENTRYPOINTS = {
@@ -115,7 +129,7 @@ class DeadlockHazard(NamedTuple):
 class CallGraphBuilder(ast.NodeVisitor):
     def __init__(self, file_path: Path, source: str) -> None:
         self.file_path = file_path
-        self.source_lines = source.splitlines()
+        self.source = source
         self.class_stack: list[str] = []
         self.current_function: str | None = None
         self.call_edges: list[tuple[str, str, int]] = []
@@ -123,10 +137,20 @@ class CallGraphBuilder(ast.NodeVisitor):
         self.suppressed_lines: set[int] = set()
         self._find_suppressions()
 
+    # Per-line suppression; a def line suppresses that whole function;
+    # the reason is required so a bare flag cannot hide a finding.
     def _find_suppressions(self) -> None:
-        for idx, line in enumerate(self.source_lines, 1):
-            if "# nodeadlock" in line or "# nosemgrep" in line:
-                self.suppressed_lines.add(idx)
+        try:
+            tokens = tokenize.generate_tokens(io.StringIO(self.source).readline)
+            for tok in tokens:
+                if tok.type == tokenize.COMMENT and tok.string.startswith("# nodeadlock:"):
+                    reason = tok.string[len("# nodeadlock:") :].strip()
+                    if reason:
+                        self.suppressed_lines.add(tok.start[0])
+                        if tok.end[0] != tok.start[0]:
+                            self.suppressed_lines.add(tok.end[0])
+        except (tokenize.TokenError, SyntaxError):
+            pass
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.class_stack.append(node.name)
@@ -169,6 +193,9 @@ class CallGraphBuilder(ast.NodeVisitor):
 class DeadlockAnalyzer:
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = root_dir
+        self.scanned = 0
+        self.skipped = 0
+        self.parse_failures: list[str] = []
         # caller -> list of (callee, file_path, lineno)
         self.graph: dict[str, list[tuple[str, Path, int]]] = defaultdict(list)
         self.all_defined: set[str] = set()
@@ -177,17 +204,20 @@ class DeadlockAnalyzer:
     def _build_graph(self) -> None:
         builders: list[CallGraphBuilder] = []
         for py_file in sorted(self.root_dir.rglob("*.py")):
-            rel = str(py_file)
-            if "plugin/contrib/" in rel or "plugin/lib/" in rel or "/tests/" in rel or "venv" in rel:
+            rel_parts = py_file.relative_to(self.root_dir).parts
+            if any(part in EXCLUDED_DIR_NAMES for part in rel_parts[:-1]):
+                self.skipped += 1
                 continue
             try:
                 source = py_file.read_text(encoding="utf-8")
                 tree = ast.parse(source, filename=str(py_file))
                 builder = CallGraphBuilder(py_file, source)
                 builder.visit(tree)
+                self.scanned += 1
                 builders.append(builder)
                 self.all_defined.update(builder.defined_functions)
-            except Exception:
+            except (OSError, SyntaxError, ValueError) as exc:
+                self.parse_failures.append(f"{py_file}: {exc}")
                 continue
 
         for b in builders:
@@ -242,10 +272,21 @@ class DeadlockAnalyzer:
         return hazards
 
 
-def main() -> int:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("plugin")
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    root = Path(args[0]) if args else Path(__file__).resolve().parents[1] / "plugin"
+    if not root.is_dir():
+        print(f"Error: root directory not found: {root}", file=sys.stderr)
+        return 2
+
     analyzer = DeadlockAnalyzer(root)
+    if analyzer.parse_failures:
+        for failure in analyzer.parse_failures:
+            print(f"Parse error: {failure}", file=sys.stderr)
+        return 3
+
     hazards = analyzer.find_deadlock_hazards()
+    print(f"Deadlock Analyzer: scanned {analyzer.scanned} module(s), skipped {analyzer.skipped} by filters")
 
     if not hazards:
         print("Deadlock Analyzer: No synchronous cross-thread wait cycles detected.")
@@ -256,7 +297,7 @@ def main() -> int:
         chain = " -> ".join(h.call_chain)
         print(f"  [{h.entrypoint}] at {h.location}")
         print(f"    Call chain: {chain}")
-        print(f"    Hazard: Sync host dispatch thread invokes blocking '{h.blocking_op}', risking lock inversion (#402).\n")
+        print(f"    Hazard: Sync host dispatch thread invokes blocking '{h.blocking_op}', risking a host dispatch deadlock (#402).\n")
     return 1
 
 

@@ -213,12 +213,12 @@ Parses Python ASTs across add-in and scripting boundary modules to enforce:
 1. `unguarded-uno-access`: UNO source getters (`get_desktop`, `get_ctx`, `_get_calc_doc`) must be structurally protected by an `if on_main_thread():` block or `@main_thread_only` decorator.
 2. `blocking-marshal-in-sync-dispatch`: Synchronous add-in functions (`execute_python_addin`, `execute_prompt_addin`, `session_key`) cannot contain calls to `execute_on_main_thread`.
 
-### C3. Static Lock Hierarchy & Transition Analyzer ([`scripts/analyze_thread_deadlocks.py`](../../scripts/analyze_thread_deadlocks.py))
+### C3. Static Host-Dispatch Wait Analyzer ([`scripts/analyze_thread_deadlocks.py`](../../scripts/analyze_thread_deadlocks.py))
 Builds a global class-aware function call graph across `plugin/` starting from `SYNC_HOST_ENTRYPOINTS`:
 - **Add-ins & Scripting Roots**: `execute_python_addin`, `execute_prompt_addin`, `py`, `python`, `prompt`, `session_key`, `_notify_thread_violation`.
-- Walks call edges to detect if any synchronous host dispatch can reach `BLOCKING_OPERATIONS` (`execute_on_main_thread`).
+- Walks call edges to detect if any synchronous host dispatch can reach `BLOCKING_OPERATIONS` (`execute_on_main_thread`). `execute_on_main_thread` is the only blocking wait modeled; there is no lock model.
 - **Why Listeners Are Excluded from Static Yellow Roots**: Standard listener methods (`actionPerformed`, `textChanged`) are UI handlers on the main thread that legitimately initiate asynchronous worker pipelines. Treating them as static Yellow roots creates ongoing false positives across UI code. Static analysis focuses strictly on wrapped add-in and bridge roots; runtime Layer A (`in_sync_host_dispatch()`) protects against any off-main dispatch.
-- **Suppression Mechanism**: Supports inline `# nodeadlock: <reason>` annotations if an edge needs manual verification override.
+- **Suppression Mechanism**: Supports inline `# nodeadlock: <reason>` annotations if an edge needs manual verification override. A reason is required, matching is per line (a `def` line suppresses that function), and `# nosemgrep` is not honored here.
 
 ---
 
