@@ -833,8 +833,8 @@ class DocumentService(ServiceBase):
         para_ranges: list[Any],
         text_obj: Any = None,
         entries: list[tuple[int, Any]] | None = None,
-    ) -> int:
-        """Return the 0-based paragraph index that contains anchor."""
+    ) -> int | None:
+        """Return the 0-based paragraph index that contains anchor, or None when it cannot be placed."""
         return _find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:

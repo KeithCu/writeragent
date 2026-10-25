@@ -11,10 +11,7 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from typing import Any
 
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
@@ -24,42 +21,19 @@ def compile_search_pattern(
     *,
     regex: bool = False,
     case_sensitive: bool = False,
-) -> re_mod.Pattern[str] | None:
-    """Compile a regex search pattern or return None for plain text search."""
-    if not regex:
-        return None
+) -> re_mod.Pattern[str]:
+    """Compile a search pattern into a regex Pattern.
+
+    Literal text is escaped, so one compiled matcher serves both modes.
+    """
     flags = 0 if case_sensitive else re_mod.IGNORECASE
     try:
-        return re_mod.compile(pattern, flags)
+        # Literal mode previously used str.lower() and sliced original text by lowercased
+        # offsets, which drifted on characters like 'İ'. Compiling both literal (via re.escape)
+        # and regex patterns into a single matcher keeps offsets matched directly to original text.
+        return re_mod.compile(pattern if regex else re_mod.escape(pattern), flags)
     except re_mod.error as e:
         raise ValueError(f"Invalid regex: {e}") from e
-
-
-def _match_spans(
-    ptext: str,
-    pattern: str,
-    *,
-    regex: bool = False,
-    compiled: re_mod.Pattern[str] | None = None,
-    case_sensitive: bool = False,
-    needle: str | None = None,
-) -> Iterator[str]:
-    """Yield matching text spans within *ptext*."""
-    if regex and compiled is not None:
-        for m in compiled.finditer(ptext):
-            yield m.group()
-    else:
-        haystack = ptext if case_sensitive else ptext.lower()
-        if needle is None:
-            needle = pattern if case_sensitive else pattern.lower()
-        step = max(1, len(needle))
-        pos = 0
-        while True:
-            pos = haystack.find(needle, pos)
-            if pos == -1:
-                break
-            yield ptext[pos : pos + len(pattern)]
-            pos += step
 
 
 def _build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
@@ -80,7 +54,11 @@ def search_paragraph_texts(
     context_paragraphs: int = 1,
     stop_checker: Any = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Search *para_texts* for *pattern*; return (matches up to max_results, total_count)."""
+    """Search *para_texts* for *pattern*; return (matches up to max_results, hits found up to max_results + 1).
+
+    The search stops scanning paragraphs once hits reach max_results + 1 because callers
+    detect truncation with count > len(matches).
+    """
     if not pattern:
         return [], 0
 
@@ -88,8 +66,11 @@ def search_paragraph_texts(
     compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
 
     matches: list[dict[str, Any]] = []
-    total_count = 0
-    needle = pattern if case_sensitive else pattern.lower()
+    found_count = 0
+    # Stop scanning paragraphs once we hit max_results + 1. Previously, the loop scanned the entire
+    # document to count all occurrences even when matches was already full. Since callers only
+    # check count > len(matches) to detect truncation, capping at max_results + 1 saves scanning large docs.
+    scan_limit = max_results + 1
 
     for i, ptext in enumerate(para_texts):
         if stop_checker and stop_checker():
@@ -97,12 +78,14 @@ def search_paragraph_texts(
         if not ptext:
             continue
 
-        for m_text in _match_spans(ptext, pattern, regex=regex, compiled=compiled, case_sensitive=case_sensitive, needle=needle):
-            total_count += 1
+        for m in compiled.finditer(ptext):
+            found_count += 1
             if len(matches) < max_results:
-                matches.append(_build_paragraph_match(m_text, i, context_paragraphs, para_count, para_texts))
+                matches.append(_build_paragraph_match(m.group(), i, context_paragraphs, para_count, para_texts))
+            if found_count >= scan_limit:
+                return matches, found_count
 
-    return matches, total_count
+    return matches, found_count
 
 
 # Same service string as text_helpers.build_heading_tree and document_research_grep.
@@ -173,25 +156,25 @@ def _index_outside_paragraphs(
     para_ranges: list[Any],
     entries: list[tuple[int, Any]],
     low: int,
-) -> int:
+) -> int | None:
     """Map a point that is not inside any paragraph onto the table in that gap.
 
     A table anchor starts after the previous paragraph's end and before the
     next paragraph's start, so it never falls inside a paragraph. The slot
-    between those paragraphs is the table's enumeration index. Returning 0
-    would report every such anchor as the first paragraph.
+    between those paragraphs is the table's enumeration index. Returns None
+    when the point is in no paragraph or table slot.
     """
     if not para_ranges:
-        return 0
+        return None
     prev_enum = entries[low - 1][0] if entries and low > 0 else -1
     next_enum = entries[low][0] if low < len(entries) else len(para_ranges)
-    slots = list(range(prev_enum + 1, next_enum))
+    slots = range(prev_enum + 1, next_enum)
     if len(slots) == 1:
         return slots[0]
     for slot in slots:
         if _anchor_contains_point(text_obj, match_start, para_ranges[slot]):
             return slot
-    return 0
+    return None
 
 
 def paragraph_entries(para_ranges: list[Any]) -> list[tuple[int, Any]]:
@@ -204,16 +187,16 @@ def find_paragraph_for_range(
     para_ranges: list[Any],
     text_obj: Any = None,
     entries: list[tuple[int, Any]] | None = None,
-) -> int:
+) -> int | None:
     # text_obj is Any (not Any | None): None is a valid default, but typing it
     # optional made basedpyright treat compareRegionStarts as optional access.
-    """Return the enumeration index of the element that contains *match_range*.
+    """Return the enumeration index of the element that contains *match_range*, or None when it cannot be placed.
 
     Binary search calls ``getStart`` / ``getEnd`` only on
     ``com.sun.star.text.Paragraph`` elements. ``SwXTextTable`` is
     not an ``XTextRange``. The attribute lookup happens before
     ``safe_call``, so it raises ``AttributeError`` (callers that
-    catch ``Exception`` then drop the index, often to 0). The
+    catch ``Exception`` then drop the index and omit the index). The
     returned index is still the full-enumeration index (tables
     keep their slots). A point in the gap between paragraphs maps
     to that slot.
@@ -243,17 +226,18 @@ def find_paragraph_for_range(
         return _index_outside_paragraphs(text_obj, match_start, para_ranges, entries, low)
     except Exception as exc:
         reraise_if_disposed(exc)
-        logging.getLogger(__name__).exception("find_paragraph_for_range error")
-        return 0
+        # Unplaced anchors (stale bookmarks, compare failures) are expected misses,
+        # so log at DEBUG instead of logging an ERROR traceback.
+        logging.getLogger(__name__).debug("paragraph placement missed", exc_info=True)
+        return None
 
 
 def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
-    ``find_paragraph_for_range`` returns 0 both when the anchor
-    sits in the first paragraph and when the anchor cannot be
-    placed (disposed range, compare failure, or a point past the
-    last paragraph). ``bookmark:`` locators then navigate and edit
+    ``find_paragraph_for_range`` returns None when unplaced; this guard
+    keeps a legacy or literal 0 only when the anchor start lies in element 0.
+    ``bookmark:`` locators then navigate and edit
     paragraph 0 and report success. A stale ``_mcp_`` mark after
     save/reopen or ``bookmark_cleanup`` still has a name, so the
     missing-name error never runs; only the finder fails. Index 0
