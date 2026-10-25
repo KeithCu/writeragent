@@ -120,3 +120,33 @@ def test_filter_name_starwriter():
     assert filter_holder["props"][0].Name == "FilterName"
     assert filter_holder["props"][0].Value == HTML_FILTER
 
+
+def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
+    from plugin.writer.html_import import insert_content_at_position, replace_full_document
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    doc.getText.return_value = body_text
+    cur = MagicMock()
+    body_text.createTextCursor.return_value = cur
+    cur.getText.return_value = body_text
+
+    with (
+        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
+    ):
+        replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None
+
+    with (
+        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
+    ):
+        insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None
