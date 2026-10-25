@@ -917,7 +917,7 @@ def test_shared_session_namespace_mutation_persists():
 
 
 def test_named_script_tool_reads_document_scripts_only_when_needed():
-    from plugin.scripting.host_rpc import _execute_named_script_tool, execute_tool
+    from plugin.scripting.host_rpc import _dispatch_named_script, execute_tool
 
     allowed = frozenset({"apply_document_content"})
     code = "def n():\n    return 1\n"
@@ -996,12 +996,8 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         assert "Cover" in out_list["document"]
         mock_get_doc.assert_called_once_with(sentinel_doc)
 
-    # Direct _execute_named_script_tool("not-a-tool", {})
-    with (
-        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-    ):
-        with pytest.raises(RuntimeError, match="Unknown named-script tool"):
-            _execute_named_script_tool("not-a-tool", {})
+    # Direct _dispatch_named_script("not-a-tool", {})
+    with pytest.raises(RuntimeError, match="Unknown named-script tool"):
+        _dispatch_named_script("not-a-tool", {})
 
 

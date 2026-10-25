@@ -337,14 +337,12 @@ def execute_tool(
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
         if in_sync_host_dispatch() and not on_main_thread():
-            return _execute_named_script_tool_off_main(tool_name, payload)
+            return _dispatch_named_script(tool_name, payload, allow_document=False)
         from plugin.framework.queue_executor import execute_on_main_thread
 
         return execute_on_main_thread(
-            lambda: _execute_named_script_tool(
-                tool_name,
-                payload,
-                script_session_id=script_session_id,
+            lambda: _dispatch_named_script(
+                tool_name, payload, script_session_id=script_session_id
             )
         )
     if allowed_tools is not None and tool_name not in allowed_tools:
@@ -428,40 +426,6 @@ def execute_tool(
         return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
 
 
-def _execute_named_script_tool_off_main(tool_name: str, payload: dict[str, Any]) -> Any:
-    """Named-script lookup during off-main ``=PY()``. No UNO, no main-thread wait."""
-    from plugin.scripting.document_scripts import get_user_scripts
-    from plugin.scripting.named_scripts import (
-        GET_NAMED_PYTHON_SCRIPT,
-        LIST_NAMED_PYTHON_SCRIPTS,
-        ORIGIN_USER,
-        host_get_named_python_script,
-        host_list_named_python_scripts,
-    )
-
-    user_scripts = get_user_scripts()
-    origin = str(payload.get("origin") or ORIGIN_USER)
-    if origin != ORIGIN_USER:
-        raise RuntimeError(
-            "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
-            "Use a user script (wa.scripts) or Run Python Script."
-        )
-    if tool_name == LIST_NAMED_PYTHON_SCRIPTS:
-        return host_list_named_python_scripts(user_scripts=user_scripts, document_scripts={})
-    if tool_name == GET_NAMED_PYTHON_SCRIPT:
-        name = str(payload.get("name") or "")
-        known = payload.get("known_hash")
-        known_hash = known if isinstance(known, str) else None
-        return host_get_named_python_script(
-            name=name,
-            origin=ORIGIN_USER,
-            known_hash=known_hash,
-            user_scripts=user_scripts,
-            document_scripts={},
-        )
-    raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
-
-
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
     from plugin.framework.uno_context import get_active_document, get_ctx
     from plugin.scripting.document_scripts import get_document_scripts
@@ -478,12 +442,19 @@ def _document_script_store(script_session_id: str | None) -> dict[str, str]:
     return get_document_scripts(doc)
 
 
-def _execute_named_script_tool(
+def _dispatch_named_script(
     tool_name: str,
     payload: dict[str, Any],
     *,
     script_session_id: str | None = None,
+    allow_document: bool = True,
 ) -> Any:
+    """Dispatch get/list named scripts on the main thread, or off-main during =PY().
+
+    *allow_document* is False off the main thread: document scripts need UNO,
+    so only user origin is allowed there.
+    """
+    from plugin.scripting.document_scripts import get_user_scripts
     from plugin.scripting.named_scripts import (
         GET_NAMED_PYTHON_SCRIPT,
         LIST_NAMED_PYTHON_SCRIPTS,
@@ -493,52 +464,51 @@ def _execute_named_script_tool(
         host_list_named_python_scripts,
     )
 
-    if tool_name not in (LIST_NAMED_PYTHON_SCRIPTS, GET_NAMED_PYTHON_SCRIPT):
-        raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
-
     if tool_name == LIST_NAMED_PYTHON_SCRIPTS:
-        from plugin.scripting.document_scripts import get_user_scripts
-
         user_scripts = get_user_scripts()
-        document_scripts = _document_script_store(script_session_id)
-        return host_list_named_python_scripts(user_scripts=user_scripts, document_scripts=document_scripts)
+        document_scripts = _document_script_store(script_session_id) if allow_document else {}
+        return host_list_named_python_scripts(
+            user_scripts=user_scripts, document_scripts=document_scripts
+        )
+    if tool_name != GET_NAMED_PYTHON_SCRIPT:
+        raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
 
     name = str(payload.get("name") or "")
     origin = str(payload.get("origin") or ORIGIN_USER)
     known = payload.get("known_hash")
     known_hash = known if isinstance(known, str) else None
 
+    if not allow_document:
+        if origin != ORIGIN_USER:
+            raise RuntimeError(
+                "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
+                "Use a user script (wa.scripts) or Run Python Script."
+            )
+        return host_get_named_python_script(
+            name=name,
+            origin=ORIGIN_USER,
+            known_hash=known_hash,
+            user_scripts=get_user_scripts(),
+            document_scripts={},
+        )
     if origin == ORIGIN_USER:
-        # What was wrong: Fetching a user script resolved the document model and
-        # read document properties, failing or blocking when no document was open
-        # or when document access wasn't needed.
-        # How it happened: _execute_named_script_tool always resolved uno_ctx,
-        # session doc, and document_scripts regardless of the requested origin.
-        # Why this change: User scripts are stored in user configuration; resolving
-        # document_scripts is skipped when origin is user.
-        from plugin.scripting.document_scripts import get_user_scripts
-
-        user_scripts = get_user_scripts()
+        # User scripts live in config; do not resolve the document store.
         return host_get_named_python_script(
             name=name,
             origin=origin,
             known_hash=known_hash,
-            user_scripts=user_scripts,
+            user_scripts=get_user_scripts(),
             document_scripts={},
         )
     if origin == ORIGIN_DOCUMENT:
-        from plugin.scripting.document_scripts import get_user_scripts
-
-        user_scripts = get_user_scripts()
-        document_scripts = _document_script_store(script_session_id)
         return host_get_named_python_script(
             name=name,
             origin=origin,
             known_hash=known_hash,
-            user_scripts=user_scripts,
-            document_scripts=document_scripts,
+            user_scripts=get_user_scripts(),
+            document_scripts=_document_script_store(script_session_id),
         )
-
+    # Unknown origin: host_get_named_python_script raises the documented error.
     return host_get_named_python_script(
         name=name,
         origin=origin,

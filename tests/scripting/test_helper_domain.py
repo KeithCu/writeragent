@@ -51,31 +51,16 @@ def test_parse_bad_json_empty():
         code,
         tag="units",
         helper_names={"convert_quantity"},
-        on_bad_json="empty",
     )
     assert meta is not None
     assert meta.params == {}
 
 
-def test_parse_bad_json_none():
-    code = "# writeragent:forecast helper=forecast_time_series params={not-json}\n"
-    meta = parse_helper_script_header(
-        code,
-        tag="forecast",
-        helper_names=None,
-        require_prefix=False,
-        on_bad_json="none",
-    )
-    assert meta is None
-
-
 def test_build_run_import_template_has_header_and_import():
     body = build_helper_script_template(
-        tag="units",
         helper="convert_quantity",
         params={"value": 10, "from": "m/s", "to": "km/h"},
         description="Convert",
-        style="run_import",
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="None",
@@ -90,11 +75,9 @@ def test_build_run_import_template_has_header_and_import():
 
 def test_build_run_import_template_with_data():
     body = build_helper_script_template(
-        tag="units",
         helper="convert_quantity",
         params={"value": "data", "from": "m/s", "to": "km/h"},
         description="Convert",
-        style="run_import",
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="data",
@@ -225,21 +208,6 @@ def test_parse_run_import_call_null_byte_returns_none():
     assert parse_run_import_call_params("\x00", run_name="\x00") is None
 
 
-def test_build_header_only_template():
-    body = build_helper_script_template(
-        tag="forecast",
-        helper="forecast_time_series",
-        params={"periods": 12},
-        description="Forward",
-        style="header_only",
-        compact_json=False,
-        extra_comment_lines=("# Edit the JSON params above if needed. No other code runs.",),
-    )
-    assert body.startswith("# writeragent:forecast helper=forecast_time_series")
-    assert "from writeragent" not in body
-    assert "Forward" in body
-
-
 def test_format_elapsed_time_buckets():
     assert format_elapsed_time(0.0005) == "<1 ms"
     assert format_elapsed_time(0.05).endswith("ms")
@@ -361,17 +329,56 @@ def test_build_helper_script_template_bare_data_only_for_injected_data():
     # for non-data parameters (like column="data") to be unquoted as bare variable references.
     # Why this change: Only unquote when the parameter key is a known data/value/quantity arg.
     template = build_helper_script_template(
-        tag="analysis",
         helper="describe_data",
         params={"column": "data", "data": "data"},
         description="Describe",
-        style="run_import",
         import_module="writeragent.scripting.analysis",
         run_name="run_analysis",
         data_expr="data",
     )
     assert "column='data'" in template
     assert "data=data" in template
+
+
+def test_direct_call_unresolved_name_is_omitted():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(user_var)\n"
+    )
+    assert parse_run_import_call_spec(code, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {},
+    }
+
+
+def test_unresolved_output_style_is_omitted():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(1, 'm', 'km', output_style=style_var)\n"
+    )
+    assert parse_run_import_call_params(code, run_name="run_units") == {
+        "value": 1,
+        "from": "m",
+        "to": "km",
+    }
+
+
+def test_literal_none_is_kept():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(None)\n"
+    )
+    assert parse_run_import_call_spec(code, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {"value": None},
+    }
+
+
+def test_unresolved_list_and_dict_value_are_omitted():
+    code = (
+        'result = run_units({"helper": "convert_quantity", "params": {"value": user_var, "to": "km", "items": [1, user_var]}}, None, {})\n'
+    )
+    assert parse_run_import_call_params(code, run_name="run_units") == {"to": "km"}
 
 
 def test_format_elapsed_time_boundary_rounding():

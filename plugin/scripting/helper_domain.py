@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
@@ -73,21 +73,16 @@ def parse_helper_script_header(
     *,
     tag: str,
     helper_names: Collection[str] | None = None,
-    require_prefix: bool = True,
-    on_bad_json: Literal["empty", "none", "raise"] = "empty",
 ) -> HelperScriptMeta | None:
     """Parse ``# writeragent:<tag> helper=NAME params={…}``.
 
-    *require_prefix*: if True, require the prefix substring before regex (units/analysis style).
     *helper_names*: when set, unknown helpers return None.
-    *on_bad_json*: ``empty`` → ``{}``; ``none`` → return None; ``raise`` → ValueError
-    so a corrupt header does not run the helper with empty params.
     """
     # crosshair: off
     if not code:
         return None
     prefix = header_prefix(tag)
-    if require_prefix and prefix not in code:
+    if prefix not in code:
         return None
     match = _header_re(tag).search(code)
     if not match:
@@ -98,25 +93,23 @@ def parse_helper_script_header(
     raw = match.group(2)
     try:
         params = json.loads(raw)
-    except Exception as exc:
-        if on_bad_json == "none":
-            return None
-        if on_bad_json == "raise":
-            raise ValueError(f"Invalid helper params JSON for {tag} {helper}") from exc
+    except Exception:
         params = {}
     if not isinstance(params, dict):
-        if on_bad_json == "none":
-            return None
-        if on_bad_json == "raise":
-            raise ValueError(f"Helper params for {tag} {helper} must be a JSON object")
         params = {}
     return HelperScriptMeta(helper=helper, params=params)
 
 
+_UNRESOLVED: Any = object()
+
+# Names the host injects into Run Python Script before exec.
+_INJECTED_BINDING_NAMES: frozenset[str] = frozenset({"data", "text", "image", "document_context"})
+
+
 def _literal_value(node: ast.AST) -> Any:
-    """Best-effort static value for template-style literal AST nodes."""
+    """Best-effort static value for template-style literal AST nodes. Returns _UNRESOLVED for expressions that are not literals (a bare name that is not host-injected is not a literal)."""
     if isinstance(node, ast.Name):
-        return node.id
+        return node.id if node.id in _INJECTED_BINDING_NAMES else _UNRESOLVED
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Dict):
@@ -127,23 +120,32 @@ def _literal_value(node: ast.AST) -> Any:
             key = _literal_value(key_node)
             if not isinstance(key, str):
                 continue
-            out[key] = _literal_value(value_node)
+            val = _literal_value(value_node)
+            if val is _UNRESOLVED:
+                continue
+            out[key] = val
         return out
     if isinstance(node, ast.List):
-        return [_literal_value(elt) for elt in node.elts]
+        items = [_literal_value(elt) for elt in node.elts]
+        if any(item is _UNRESOLVED for item in items):
+            return _UNRESOLVED
+        return items
     if isinstance(node, ast.Tuple):
-        return tuple(_literal_value(elt) for elt in node.elts)
+        items = [_literal_value(elt) for elt in node.elts]
+        if any(item is _UNRESOLVED for item in items):
+            return _UNRESOLVED
+        return tuple(items)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
         # Recurse so -(-5) and {"n": -1} both resolve. The old check only
         # accepted a top-level USub of a Constant, so nested unary and unary
         # plus became None inside otherwise-literal params.
         value = _literal_value(node.operand)
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            return None
+        if value is _UNRESOLVED or isinstance(value, bool) or not isinstance(value, int | float):
+            return _UNRESOLVED
         if isinstance(node.op, ast.UAdd):
             return value
         return -value
-    return None
+    return _UNRESOLVED
 
 
 @deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
@@ -210,11 +212,15 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
                     params.update(val)
     for kw in node.keywords:
         if kw.arg is not None:
-            params[kw.arg] = _literal_value(kw.value)
+            val = _literal_value(kw.value)
+            if val is not _UNRESOLVED:
+                params[kw.arg] = val
     keys = _DIRECT_POSITIONAL_KEYS.get(helper)
     if keys and node.args:
         for key, arg in zip(keys, node.args):
-            params.setdefault(key, _literal_value(arg))
+            val = _literal_value(arg)
+            if val is not _UNRESOLVED:
+                params.setdefault(key, val)
     return {"helper": helper, "params": params}
 
 
@@ -398,43 +404,21 @@ def _python_literal(val: Any) -> str:
 
 def build_helper_script_template(
     *,
-    tag: str,
     helper: str,
     params: dict[str, Any],
     description: str,
-    style: str = "run_import",  # "run_import" | "header_only" (str: CrossHair cannot proxy Literal)
     import_module: str | None = None,
     run_name: str | None = None,
     data_expr: str = "data",
     context_expr: str = "{}",
     extra_comment_lines: tuple[str, ...] = (),
     positional_args: tuple[str, ...] | None = None,
-    compact_json: bool = True,
     leading_data: bool = False,
     invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
-    # Symbolic dict → json.dumps CrossHair crash; empty JSON keeps template shape coverable.
-    if UNDER_CROSSHAIR:
-        params_json = "{}"
-    elif compact_json:
-        params_json = json.dumps(params, separators=(",", ":"))
-    else:
-        params_json = json.dumps(params)
-
-    if style == "header_only":
-        header_line = f"{header_prefix(tag)} helper={helper} params={params_json}"
-        lines = [
-            header_line,
-            "#",
-            f"# {description}",
-            *extra_comment_lines,
-        ]
-        return "\n".join(lines) + "\n"
-
-    # run_import style (analysis / units / viz / math / …) — executable Python only; no header comment.
     if not import_module:
-        raise ValueError("import_module required for style='run_import'")
+        raise ValueError("import_module required")
     default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
 
     def _format_param_val(key: str, val: Any) -> str:
@@ -667,20 +651,16 @@ class DomainFacadeConfig:
     descriptions: dict[str, str]
     import_module: str                # e.g. "writeragent.scripting.viz"
     run_name: str                     # e.g. "run_viz"
-    style: Literal["run_import", "header_only"] = "run_import"
     shipped_templates: frozenset[str] | None = None
     data_expr: str = "data"
     context_expr: str = "{}"
     positional_args: dict[str, tuple[str, ...]] | None = None
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
-    compact_json: bool = True
     # Sheet helpers take the injected range as the first argument. Quant and
     # text call ``run_*`` instead of the helper name (those callables do not
     # match ``helper(**params)``).
     leading_data: bool = False
     invoke: str = "direct"
-    require_prefix: bool = True
-    on_bad_json: Literal["empty", "none", "raise"] = "empty"
 
 
 def make_template_api(cfg: DomainFacadeConfig) -> Any:
@@ -690,18 +670,15 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
         desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
         pos = cfg.positional_args.get(helper) if cfg.positional_args else None
         return build_helper_script_template(
-            tag=cfg.tag,
             helper=helper,
             params=params,
             description=desc,
-            style=cfg.style,
             import_module=cfg.import_module,
             run_name=cfg.run_name,
             data_expr=cfg.data_expr,
             context_expr=cfg.context_expr,
             extra_comment_lines=cfg.extra_comment_lines,
             positional_args=pos,
-            compact_json=cfg.compact_json,
             leading_data=cfg.leading_data,
             invoke=cfg.invoke,
         )
@@ -715,13 +692,10 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
         }
 
     def parse_header(code: str) -> HelperScriptMeta | None:
-        # Decouple helper_names from require_prefix
         return parse_helper_script_header(
             code,
             tag=cfg.tag,
             helper_names=cfg.helper_names,
-            require_prefix=cfg.require_prefix,
-            on_bad_json=cfg.on_bad_json,
         )
 
     def template_for(helper: str) -> str | None:
