@@ -342,7 +342,7 @@ class TestAppendRichText:
         doc = MockDoc()
         seen: list[str] = []
 
-        def _capture(_doc, _cursor, fragment):
+        def _capture(_cursor, fragment):
             seen.append(fragment)
 
         full = "<html><head><script>alert(1)</script></head><body><p>Hi</p></body></html>"
@@ -359,7 +359,7 @@ class TestAppendRichText:
 
         doc = MockDoc()
 
-        def _writes_tags_then_raises(_doc, _cursor, fragment):
+        def _writes_tags_then_raises(_cursor, fragment):
             doc.getText().insertString(None, fragment, False)
             raise RuntimeError("bad element")
 
@@ -372,7 +372,7 @@ class TestAppendRichText:
         doc = MockDoc()
         calls = {"n": 0}
 
-        def _later_edit_inserts_foreign_text(_doc, _cursor, fragment):
+        def _later_edit_inserts_foreign_text(_cursor, fragment):
             del fragment
             calls["n"] += 1
             doc.getText().insertString(None, "NOT_IN_MESSAGES", False)
@@ -422,7 +422,7 @@ class TestLeadingListImport:
 
         seen: list[str] = []
 
-        def _capture(_doc, _cursor, fragment):
+        def _capture(_cursor, fragment):
             seen.append(fragment)
 
         with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
@@ -508,9 +508,9 @@ class TestLeadingListImport:
 
         doc = MockDoc()
 
-        def _partial_import(target_doc, cursor, fragment):
+        def _partial_import(cursor, fragment):
             del fragment
-            target_doc.getText().insertString(cursor, "hello", False)
+            doc.getText().insertString(cursor, "hello", False)
 
         with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_partial_import):
             render_messages_to_hidden_doc(doc, [("assistant", "<p>hello world</p>")])
@@ -771,28 +771,12 @@ class TestChatThemeAndImporter:
         assert (theme.user_color) == (0x60A5FA)
         assert (theme.assistant_color) == (0xE2E8F0)
 
-    def test_importer_insert_and_tighten(self):
-        from plugin.chatbot.rich_text import HiddenDocHTMLImporter
-
-        doc = MockDoc()
-        importer = HiddenDocHTMLImporter(doc)
-        
-        cursor = MockTextCursor()
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
-            importer.insert_html_at_cursor(cursor, "<p>Hi</p>")
-            mock_insert.assert_called_once_with(doc, cursor, "<p>Hi</p>")
-
-        body_range = MagicMock()
-        with patch("plugin.chatbot.rich_text._tighten_list_indent") as mock_tighten:
-            importer.tighten_list_indent(body_range)
-            mock_tighten.assert_called_once_with(body_range)
-
     def test_insert_html_at_cursor_forwards_sidebar_css(self):
         from plugin.chatbot import rich_text
 
         cursor = MockTextCursor()
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            rich_text._insert_html_at_cursor(MockDoc(), cursor, "<p>Hi</p>")
+            rich_text._insert_html_at_cursor(cursor, "<p>Hi</p>")
         mock_insert.assert_called_once_with(
             cursor,
             "<p>Hi</p>",

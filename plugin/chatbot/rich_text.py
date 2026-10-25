@@ -172,23 +172,6 @@ class ChatTheme:
         return cls(bg_color, user_color, assistant_color)
 
 
-class HiddenDocHTMLImporter:
-    """Encapsulates importing HTML into a document and tightening indents on lists."""
-
-    doc: Any
-
-    def __init__(self, doc: Any) -> None:
-        self.doc = doc
-
-    def insert_html_at_cursor(self, cursor: Any, html_fragment: str) -> None:
-        """Import an HTML fragment into self.doc at *cursor* using Writer's HTML filter."""
-        _insert_html_at_cursor(self.doc, cursor, html_fragment)
-
-    def tighten_list_indent(self, body_range: Any) -> None:
-        """Tighten indentation on list paragraphs within *body_range*."""
-        _tighten_list_indent(body_range)
-
-
 def _tighten_list_indent(body_range: Any) -> None:
     """Tighten indentation on list paragraphs within *body_range*.
 
@@ -243,8 +226,8 @@ def _tighten_list_indent(body_range: Any) -> None:
     log.debug("_tighten_list_indent: scanned %d paragraphs, tightened %d", para_count, tightened)
 
 
-def _insert_html_at_cursor(doc: Any, cursor: Any, html_fragment: str) -> None:
-    """Import an HTML fragment into *doc* at *cursor* using Writer's HTML filter."""
+def _insert_html_at_cursor(cursor: Any, html_fragment: str) -> None:
+    """Import an HTML fragment at *cursor* using Writer's HTML filter."""
     from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
@@ -349,7 +332,6 @@ def _append_rich_text_with_span(
         cursor.gotoEnd(False)
 
         theme = ChatTheme.resolve(doc, style_window=style_window)
-        importer = HiddenDocHTMLImporter(doc)
 
         if text and text.strip():
             text = strip_legacy_ai_label(text) if role == "assistant" else text
@@ -402,7 +384,7 @@ def _append_rich_text_with_span(
                     leading_list = _body_starts_with_list(body_html)
                     if leading_list:
                         body_html = "<p>%s</p>%s" % (_LIST_SENTINEL, body_html)
-                    importer.insert_html_at_cursor(cursor, body_html)
+                    _insert_html_at_cursor(cursor, body_html)
                     if leading_list:
                         _drop_list_sentinel(text_obj, body_anchor)
                     used_html_import = True
@@ -443,7 +425,7 @@ def _append_rich_text_with_span(
             # per-span CharColor from the filter (red/blue runs, etc.).
             if not used_html_import:
                 body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
-            importer.tighten_list_indent(body_range)
+            _tighten_list_indent(body_range)
         else:
             if parked_anchor is not None:
                 added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
