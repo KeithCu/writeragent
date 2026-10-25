@@ -126,12 +126,11 @@ class McpModule(ModuleBase):
     """
 
     # Declared here so mypy can type the second-bootstrap reuse path
-    # (prim._tunnel / prim._mcp_protocol) after initialize() gained annotations.
+    # (prim._tunnel) after initialize() gained annotations.
     _registry: Any
     _server: Any
     _tunnel: TunnelManager | None = None
     _services: Any
-    _mcp_protocol: Any
     _mcp_routes_registered: bool
     _srv_lock: threading.Lock
 
@@ -148,7 +147,6 @@ class McpModule(ModuleBase):
                 self._server = _shared_http_server
                 self._tunnel = _shared_tunnel or prim._tunnel
                 self._services = services
-                self._mcp_protocol = prim._mcp_protocol
                 self._mcp_routes_registered = prim._mcp_routes_registered
                 self._srv_lock = prim._srv_lock
                 services.register("http_routes", self._registry)
@@ -162,7 +160,6 @@ class McpModule(ModuleBase):
             self._tunnel = TunnelManager()
             _shared_tunnel = self._tunnel
             self._services = services
-            self._mcp_protocol = None
             self._mcp_routes_registered = False
             self._srv_lock = threading.Lock()
 
@@ -438,8 +435,7 @@ class McpModule(ModuleBase):
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
-        self._mcp_protocol = MCPProtocolHandler(services)
-        p = self._mcp_protocol
+        p = MCPProtocolHandler(services)
         if getattr(p, "debug_token", None):
             _write_debug_token_file(p.debug_token)
 
@@ -457,7 +453,6 @@ class McpModule(ModuleBase):
             for method, path, _handler_name, _raw in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
             self._mcp_routes_registered = False
-            self._mcp_protocol = None
         _remove_debug_token_file()
         log.info("MCP routes unregistered from HTTP server")
 
