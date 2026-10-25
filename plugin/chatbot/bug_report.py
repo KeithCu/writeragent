@@ -39,7 +39,6 @@ log = logging.getLogger("writeragent.bugreport")
 BUG_REPORT_REPO = "KeithCu/writeragent"
 BUG_REPORT_ISSUES_URL = f"https://github.com/{BUG_REPORT_REPO}/issues/new"
 
-# Practical URL length limit for issue body query param.
 # The cap is on the encoded URL because percent-encoding expands newlines and
 # non-ASCII; GitHub/proxy request lines sit near 8 KB.
 _MAX_URL_CHARS = 8000
