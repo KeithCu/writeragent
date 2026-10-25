@@ -242,9 +242,10 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
             # A prefix that names no sheet is an error, same as a bad cell.
             # Leaving sheet_idx at the default (usually 0) when the scan
             # never matches anchors a relative name on the wrong sheet.
-            sheet_idx = _sheet_index(doc, prefix)
-            if sheet_idx is None:
+            found_idx = _sheet_index(doc, prefix)
+            if found_idx is None:
                 raise ValueError("No sheet named '%s'." % prefix)
+            sheet_idx = found_idx
 
         # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
         col_idx, row_idx = parse_address(address)
