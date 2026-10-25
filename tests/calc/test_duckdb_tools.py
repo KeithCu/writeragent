@@ -15,6 +15,7 @@ from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
 from plugin.calc.duckdb_tools import (
     QueryFolderSqlTool,
     _export_model_to_cached_ods,
+    _maybe_write_ods_cache,
     _read_sibling_office_file_as_grid,
     _sheet_qualified_a1,
     _source_is_open_workbook,
@@ -1192,4 +1193,40 @@ def test_export_uses_unique_partial_temp(tmp_path, monkeypatch):
     assert dest.read_bytes() == b"PK\x03\x04ods"
     assert decoy.read_bytes() == b"other-writer"
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == ["cached.ods.partial"]
+
+
+def test_ods_cache_skips_write_when_source_changes_during_import(tmp_path: Path):
+    xlsx = tmp_path / "source.xlsx"
+    xlsx.write_bytes(b"PK\x03\x04xlsx-initial")
+    entry = cache_entry(str(xlsx))
+    assert entry is not None
+
+    def _fake_export(_model, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"PK")
+        st = xlsx.stat()
+        os.utime(xlsx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+    with patch("plugin.calc.duckdb_tools._export_model_to_cached_ods", side_effect=_fake_export):
+        _maybe_write_ods_cache(object(), str(xlsx), opened_flag=True, cache_hit=False, entry=entry)
+
+    assert not entry.ods.exists()
+    assert not entry.meta.exists()
+
+
+def test_export_rejects_empty_output(tmp_path: Path, monkeypatch):
+    import uno
+
+    monkeypatch.setattr(uno, "systemPathToFileUrl", lambda path: str(path))
+
+    class _EmptyModel:
+        def storeToURL(self, url, _props):
+            Path(url).touch()
+
+    dest = tmp_path / "cached.ods"
+    with pytest.raises(OSError):
+        _export_model_to_cached_ods(_EmptyModel(), dest)
+
+    assert not dest.exists()
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == []
 

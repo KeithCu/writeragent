@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc cell navigation helpers."""
+"""Calc cell navigation: canonical ``Sheet1.B2`` addresses, ``cell://`` links, span registry, mouse listener."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseMouseListener
@@ -21,9 +21,6 @@ log = logging.getLogger("writeragent.calc")
 _XACCESSIBLE_TEXT = "com.sun.star.accessibility.XAccessibleText"
 
 _CELL_HREF_RE = re.compile(r"""href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1""", re.IGNORECASE)
-# Plain cell address (optional sheet prefix): Sheet1.B2, Excel Sheet1!B2, or B2.
-# Canonical form is always the Calc dot (Sheet1.B2).
-_CELL_ADDRESS_RE = re.compile(r"^(?:(?:'([^']+)'|([^.!]+))[.!])?([A-Z]{1,3})(\d{1,7})$", re.IGNORECASE)
 WRITERAGENT_CELL_URL_PREFIX = "writeragent-cell://"
 
 _CELL_LINK_LISTENERS: dict[int, Any] = {}
@@ -79,22 +76,33 @@ cell_link_registry = CellLinkSpanRegistry()
 def normalize_cell_address(raw: str) -> str | None:
     """Return a canonical cell address (``Sheet1.B2`` or ``B2``) or *None*."""
     text = (raw or "").strip()
+    for prefix in ("cell://", WRITERAGENT_CELL_URL_PREFIX):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix) :].strip()
+            break
     if not text:
         return None
-    if text.lower().startswith(WRITERAGENT_CELL_URL_PREFIX):
-        text = text[len(WRITERAGENT_CELL_URL_PREFIX) :]
-    if text.lower().startswith("cell://"):
-        text = text[7:]
-    match = _CELL_ADDRESS_RE.match(text.strip())
-    if not match:
+    sheet, a1 = split_sheet_prefix(text)
+    # parse_address has a @deal.pre string bound; a long or non-ASCII href
+    # is external input and must return None, not raise, under pytest.
+    if not a1 or not a1.isascii() or len(a1) > 32:
         return None
-    sheet = match.group(1) or match.group(2)
-    col = match.group(3)
-    row = match.group(4)
-    addr = f"{col.upper()}{row}"
-    if sheet:
-        return f"{sheet}.{addr}"
-    return addr
+    try:
+        col, row = parse_address(a1)
+    except (ValueError, Exception):
+        return None
+    if not (0 <= col <= MAX_COL and 0 <= row <= MAX_ROW):
+        return None
+    addr = format_address(col, row)
+    if sheet is None:
+        return addr
+    # Keep a plain name plain: the sidebar HTML link regexes in
+    # plugin/chatbot/rich_text.py and rich_text_paste.py accept
+    # `Sheet Name.B2` but not a quote inside the address. Quote only names
+    # that would otherwise split (dot/bang/apostrophe) or lose a leading $.
+    if sheet.startswith("$") or any(ch in sheet for ch in ".!'"):
+        return qualify_a1(sheet, addr)
+    return f"{sheet}.{addr}"
 
 
 def register_cell_link_span(control: Any, start: int, end: int, address: str) -> None:
@@ -213,10 +221,9 @@ def _click_text_index(control: Any, x: int, y: int) -> int | None:
     """Character index under the mouse, preferring the control caret after click."""
     model = control.getModel() if control is not None and hasattr(control, "getModel") else None
     if model is not None:
-        for prop in ("SelectionStart", "Selection"):
-            idx = getattr(model, prop, None)
-            if isinstance(idx, int) and idx >= 0:
-                return idx
+        idx = getattr(model, "SelectionStart", None)
+        if isinstance(idx, int) and idx >= 0:
+            return idx
     return _char_index_at_point(control, x, y)
 
 
