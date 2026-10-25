@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 import numpy as np
 
@@ -531,6 +532,139 @@ def test_optimize_facade_import_does_not_load_host_worker():
         timeout=30,
     )
     assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+
+
+def test_lp_per_variable_bounds_follow_dropped_row():
+    data = pd.DataFrame({
+        "c": ["bad", 2, 1],
+        "a1": [1, 1, 1],
+        "b": [10, 10, 10],
+    })
+    res = linear_programming(
+        data,
+        c_col="c",
+        a_cols=["a1"],
+        b_col="b",
+        maximize=True,
+        bounds=[[0, 0], [0, 2], [0, 2]],
+    )
+    assert res["status"] == "ok", res
+    assert abs(res["metrics"]["objective_value"] - 6.0) < 1e-6
+
+    good_data = pd.DataFrame({
+        "c": [3, 2, 1],
+        "a1": [1, 1, 1],
+        "b": [10, 10, 10],
+    })
+    res_good = linear_programming(
+        good_data,
+        c_col="c",
+        a_cols=["a1"],
+        b_col="b",
+        maximize=True,
+        bounds=[[0, 0], [0, 2], [0, 2]],
+    )
+    assert res_good["status"] == "ok", res_good
+
+
+def test_portfolio_rejects_infeasible_target():
+    returns = pd.DataFrame({
+        "A": [0.01, 0.02, 0.03],
+        "B": [0.02, 0.01, 0.04],
+    })
+    res = optimize_portfolio(returns, returns_col=["A", "B"], target_return=0.5)
+    assert res["status"] == "error"
+    assert res["code"] == "INFEASIBLE_TARGET"
+    assert res["details"]["max_mean_return"] < 0.5
+    assert "outside the achievable long-only range" in res["message"]
+
+
+def test_portfolio_target_return_is_reached():
+    returns = pd.DataFrame({
+        "A": [0.01, -0.01, 0.01, -0.01],
+        "B": [0.06, 0.04, 0.07, 0.03],
+        "C": [0.11, 0.09, 0.13, 0.07],
+    })
+    res = optimize_portfolio(returns, returns_col=["A", "B", "C"], target_return=0.09)
+    assert res["status"] == "ok", res
+    assert abs(res["metrics"]["expected_return"] - 0.09) < 1e-6
+    table = res["tables"][0]
+    weights = [row[1] for row in table["rows"]]
+    assert abs(sum(weights) - 1.0) < 1e-3
+
+
+def test_run_optimize_rejects_unknown_param():
+    df = pd.DataFrame({"A": [0.01, 0.02, 0.03], "B": [0.02, 0.01, 0.04]})
+    res = run_optimize({"helper": "optimize_portfolio", "params": {"return_col": ["A", "B"]}}, df)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "return_col" in res["message"]
+
+    valid_res = run_optimize({"helper": "optimize_portfolio", "params": {"returns_col": ["A", "B"]}}, df)
+    assert valid_res["status"] == "ok", valid_res
+
+
+def test_linear_programming_strips_column_names():
+    data = pd.DataFrame({
+        "c": [3, 2, 1],
+        "a1": [1, 1, 1],
+        "b": [10, 10, 10],
+    })
+    result = linear_programming(data, c_col=" c ", a_cols=[" a1 "], b_col=" b ", maximize=True)
+    assert result["status"] == "ok", result
+    assert abs(result["metrics"]["objective_value"] - 30.0) < 1e-6
+
+
+def test_linear_programming_reports_infeasible():
+    data = pd.DataFrame({
+        "c": [1.0],
+        "a1": [1.0],
+        "b": [-1.0],
+    })
+    result = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b")
+    assert result["status"] == "error"
+    assert result["code"] == "INFEASIBLE"
+    assert result["details"]["solver_status"] == 2
+
+
+def test_optimize_missing_scipy_is_missing_package(monkeypatch):
+    monkeypatch.setitem(sys.modules, "scipy", None)
+    monkeypatch.setitem(sys.modules, "scipy.optimize", None)
+    data = pd.DataFrame({
+        "c": [1.0, 2.0],
+        "a1": [1.0, 1.0],
+        "b": [10.0, 10.0],
+    })
+    result = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b")
+    assert result["status"] == "error"
+    assert result["code"] == "MISSING_PACKAGE"
+    assert "scipy" in result["message"]
+
+
+def test_lp_solution_table_keeps_60_rows():
+    data = pd.DataFrame({
+        "c": [1.0] * 60,
+        "a1": [1.0] * 60,
+        "b": [1000.0] * 60,
+    })
+    res = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert res["status"] == "ok", res
+    assert len(res["tables"][0]["rows"]) == 60
+    assert res["tables"][0]["truncated"] is False
+
+
+def test_lp_solution_table_caps_at_200():
+    data = pd.DataFrame({
+        "c": [1.0] * 250,
+        "a1": [1.0] * 250,
+        "b": [1000.0] * 250,
+    })
+    res = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert res["status"] == "ok", res
+    assert len(res["tables"][0]["rows"]) == 200
+    assert res["tables"][0]["truncated"] is True
+    assert res["tables"][0]["total_rows"] == 250
+
 
 
 

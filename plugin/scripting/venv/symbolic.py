@@ -175,20 +175,13 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
             evaluate=False,
         )
     except Exception as exc:
-        # sympy rewrites an unknown call to Function('name')(...), then
-        # implicit_multiplication leaves a Function name in the code because
-        # Function is not in the name dict, and eval raises NameError.
-        # Adding Function does not produce AppliedUndef; it turns foo(x)
-        # into the product foo*x. The NameError is the undefined-function
-        # PARSE_ERROR, and the message names the calls in the source instead
-        # of saying name 'Function' is not defined.
-        if isinstance(exc, NameError) and str(exc) == "name 'Function' is not defined":
+        # sympy rewrites an unknown call to Function('name')(...); eval then
+        # raises NameError. Which name is undefined is in the source, not in
+        # the exception text, so do not match the message wording.
+        if isinstance(exc, NameError):
             names = _undefined_call_names(text)
             if names:
-                message = f"Undefined function in expression: {', '.join(names)}"
-            else:
-                message = "Undefined function in expression."
-            raise _SymbolicError("PARSE_ERROR", message) from exc
+                raise _SymbolicError("PARSE_ERROR", f"Undefined function in expression: {', '.join(names)}") from exc
         raise _SymbolicError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
 
     # parse_expr returns a Python str, list, tuple, or dict for quotes, brackets,
@@ -385,6 +378,8 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
     trimmed = _param_text(latex).strip()
     if not trimmed:
         raise _SymbolicError("MISSING_PARAM", "latex is required")
+    if len(trimmed) > _MAX_SYMBOLIC_EXPR_CHARS:
+        raise _SymbolicError("PARSE_ERROR", f"latex longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     if not any(cue in trimmed for cue in _LATEX_CUES):
         expr = _parse_expression(sp, trimmed)
         trimmed = _to_latex(sp, expr)
