@@ -24,7 +24,7 @@ def test_build_github_issue_url_encodes_title_and_body():
 def test_build_github_issue_url_truncates_long_body():
     long_extra = "x" * 10000
     url = br.build_github_issue_url(extra_body=long_extra, ctx=None)
-    assert len(url) < 12000
+    assert len(url) <= br._MAX_URL_CHARS
     assert "truncated" in url
 
 
@@ -35,16 +35,32 @@ def test_compose_issue_body_keeps_environment_header_when_traceback_is_long():
     body = br._compose_issue_body(header, rest, extra)
     assert body.startswith(header)
     assert "ValueError: sidebar send failed uniquely" in body
-    assert len(body) <= br._MAX_BODY_CHARS
+    assert len(br._issue_url(body, "")) <= br._MAX_URL_CHARS
 
 
 def test_build_github_issue_url_keeps_exception_tail():
     last = "ValueError: sidebar send failed uniquely"
     traceback_body = ("frame line\n" * 2000) + last
     url = br.build_github_issue_url(extra_body=traceback_body, ctx=None)
-    assert len(url) < 12000
+    assert len(url) <= br._MAX_URL_CHARS
     assert "truncated" in url
     assert "ValueError%3A+sidebar+send+failed+uniquely" in url or "ValueError%3A%20sidebar%20send%20failed%20uniquely" in url
+
+
+def test_build_github_issue_url_caps_encoded_multibyte_body():
+    url = br.build_github_issue_url(extra_body=("é" * 5000) + "\nValueError: boom", ctx=None)
+    assert len(url) <= br._MAX_URL_CHARS
+    assert "ValueError" in url
+
+
+def test_compose_issue_body_truncates_oversized_header():
+    header = "H" * 20000
+    rest = "### Description"
+    extra = "trace"
+    body = br._compose_issue_body(header, rest, extra)
+    assert len(br._issue_url(body, "")) <= br._MAX_URL_CHARS
+    assert body.startswith("H")
+    assert body.endswith("[truncated]")
 
 
 def test_collect_environment_block_includes_endpoint_and_model():
@@ -91,6 +107,25 @@ def test_collect_environment_block_prefers_debug_log_path():
                             block = f"{header}\n\n{rest}"
     assert "WriterAgent debug log: `/custom/path/writeragent_debug.log`" in block
     assert "/tmp/lo-user" not in block
+
+
+def test_issue_sections_redacts_endpoint_userinfo_and_query():
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_WRITERAGENT):
+        with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):
+            with patch("plugin.framework.config.get_current_endpoint", return_value="https://user:pass@api.example.com/v1?api_key=sekret99"):
+                with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                    header, _rest = br._issue_sections(ctx=None)
+    assert "sekret99" not in header
+    assert "pass@" not in header
+    assert "https://api.example.com/v1" in header
+
+
+def test_build_github_issue_url_redacts_configured_api_key():
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.example.com"):
+        with patch("plugin.framework.config.get_api_key_for_endpoint", return_value="sk-secret-1234"):
+            url = br.build_github_issue_url(extra_body="failed with key sk-secret-1234", ctx=None)
+    assert "sk-secret-1234" not in url
+    assert "redacted" in url
 
 
 def test_format_lo_version_prefers_about_with_suffix():

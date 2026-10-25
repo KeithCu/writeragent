@@ -5,7 +5,7 @@ from typing import Any
 
 from plugin.chatbot.history_db import get_chat_history
 
-log = logging.getLogger("plugin.chatbot.panel")
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +60,19 @@ class ChatSession:
             if self.db is None and self.base_system_prompt:
                 self.set_system_context(self.base_system_prompt, "")
         elif not self.messages and self.base_system_prompt:
-            self.set_system_context(self.base_system_prompt, "")
+            self._seed_system_message()
+
+    def _seed_system_message(self) -> None:
+        """Reset memory to just the system prompt and write history once."""
+        self.messages = []
+        self.document_context = ""
+        if not self.base_system_prompt:
             if self.db:
-                self.db.add_message("system", self.messages[0]["content"])
+                self.db.replace_messages([])
+            return
+        self.set_system_context(self.base_system_prompt, "")
+        if self.db:
+            self.db.replace_messages(list(self.messages))
 
     def set_system_context(self, base_prompt: str, doc_text: str = "") -> None:
         """Update the system prompt and document context, combining them into the first message."""
@@ -137,17 +147,9 @@ class ChatSession:
 
     def clear(self) -> None:
         """Reset to just the system prompt."""
-        self.messages = []
-        self.document_context = ""
         self.compaction = None
         # The next send advertises tools from these fields. Leaving the
         # previous delegate set meant Clear still offered that domain.
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        if self.db:
-            self.db.clear()
-            
-        if self.base_system_prompt:
-            self.set_system_context(self.base_system_prompt, "")
-            if self.db:
-                self.db.add_message("system", self.messages[0]["content"])
+        self._seed_system_message()
