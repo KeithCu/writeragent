@@ -1884,7 +1884,7 @@ class _ShapeProxy:
             index (optional): 0-based index of the shape on the page (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable.
             page (optional): 0-based page index (active page if omitted).
-            shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. polygons and symbols (octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon); stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
+            shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position (100ths of mm) (required only for action='create').
             y (optional): Y position (100ths of mm) (required only for action='create').
             width (optional): Width (100ths of mm) (required only for action='create').
