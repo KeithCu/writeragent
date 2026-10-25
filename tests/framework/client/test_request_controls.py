@@ -194,6 +194,20 @@ def test_request_model_from_body_reads_model_field():
     assert request_model_from_body(b"not-json") is None
 
 
+def test_host_gap_claims_do_not_both_see_zero_wait():
+    """Two jobs must not both observe a zero gap and send together."""
+    remember_host_gap("example.com", 5.0)
+    mark_host_sent("example.com", monotonic=lambda: 100.0)
+    first = _reserve_host_send_slot("example.com", monotonic=lambda: 100.0)[0]
+    second = _reserve_host_send_slot("example.com", monotonic=lambda: 100.0)[0]
+    assert first == 5.0
+    assert second == 10.0
+    # The later reservation must survive the first job recording its real send.
+    mark_host_sent("example.com", monotonic=lambda: 105.0)
+    # 105 is earlier than the second reservation (110). A third caller still waits.
+    assert _remaining("example.com", lambda: 105.0) == 10.0
+
+
 def test_host_gap_is_sticky_until_first_try_success():
     clock = {"t": 100.0}
 

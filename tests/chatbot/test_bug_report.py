@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot import bug_report as br
+from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 
 
 def test_build_github_issue_url_encodes_title_and_body():
@@ -43,6 +45,52 @@ def test_build_github_issue_url_keeps_exception_tail():
     assert len(url) < 12000
     assert "truncated" in url
     assert "ValueError%3A+sidebar+send+failed+uniquely" in url or "ValueError%3A%20sidebar%20send%20failed%20uniquely" in url
+
+
+def test_collect_environment_block_includes_endpoint_and_model():
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_WRITERAGENT):
+        with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):
+            with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.example.com"):
+                with patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"):
+                    with patch("plugin.framework.logging.get_debug_log_path", return_value=None):
+                        with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                            header, rest = br._issue_sections(ctx=None)
+                            block = f"{header}\n\n{rest}"
+    assert "Endpoint: https://api.example.com" in block
+    assert "Chat model: test-model" in block
+    assert "WriterAgent: 0.8.33" in block
+    # Production uses os.path.join; Windows CI failed on a hardcoded POSIX slash.
+    expected_log = os.path.join("/tmp/lo-user", "writeragent_debug.log")
+    assert f"WriterAgent debug log: `{expected_log}`" in block
+
+
+def test_collect_environment_block_librepy_uses_venv_path():
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_LIBREPY):
+        with patch("plugin.framework.config.get_config_str", return_value="/home/user/venv"):
+            with patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"):
+                with patch("plugin.framework.logging.get_debug_log_path", return_value=None):
+                    with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                        header, rest = br._issue_sections(ctx=MagicMock())
+                        block = f"{header}\n\n{rest}"
+    assert "LibrePy: 0.8.33" in block
+    assert "Python venv path: /home/user/venv" in block
+    assert "Endpoint:" not in block
+    assert "Chat model:" not in block
+    expected_log = os.path.join("/tmp/lo-user", "writeragent_debug.log")
+    assert f"LibrePy debug log: `{expected_log}`" in block
+
+
+def test_collect_environment_block_prefers_debug_log_path():
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_WRITERAGENT):
+        with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):
+            with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.example.com"):
+                with patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"):
+                    with patch("plugin.framework.logging.get_debug_log_path", return_value="/custom/path/writeragent_debug.log"):
+                        with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                            header, rest = br._issue_sections(ctx=None)
+                            block = f"{header}\n\n{rest}"
+    assert "WriterAgent debug log: `/custom/path/writeragent_debug.log`" in block
+    assert "/tmp/lo-user" not in block
 
 
 def test_format_lo_version_prefers_about_with_suffix():
