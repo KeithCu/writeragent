@@ -167,10 +167,8 @@ def _layout_manager(model: Any) -> Any | None:
         frame = controller.getFrame()
         if frame is None:
             return None
-        # XFrame exposes LayoutManager as a property; some builds also have getLayoutManager().
+        # XFrame exposes LayoutManager as a property.
         lm = getattr(frame, "LayoutManager", None)
-        if lm is None and hasattr(frame, "getLayoutManager"):
-            lm = frame.getLayoutManager()
         return lm
     except Exception:
         log.debug("review_toolbar: layout manager lookup failed", exc_info=True)

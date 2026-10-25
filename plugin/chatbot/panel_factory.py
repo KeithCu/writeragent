@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from weakref import WeakSet
 import hashlib
 import uuid
@@ -67,25 +67,23 @@ from plugin.framework.uno_context import get_extension_path, get_extension_url, 
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 # debug-only: omitted in release (thread_guard stub has no _designated_main_thread).
-_LIVE_CHAT_PANELS: WeakSet[Any] | None = None
+_LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
+_IS_TESTING_ENV: bool | None = None
 
 
-def _live_chat_panels() -> WeakSet[Any] | None:
-    global _LIVE_CHAT_PANELS
-    from plugin.chatbot.rich_text_control import _debug_env_active
+def _is_testing_env_active() -> bool:
+    global _IS_TESTING_ENV
+    if _IS_TESTING_ENV is None:
+        from plugin.chatbot.rich_text_control import _debug_env_active
 
-    if not _debug_env_active("WRITERAGENT_TESTING"):
-        return None
-    if _LIVE_CHAT_PANELS is None:
-        _LIVE_CHAT_PANELS = WeakSet()
-    return _LIVE_CHAT_PANELS
+        _IS_TESTING_ENV = _debug_env_active("WRITERAGENT_TESTING")
+    return _IS_TESTING_ENV
 
 
 def register_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release. Track a wired ChatPanelElement for mock-LLM tests."""
-    panels = _live_chat_panels()
-    if panels is not None and element is not None:
-        panels.add(element)
+    if element is not None:
+        _LIVE_CHAT_PANELS.add(element)
 
 
 def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
@@ -117,9 +115,8 @@ def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control
 
 def unregister_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release."""
-    panels = _live_chat_panels()
-    if panels is not None and element is not None:
-        panels.discard(element)
+    if element is not None:
+        _LIVE_CHAT_PANELS.discard(element)
 
 
 def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
@@ -156,10 +153,9 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
 
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
-    panels = _live_chat_panels()
-    if panels is None:
+    if not _is_testing_env_active():
         return []
-    return list(panels)
+    return list(_LIVE_CHAT_PANELS)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -173,14 +169,12 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.framework.sidebar_column import sidebar_column_width
 from plugin.framework.uno_listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document
-from plugin.doc.doc_type import get_document_type
 from plugin.doc.udprops import get_document_property, set_document_property
 
 # Explicit name: LibreOffice loads this file as a UNO component, so __name__
@@ -286,56 +280,37 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             self._in_hfw = False
 
     def _hfw_body(self, width: int) -> Any:
-        parent_rect = self.parent_window.getPosSize()
-        parent_w = parent_rect.Width
-        parent_h = parent_rect.Height
-        deck_w = width
+        from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
-        # Read current actual size *before* we decide.
-        before = None
-        current_h = 0
-        with suppress_disposed("getHeightForWidth getPosSize", logger=log):
-            before = self.PanelWindow.getPosSize()
-            current_h = before.Height if before else 0
+        (eff_w, _current_h), layout = apply_sidebar_height_for_width(
+            self.PanelWindow,
+            self.parent_window,
+            width,
+            min_w=self.getMinimalWidth(),
+        )
 
-        # Width is negotiated here; height stays whatever LO/deck already allocated.
-        if current_h <= 0:
-            current_h = parent_h if parent_h > 0 else 400
-
-        # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
-        min_w = self.getMinimalWidth()
-        eff_w = sidebar_column_width(deck_w, parent_w, min_w=min_w)
-
-        log.debug("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
-        rl = self.resize_listener
-        if rl is not None and hasattr(rl, "note_width_negotiated"):
-            with suppress_disposed("getHeightForWidth note_width_negotiated", logger=log):
-                rl.note_width_negotiated(eff_w)
-        with suppress_disposed("getHeightForWidth setPosSize", logger=log):
-            # Size the AWT dialog only, like last month. ChildFrame setPosSize is
-            # gtk_widget_set_size_request (a minimum); typing grew past it and we
-            # filled the new width (Keith: 995 → 1019).
-            self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
-            after = self.PanelWindow.getPosSize()
-            parent_after = self.parent_window.getPosSize()
-            log.info(
+        with suppress_disposed("getHeightForWidth log", logger=log):
+            after = self.PanelWindow.getPosSize() if self.PanelWindow else None
+            parent_after = self.parent_window.getPosSize() if self.parent_window else None
+            log.debug(
                 "getHeightForWidth root_after=%sx%s parent_after=%sx%s",
-                after.Width,
-                after.Height,
-                parent_after.Width,
-                parent_after.Height,
+                after.Width if after else None,
+                after.Height if after else None,
+                parent_after.Width if parent_after else None,
+                parent_after.Height if parent_after else None,
             )
 
+        rl = self.resize_listener
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 from plugin.chatbot.rich_text_control import log_rich_scroll
 
-                rich = rl._c.get("response_rich") if hasattr(rl, "_c") else None
+                rich = rl.get_control("response_rich") if hasattr(rl, "get_control") else None
                 log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
-                rl.relayout_now(self.PanelWindow)
+                rl.relayout_now(self.PanelWindow, viewport_w=eff_w)
                 log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
 
-        return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
+        return layout
 
     def getMinimalWidth(self) -> int:
         # XDL dlg:width=180 is AppFont, ~300px on this machine (Clear right=304).
@@ -352,6 +327,57 @@ def _is_sha256_hex(value: Any) -> bool:
     except ValueError:
         return False
     return True
+
+
+# NamedTuple, not @dataclass: pythonloader execs this component module without a
+# sys.modules entry, and dataclass() looks the module up there (unopkg add fails).
+class SessionIdPlan(NamedTuple):
+    session_id: str
+    fork_from: str | None
+    stamp_url: bool
+
+
+def plan_session_id(
+    stored_id: Any,
+    stored_url: Any,
+    url: str,
+    new_uuid: str,
+) -> SessionIdPlan:
+    stored_id_str = str(stored_id) if stored_id else ""
+    stored_url_str = str(stored_url) if stored_url else ""
+    url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
+
+    if not stored_id_str:
+        if url:
+            return SessionIdPlan(session_id=url_id, fork_from=None, stamp_url=True)
+        return SessionIdPlan(session_id=new_uuid, fork_from=None, stamp_url=False)
+
+    if not url:
+        return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=False)
+
+    # Fork only when the id has to change. Snapshot and replace
+    # the destination. When the id already names this file, update
+    # the stored URL and leave the rows alone. A regenerated sha256
+    # equal to the stored id that calls clear() before the copy
+    # reads the rows wipes the only history. A copied file whose
+    # stored id is a 64-hex digest but has no WriterAgentSessionURL
+    # skips the URL-change branch, then stamps the new URL onto that
+    # old id so the new file shares the old chat. A UUID from the
+    # first save of an untitled document is not a url-hash and must
+    # keep its history.
+    if stored_url_str:
+        if stored_url_str != url:
+            if url_id != stored_id_str:
+                return SessionIdPlan(session_id=url_id, fork_from=stored_id_str, stamp_url=True)
+            return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
+        return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=False)
+
+    if _is_sha256_hex(stored_id_str):
+        if stored_id_str != url_id:
+            return SessionIdPlan(session_id=url_id, fork_from=stored_id_str, stamp_url=True)
+        return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
+
+    return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
 
 
 def header_third_button_kind(model: Any) -> str:
@@ -432,6 +458,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     _frame_close_hook: Callable[[], None] | None
     _panel_resize_listener: Any
     _rich_control_listener: Any
+    _last_mode_labels: tuple[str, ...] | None
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
@@ -450,6 +477,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.send_listener = None
         self._panel_resize_listener = None
         self._rich_control_listener = None
+        self._last_mode_labels = None
         self._released = False
         self._current_mode = ""
         self._in_refresh_controls = False
@@ -598,6 +626,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 root.removeWindowListener(rl)
             if tp:
                 tp.resize_listener = None
+            rich_l = getattr(self, "_rich_control_listener", None)
+            if rich_l and root and hasattr(root, "removeWindowListener"):
+                root.removeWindowListener(rich_l)
+            self._rich_control_listener = None
 
         self.rich_text_widget = None
 
@@ -651,7 +683,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             root = self.m_panelRootWindow
             if not root or not hasattr(root, "getControl"):
                 return
-            from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
             def get_optional(name: str) -> Any:
                 return get_optional_control(root, name)
@@ -664,57 +695,44 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # sidebar mode restore, chk_voice sync, and the backend indicator,
             # leaving the config:changed handler prematurely.
             try:
-                current_model = get_text_model()
-                current_endpoint = get_current_endpoint()
-
-                # LRU plus provider defaults only, no catalog HTTP on this
-                # thread. populate_combobox_with_lru fetches /v1/models unless
-                # skip_remote_fetch is set. A dead endpoint then hangs the
-                # editor on every settings apply, and failures are not memoized.
-                # Match Settings/eval.
-                if model_selector:
-                    set_val = populate_combobox_with_lru(
-                        self.ctx, model_selector, current_model, "model_lru", current_endpoint,
-                        skip_remote_fetch=True,
-                    )
-                    if set_val != current_model:
-                        set_text_model(set_val, update_lru=False)
-
-                # Refresh visual (image) model via shared helper; persist correction if strict replaced value
-                if image_model_selector:
-                    current_image = get_image_model()
-                    set_image_val = populate_image_model_selector(
-                        self.ctx, image_model_selector, skip_remote_fetch=True,
-                    )
-                    if set_image_val != current_image:
-                        set_image_model(set_image_val, update_lru=False)
+                self._populate_model_combos(model_selector, image_model_selector)
             except Exception:
                 log.exception("_refresh_controls_from_config model/prompt refresh failed")
 
             chat_mode_selector = get_optional("chat_mode_selector")
             if chat_mode_selector:
                 with suppress_disposed("refresh chat_mode_selector from config", logger=log):
-                    from plugin.chatbot.chat_sidebar_mode import populate_mode_selector_with_flags, sidebar_mode_flags_for_doc_type
+                    from plugin.chatbot.chat_sidebar_mode import (
+                        get_mode_labels,
+                        mode_from_selector_with_flags,
+                        populate_mode_selector_with_flags,
+                        set_selector_mode_with_flags,
+                        sidebar_mode_flags_for_doc_type,
+                    )
 
                     model = self._get_document_model()
                     cached = self.send_listener.cached_doc_type if self.send_listener else None
                     from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
 
                     dt = cached or doc_type_label_for_enum(get_document_type(model))
-                    from plugin.chatbot.chat_sidebar_mode import (
-                        mode_from_selector_with_flags,
-                        set_selector_mode_with_flags,
-                    )
 
                     flags = sidebar_mode_flags_for_doc_type(dt)
+                    labels = tuple(get_mode_labels(flags))
                     # removeItems/addItems resets the combo to index 0 (Chat) and
                     # fires ChatModeListener. Capturing first, then restoring after
                     # populate, keeps Librarian/Web selected. The listener also
                     # bails out while _in_refresh_controls is set; both are required
                     # because a guarded listener still leaves the combo on Chat.
                     prior_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
-                    populate_mode_selector_with_flags(chat_mode_selector, flags)
-                    set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
+                    last_labels = getattr(self, "_last_mode_labels", None)
+                    if labels != last_labels:
+                        populate_mode_selector_with_flags(chat_mode_selector, flags)
+                        set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
+                        self._last_mode_labels = labels
+                    else:
+                        current_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
+                        if current_mode != prior_mode:
+                            set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
             # Keep sidebar Voice checkbox in sync with Settings → Speech (audio.tts_enabled).
             # Settings apply emits config:changed; without this, chk_voice stays at wire-time state.
             chk_voice = get_optional("chk_voice")
@@ -778,32 +796,48 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return get_document_from_frame(self.xFrame)
 
-    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any) -> None:
-        """Initializes model selectors and their sync listeners."""
+    def _populate_model_combos(self, model_selector: Any, image_model_selector: Any) -> None:
+        """Populate model and image model selectors and persist if values changed."""
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
         current_model = get_text_model()
         current_endpoint = get_current_endpoint()
 
-        # Keep catalog refresh off the main thread. The same populate path
-        # as config:changed, without skip_remote_fetch, fetches the model
-        # catalog on the UI thread and an unreachable endpoint freezes
-        # LibreOffice for the fetch timeout.
         if model_selector:
-            set_model_val = populate_combobox_with_lru(
-                self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+            # LRU plus provider defaults only, no catalog HTTP on this
+            # thread. populate_combobox_with_lru fetches /v1/models unless
+            # skip_remote_fetch is set. A dead endpoint then hangs the
+            # editor on every settings apply, and failures are not memoized.
+            # Match Settings/eval.
+            # Keep catalog refresh off the main thread. The same populate path
+            # as config:changed, without skip_remote_fetch, fetches the model
+            # catalog on the UI thread and an unreachable endpoint freezes
+            # LibreOffice for the fetch timeout.
+            set_val = populate_combobox_with_lru(
+                self.ctx,
+                model_selector,
+                current_model,
+                "model_lru",
+                current_endpoint,
                 skip_remote_fetch=True,
             )
-            if set_model_val != current_model:
-                set_text_model(set_model_val, update_lru=False)
+            if set_val != current_model:
+                set_text_model(set_val, update_lru=False)
 
         if image_model_selector:
+            # Refresh visual (image) model via shared helper; persist correction if strict replaced value
             current_image = get_image_model()
             set_image_val = populate_image_model_selector(
-                self.ctx, image_model_selector, skip_remote_fetch=True,
+                self.ctx,
+                image_model_selector,
+                skip_remote_fetch=True,
             )
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
+
+    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any) -> None:
+        """Initializes model selectors and their sync listeners."""
+        self._populate_model_combos(model_selector, image_model_selector)
 
         if model_selector:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -827,9 +861,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
-        from plugin.doc.doc_type import doc_type_label_for_enum
 
-        return sidebar_mode_flags_for_doc_type(doc_type_label_for_enum(get_document_type(model)))
+        label = getattr(self, "_doc_type_label", None)
+        if label is None:
+            from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
+
+            label = doc_type_label_for_enum(get_document_type(model))
+        return sidebar_mode_flags_for_doc_type(label)
 
     def _wire_chat_mode_ui(
         self,
@@ -841,7 +879,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model_selector: Any,
         image_model_selector: Any,
         model: Any,
-        toggle_image_ui: Callable[[bool], None] | None = None,
+        toggle_image_ui: Callable[[bool], None],
     ) -> tuple[str, SidebarModeFlags, Callable[[bool], None]]:
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, is_image_mode, librarian_default_mode, mark_librarian_invoked, populate_mode_selector_with_flags, set_selector_mode_with_flags
@@ -895,21 +933,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 aspect_ratio_selector.addItemListener(AspectListener())
 
-        if toggle_image_ui is None:
-            from plugin.chatbot.panel_wiring import make_toggle_image_ui
-
-            toggle_image_ui = make_toggle_image_ui(
-                self,
-                {
-                    "model_label": model_label,
-                    "model_selector": model_selector,
-                    "image_model_selector": image_model_selector,
-                    "aspect_ratio_selector": aspect_ratio_selector,
-                    "base_size_input": base_size_input,
-                    "base_size_label": base_size_label,
-                },
-            )
-
         mode_flags = self._sidebar_mode_flags(model)
         initial_mode = librarian_default_mode(self.ctx)
         if initial_mode == CHAT_MODE_LIBRARIAN:
@@ -918,6 +941,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if chat_mode_selector:
             with suppress_disposed("chat_mode_selector wire", logger=log, exc_info=True):
                 populate_mode_selector_with_flags(chat_mode_selector, mode_flags)
+                from plugin.chatbot.chat_sidebar_mode import get_mode_labels
+
+                self._last_mode_labels = tuple(get_mode_labels(mode_flags))
                 set_selector_mode_with_flags(chat_mode_selector, initial_mode, mode_flags)
                 toggle_image_ui(is_image_mode(initial_mode))
 
@@ -1047,69 +1073,49 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # ChatPanelElement already holds that context.
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "", ctx=self.ctx)
 
-        session_id = get_document_property(model, "WriterAgentSessionID")
+        stored_id = get_document_property(model, "WriterAgentSessionID")
+        stored_url = get_document_property(model, "WriterAgentSessionURL")
         url = ""
         if model is not None and hasattr(model, "getURL"):
             raw_url = model.getURL()
             url = raw_url if isinstance(raw_url, str) else ""
+
+        plan = plan_session_id(stored_id, stored_url, url, str(uuid.uuid4()))
+        session_id = str(stored_id) if stored_id else ""
         fork_failed = False
-        if session_id:
-            session_url = get_document_property(model, "WriterAgentSessionURL")
-            url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
-            # Fork only when the id has to change. Snapshot and replace
-            # the destination. When the id already names this file, update
-            # the stored URL and leave the rows alone. A regenerated sha256
-            # equal to the stored id that calls clear() before the copy
-            # reads the rows wipes the only history. A copied file whose
-            # stored id is a 64-hex digest but has no WriterAgentSessionURL
-            # skips the URL-change branch, then stamps the new URL onto that
-            # old id so the new file shares the old chat. A UUID from the
-            # first save of an untitled document is not a url-hash and must
-            # keep its history.
-            fork_to = ""
-            if session_url and url and session_url != url:
-                fork_to = url_id
-            elif (not session_url) and url_id and _is_sha256_hex(session_id) and session_id != url_id:
-                fork_to = url_id
-            if fork_to and fork_to != session_id:
-                log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", session_url, url)
-                old_session_id = session_id
-                try:
-                    from plugin.chatbot.history_db import fork_doc_chat_history
 
-                    fork_doc_chat_history(str(old_session_id), fork_to)
-                    fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
-                    if model:
-                        set_document_property(model, "WriterAgentSessionID", fork_to)
-                    # Id write succeeded, or there is no model to stamp.
-                    # Memory matches the document from here on. A URL write
-                    # failure leaves fork_failed set so the stamp below does
-                    # not run; the next open hits fork_to == session_id and
-                    # writes WriterAgentSessionURL. A failure before this
-                    # line keeps the old id and retries the fork.
-                    session_id = fork_to
-                    if model and url:
-                        set_document_property(model, "WriterAgentSessionURL", url)
-                except Exception:
-                    fork_failed = True
-                    log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
-            elif fork_to == session_id and model and url:
-                set_document_property(model, "WriterAgentSessionURL", url)
+        if plan.fork_from is not None:
+            old_session_id = plan.fork_from
+            fork_to = plan.session_id
+            log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", stored_url, url)
+            try:
+                from plugin.chatbot.history_db import fork_doc_chat_history
 
-        if not session_id:
-            if url:
-                session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
-            else:
-                session_id = str(uuid.uuid4())
+                fork_doc_chat_history(str(old_session_id), fork_to)
+                fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
+                if model:
+                    set_document_property(model, "WriterAgentSessionID", fork_to)
+                # Id write succeeded, or there is no model to stamp.
+                # Memory matches the document from here on. A URL write
+                # failure leaves fork_failed set so the stamp below does
+                # not run; the next open hits fork_to == session_id and
+                # writes WriterAgentSessionURL. A failure before this
+                # line keeps the old id and retries the fork.
+                session_id = fork_to
+                if model and url:
+                    set_document_property(model, "WriterAgentSessionURL", url)
+            except Exception:
+                fork_failed = True
+                log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
+        elif not session_id:
+            session_id = plan.session_id
             if model:
                 set_document_property(model, "WriterAgentSessionID", session_id)
-                if url:
+                if plan.stamp_url and url:
                     set_document_property(model, "WriterAgentSessionURL", url)
-        elif not fork_failed:
+        elif plan.stamp_url and not fork_failed:
             if model and url:
-                session_url = get_document_property(model, "WriterAgentSessionURL")
-                if not session_url:
-                    set_document_property(model, "WriterAgentSessionURL", url)
+                set_document_property(model, "WriterAgentSessionURL", url)
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
@@ -1125,7 +1131,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         )
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
+    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> Any:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
         if mode_flags is None:
             from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
@@ -1195,11 +1201,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 btn_ctrl.addActionListener(listener_obj)
 
         send_listener = None
+        self.send_listener = None
         try:
             # A constructor raise is caught below and wiring continues.
             # Query listeners bind to self.send_listener, so a previous
             # attempt's listener must not stay attached to the new query box.
-            self.send_listener = None
             send_listener = SendButtonListener(
                 self.ctx,
                 self.xFrame,
@@ -1220,6 +1226,54 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             # Save it to the instance so panel_wiring can use it for QueryTextListener
             self.send_listener = send_listener
+
+            # Document-type snapshot (Item 4: reuse self snapshot or probe fallback)
+            label = getattr(self, "_doc_type_label", None)
+            title = getattr(self, "_doc_type_title", None)
+            services = getattr(self, "_doc_uno_services", None)
+            if label is None or title is None or services is None:
+                try:
+                    from plugin.doc.doc_type import (
+                        doc_type_label_for_enum,
+                        doc_type_title_for_label,
+                        get_document_type,
+                        get_document_uno_services,
+                    )
+
+                    doc_type = get_document_type(model)
+                    label = doc_type_label_for_enum(doc_type)
+                    title = doc_type_title_for_label(label)
+                    services = get_document_uno_services(model)
+                except Exception as e:
+                    # Isolate the document-service query so Send and Stop
+                    # listeners are still attached. An exception here used to
+                    # abort the try that also called addActionListener.
+                    log.exception("Failed to query document type / UNO services for Send listener: %s", e)
+                    services = frozenset()
+                    # Bugfix: a failed probe used to store "writer" / "Writer".
+                    # When cached_uno_services is empty, tool_supports_document
+                    # refills services based on the doc_type label, which caused
+                    # Calc/Draw documents to be misfiltered as Writer.
+                    # Using "unknown" matches the label get_document_type returns
+                    # for DocumentType.UNKNOWN on the non-raising path, and
+                    # _get_document_model rejects it cleanly.
+                    if not label:
+                        label = "unknown"
+                        title = "Unknown"
+
+            send_listener.cached_doc_type = label
+            send_listener.initial_doc_type = title
+            send_listener.cached_uno_services = services
+            send_listener.sidebar_mode_flags = mode_flags
+
+            if controls.get("send"):
+                controls["send"].addActionListener(send_listener)
+                attach_record_mouse_listener(controls["send"], send_listener)
+
+            if controls.get("stop"):
+                controls["stop"].addActionListener(StopButtonListener(send_listener))
+                attach_stop_mouse_listener(controls["stop"], send_listener)
+
             register_debug_live_panel(self)
             from plugin.doc.live_panels import register_live_panel
 
@@ -1242,48 +1296,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             register_live_panel(self._live_panel_uid, self)
 
+        except Exception:
+            if send_listener is not None:
+                with suppress_disposed("disposing failed send_listener", logger=log):
+                    send_listener.disposing(None)
+            release_live_sidebar(self)
+            self.send_listener = None
+            raise
 
-
-            try:
-                from plugin.doc.doc_type import (
-                    doc_type_label_for_enum,
-                    doc_type_title_for_label,
-                    get_document_type,
-                    get_document_uno_services,
-                )
-
-                doc_type = get_document_type(model)
-                send_listener.cached_doc_type = doc_type_label_for_enum(doc_type)
-                send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
-                send_listener.cached_uno_services = get_document_uno_services(model)
-            except Exception as e:
-                # Isolate the document-service query so Send and Stop
-                # listeners are still attached. An exception here used to
-                # abort the try that also called addActionListener.
-                log.exception("Failed to query document type / UNO services for Send listener: %s", e)
-                send_listener.cached_uno_services = frozenset()
-                if not getattr(send_listener, "cached_doc_type", None):
-                    # Bugfix: a failed probe used to store "writer" / "Writer".
-                    # When cached_uno_services is empty, tool_supports_document
-                    # refills services based on the doc_type label, which caused
-                    # Calc/Draw documents to be misfiltered as Writer.
-                    # Using "unknown" matches the label get_document_type returns
-                    # for DocumentType.UNKNOWN on the non-raising path, and
-                    # _get_document_model rejects it cleanly.
-                    send_listener.cached_doc_type = "unknown"
-                    send_listener.initial_doc_type = "Unknown"
-
-            send_listener.sidebar_mode_flags = mode_flags
-
-            if controls.get("send"):
-                controls["send"].addActionListener(send_listener)
-                attach_record_mouse_listener(controls["send"], send_listener)
+        try:
             start_watchdog_thread(self.ctx, controls.get("status"))
-
-            if controls.get("stop"):
-                controls["stop"].addActionListener(StopButtonListener(send_listener))
-                attach_stop_mouse_listener(controls["stop"], send_listener)
-            send_listener._set_button_states(send_enabled=True, stop_enabled=False)
+            if send_listener is not None:
+                send_listener._set_button_states(send_enabled=True, stop_enabled=False)
             # Stop Rec (send) and Stop (leave hands-free / cancel) look alike;
             # tooltips explain them without longer labels at 1x.
             for btn_id, tip in (
@@ -1295,7 +1319,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 if btn_model is not None and hasattr(btn_model, "HelpText"):
                     btn_model.HelpText = tip
         except Exception:
-            log.exception("Send/Stop button wiring failed")
+            log.exception("Button tooltips or watchdog init failed")
 
         clear_listener = None
         from plugin.chatbot.chat_sidebar_mode import greeting_for_sidebar_mode
@@ -1352,6 +1376,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             toggle_image_ui,
             mode_flags,
         )
+        return send_listener
 
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):

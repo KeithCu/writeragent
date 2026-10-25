@@ -192,6 +192,18 @@ def test_footnotes_edit():
     note.setString.assert_called_with("New text")
     note.setLabel.assert_called_with("")
 
+
+def test_footnotes_edit_missing_text_and_label_reports_error():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    tool = FootnotesEdit()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(ctx, note="footnote", index=0)
+    assert res["status"] == "error"
+    assert "Provide text and/or label." in res["message"]
+
+
 def test_footnotes_delete():
     doc = MagicMock()
     doc.supportsService.return_value = True

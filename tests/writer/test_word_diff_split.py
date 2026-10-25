@@ -92,6 +92,20 @@ def test_split_change_non_str_new_and_bad_threshold():
     assert r.mode in ("surgical", "block")
     assert 0.0 <= r.fraction_changed <= 1.0
 
+
+def test_split_change_nan_and_inf_threshold_fallback():
+    old = "the quick brown fox jumps over the lazy dog today"
+    new = "the quick brown cat jumps over the lazy dog today"
+    # 1 word changed out of 10 -> fraction 0.2 <= 0.6 -> surgical under default
+    r_nan = split_change(old, new, threshold=float("nan"))
+    assert r_nan.mode == "surgical"
+
+    r_inf = split_change(old, new, threshold=float("inf"))
+    assert r_inf.mode == "surgical"
+
+    r_neginf = split_change(old, new, threshold=float("-inf"))
+    assert r_neginf.mode == "surgical"
+
 def test_single_word_changed_in_long_sentence_one_surgical_edit():
     old = "the quick brown fox jumps over the lazy dog today"
     new = "the quick brown cat jumps over the lazy dog today"

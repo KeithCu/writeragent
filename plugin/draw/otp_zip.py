@@ -24,7 +24,10 @@ READ_CHUNK = 64 * 1024
 
 def norm_zip_name(name: str) -> str:
     """Normalize ZIP member path for comparison (slashes, leading ./ and lowercase)."""
-    return name.replace("\\", "/").lstrip("./").lower()
+    n = name.replace("\\", "/")
+    while n.startswith("./"):
+        n = n[2:]
+    return n.lstrip("/").lower()
 
 
 def _find_member(zf: zipfile.ZipFile, name: str) -> str | None:

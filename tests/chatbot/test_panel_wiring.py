@@ -45,7 +45,7 @@ def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture)
 
 def test_measure_send_width_restores_label_when_pos_size_fails() -> None:
     """A width read must not leave the button on the last candidate label."""
-    from plugin.chatbot.panel_wiring import _measure_aux_button_max_width, _measure_send_button_max_width
+    from plugin.chatbot.panel_wiring import _measure_button_max_width
 
     def _ctrl(original: str) -> MagicMock:
         ctrl = MagicMock()
@@ -64,11 +64,11 @@ def test_measure_send_width_restores_label_when_pos_size_fails() -> None:
         return ctrl
 
     send = _ctrl("Keep send")
-    assert _measure_send_button_max_width(send, has_recording=False) is None
+    assert _measure_button_max_width(send, ["Send", "Accept"]) is None
     assert send.getModel.return_value.Label == "Keep send"
 
     aux = _ctrl("Keep aux")
-    assert _measure_aux_button_max_width(aux, ["Stop", "Change"]) is None
+    assert _measure_button_max_width(aux, ["Stop", "Change"]) is None
     assert aux.getModel.return_value.Label == "Keep aux"
 
 
@@ -100,7 +100,7 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         def _setup_sessions(self, *_args: object) -> None:
             return None
 
-        def _wire_buttons(self, controls: object, model: object, initial_mode: str, mode_flags: object, toggle_image_ui: object) -> None:
+        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
             self.captured = (controls, model, initial_mode, mode_flags, toggle_image_ui)
 
         def _update_backend_indicator(self, _root: object) -> None:
@@ -190,7 +190,7 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         def _setup_sessions(self, *_args: object) -> None:
             return None
 
-        def _wire_buttons(self, controls: object, model: object, initial_mode: str, mode_flags: object, toggle_image_ui: object) -> None:
+        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
             self.captured = (controls, model, initial_mode, mode_flags, toggle_image_ui)
 
         def _update_backend_indicator(self, _root: object) -> None:
@@ -282,4 +282,77 @@ def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
     controls["base_size_input"].setVisible.assert_called_with(False)
     controls["base_size_label"].setVisible.assert_called_with(False)
     rl.relayout_now.assert_called_with(root)
+
+
+def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
+    """Frame session listeners are installed even when rich text control is off."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.panel_wiring import _wireControls
+
+    class _Host:
+        ctx = object()
+        send_listener = None
+        frame_session = MagicMock()
+        toolpanel = None
+        m_panelRootWindow = None
+        xParentWindow = None
+
+        def _get_document_model(self) -> MagicMock:
+            return MagicMock()
+
+        def _wire_chat_mode_ui(self, *args, **kwargs) -> tuple[str, MagicMock, MagicMock]:
+            return ("chat", MagicMock(), MagicMock())
+
+        def _wire_model_selectors(self, *args, **kwargs) -> None:
+            pass
+
+        def _setup_sessions(self, *args, **kwargs) -> None:
+            pass
+
+        def _wire_buttons(self, *args, **kwargs) -> MagicMock:
+            return MagicMock()
+
+        def _update_backend_indicator(self, *args, **kwargs) -> None:
+            pass
+
+        def _on_config_changed(self, *args, **kwargs) -> None:
+            pass
+
+    _Host.frame_session.install.return_value = None
+    _Host.frame_session.set_focus_pin.return_value = None
+
+    def _ctrl(name: str) -> MagicMock:
+        ctrl = MagicMock(name=name)
+        rect = MagicMock()
+        rect.X = 0
+        rect.Y = 0
+        rect.Width = 10
+        rect.Height = 10
+        ctrl.getPosSize.return_value = rect
+        return ctrl
+
+    root = MagicMock()
+    root_rect = MagicMock()
+    root_rect.Width = 400
+    root_rect.Height = 600
+    root.getPosSize.return_value = root_rect
+    root.getControl.side_effect = _ctrl
+
+    host = _Host()
+    with (
+        patch("plugin.chatbot.panel_wiring.translate_dialog"),
+        patch("plugin.chatbot.panel_wiring.get_optional_control", side_effect=lambda _root, name: _ctrl(name)),
+        patch("plugin.chatbot.panel_wiring.get_config", return_value=""),
+        patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
+        patch("plugin.chatbot.panel_wiring.global_event_bus.subscribe"),
+        patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
+        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
+    ):
+        _wireControls(host, root, False, lambda _ctx: None)
+
+    host.frame_session.set_focus_pin.assert_called_once()
+    host.frame_session.install.assert_called_once()
+
 

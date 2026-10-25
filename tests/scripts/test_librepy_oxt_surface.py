@@ -262,6 +262,33 @@ def test_verify_librepy_archive_wrong_description_version(tmp_path: Path):
         verify_librepy_archive(str(zip_path), with_tests=False)
 
 
+def test_verify_librepy_archive_matches_version_not_platform_version(tmp_path: Path):
+    import zipfile
+    from plugin.version import EXTENSION_VERSION
+
+    zip_path = tmp_path / "platform_ver.oxt"
+    _create_synthetic_zip(zip_path)
+    # Synthetic zip with platform-version tag preceding version
+    desc_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<description xmlns="http://openoffice.org/extensions/description/2006">\n'
+        '  <platform-version value="99.0"/>\n'
+        f'  <version value="{EXTENSION_VERSION}"/>\n'
+        "</description>\n"
+    )
+    # Re-write zip with updated description.xml
+    entries = {}
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            entries[info.filename] = zf.read(info.filename)
+    entries["description.xml"] = desc_xml.encode("utf-8")
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+
+    verify_librepy_archive(str(zip_path), with_tests=False)
+
+
 def test_librepy_manifest_cmd_and_makefile_recipe():
     cmd = librepy_manifest_cmd(str(_REPO_ROOT))
     assert cmd.count("scripting") == 1

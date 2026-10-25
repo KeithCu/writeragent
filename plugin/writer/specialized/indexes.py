@@ -477,7 +477,6 @@ def _commit_toc_mutation(
     *,
     failure_message: str,
     failure_code: str = "TOOL_EXECUTION_ERROR",
-    fallback_message: str = "TOC entry update failed.",
     undo_unavailable_message: str = (
         "Cannot edit the TOC entry atomically (no usable undo context)."
     ),
@@ -692,7 +691,7 @@ def _single_toc_position(doc: Any) -> int | None:
         if index_kind_from_uno(indexes.getByIndex(i)) != "toc":
             continue
         if found is not None:
-            return found
+            return None
         found = i
     return found
 
@@ -1078,7 +1077,6 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             idx,
             mutate,
             failure_message="TOC entry delete failed; the change was rolled back (%s).",
-            fallback_message="TOC entry delete failed.",
         )
         if error is not None:
             return error
@@ -1236,7 +1234,6 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             idx,
             mutate,
             failure_message="TOC entry insert failed; the change was rolled back (%s).",
-            fallback_message="TOC entry insert failed.",
         )
         if error is not None:
             return error
@@ -1509,7 +1506,6 @@ class IndexesCreate(ToolWriterIndexBase):
                 index,
                 mutate,
                 failure_message="Failed to create index; the change was rolled back (%s).",
-                fallback_message="Failed to create index.",
                 undo_unavailable_message=(
                     "Cannot replace the matched text atomically (no usable undo context)."
                 ),

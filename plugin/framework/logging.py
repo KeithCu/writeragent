@@ -478,6 +478,12 @@ def init_logging(ctx: Any | None = None) -> None:
 
         if first_init:
             _install_global_exception_hooks()
+            try:
+                from plugin import audit_plugin_roots
+
+                audit_plugin_roots()
+            except Exception:
+                log.exception("plugin path audit failed")
 
 
 def _install_global_exception_hooks() -> None:

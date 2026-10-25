@@ -171,7 +171,10 @@ class FakeImpressDoc:
         return service == IMPRESS_DOCUMENT_SERVICE
 
 
-class FakeWebDoc:
+class FakeWebDoc(FakeWriterDoc):
+    def __init__(self, graphics: dict[str, object] | None = None, *, draw_page: FakeDrawPage | None = None):
+        super().__init__(graphics or {}, draw_page=draw_page)
+
     def supportsService(self, service: str) -> bool:
         return service in (WEB_DOCUMENT_SERVICE, WRITER_DOCUMENT_SERVICE)
 
@@ -295,6 +298,17 @@ def test_graphic_objects_in_selection_calc_single_only():
 
     doc.CurrentController.Selection = FakeSelection([g1])
     assert visual_helpers.graphic_objects_in_selection(doc) == [("A", g1)]
+
+
+def test_graphic_objects_in_selection_web_doc():
+    graphic = FakeGraphicShape("WebImage")
+    controller = FakeController(selection=FakeSelection([graphic]))
+    doc = FakeWebDoc({"WebImage": graphic})
+    doc.CurrentController = controller
+
+    assert visual_helpers.get_visual_doc_type(doc) == "web"
+    pairs = visual_helpers.graphic_objects_in_selection(doc)
+    assert pairs == [("WebImage", graphic)]
 
 
 def test_active_draw_page_resolves_calc_sheet_and_draw_current_page():

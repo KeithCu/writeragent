@@ -37,8 +37,7 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 from plugin.framework.queue_executor import run_on_main
-from plugin.framework.sidebar_column import sidebar_column_width
-from plugin.framework.uno_context import get_ctx, get_extension_url, property_arg
+from plugin.framework.uno_context import get_extension_url, property_arg
 
 if TYPE_CHECKING:
     from com.sun.star.uno import XInterface
@@ -95,29 +94,20 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         width = nWidth
         if not self.parent_window or not self.PanelWindow or width <= 0:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
-        parent_rect = self.parent_window.getPosSize()
-        parent_w = parent_rect.Width
-        parent_h = parent_rect.Height
-        current_h = 0
-        with suppress_disposed("getHeightForWidth getPosSize", logger=log):
-            before = self.PanelWindow.getPosSize()
-            current_h = before.Height if before else 0
-        if current_h <= 0:
-            current_h = parent_h if parent_h > 0 else 400
+        from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
-        # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
-        # Do not cap at 800px: HiDPI columns are often 900+.
-        min_w = self.getMinimalWidth()
-        eff_w = sidebar_column_width(width, parent_w, min_w=min_w)
-
-        log.debug("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s parent=%sx%s eff_w=%s", width, parent_w, parent_h, eff_w)
-        with suppress_disposed("getHeightForWidth setPosSize", logger=log):
-            self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
+        (eff_w, _current_h), layout = apply_sidebar_height_for_width(
+            self.PanelWindow,
+            self.parent_window,
+            width,
+            min_w=self.getMinimalWidth(),
+        )
+        log.debug("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s eff_w=%s", width, eff_w)
         rl = self.resize_listener
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 rl.relayout_now(self.PanelWindow)
-        return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
+        return layout
 
     def getMinimalWidth(self) -> int:
         return _PRE_NEGOTIATION_PANEL_WIDTH
@@ -144,20 +134,35 @@ class PythonPanelElement(unohelper.Base, XUIElement):
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self.toolpanel:
+            new_controller = None
             try:
                 # Dummy-N URP getRealInterface: hop path init + window create
                 # (get_extension_url is @main_thread_only) onto the VCL thread.
                 # Off-main AWT creation is a UNO thread violation and leaves
                 # black menus.
                 def _create_panel() -> None:
+                    nonlocal new_controller
+                    if self.toolpanel is not None:
+                        return
                     _ensure_paths(self.ctx)
                     root_window = self._getOrCreatePanelRootWindow()
-                    self.toolpanel = PythonToolPanel(root_window, self.xParentWindow)
+                    panel = PythonToolPanel(root_window, self.xParentWindow)
                     from plugin.librepy.python_sidebar import PythonSidebarController
 
-                    self.controller = PythonSidebarController(self.ctx, root_window, self.xFrame)
-                    self.toolpanel.resize_listener = getattr(self.controller, "resize_listener", None)
-                    log.info("[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)", root_window.getPosSize().Width)
+                    def _on_torn_down() -> None:
+                        self.toolpanel = None
+                        self.controller = None
+
+                    new_controller = PythonSidebarController(
+                        self.ctx,
+                        root_window,
+                        self.xFrame,
+                        on_torn_down=_on_torn_down,
+                    )
+                    panel.resize_listener = getattr(new_controller, "resize_listener", None)
+                    log.debug("[LIBREPY FIRST LAYOUT] (initial size on app start / sidebar show)")
+                    self.controller = new_controller
+                    self.toolpanel = panel
 
                 run_on_main(_create_panel)
             except Exception as e:
@@ -165,12 +170,9 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                 # failure before that leaves nothing latched, so the next
                 # getRealInterface retries instead of returning a half-built panel.
                 log.exception("PythonPanel getRealInterface failed")
-                self.toolpanel = None
-                controller = self.controller
-                self.controller = None
-                if controller is not None:
+                if new_controller is not None:
                     try:
-                        controller.disposing()
+                        new_controller.disposing(from_window=False)
                     except Exception:
                         log.debug("LibrePy sidebar cleanup after failed create", exc_info=True)
                 raise UnoObjectError("Failed to create LibrePy Python sidebar panel", details={"resource": self.ResourceURL}) from e
@@ -178,11 +180,11 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         return cast("XInterface", cast("object", self.toolpanel))
 
     def _getOrCreatePanelRootWindow(self) -> Any:
+        if self.ctx is None:
+            raise UnoObjectError("LibrePy panel creation requires valid ctx", details={"resource": self.ResourceURL})
         base_url = get_extension_url(self.ctx)
         dialog_url = base_url + "/" + XDL_PATH
         ctx = self.ctx
-        if ctx is None:
-            ctx = get_ctx()
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         panel_root_window = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         if not panel_root_window:
@@ -212,10 +214,11 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         # listener. This remains the explicit teardown of that same controller.
         try:
             if self.controller is not None:
-                self.controller.disposing()
+                self.controller.disposing(from_window=False)
         except Exception:
             log.debug("LibrePy sidebar element dispose failed", exc_info=True)
         self.controller = None
+        self.toolpanel = None
 
 
 class PythonPanelFactory(unohelper.Base, XUIElementFactory):

@@ -371,7 +371,7 @@ def _range_to_content_via_temp_doc(
         running = 0
 
         math_records: list[tuple[str, str, bool]] = []
-        while enum.hasMoreElements():
+        while enum.hasMoreElements() is True:
             el = enum.nextElement()
             if not hasattr(el, "getString"):
                 continue

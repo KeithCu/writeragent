@@ -87,9 +87,12 @@ class NavGotoPage(ToolWriterStructuralBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        page = kwargs["page"]
         controller = ctx.doc.getCurrentController()
         vc = controller.getViewCursor()
-        vc.jumpToPage(kwargs["page"])
+        ok = vc.jumpToPage(page)
+        if not ok:
+            return self._tool_error(f"Page {page} does not exist.")
         return {"status": "ok", "page": vc.getPage()}
 
 

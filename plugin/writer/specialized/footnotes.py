@@ -215,6 +215,8 @@ class FootnotesEdit(ToolWriterFootnoteBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        if "text" not in kwargs and "label" not in kwargs:
+            return self._tool_error("Provide text and/or label.")
         note_type = kwargs["note"]
         index = kwargs["index"]
         res = _note_at_index(self, ctx.doc, note_type, index)

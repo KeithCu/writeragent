@@ -48,6 +48,24 @@ def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
     assert res.error_message == "not_math_root"
 
 
+def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
+
+    mock_doc = MagicMock()
+    mock_doc.getPropertyValue.side_effect = RuntimeError("failed to read Formula")
+    mock_desktop = MagicMock()
+    mock_desktop.loadComponentFromURL.return_value = mock_doc
+
+    with patch("plugin.writer.math.math_mml_convert.get_desktop", return_value=mock_desktop):
+        res = convert_mathml_to_starmath(object(), "<math><mi>x</mi></math>")
+
+    assert res.ok is False
+    assert "failed to read Formula" in (res.error_message or "")
+    mock_doc.close.assert_called_once_with(True)
+
+
+
 
 
 class TestCollapseStarmathNewline:

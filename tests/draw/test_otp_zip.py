@@ -19,6 +19,9 @@ def test_norm_zip_name():
     assert norm_zip_name("Pictures\\Image.PNG") == "pictures/image.png"
     assert norm_zip_name("./Thumbnails/thumb.png") == "thumbnails/thumb.png"
     assert norm_zip_name("styles.xml") == "styles.xml"
+    assert norm_zip_name("./a") == "a"
+    assert norm_zip_name(".hidden") == ".hidden"
+    assert norm_zip_name("../a") == "../a"
 
 
 def test_find_member(tmp_path: Path):

@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 
 # Add project root to path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,7 @@ def collect_tools():
             pkg = importlib.import_module(pkg_name)
         except ImportError:
             continue
+        assert pkg.__file__ is not None
         pkg_path = os.path.dirname(pkg.__file__)
         for _imp, modname, _ispkg in pkgutil.iter_modules([pkg_path]):
             if modname.startswith("_"):
@@ -85,7 +87,8 @@ def ollama_stream(model, messages, tools, endpoint="http://localhost:11434"):
         body["tool_choice"] = "auto"
 
     data = json.dumps(body).encode("utf-8")
-    conn = http.client.HTTPConnection("localhost", 11434, timeout=300)
+    parsed = urllib.parse.urlsplit(endpoint)
+    conn = http.client.HTTPConnection(parsed.hostname or "localhost", parsed.port or 11434, timeout=300)
 
     t0 = time.perf_counter()
     conn.request("POST", "/v1/chat/completions", body=data,

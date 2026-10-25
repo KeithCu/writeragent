@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv.vision_docling import export_docling_to_html, extract_structure, extract_text
@@ -572,3 +574,12 @@ def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
         out = export_docling_to_html(obj, {})
     assert out == ""
     assert "lacks export_to_html" in caplog.text
+
+
+def test_module_yaml_layout_models_supported_in_od_presets():
+    yaml_path = Path(__file__).resolve().parents[3] / "plugin" / "vision" / "module.yaml"
+    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    options = data["config"]["layout_model"]["options"]
+    layout_values = [opt["value"] for opt in options]
+    for val in layout_values:
+        assert val in docling_mod._OD_LAYOUT_PRESETS
