@@ -23,7 +23,9 @@ We do **not** register Collabora's UNO package from the OXT (that would put a
 second function in the Function Wizard, even if DisplayName were ``GETPY``, and
 would collide with Collabora Office Classic if both shipped the same service).
 Instead, on document open we rewrite only the **prefix** to ``=PY(`` / ``=PYTHON(``
-so the existing writeragent add-in evaluates. Arguments are left untouched.
+so the existing writeragent add-in evaluates. Rewritten cells are recalculated
+on open, which runs their Python once (same as the Excel-PY apply path).
+Arguments are left untouched.
 
 If Collabora later aliases ``ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY`` in
 Core, this rewrite becomes unnecessary for Online→desktop; desktop→Online still
@@ -37,18 +39,17 @@ from __future__ import annotations
 
 import logging
 import re
-from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
-from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.framework.errors import best_effort, reraise_if_disposed
 
 log = logging.getLogger(__name__)
 
 # Core stores the service + IDL method, uppercased. Collabora's methods are the
 # usual scaddins ``get*`` shape; ours are ``py`` / ``python``.
 _COLLABORA_ADDIN_PREFIX = re.compile(
-    r"^(=\s*)ORG\.COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS\."
+    r"^(\s*\{?\s*=\s*)ORG\.COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS\."
     r"(GETPYTHON|GETPY)\s*\(",
     re.IGNORECASE,
 )
@@ -60,75 +61,22 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     """If *formula* is a Collabora pythoncompute OriginalName, return ``=PY(`` / ``=PYTHON(``.
 
     ``GETPY`` → ``PY`` (same display name Collabora uses). ``GETPYTHON`` → ``PYTHON``.
-    Whitespace after ``=`` is preserved. Non-matching formulas are returned unchanged
-    (after the same quote-normalize as other PY parsers).
+    The prefix (leading whitespace/optional ``{``, ``=``, spacing) is preserved,
+    the argument text is copied byte-for-byte. Non-matching formulas are returned unchanged.
     """
     if not formula:
         return formula
-    raw = normalize_formula_string(formula)
-    match = _COLLABORA_ADDIN_PREFIX.match(raw)
+    match = _COLLABORA_ADDIN_PREFIX.match(formula)
     if match is None:
         return formula
-    equals = match.group(1)
-    method = match.group(2).upper()
-    short = _SHORT_NAME_BY_METHOD.get(method, "PY")
-    return f"{equals}{short}(" + raw[match.end() :]
+    return match.group(1) + _SHORT_NAME_BY_METHOD[match.group(2).upper()] + "(" + formula[match.end() :]
 
 
 def is_collabora_py_formula(formula: str) -> bool:
     """True when *formula* uses Collabora's stored OriginalName (before rewrite)."""
     if not formula:
         return False
-    return _COLLABORA_ADDIN_PREFIX.match(normalize_formula_string(formula)) is not None
-
-
-@contextmanager
-def _hidden_undo(doc: Any) -> Iterator[None]:
-    """Do not put the compat rewrite on the undo stack as its own step."""
-    um = None
-    hidden = False
-    locked = False
-    try:
-        raw_doc = doc
-        try:
-            from plugin.framework.thread_guard import _unwrap_uno
-
-            raw_doc = _unwrap_uno(doc)
-        except Exception:
-            log.debug("collabora PY rewrite: unwrap undo doc failed", exc_info=True)
-        if hasattr(raw_doc, "getUndoManager"):
-            um = raw_doc.getUndoManager()
-            if um is not None:
-                try:
-                    if um.isUndoPossible():
-                        um.enterHiddenUndoContext()
-                        hidden = True
-                    elif hasattr(um, "lock"):
-                        um.lock()
-                        locked = True
-                except Exception:
-                    try:
-                        if hasattr(um, "lock"):
-                            um.lock()
-                            locked = True
-                    except Exception:
-                        log.debug("collabora PY rewrite: UndoManager.lock fallback failed", exc_info=True)
-    except Exception:
-        um = None
-    try:
-        yield
-    finally:
-        if um is not None:
-            if hidden:
-                try:
-                    um.leaveUndoContext()
-                except Exception:
-                    log.debug("collabora PY rewrite: leaveUndoContext failed", exc_info=True)
-            elif locked:
-                try:
-                    um.unlock()
-                except Exception:
-                    log.debug("collabora PY rewrite: UndoManager.unlock failed", exc_info=True)
+    return _COLLABORA_ADDIN_PREFIX.match(formula) is not None
 
 
 def _rewrite_sheet_formulas(sheet: Any) -> int:
@@ -136,20 +84,23 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
     changed = 0
     try:
         formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.debug("collabora PY rewrite: queryContentCells failed", exc_info=True)
         return 0
     if formula_cells is None:
         return 0
     try:
         count = int(formula_cells.getCount())
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return 0
 
     for i in range(count):
         try:
             cell_range = formula_cells.getByIndex(i)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("collabora PY rewrite: getByIndex(%s) failed", i, exc_info=True)
             continue
 
@@ -161,9 +112,11 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
                 try:
                     sheet.getCellByPosition(col, row).setFormula(new)
                     changed += 1
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     log.debug("collabora PY rewrite: setFormula failed", exc_info=True)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("collabora PY rewrite: formula range scan failed", exc_info=True)
             continue
     return changed
@@ -181,6 +134,8 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     still persists writeragent tokens (Collabora Online would then need a
     writeragent alias to evaluate those files).
     """
+    if doc is None:
+        return 0
     # auto_open returns when doc is None and logs a raised rewrite.
     if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         return 0
@@ -204,7 +159,10 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
         if hasattr(doc, "lockControllers"):
             doc.lockControllers()
             controllers_locked = True
-        with _hidden_undo(doc):
+        # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
+        from plugin.calc.python.function import _undo_lock
+
+        with _undo_lock(doc):
             sheets = doc.getSheets()
             for i in range(int(sheets.getCount())):
                 changed += _rewrite_sheet_formulas(sheets.getByIndex(i))
@@ -214,13 +172,9 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
                 doc.unlockControllers()
             except Exception:
                 log.debug("collabora PY rewrite: unlockControllers failed", exc_info=True)
-
-    if changed:
-        log.info("collabora PY rewrite: updated %s formula cell(s) to writeragent PY", changed)
-        if was_modified is not None:
-            try:
-                if hasattr(doc, "setModified"):
-                    doc.setModified(was_modified)
-            except Exception:
-                log.debug("collabora PY rewrite: setModified restore failed", exc_info=True)
+        if changed:
+            log.info("collabora PY rewrite: updated %s formula cell(s) to writeragent PY", changed)
+            best_effort(lambda: doc.calculateAll(), "calculateAll after Collabora PY rewrite")
+            if was_modified is not None:
+                best_effort(lambda: doc.setModified(was_modified), "collabora PY rewrite: setModified restore failed")
     return changed
