@@ -149,7 +149,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | LibreOffice `;` vs Excel `,` in formulas | Wrong AST / wrong Python | Normalize at ingest; corpus includes `.ods` and `.xlsx` |
 | Localized function names (`SOMME`, `WENN`) | Translator misses calls | Map via `FunctionOpCodeMapper` + English canonical names |
 | Array / matrix formulas | Low automation | Leave as Calc + TODO; document in report |
-| Circular references | Infinite recalc | Detect cycle in graph; skip with `CIRCULAR_REF` |
+| Circular references | Infinite recalc | Only true cycle cells are skipped with `CIRCULAR_REF`; cells downstream of a cycle convert normally and Calc propagates the error through the `data` range |
 | Float / date semantics | False verify failures | Use same rules as [calc-py-data-shapes](py-data-shapes.md#empty-cells-vs-nan) |
 | Main-thread UNO on large sheets | UI freeze | Batch reads (`getDataArray`); optional background ingest later |
 | 90% marketing vs reality | User trust | Report exact %; never silent fallback |
