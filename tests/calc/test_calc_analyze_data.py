@@ -18,8 +18,9 @@ from plugin.calc.analysis import (
     SolverTool,
     parse_output_anchor as _output_anchor,
     resolve_cell_address,
+    write_anchor_result,
 )
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
 
 
 @pytest.fixture
@@ -69,6 +70,92 @@ def _disposed():
         pass
 
     return DisposedException("Binary URP bridge disposed during call")
+
+
+@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+def test_analyze_data_sheet_write_failure_keeps_the_result(
+    mock_run_trusted,
+    mock_main_thread,
+    mock_insert,
+    calc_ctx,
+):
+    mock_run_trusted.return_value = {
+        "status": "ok",
+        "helper": "describe_data",
+        "metrics": {"row_count": 1},
+    }
+    mock_main_thread.side_effect = lambda fn, *a, **k: fn(*a, **k)
+    mock_insert.side_effect = RuntimeError("disk full")
+
+    result = AnalyzeDataTool().execute(
+        calc_ctx,
+        helper="describe_data",
+        data_range="A1:B2",
+        output_range="Sheet1.D1",
+    )
+
+    assert result["status"] == "ok"
+    assert result["sheet_write_error"] == "disk full"
+    assert result["metrics"] == {"row_count": 1}
+
+
+@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+def test_analyze_data_sheet_write_reraises_disposed(
+    mock_run_trusted,
+    mock_main_thread,
+    mock_insert,
+    calc_ctx,
+):
+    mock_run_trusted.return_value = {
+        "status": "ok",
+        "helper": "describe_data",
+        "metrics": {"row_count": 1},
+    }
+    mock_main_thread.side_effect = lambda fn, *a, **k: fn(*a, **k)
+    mock_insert.side_effect = _disposed()
+
+    with pytest.raises(DocumentDisposedError):
+        AnalyzeDataTool().execute(
+            calc_ctx,
+            helper="describe_data",
+            data_range="A1:B2",
+            output_range="Sheet1.D1",
+        )
+
+
+def test_write_anchor_result_records_ordinary_write_error(calc_ctx):
+    with patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=RuntimeError("disk full"),
+    ):
+        res = write_anchor_result(
+            calc_ctx,
+            {"status": "ok"},
+            "Sheet1.D1",
+            lambda *a, **k: None,
+        )
+    assert res["sheet_write_error"] == "disk full"
+    assert res["status"] == "ok"
+
+
+def test_write_anchor_result_reraises_disposed(calc_ctx):
+    with (
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=_disposed(),
+        ),
+        pytest.raises(DocumentDisposedError),
+    ):
+        write_anchor_result(
+            calc_ctx,
+            {"status": "ok"},
+            "Sheet1.D1",
+            lambda *a, **k: None,
+        )
 
 
 def test_goal_seek_reraises_disposed(calc_ctx):

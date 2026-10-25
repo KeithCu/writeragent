@@ -30,7 +30,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 ## Current Code State (grounded in actual implementation)
 
 **Existing narrow analysis (as of inspection of `plugin/calc/`):**
-- `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `analysis_client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). All under `specialized_domain = "analysis"` (`ToolCalcAnalysisBase` in `plugin/calc/base.py`).
+- `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `analysis_client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). These are `ToolBaseDummy` and are not registered for chat (see the module docstring).
 - `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
