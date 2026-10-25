@@ -2,10 +2,18 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Nested-table discovery, mutation guards, and host-cell paragraph read/write helpers for Writer documents."""
+"""Nested-table discovery, mutation guards, and host-cell paragraph read/write helpers.
+
+Host-cell contract: read and write use the same definition — the cell's direct
+paragraph children only. Tracked deletions are hidden on read
+(get_string_without_tracked_deletions), and frame text is not host text because
+the write cannot clear it. Nested tables are still discovered through frame
+portions. Callers run on the UI thread: the read helper is @main_thread_only.
+"""
 from typing import Any, Iterator
 
-from plugin.framework.errors import uno_probe
+from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.errors import ToolExecutionError, uno_probe
 
 # uno_probe default for sites where None is a real UNO result.
 _FAILED: Any = object()
@@ -30,17 +38,15 @@ def _is_text_table(obj: Any) -> bool:
 
 
 def _container_xtext(obj: Any) -> Any | None:
-    """Inner XText of a TextFrame or TextSection, else None.
+    """Inner XText of an as-character TextFrame, else None.
 
-    A table inside one of these still lives in the host cell — setString on
-    the cell would destroy it — so discovery walks through the container.
+    A table inside a frame still lives in the host cell — setString on the
+    cell would destroy it — so discovery walks into the frame. A TextSection
+    is a range of the same XText, not a separate one, so it is not a container.
     """
-    if not (
-        _service_named(obj, "com.sun.star.text.TextFrame")
-        or _service_named(obj, "com.sun.star.text.TextSection")
-    ):
+    if not _service_named(obj, "com.sun.star.text.TextFrame"):
         return None
-    return uno_probe(lambda: obj.getText() if hasattr(obj, "getText") else obj, obj)
+    return uno_probe(lambda: obj.getText(), None)
 
 
 def _safe_enumerate(obj: Any) -> Iterator[Any]:
@@ -52,11 +58,6 @@ def _safe_enumerate(obj: Any) -> Iterator[Any]:
     # never stops on MagicMock (AGENTS.md). A failed read ends the walk like the end does.
     while (element := uno_probe(lambda: enum.nextElement() if enum.hasMoreElements() is True else _FAILED, _FAILED)) is not _FAILED:
         yield element
-
-
-def _iter_direct_children(xtext: Any) -> Iterator[Any]:
-    """Yield each element of *xtext*'s XEnumeration (one level, no recurse)."""
-    return _safe_enumerate(xtext)
 
 
 def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
@@ -71,28 +72,35 @@ def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
             yield frame
 
 
-def _walk_xtext_siblings(xtext: Any, *, into_containers: bool = True) -> Iterator[tuple[str, Any]]:
-    """Yield ``('table', obj)`` or ``('para', obj)`` from *xtext*.
+def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator[Any]:
+    """Yield TextTables in *xtext*, following frame containers when asked.
 
-    When *into_containers* is true (cell / body), follow TextFrame /
-    TextSection siblings and as-character ``TextFrame`` portions. Once
-    inside a container, leave it false so the frame's own portions do not
-    re-enter the same frame (UNO hands back a new proxy each time).
+    When *into_containers* is true (cell / body), follow TextFrame siblings and
+    as-character TextFrame portions. Once inside a container, leave it false so
+    the frame's own portions do not re-enter the same frame (UNO hands back a
+    new proxy each time).
     """
-    for element in _iter_direct_children(xtext):
+    for element in _safe_enumerate(xtext):
         if _is_text_table(element):
-            yield ("table", element)
+            yield element
             continue
-        if into_containers:
-            inner = _container_xtext(element)
-            if inner is not None:
-                yield from _walk_xtext_siblings(inner, into_containers=False)
-                continue
-            for frame in _iter_text_frames_in_para(element):
-                nested = _container_xtext(frame)
-                if nested is not None:
-                    yield from _walk_xtext_siblings(nested, into_containers=False)
-        yield ("para", element)
+        if not into_containers:
+            continue
+        inner = _container_xtext(element)
+        if inner is not None:
+            yield from _iter_nested_tables(inner, into_containers=False)
+            continue
+        for frame in _iter_text_frames_in_para(element):
+            nested = _container_xtext(frame)
+            if nested is not None:
+                yield from _iter_nested_tables(nested, into_containers=False)
+
+
+def _host_paragraphs(cell: Any) -> Iterator[Any]:
+    """Direct paragraph children of a host cell (frame text is a different XText)."""
+    for element in _safe_enumerate(cell):
+        if not _is_text_table(element) and _service_named(element, "com.sun.star.text.Paragraph"):
+            yield element
 
 
 def _cell_hosted_table_names(cell: Any) -> list[str]:
@@ -104,10 +112,8 @@ def _cell_hosted_table_names(cell: Any) -> list[str]:
     not the whole document.
     """
     names: list[str] = []
-    for kind, obj in _walk_xtext_siblings(cell):
-        if kind != "table":
-            continue
-        nested_name = uno_probe(lambda: str(obj.getName() or ""), "")
+    for table in _iter_nested_tables(cell):
+        nested_name = uno_probe(lambda: str(table.getName() or ""), "")
         if nested_name:
             names.append(nested_name)
     return names
@@ -135,40 +141,30 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
     hosted = range_hosted_nested_tables(text_range)
     if not hosted:
         return
-    from plugin.framework.errors import ToolExecutionError
 
     raise ToolExecutionError(
         "This range is in a table cell that contains nested table(s) %s. "
         "Use table_set_cell for the host cell's own paragraphs, or "
-        "edit those tables by name — apply_document_content would delete them."
+        "edit those tables by name."
         % ", ".join(hosted)
     )
 
 
 def cell_plain_siblings(cell: Any) -> str:
-    """Host-cell paragraph text only — skips nested tables' getString() dump."""
-    parts: list[str] = []
-    for kind, obj in _walk_xtext_siblings(cell):
-        if kind != "para":
-            continue
-        part = uno_probe(lambda: obj.getString(), "")
-        if part:
-            parts.append(str(part))
-    return "\n".join(parts)
+    """Host-cell paragraph text; pending tracked deletions stay hidden."""
+    parts = [get_string_without_tracked_deletions(para) for para in _host_paragraphs(cell)]
+    return "\n".join(part for part in parts if part)
 
 
 def set_host_paragraphs(cell: Any, text: str) -> None:
     """Rewrite the cell's own paragraph siblings; leave tables and frames.
 
-    Direct children only — do not rewrite text inside a frame/section (that
-    would be a different XText). No paragraphs: insert at getStart() so a
+    Direct paragraphs only — frame text is a different XText and is not host
+    text, so it is neither read nor written. Blank paragraphs are dropped on
+    read, so they are not preserved. No paragraphs: insert at getStart() so a
     caption lands before a table that table_insert placed at getEnd().
     """
-    paras: list[Any] = []
-    for element in _iter_direct_children(cell):
-        if _is_text_table(element) or _container_xtext(element) is not None:
-            continue
-        paras.append(element)
+    paras = list(_host_paragraphs(cell))
     if not paras:
         cell.insertString(cell.getStart(), text, False)
         return

@@ -161,9 +161,14 @@ class FakeParagraph:
 
     def setString(self, value):
         self._text = value
+        self._portions = []
 
     def createEnumeration(self):
-        return FakeEnumeration(list(self._portions))
+        if self._portions:
+            return FakeEnumeration(list(self._portions))
+        if self._text:
+            return FakeEnumeration([FakePortion(TextPortionType="Text", Text=self._text)])
+        return FakeEnumeration([])
 
 
 class FakePortion:
@@ -174,6 +179,9 @@ class FakePortion:
         if key not in self._props:
             raise RuntimeError(key)
         return self._props[key]
+
+    def getString(self):
+        return str(self._props.get("Text", "") or "")
 
 
 class FakeTextFrame:
@@ -1465,7 +1473,7 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.table_nesting import _is_text_table, _iter_direct_children, _cell_hosted_table_names
+    from plugin.writer.table_nesting import _is_text_table, _safe_enumerate, _cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
@@ -1475,7 +1483,7 @@ def test_read_helpers_reraise_disposal():
     disposed_xtext = MagicMock()
     disposed_xtext.createEnumeration.side_effect = DisposedException("disposed")
     with pytest.raises(Exception):
-        list(_iter_direct_children(disposed_xtext))
+        list(_safe_enumerate(disposed_xtext))
 
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
