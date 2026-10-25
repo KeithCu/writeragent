@@ -15,6 +15,7 @@ from pytest import MonkeyPatch
 
 from plugin.vision.venv import vision_paddle as paddle_mod
 from plugin.vision.venv.vision_paddle import html_from_paddle_regions, html_from_paddle_structure
+from plugin.vision.vision_common import MAX_TABLE_ROWS
 
 _TABLE_HTML = "<html><body><table><tr><th>Item</th><th>Qty</th></tr><tr><td>Widget</td><td>2</td></tr></table></body></html>"
 
@@ -456,3 +457,87 @@ def test_decode_image_bytes_composites_transparent_image_onto_white():
     img.save(buf, format="PNG")
     arr = paddle_mod.decode_image_bytes(buf.getvalue())
     assert (arr == 255).all()
+
+
+def test_normalize_structure_pages_keeps_all_region_pages():
+    page1 = [{"type": "text", "bbox": [10, 10, 100, 30], "res": [{"text": "One"}]}]
+    page2 = [{"type": "text", "bbox": [10, 40, 100, 60], "res": [{"text": "Two"}]}]
+    blocks, tables, text_parts = paddle_mod._parse_structure_output(
+        paddle_mod._normalize_structure_pages([page1, page2])
+    )
+    assert text_parts == ["One", "Two"]
+
+
+def test_parse_structure_decodes_v3_payload_once():
+    with patch(
+        "plugin.vision.venv.vision_paddle._paddle_payload",
+        wraps=paddle_mod._paddle_payload,
+    ) as mock_payload:
+        paddle_mod._parse_structure_output([_Result(_v3_structure_payload())])
+        assert mock_payload.call_count == 1
+
+
+def test_html_table_parser_clamps_huge_spans():
+    html = '<table><tr><td rowspan="1000" colspan="1000">x</td></tr></table>'
+    table = paddle_mod._table_from_structure_res({"html": html}, name="t")
+    assert table is not None
+    assert len(table["columns"]) <= MAX_TABLE_ROWS
+    assert table["total_rows"] <= MAX_TABLE_ROWS
+
+
+def test_html_table_parser_nested_table_keeps_outer_row():
+    html = "<table><tr><td>outer<table><tr><td>inner</td></tr></table>tail</td><td>b</td></tr></table>"
+    table = paddle_mod._table_from_structure_res({"html": html}, name="t")
+    assert table is not None
+    assert table["columns"] == ["outer tail", "b"]
+    assert table["rows"] == []
+
+
+def test_html_table_parser_br_and_nbsp():
+    html = "<table><tr><td>Line&nbsp;one<br>Line two</td><td>x</td></tr></table>"
+    table = paddle_mod._table_from_structure_res({"html": html}, name="t")
+    assert table is not None
+    assert table["columns"] == ["Line one Line two", "x"]
+
+
+def test_decode_image_bytes_applies_images_scale():
+    img = Image.new("RGB", (10, 10), (128, 128, 128))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data = buf.getvalue()
+    assert paddle_mod.decode_image_bytes(data).shape == (10, 10, 3)
+    assert paddle_mod.decode_image_bytes(data, scale=2.0).shape == (20, 20, 3)
+    assert paddle_mod.decode_image_bytes(data, scale=0.5).shape == (5, 5, 3)
+
+
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
+def test_extract_text_passes_images_scale(mock_get_engine, mock_decode):
+    mock_get_engine.return_value = _PredictEngine([_Result(_v3_ocr_payload())])
+    mock_decode.return_value = MagicMock()
+
+    result = paddle_mod.extract_text(b"png-bytes", {"images_scale": 2.0})
+
+    mock_decode.assert_called_once_with(b"png-bytes", scale=2.0)
+    assert result["status"] == "ok"
+
+
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_pp_structure")
+def test_extract_structure_passes_images_scale(mock_get_engine, mock_decode):
+    mock_get_engine.return_value = _PredictEngine([_Result(_v3_structure_payload())])
+    mock_decode.return_value = MagicMock()
+
+    result = paddle_mod.extract_structure(b"png-bytes", {"images_scale": 2.0})
+
+    mock_decode.assert_called_once_with(b"png-bytes", scale=2.0)
+    assert result["status"] == "ok"
+
+
+def test_parse_ocr_v2_bad_confidence_does_not_abort():
+    regions, texts = paddle_mod._parse_ocr_v2_lines([
+        [_quad(1, 1, 4, 2), ("Hello", "N/A")],
+        [_quad(1, 5, 4, 2), ("World", None)],
+    ])
+    assert texts == ["Hello", "World"]
+    assert [region["confidence"] for region in regions] == [0.0, 0.0]
