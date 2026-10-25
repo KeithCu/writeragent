@@ -107,7 +107,7 @@ def test_resolve_dep_range_and_table() -> None:
     assert dep3.a1 == "A6:C10"
 
     # Suffix case folding still reaches the regex after the surface-shape gate.
-    # Table *name* lookup stays case-sensitive (``tables.get(name)``).
+    # Table *name* lookup is case-insensitive (an exact match wins).
     dep4 = resolve_dep("Table1[#all]", model)
     assert dep4.kind == "table_snapshot"
     assert dep4.a1 == "A1:D50"
@@ -144,6 +144,28 @@ def test_resolve_dep_range_and_table() -> None:
     res_spill_dollar = resolve_dep("'A$B'!A6#", model)
     assert res_spill_dollar.kind == "anchor_snapshot"
     assert res_spill_dollar.a1 == "'A$B'!A6:D20"
+
+
+def test_resolve_dep_table_name_case_insensitive() -> None:
+    model = DummyModel()  # type: ignore[assignment]
+    model.tables = {"tradeData": "Data!A1:AA10"}
+    for dep in ("tradeData[#All]", "TRADEDATA[#All]", "TradeData[#ALL]"):
+        resolved = resolve_dep(dep, model)
+        assert resolved.kind == "table_snapshot"
+        assert resolved.a1 == "Data!A1:AA10"
+    assert resolve_dep("nosuch[#All]", model).kind == "unresolved"
+
+    model.tables = {"Données": "Data!A1:B2"}
+    unicode_dep = resolve_dep("DONNÉES[#All]", model)
+    assert unicode_dep.kind == "table_snapshot"
+    assert unicode_dep.a1 == "Data!A1:B2"
+
+
+def test_resolve_dep_table_exact_name_wins_over_case_variant() -> None:
+    model = DummyModel()  # type: ignore[assignment]
+    model.tables = {"tradeData": "A1:A2", "TRADEDATA": "B1:B2"}
+    assert resolve_dep("TRADEDATA[#All]", model).a1 == "B1:B2"
+    assert resolve_dep("TradeData[#All]", model).kind == "table_snapshot"
 
 
 @pytest.mark.parametrize("dep", ["_", "[", "]", "\x00", "!", ":", "#", ""])
