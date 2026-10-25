@@ -246,3 +246,76 @@ def test_delegate_status_user_stopped_left_unchanged(
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
     assert result["error"] == "Task stopped by user."
+
+
+def test_draw_gateway_enum_filters_presentation_only_domains_by_doc_type() -> None:
+    import plugin.draw.headers_footers  # noqa: F401
+    import plugin.draw.notes  # noqa: F401
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+
+    gateway = DelegateToSpecializedDraw()
+    assert gateway.parameters is not None
+    assert "headers_footers" in gateway.parameters["properties"]["domain"]["enum"]
+    assert "speaker_notes" in gateway.parameters["properties"]["domain"]["enum"]
+
+    draw_params = gateway.get_parameters("draw")
+    assert draw_params is not None
+    assert "headers_footers" not in draw_params["properties"]["domain"]["enum"]
+    assert "speaker_notes" not in draw_params["properties"]["domain"]["enum"]
+
+    impress_params = gateway.get_parameters("impress")
+    assert impress_params is not None
+    assert "headers_footers" in impress_params["properties"]["domain"]["enum"]
+    assert "speaker_notes" in impress_params["properties"]["domain"]["enum"]
+
+    assert "headers_footers" in gateway.parameters["properties"]["domain"]["enum"]
+
+
+def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecializedWriter) -> None:
+    assert writer_gateway.parameters is not None
+    enum = writer_gateway.parameters["properties"]["domain"]["enum"]
+    assert enum == sorted(enum)
+    assert len(enum) == len(set(enum))
+    assert writer_gateway.get_parameters(None) is writer_gateway.parameters
+    assert writer_gateway.get_parameters("writer") == writer_gateway.parameters
+    assert writer_gateway.get_parameters(MagicMock()) is writer_gateway.parameters
+
+
+def test_delegate_completed_message_uses_static_msgid(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+
+    class _DummyStructuralTool(ToolWriterStructuralBase):
+        name = "dummy_structural_tool"
+        description = "A dummy structural tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(services={})
+    reg.register(_DummyStructuralTool())
+    reg.register(SpecializedWorkflowFinished())
+    reg.register(writer_gateway)
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.services = {"tools": reg}
+    ctx.stop_checker = lambda: False
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        tool_map["specialized_workflow_finished"](answer="Done")
+        return "All done."
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
+
+    assert result["status"] == "ok"
+    assert result["message"] == "Specialized task (structural) completed."
