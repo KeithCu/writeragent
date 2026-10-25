@@ -334,3 +334,80 @@ def test_prepare_vision_writer_insert_runtime_exception_is_not_document_disposed
             prepare_vision_writer_insert(doc, MagicMock())
     assert exc.value.code == "VISION_ERROR"
 
+
+def test_prepare_vision_writer_insert_reports_removed_named_graphic_without_scanning():
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    anchor = MagicMock()
+    text = MagicMock()
+    anchor_cursor = MagicMock()
+    text.createTextCursorByRange.return_value = anchor_cursor
+    anchor.getText.return_value = text
+
+    graphic = MagicMock()
+    graphic.getAnchor.return_value = anchor
+    graphic.getName.return_value = "Image1"
+
+    view_cursor = MagicMock()
+    window = MagicMock()
+    frame = MagicMock()
+    frame.getContainerWindow.return_value = window
+    dispatcher = MagicMock()
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = dispatcher
+    controller = MagicMock()
+    controller.getFrame.return_value = frame
+    controller.getViewCursor.return_value = view_cursor
+    anchor_cursor.getStart.return_value = "insert-start"
+
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    doc.getGraphicObjects.return_value.hasByName.return_value = False
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
+        "plugin.doc.visual_helpers.list_graphic_objects"
+    ) as mock_list, patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
+        with pytest.raises(ToolExecutionError) as exc:
+            prepare_vision_writer_insert(doc, ctx, image_name="Image1")
+
+    assert exc.value.code == "VISION_ERROR"
+    mock_list.assert_not_called()
+
+
+@patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
+@patch("plugin.writer.html_import.insert_html_at_cursor")
+@patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
+def test_insert_vision_result_into_writer_detects_removed_image_without_scanning(mock_prepare, _insert, _review):
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    cursor = MagicMock()
+    mock_prepare.return_value = cursor
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value.hasByName.return_value = False
+    result = {"status": "ok", "helper": "extract_text", "html": "<p>line</p>"}
+
+    with patch("plugin.doc.visual_helpers.list_graphic_objects") as mock_list:
+        with pytest.raises(ToolExecutionError) as exc:
+            insert_vision_result_into_writer(ctx, doc, result, params={"image_name": "Photo1"})
+
+    assert exc.value.code == "VISION_ERROR"
+    mock_list.assert_not_called()
+
+
+def test_prepare_vision_writer_insert_named_missing_graphic_is_image_not_found():
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc = MagicMock()
+    ctx = MagicMock()
+
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None):
+        with pytest.raises(ToolExecutionError) as exc:
+            prepare_vision_writer_insert(doc, ctx, image_name="Gone")
+
+    assert exc.value.code == "IMAGE_NOT_FOUND"
+    assert exc.value.details == {"image_name": "Gone"}
+
+
