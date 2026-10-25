@@ -680,6 +680,35 @@ def _chunk_text(text: str, max_chunk: int = 4000) -> list[str]:
     return chunks
 
 
+def _chunk_cut(text: str, max_chunk: int) -> int:
+    """Find the best cut index in text up to max_chunk characters."""
+    if len(text) <= max_chunk:
+        return len(text)
+    window = text[:max_chunk]
+    split_idx = -1
+    for match in _CHUNK_BREAK_RE.finditer(window):
+        split_idx = match.end()
+    if split_idx < max_chunk // 2:
+        split_idx = window.rfind(" ")
+        if split_idx <= 0:
+            split_idx = max_chunk
+    return split_idx
+
+
+def _endpoint_chunks(text: str) -> list[str]:
+    """Split text for endpoint speech into pieces.
+
+    Replies <= 4000 chars are split with _chunk_text(text, 4000). Longer replies
+    use a first chunk capped near 600 characters followed by 4000-character chunks.
+    """
+    if len(text) <= 4000:
+        return _chunk_text(text, 4000)
+    cut = _chunk_cut(text, 600)
+    first = text[:cut].strip()
+    rest = text[cut:].strip()
+    return [first] + _chunk_text(rest, 4000)
+
+
 def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) -> None:
     """Speak text using built-in OS speech synthesis utilities."""
     if _playback_blocked(generation):
@@ -1392,31 +1421,135 @@ def _speak_endpoint(
     if _playback_blocked(generation):
         return
 
-    # Hosted /audio/speech rejects inputs around 4096 characters. One POST of
-    # a long reply used to 400 and fall back to OS speech for the whole thing.
-    chunks = _chunk_text(text, 4000)
-    for index, chunk in enumerate(chunks):
+    chunks = _endpoint_chunks(text)
+    if not chunks:
+        return
+
+    def stop_checker() -> bool:
+        return _playback_blocked(generation)
+
+    if len(chunks) == 1:
+        chunk = chunks[0]
+        clip = _download_endpoint_speech(
+            chunk,
+            endpoint_url,
+            api_key,
+            model,
+            voice,
+            speed=speed,
+            on_status=on_status,
+            stop_checker=stop_checker,
+        )
         if _playback_blocked(generation):
             return
-        # Pass on_status on every chunk: later chunks only hit on_status for a
-        # failed or empty download, and chunk 0 already shows that line.
-        wav_path = _download_endpoint_speech(
-            chunk, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
-            on_status=on_status,
-        )
         played = False
-        if wav_path:
-            try:
-                played = _play_audio_file(wav_path, generation=generation)
-            finally:
-                _release_temp(wav_path)
+        if clip:
+            tmp_path = _new_speech_temp(clip.suffix, generation)
+            if tmp_path is None:
+                if not _playback_blocked(generation):
+                    _notify_tts_status(_("Could not save speech audio."), on_status)
+                played = False
+            else:
+                try:
+                    with open(tmp_path, "wb") as f_out:
+                        f_out.write(clip.audio)
+                    played = _play_audio_file(tmp_path, generation=generation)
+                except OSError:
+                    log.exception("Could not write TTS audio to %s", tmp_path)
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    played = False
+                finally:
+                    _release_temp(tmp_path)
         if _playback_blocked(generation):
             return
         if played is False:
-            rest = " ".join(chunks[index:])
             log.warning("Endpoint TTS failed; falling back to OS system speech.")
-            _speak_system(rest, speed=speed, generation=generation)
+            _speak_system(chunk, speed=speed, generation=generation)
+        return
+
+    # Two or more chunks: pipeline prefetching
+    eff_gen = _speech_generation if generation is None else generation
+    global _ready_queue
+    with _speech_lock:
+        if _playback_blocked_locked(generation):
             return
+        ready = _ReadyQueue(SPEECH_READY_MAX_CLIPS, SPEECH_READY_MAX_BYTES)
+        _ready_queue = ready
+
+    def _produce() -> None:
+        try:
+            for index, chunk in enumerate(chunks):
+                if _playback_blocked(generation):
+                    return
+                clip = _download_endpoint_speech(
+                    chunk,
+                    endpoint_url,
+                    api_key,
+                    model,
+                    voice,
+                    speed=speed,
+                    on_status=on_status,
+                    stop_checker=stop_checker,
+                )
+                if _playback_blocked(generation):
+                    return
+                if clip is None:
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                tmp_path = _new_speech_temp(clip.suffix, generation)
+                if tmp_path is None:
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                try:
+                    with open(tmp_path, "wb") as f_out:
+                        f_out.write(clip.audio)
+                except OSError:
+                    log.exception("Could not write TTS audio to %s", tmp_path)
+                    _release_temp(tmp_path)
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio), False), eff_gen):
+                    _release_temp(tmp_path)
+                    return
+        except Exception:
+            log.exception("TTS endpoint prefetch thread failed")
+        finally:
+            ready.close()
+
+    run_in_background(_produce, dedicated=True, name="tts-endpoint-prefetch")
+    try:
+        while True:
+            item = ready.get(eff_gen)
+            if item is None:
+                break
+            try:
+                played = False
+                if item.path:
+                    played = _play_audio_file(item.path, generation=generation)
+                    if played is False and not _playback_blocked(generation):
+                        _speak_system(item.text, speed=speed, generation=generation)
+                elif item.speak_system and not _playback_blocked(generation):
+                    _speak_system(item.text, speed=speed, generation=generation)
+            finally:
+                _release_temp(item.path)
+    finally:
+        ready.close()
+        for path in ready.drain():
+            _unlink_quiet(path)
+        with _speech_lock:
+            if _ready_queue is ready:
+                _ready_queue = None
 
 
 def speak_text_async(
