@@ -1044,3 +1044,36 @@ def test_commit_toc_mutation_success():
         failure_message="Edit failed: %s",
     )
     assert res is None
+
+
+def test_single_toc_position_two_tocs_returns_none():
+    from plugin.writer.specialized.indexes import _single_toc_position
+
+    doc = MagicMock()
+    indexes = MagicMock()
+    indexes.getCount.return_value = 2
+    toc1 = MagicMock()
+    toc1.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    toc2 = MagicMock()
+    toc2.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    indexes.getByIndex.side_effect = lambda i: [toc1, toc2][i]
+    doc.getDocumentIndexes.return_value = indexes
+
+    assert _single_toc_position(doc) is None
+
+
+def test_single_toc_position_single_toc_returns_index():
+    from plugin.writer.specialized.indexes import _single_toc_position
+
+    doc = MagicMock()
+    indexes = MagicMock()
+    indexes.getCount.return_value = 2
+    bib = MagicMock()
+    bib.getServiceName.return_value = "com.sun.star.text.Bibliography"
+    toc = MagicMock()
+    toc.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    indexes.getByIndex.side_effect = lambda i: [bib, toc][i]
+    doc.getDocumentIndexes.return_value = indexes
+
+    assert _single_toc_position(doc) == 1
+

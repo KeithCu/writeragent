@@ -35,7 +35,7 @@ def create_mock_style(name, display_name=None, is_in_use=False, is_user_defined=
     props = {
         "DisplayName": display_name or name,
         "IsPhysical": is_physical,
-        "IsHidden": is_hidden,
+        "Hidden": is_hidden,
         "ParentStyle": "Default",
         "Category": category if category is not None else 0,  # Default to TEXT
     }
@@ -113,6 +113,22 @@ def test_list_styles_filtering():
     assert "Standard" not in names
     assert "Default Paragraph Style" not in names
     assert res["count"] == 4
+
+
+def test_list_styles_filters_hidden_style():
+    """Styles with UNO property Hidden=True must be filtered out by the auto filter."""
+    visible = create_mock_style("VisibleStyle", is_in_use=True)
+    hidden = create_mock_style("HiddenStyle", is_in_use=True, is_hidden=True)
+    mock_ctx = _ctx_with_families(
+        ParagraphStyles=_style_family({"VisibleStyle": visible, "HiddenStyle": hidden}),
+        CharacterStyles=_style_family({}),
+        PageStyles=_style_family({}),
+    )
+    res = StyleList().execute(mock_ctx, family="ParagraphStyles")
+    assert res["status"] == "ok"
+    names = [s["name"] for s in res["styles"]]
+    assert "VisibleStyle" in names
+    assert "HiddenStyle" not in names
 
 
 def test_list_character_styles():

@@ -346,10 +346,12 @@ class DocumentPersistence:
         with self._lock:
             if self._teardown_done:
                 return
-            if self._model is not None:
-                self._load_done.wait()
-                return
-            self._model = model
+            already = self._model is not None
+            if not already:
+                self._model = model
+        if already:
+            self._load_done.wait()
+            return
         try:
             self._load_from_udprops()
         finally:

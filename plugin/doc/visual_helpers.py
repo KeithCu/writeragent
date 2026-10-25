@@ -492,7 +492,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
         if not selection:
             return []
 
-        if get_visual_doc_type(doc) != "writer":
+        if get_visual_doc_type(doc) not in ("writer", "web"):
             graphic = selected_graphic_object(doc)
             if graphic is None:
                 return []

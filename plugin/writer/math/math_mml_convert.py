@@ -146,9 +146,9 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
         doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
         if doc is None:
             return MathConversionResult(False, None, "load_returned_none")
-        formula = doc.getPropertyValue("Formula")
-        assert isinstance(formula, str)
         try:
+            formula = doc.getPropertyValue("Formula")
+            assert isinstance(formula, str)
             if not formula.strip():
                 return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
             _formula_stripped = formula.strip()

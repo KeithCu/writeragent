@@ -7,7 +7,7 @@ import pytest
 from plugin.doc.document_helpers import DocumentService
 from plugin.framework.errors import ToolExecutionError
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
-from plugin.writer.structural import CloneHeadingBlock, _resolve_para_index
+from plugin.writer.structural import CloneHeadingBlock, NavGotoPage, _resolve_para_index
 
 
 def _doc():
@@ -268,4 +268,32 @@ def test_get_page_objects_disposal_and_error_handling(caplog):
     assert len(res["images"]) == 1
     assert res["images"][0]["name"] == "G1"
     assert any("Failed to scan graphic object 'G2'" in rec.message for rec in caplog.records)
+
+
+def test_nav_goto_page_success():
+    vc = MagicMock()
+    vc.jumpToPage.return_value = True
+    vc.getPage.return_value = 3
+    doc = MagicMock()
+    doc.getCurrentController.return_value.getViewCursor.return_value = vc
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    res = NavGotoPage().execute(ctx, page=3)
+    assert res == {"status": "ok", "page": 3}
+    vc.jumpToPage.assert_called_once_with(3)
+
+
+def test_nav_goto_page_failed_jump_reports_error():
+    vc = MagicMock()
+    vc.jumpToPage.return_value = False
+    doc = MagicMock()
+    doc.getCurrentController.return_value.getViewCursor.return_value = vc
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    res = NavGotoPage().execute(ctx, page=99)
+    assert res["status"] == "error"
+    assert "Page 99 does not exist." in res["message"]
+
 

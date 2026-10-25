@@ -36,6 +36,23 @@ def test_sentence_cache_roundtrip() -> None:
     assert got == errors
     assert gc.cache_get_sentence("fr-FR", "Hello world.") is None
 
+
+def test_cache_get_sentence_returns_deep_copy() -> None:
+    """Mutating a returned error dict or suggestions must not mutate the cached entry."""
+    errors = [{"n_error_start": 0, "n_error_length": 5, "suggestions": ["first"]}]
+    gc.cache_put_sentence("en-US", "Hello copy test.", errors)
+
+    got1 = gc.cache_get_sentence("en-US", "Hello copy test.")
+    assert got1 is not None
+    got1[0]["n_error_start"] = 999
+    got1[0]["suggestions"].append("second")
+
+    got2 = gc.cache_get_sentence("en-US", "Hello copy test.")
+    assert got2 is not None
+    assert got2[0]["n_error_start"] == 0
+    assert got2[0]["suggestions"] == ["first"]
+
+
 def test_sentence_cache_trailing_whitespace() -> None:
     """'Hello.' and 'Hello. ' share the same cache key (preserved behavior)."""
     gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 0, "n_error_length": 5}])

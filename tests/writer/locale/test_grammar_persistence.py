@@ -900,4 +900,50 @@ class TestGrammarPersistence:
         finally:
             gp.grammar_registry.clear_all(ctx)
 
+    def test_bind_model_concurrent_load_no_deadlock(self) -> None:
+        """_bind_model must not hold _lock while waiting for concurrent _load_from_udprops."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model1 = MagicMock()
+        model2 = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            dp = gp.DocumentPersistence(ctx, "doc-deadlock-test")
+
+            load_started = threading.Event()
+            load_blocker = threading.Event()
+            orig_load = dp._load_from_udprops
+
+            def blocking_load() -> None:
+                load_started.set()
+                load_blocker.wait(timeout=5)
+                orig_load()
+
+            object.__setattr__(dp, "_load_from_udprops", blocking_load)
+
+            t1 = threading.Thread(target=dp._bind_model, args=(model1,))
+            t2 = threading.Thread(target=dp._bind_model, args=(model2,))
+
+            t1.start()
+            assert load_started.wait(timeout=5)
+
+            # Second thread calls _bind_model while t1 is inside _load_from_udprops
+            t2.start()
+
+            # Small sleep to ensure t2 has called _bind_model and reached _load_done.wait()
+            import time
+            time.sleep(0.05)
+
+            # Release the load blocker; t1 proceeds to take _lock and finish.
+            load_blocker.set()
+
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+            assert not t1.is_alive()
+            assert not t2.is_alive()
+        finally:
+            gp.grammar_registry.clear_all(ctx)
+
+
 

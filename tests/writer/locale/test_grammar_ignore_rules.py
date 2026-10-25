@@ -107,6 +107,8 @@ class TestGrammarIgnoreRules:
         assert (normalize_reason("  Avoid    passive   voice. ")) == ("avoid passive voice")
         assert (normalize_reason("Use 'an' instead of 'a' before vowel sounds.")) == ("use an instead of a before vowel sounds")
         assert (normalize_reason("Is this a question? Yes!")) == ("is this a question yes")
+        assert (normalize_reason("Vérifiez l'accord en genre et en nombre.")) == ("vérifiez laccord en genre et en nombre")
+        assert (normalize_reason("Mögliche falsche Großschreibung: Straße.")) == ("mögliche falsche großschreibung straße")
         assert (normalize_reason("")) == ("")
 
     def test_document_persistence_stores_and_saves_ignored_rules(self) -> None:
