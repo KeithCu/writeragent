@@ -41,6 +41,11 @@ def _all_tool_classes():
     return out
 
 
+def _subclasses_in_tests(base):
+    """Direct subclasses of *base* defined in test modules (what the catalog walk sees)."""
+    return [c for c in base.__subclasses__() if str(getattr(c, "__module__", "")).startswith(("tests.", "test_"))]
+
+
 def _app_bases():
     import plugin.calc  # noqa: F401
     import plugin.draw  # noqa: F401
@@ -257,8 +262,11 @@ def test_catalog_domains_have_tools_or_marker_allowlist(label):
     app_tools = [t for t in all_tools if issubclass(t, bases[label]) and not issubclass(t, ToolBaseDummy)]
     tool_domains = {getattr(t, "specialized_domain", None) for t in app_tools}
 
+    # Test-module tool classes (e.g. tests/framework/test_tool.py's styles_peer_test) stay in
+    # __subclasses__() until garbage collected, so the catalog can still list their domains.
+    fixture_domains = {getattr(t, "specialized_domain", None) for t in _subclasses_in_tests(bases[label])}
     allowlist = _MARKER_ALLOWLIST[label]
-    for domain in cat_domains:
+    for domain in cat_domains - fixture_domains:
         assert domain in allowlist or domain in tool_domains, (
             f"{label}: Catalog domain {domain!r} has no concrete tools and is not in marker allowlist"
         )
