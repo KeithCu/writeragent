@@ -732,6 +732,28 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     cursor.goRight.assert_called()
 
 
+def test_insert_stdout_paragraph_does_not_split_long_stdout_in_empty_paragraph():
+    from plugin.notebook.notebook_runner import _insert_stdout_paragraph
+
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    cursor = MagicMock()
+    cursor.getString.return_value = ""
+    cursor.ParaStyleName = "Preformatted Text"
+    text = MagicMock()
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._split_if_stdout_mashed_onto_chrome") as split,
+        patch("plugin.notebook.notebook_runner._reanchor_output_bookmark"),
+        patch("plugin.notebook.notebook_runner._collapse_leading_empty_paragraphs"),
+    ):
+        _insert_stdout_paragraph(doc, cell, cursor, "x" * 40_000, "Preformatted Text", "WriterAgent Notebook In")
+
+    split.assert_not_called()
+    text.insertString.assert_called_once()
+
+
 def test_gutter_text_cursor_stops_before_frame_portion():
     """setString must not cover AS_CHARACTER ControlShapes (▶ / code field)."""
     text_portion = MagicMock(name="text_portion")
@@ -1810,4 +1832,40 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
         "out: print('hello 1')",
         "out: print('hello 2')",
     ]
+
+
+def test_request_stop_while_idle_creates_no_state():
+    from plugin.notebook import notebook_runner
+
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    notebook_runner._running_docs.clear()
+    notebook_runner._stop_flags.clear()
+    request_stop(doc)
+    assert notebook_runner._running_docs == set()
+    assert notebook_runner._stop_flags == {}
+
+
+def test_run_cell_leaves_no_stop_state():
+    from plugin.notebook import notebook_runner
+
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    notebook_runner._running_docs.clear()
+    notebook_runner._stop_flags.clear()
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
+        patch("plugin.notebook.notebook_runner.execute_code", return_value={"status": "ok", "result": None, "stdout": "1\n"}),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+    ):
+        assert run_cell(ctx, doc, cell.cell_id).status == "ok"
+    assert notebook_runner._running_docs == set()
+    assert notebook_runner._stop_flags == {}
 
