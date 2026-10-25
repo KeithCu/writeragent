@@ -33,8 +33,8 @@ from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DE
 MAX_COL = 16383
 MAX_ROW = 1_048_575
 
-# Pattern for scanning cell tokens in formulas (not a validator; accepts optional $).
-# Token boundaries keep function names (LOG10(), named ranges, and the Sheet1 half of Sheet1.A1 out; it is still a scanner, not a row/column-limit validator.
+# Scans cell tokens in formulas (optional $). The boundaries skip function names
+# like LOG10(, named ranges like SALES2024, and the Sheet1 of Sheet1.A1. Not a validator.
 A1_CELL_RE = re.compile(
     r"(?<![A-Z0-9_$])\$?([A-Z]{1,3})\$?([1-9][0-9]{0,6})(?![A-Z0-9_(.!])",
     re.IGNORECASE,
