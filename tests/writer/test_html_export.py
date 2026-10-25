@@ -8,7 +8,7 @@ from plugin.writer.html_export import (
     _range_to_content_via_temp_doc,
     xtext_to_content,
 )
-from plugin.writer.html_ruby import inject_ruby_into_html
+from plugin.writer.html_ruby import extract_and_strip_ruby, inject_ruby_into_html
 
 
 class _Enum:
@@ -195,6 +195,41 @@ def test_inject_ruby_empty_is_noop():
     assert inject_ruby_into_html("<p>漢字です</p>", []) == "<p>漢字です</p>"
     assert inject_ruby_into_html("", [("漢字", "かんじ")]) == ""
     assert inject_ruby_into_html("<p>x</p>", [("漢字", "")]) == "<p>x</p>"
+
+
+def test_inject_ruby_keeps_under_position():
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, False)])
+    assert '<ruby style="ruby-position: under">東京<rt>とうきょう</rt></ruby>' in under_html
+    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, True)])
+    assert "<ruby>東京<rt>とうきょう</rt></ruby>" in over_html
+
+
+def test_ruby_position_round_trips():
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, False)])
+    _clean, spans = extract_and_strip_ruby(under_html)
+    assert len(spans) == 1
+    assert spans[0].is_above is False
+    assert spans[0].visible_offset == 0
+
+
+def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
+    html = "<p>漢字と漢字と漢字</p>"
+    spans = [("漢字", "かんじ"), ("漢字", "かんじ"), ("漢字", "かんじ")]
+    out = inject_ruby_into_html(html, spans)
+    assert out.count("<ruby>") == 3
+    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby></p>"
+
+
+def test_inject_ruby_crosses_br_to_the_reading():
+    html = "<p>漢字<br>かんじです</p>"
+    out = inject_ruby_into_html(html, [("漢字", "かんじ")])
+    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby><br>です</p>"
+
+
+def test_inject_ruby_prefers_glued_copy_over_an_earlier_plain_base():
+    html = "<p>漢字と漢字かんじ</p>"
+    out = inject_ruby_into_html(html, [("漢字", "かんじ")])
+    assert out == "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
 
 
 def _content_doc(text="Texto do documento"):

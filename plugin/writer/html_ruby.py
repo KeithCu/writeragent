@@ -11,7 +11,7 @@ from html import escape as html_escape
 import html as html_mod
 import logging
 import re
-from typing import Any, ClassVar, Iterator, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
@@ -28,10 +28,13 @@ _RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.D
 _RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
 _RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_RUBY_UNDER_RE = re.compile(r"ruby-position\s*:\s*under", re.IGNORECASE)
+_BR_RE = re.compile(r"<br\b[^>]*>", re.IGNORECASE)
+_PARA_END_RE = re.compile(r"</(?:p|h[1-6])\s*>", re.IGNORECASE)
 
 
-class _RubySpan:
-    """One CJK ruby (furigana) pair collected from Writer portions.
+class _RubySpan(NamedTuple):
+    """One CJK ruby (furigana) pair from a Writer portion walk.
 
     ``start`` / ``end`` are offsets in the paragraph's visible text (base only;
     ruby marks have empty ``getString()``). Used to keep range export from
@@ -40,23 +43,9 @@ class _RubySpan:
 
     base: str
     reading: str
-    start: int
-    end: int
-    __slots__: ClassVar[tuple[str, ...]] = ("base", "reading", "start", "end")
-
-    def __init__(self, base: str, reading: str, start: int = 0, end: int = 0) -> None:
-        self.base = base
-        self.reading = reading
-        self.start = start
-        self.end = end
-
-
-
-def _ruby_parts(span: Any) -> tuple[str, str]:
-    """``(base, reading)`` from a ``_RubySpan`` or a 2-tuple (unit tests)."""
-    if isinstance(span, (tuple, list)):
-        return span[0], span[1]
-    return span.base, span.reading
+    start: int = 0
+    end: int = 0
+    is_above: bool = True
 
 
 
@@ -95,27 +84,31 @@ def _find_contiguous(html: str, needle: str, start: int = 0) -> tuple[int, int] 
 
 
 
-def _only_tags_or_ws(fragment: str) -> bool:
-    """True when *fragment* has no body text (tags and whitespace only)."""
-    i = 0
-    n = len(fragment)
+def _reading_after(html: str, end: int, reading: str) -> int | None:
+    """Index of *reading* after *end*, crossing only whitespace and complete tags."""
+    i = end
+    n = len(html)
     while i < n:
-        ch = fragment[i]
+        if html.startswith(reading, i):
+            return i
+        ch = html[i]
         if ch.isspace():
             i += 1
             continue
         if ch != "<":
-            return False
-        close = fragment.find(">", i)
+            return None
+        close = html.find(">", i)
         if close < 0:
-            return False
+            return None
         i = close + 1
-    return True
+    return None
 
 
 
-def _ruby_markup(base: str, reading: str) -> str:
-    return "<ruby>%s<rt>%s</rt></ruby>" % (html_escape(base), html_escape(reading))
+def _ruby_markup(base: str, reading: str, is_above: bool = True) -> str:
+    # Under-ruby would come back as over without the CSS position.
+    style = "" if is_above else ' style="ruby-position: under"'
+    return "<ruby%s>%s<rt>%s</rt></ruby>" % (style, html_escape(base), html_escape(reading))
 
 
 
@@ -139,34 +132,31 @@ def inject_ruby_into_html(html: str, spans: list[Any]) -> str:
     pos = 0
     parts = []
     for span in spans:
-        base, reading = _ruby_parts(span)
+        base, reading = span[0], span[1]
+        is_above = span[4] if len(span) > 4 else True
         if not base or not reading:
             continue
         glued = _find_contiguous(html, base + reading, pos)
         if glued is not None and not _inside_ruby_element(html, glued[0]):
             start, end = glued
             parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading))
+            parts.append(_ruby_markup(base, reading, is_above))
             pos = end
             continue
         base_at = _find_contiguous(html, base, pos)
         if base_at is None or _inside_ruby_element(html, base_at[0]):
             continue
         start, end = base_at
-        reading_at = _find_contiguous(html, reading, end)
-        if (
-            reading_at is not None
-            and _only_tags_or_ws(html[end:reading_at[0]])
-            and not _inside_ruby_element(html, reading_at[0])
-        ):
+        reading_at = _reading_after(html, end, reading)
+        if reading_at is not None and not _inside_ruby_element(html, reading_at):
             # Bold/span around the base: keep those tags, drop the glued reading.
             parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading))
-            parts.append(html[end:reading_at[0]])
-            pos = reading_at[1]
+            parts.append(_ruby_markup(base, reading, is_above))
+            parts.append(html[end:reading_at])
+            pos = reading_at + len(reading)
             continue
         parts.append(html[pos:start])
-        parts.append(_ruby_markup(base, reading))
+        parts.append(_ruby_markup(base, reading, is_above))
         pos = end
     parts.append(html[pos:])
     return "".join(parts)
@@ -187,6 +177,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     in_delete = False
     in_ruby = False
     reading = ""
+    is_above = True
     base_parts: list[str] = []
     base_start = 0
     offset = 0
@@ -208,15 +199,17 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
         if kind == "Ruby":
             if not in_ruby:
                 reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
+                is_above = uno_read(lambda: bool(portion.getPropertyValue("RubyIsAbove")), True)
                 in_ruby = True
                 base_parts = []
                 base_start = offset
             else:
                 base = "".join(base_parts)
                 if base and reading:
-                    yield _RubySpan(base, reading, base_start, base_start + len(base))
+                    yield _RubySpan(base, reading, base_start, base_start + len(base), is_above)
                 in_ruby = False
                 reading = ""
+                is_above = True
                 base_parts = []
             continue
         chunk = uno_read(lambda: portion.getString() or "", "")
@@ -278,18 +271,40 @@ def _visible_html_text(fragment: str) -> str:
 
 
 
+def _kept_text_len(fragment: str) -> int:
+    """Length of the text StarWriter keeps for *fragment*.
+
+    Tags are dropped; <br> and each paragraph end keep one character (an LF).
+    See test_html_import_uno.test_html_to_search_text_oracle_uno.
+    """
+    if not fragment:
+        return 0
+    return (
+        len(_visible_html_text(fragment))
+        + len(_BR_RE.findall(fragment))
+        + len(_PARA_END_RE.findall(fragment))
+    )
+
+
+
 def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above, visible_offset)`` in document order.
-    ``visible_offset`` is the base's index in the tag-stripped, entity-decoded
-    text of *html* (readings omitted). StarWriter concatenates ruby children,
-    so the import must see base only; ``RubyText`` is painted afterwards via
-    ``_apply_ruby_spans``, which starts at this offset instead of the first
+    ``visible_offset`` counts the text StarWriter keeps: tags are dropped, each
+    ``<br>`` and paragraph end keeps one character. StarWriter concatenates ruby
+    children, so the import must see base only; ``RubyText`` is painted afterwards
+    via ``_apply_ruby_spans``, which starts at this offset instead of the first
     copy of the base.
     """
-    if not html or not isinstance(html, str) or "<ruby" not in html.lower():
+    if not html or not isinstance(html, str):
         return html, []
+    lower = html.lower()
+    if "<ruby" not in lower:
+        return html, []
+    # Unclosed <ruby> makes the DOTALL regex scan to end from every open tag.
+    if lower.count("<ruby") != lower.count("</ruby>"):
+        return _RT_RE.sub("", _RP_RE.sub("", html)), []
     spans: list[_ImportRubySpan] = []
     out: list[str] = []
     visible_len = 0
@@ -300,7 +315,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
         # Offset in the text StarWriter will keep, not in the HTML source.
         # An earlier identical base (plain 漢字 before <ruby>漢字</ruby>) must
         # not receive this reading.
-        visible_len += len(_visible_html_text(before))
+        visible_len += _kept_text_len(before)
         attrs = match.group(1) or ""
         inner = match.group(2) or ""
         rt_m = _RT_RE.search(inner)
@@ -308,11 +323,11 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
         base_html = _RP_RE.sub("", inner)
         base_html = _RT_RE.sub("", base_html)
         base = _visible_html_text(base_html)
-        is_above = "under" not in attrs.lower()
+        is_above = _RUBY_UNDER_RE.search(attrs) is None
         if base and reading:
             spans.append(_ImportRubySpan(base, reading, is_above, visible_len))
         out.append(base_html)
-        visible_len += len(base)
+        visible_len += _kept_text_len(base_html)
         pos = match.end()
     out.append(html[pos:])
     return "".join(out), spans
