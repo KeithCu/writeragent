@@ -17,8 +17,11 @@
 
 from __future__ import annotations
 
+from plugin.writer.specialized.textframes import FrameSetProperties
 from plugin.writer.specialized_base import (
     INSERT_TARGETS,
+    DelegateToSpecializedWriter,
+    ToolWriterTextFramesBase,
     enum_param,
     index_error,
     target_params,
@@ -79,3 +82,15 @@ def test_index_error_out_of_bounds() -> None:
     assert index_error(3, 3, "footnote") == "Invalid index 3. The document has 3 footnote(s)."
     assert index_error(10, 3, "endnote") == "Invalid index 10. The document has 3 endnote(s)."
     assert index_error(0, 0, "footnote") == "Invalid index 0. The document has 0 footnote(s)."
+
+
+def test_textframes_contract_matches_implemented_tools() -> None:
+    desc = (ToolWriterTextFramesBase.specialized_domain_description or "").lower()
+    assert "content" not in desc
+    assert "list" in desc and "resize" in desc
+    assert "reposition" not in (FrameSetProperties.description or "").lower()
+
+
+def test_writer_gateway_description_has_no_hardcoded_domain_list() -> None:
+    assert "Also:" not in DelegateToSpecializedWriter.description
+

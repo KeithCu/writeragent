@@ -302,10 +302,17 @@ class SectionRead(ToolWriterStructuralBase):
         # Extract paragraphs within the section
         enum = anchor.createEnumeration()
         paragraphs = []
-        while enum.hasMoreElements():
+        while enum.hasMoreElements() is True:
             para = enum.nextElement()
             if para.supportsService("com.sun.star.text.Paragraph"):
                 paragraphs.append(get_string_without_tracked_deletions(para))
+            elif para.supportsService("com.sun.star.text.TextTable") is True:
+                # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
+                # same walk as text_helpers._table_visible_text).
+                paragraphs.append("\n".join(
+                    get_string_without_tracked_deletions(para.getCellByName(name))
+                    for name in para.getCellNames()
+                ))
             else:
                 paragraphs.append("[Table]")
 
