@@ -30,6 +30,29 @@ def test_extract_and_strip_ruby_under_and_rp():
     assert spans == [("東京", "とうきょう", False, 0)]
 
 
+def test_extract_and_strip_ruby_position_ignores_unrelated_attrs():
+    html = '<ruby class="thunder">東京<rt>とうきょう</rt></ruby>'
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "東京"
+    assert len(spans) == 1
+    assert spans[0].is_above is True
+
+
+def test_extract_and_strip_ruby_unbalanced_ruby_has_no_spans():
+    html = "<ruby>漢字<rt>かんじ</rt>" * 2000
+    clean, spans = extract_and_strip_ruby(html)
+    assert spans == []
+    assert "<rt>" not in clean
+    assert "かんじ" not in clean
+
+
+def test_extract_and_strip_ruby_uppercase_tags():
+    html = "<RUBY>漢字<RT>かんじ</RT></RUBY>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "漢字"
+    assert spans == [("漢字", "かんじ", True, 0)]
+
+
 def test_extract_and_strip_ruby_noop():
     html = "<p>plain</p>"
     clean, spans = extract_and_strip_ruby(html)
@@ -124,6 +147,33 @@ def test_ruby_readings_stay_on_their_own_repeated_base():
     _apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(0, 2, "いち"), (2, 4, "に")]
+
+
+def test_ruby_offset_counts_br_before_the_base():
+    html = "<p>漢字<br>x<ruby>漢字<rt>かんじ</rt></ruby></p>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "<p>漢字<br>x漢字</p>"
+    assert spans == [("漢字", "かんじ", True, len("漢字\nx"))]
+    text = _RubyText("漢字\nx漢字")
+    _apply_ruby_spans(text, spans)
+    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
+    assert painted == [(4, 6, "かんじ")]
+
+
+def test_ruby_offset_counts_paragraph_end():
+    html = "<p>a</p><p><ruby>漢字<rt>かんじ</rt></ruby></p>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "<p>a</p><p>漢字</p>"
+    assert spans == [("漢字", "かんじ", True, len("a\n"))]
+
+
+def test_ruby_repeated_base_after_br_keeps_own_reading():
+    html = "<p><ruby>漢字<rt>いち</rt></ruby>漢字<br><ruby>漢字<rt>に</rt></ruby></p>"
+    _clean, spans = extract_and_strip_ruby(html)
+    text = _RubyText("漢字漢字\n漢字")
+    _apply_ruby_spans(text, spans)
+    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
+    assert painted == [(0, 2, "いち"), (5, 7, "に")]
 
 
 def test_ruby_spans_forward_cursor_walk():

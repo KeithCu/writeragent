@@ -24,9 +24,9 @@ StarWriter HTML import concatenates ruby children (`前漢字かんじ後`, no R
 <p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>
 ```
 
-becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again.
+becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again. An under ruby keeps `<ruby style="ruby-position: under">`; the import writes `RubyIsAbove` from that.
 
-When the same base occurs more than once, the reading is applied at that `<ruby>` element's visible-text offset. The visible offset is measured after `\n` / `\t` expansion, on the HTML StarWriter imports. A search from the start of the imported string used to paint the first copy (`漢字` before `<ruby>漢字</ruby>`).
+When the same base occurs more than once, the reading is applied at that `<ruby>` element's visible-text offset. The visible offset is measured after `\n` / `\t` expansion, on the HTML StarWriter imports. A `<br>` or paragraph end counts as one character. A search from the start of the imported string used to paint the first copy (`漢字` before `<ruby>漢字</ruby>`).
 
 Format-preserving (plain-text) replace of the base does not drop existing ruby: `setString` is skipped when characters match, so the Ruby portions stay.
 
