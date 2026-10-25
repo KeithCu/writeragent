@@ -305,20 +305,20 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             issues.append("nested or overlapping xl() calls are not supported")
             break
 
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Name) and _P_SENTINEL_RE.match(node.id)):
+    for name_node in ast.walk(tree):
+        if not (isinstance(name_node, ast.Name) and _P_SENTINEL_RE.match(name_node.id)):
             continue
-        off = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        off = ast_source_offset(src, name_node.lineno, name_node.col_offset, line_starts=line_starts)
         if off < 0:
             issues.append("placeholder token without reliable source position")
             continue
-        token = src[off : off + len(node.id)]
+        token = src[off : off + len(name_node.id)]
         if token.startswith(("%P", "%p")):
             if not any(c.p_num is not None and c.start <= off < c.end for c in calls):
                 issues.append(f"placeholder {token} outside xl()")
         else:
             if any(c.p_num is not None and c.start <= off < c.end for c in calls):
-                issues.append(f"xl() argument {node.id} collides with the placeholder sentinel; rename it")
+                issues.append(f"xl() argument {name_node.id} collides with the placeholder sentinel; rename it")
 
     return calls, issues
 
