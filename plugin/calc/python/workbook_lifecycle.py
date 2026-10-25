@@ -78,12 +78,6 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
                 previous = entry[0] if entry is not None else None
                 if previous and previous != key:
                     _rekey_listener(previous, key)
-                if previous and previous != key:
-                    old_ids = _DOC_IDS_BY_LIFECYCLE_KEY.get(previous)
-                    if old_ids is not None:
-                        old_ids.discard(doc_id)
-                        if not old_ids:
-                            _DOC_IDS_BY_LIFECYCLE_KEY.pop(previous, None)
                 _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = (key, obj)
                 _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(key, set()).add(doc_id)
                 continue
@@ -278,10 +272,11 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # worker. On the shared pool that sleep starves other tasks.
         last_res: Any = None
         for _attempt in range(10):
+            time.sleep(0.5)
+            # Check after the sleep: a reopen can register during it.
             if self._session_has_new_listener(sid):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
-            time.sleep(0.5)
             try:
                 last_res = reset_python_session(self._ctx, sid)
                 if isinstance(last_res, dict) and last_res.get("status") == "error" and last_res.get("code") == "WORKER_REENTRY":
