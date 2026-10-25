@@ -14,11 +14,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.errors import ToolExecutionError
+
 from plugin.writer.specialized.forms import (
     FormCreate,
     FormCreateControl,
+    FormEditControl,
+    FormDeleteControl,
     FormGenerate,
+    FormListControls,
     _append_text_to_calc_active_area,
+    _create_control,
     _resolve_form_page,
 )
 
@@ -136,12 +142,12 @@ def _mock_form_ctx(doc=None):
 
 
 def _patch_field_creator(monkeypatch, failing_name):
-    def _execute(self, ctx, **kwargs):
+    def _execute(ctx, *, page_cursors=None, **kwargs):
         if kwargs.get("name") == failing_name:
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "no draw page"}
         return {"status": "ok", "message": "created", "control_name": kwargs.get("name")}
 
-    monkeypatch.setattr("plugin.writer.specialized.forms.FormCreateControl._execute_main", _execute)
+    monkeypatch.setattr("plugin.writer.specialized.forms._create_control", _execute)
 
 
 def test_form_create_reports_field_failures(monkeypatch):
@@ -294,7 +300,7 @@ def test_form_control_create_writer_inserts_on_anchor_host():
     doc.createInstance.return_value = MagicMock()
 
     ctx = SimpleNamespace(doc=doc)
-    res = FormCreateControl()._execute_main(ctx, control="text", name="fld")
+    res = _create_control(ctx, control="text", name="fld")
     assert res["status"] == "ok"
     host.insertTextContent.assert_called_once()
     body_text.insertTextContent.assert_not_called()
@@ -307,7 +313,7 @@ def test_forms_button_present_in_both_schemas():
 
 def test_forms_create_rejects_unknown_control():
     ctx = SimpleNamespace(doc=MagicMock())
-    res = FormCreateControl()._execute_main(ctx, control="laser_cannon", name="fld")
+    res = _create_control(ctx, control="laser_cannon", name="fld")
     assert res["status"] == "error"
     assert "Unknown control type 'laser_cannon'" in res["message"]
 
@@ -315,7 +321,7 @@ def test_forms_create_rejects_unknown_control():
 def test_forms_create_rejects_bad_date():
     doc = MagicMock()
     ctx = SimpleNamespace(doc=doc)
-    res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="32.13.2026")
+    res = _create_control(ctx, control="date", name="dt", default_value="32.13.2026")
     assert res["status"] == "error"
     assert "Invalid date format" in res["message"]
     doc.createInstance.assert_not_called()
@@ -387,7 +393,7 @@ def test_form_create_control_disposal_from_create_instance_propagates():
     doc.createInstance.side_effect = DocumentDisposedError("closed")
     ctx = SimpleNamespace(doc=doc)
     with pytest.raises(DocumentDisposedError):
-        FormCreateControl()._execute_main(ctx, control="text", name="fld")
+        _create_control(ctx, control="text", name="fld")
 
 
 def test_form_create_control_date_default_value_applied():
@@ -402,7 +408,7 @@ def test_form_create_control_date_default_value_applied():
     controller.getSelection.return_value = selection
 
     ctx = SimpleNamespace(doc=doc)
-    res = FormCreateControl()._execute_main(ctx, control="date", name="dt", default_value="2026-10-18")
+    res = _create_control(ctx, control="date", name="dt", default_value="2026-10-18")
     assert res["status"] == "ok"
     assert hasattr(model, "Date") or hasattr(model, "DefaultDate")
 
@@ -430,7 +436,7 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
 def test_form_create_locked_undo_manager_rejects(monkeypatch):
     tool = FormCreate()
     called = []
-    monkeypatch.setattr("plugin.writer.specialized.forms.FormCreateControl._execute_main", lambda *a, **k: called.append(True))
+    monkeypatch.setattr("plugin.writer.specialized.forms._create_control", lambda *a, **k: called.append(True))
 
     doc = MagicMock()
     mgr = MagicMock()
@@ -507,7 +513,7 @@ def test_form_create_control_listbox():
     controller.getSelection.return_value = selection
 
     ctx = SimpleNamespace(doc=doc)
-    res = FormCreateControl()._execute_main(ctx, control="listbox", name="Choice", items=["a", "b"])
+    res = _create_control(ctx, control="listbox", name="Choice", items=["a", "b"])
 
     assert res["status"] == "ok"
     assert any("ListBox" in s for s in instances)
@@ -674,12 +680,12 @@ def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
     bridge = MagicMock()
     bridge.get_active_page.return_value = dp
 
-    def fake_create_shape(service, x, y, w, h, page=None):
+    def fake_safe_create_shape(self, doc, page, service, pos, sz, custom_shape_type=None):
         sh = MagicMock()
-        text_shapes.append((sh, y, h))
-        return sh
+        text_shapes.append((sh, pos.Y, sz.Height))
+        return sh, None, None
 
-    bridge.create_shape.side_effect = fake_create_shape
+    monkeypatch.setattr("plugin.draw.shapes.DrawShapes.safe_create_shape", fake_safe_create_shape)
 
     monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
     monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
@@ -734,7 +740,6 @@ def test_writer_create_does_not_call_scanner(monkeypatch):
 
 
 def test_form_list_controls_handles_failing_shape(monkeypatch):
-    from plugin.writer.specialized.forms import FormListControls
     from com.sun.star.awt import Point, Size
 
     bad_shape = MagicMock()
@@ -766,6 +771,207 @@ def test_form_list_controls_handles_failing_shape(monkeypatch):
     assert "shape position corrupted" in res["controls"][0]["error"]
     assert res["controls"][1]["name"] == "good_control"
     assert res["controls"][1]["index"] == 1
+
+
+def test_radio_edit_rename_preserves_group(monkeypatch):
+    from com.sun.star.awt import Point, Size
+
+    doc = MagicMock()
+    dp = MagicMock()
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Name = "radio1"
+    shape.getPosition.return_value = Point(10, 20)
+    shape.getSize.return_value = Size(100, 200)
+
+    model = MagicMock()
+    model.Name = "Group1"
+    model.supportsService.side_effect = lambda s: "RadioButton" in s
+    shape.Control = model
+
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = shape
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    ctx = SimpleNamespace(doc=doc)
+    tool = FormEditControl()
+
+    # Rename shape only
+    res = tool._execute_main(ctx, name="radio1", new_name="radio1_renamed")
+    assert res["status"] == "ok"
+    assert shape.Name == "radio1_renamed"
+    assert model.Name == "Group1"
+    assert res["control_name"] == "radio1_renamed"
+    assert res["group_name"] == "Group1"
+
+    # Rename group only
+    res2 = tool._execute_main(ctx, name="radio1_renamed", group_name="Group2")
+    assert res2["status"] == "ok"
+    assert model.Name == "Group2"
+    assert shape.Name == "radio1_renamed"
+    assert res2["group_name"] == "Group2"
+
+
+def test_form_edit_and_delete_undo_atomic(monkeypatch):
+    from com.sun.star.awt import Point, Size
+
+    doc = MagicMock()
+    dp = MagicMock()
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Name = "ctrl1"
+    shape.getPosition.return_value = Point(10, 20)
+    shape.getSize.return_value = Size(100, 200)
+    model = MagicMock(spec=["Name", "Label", "supportsService"])
+    model.Name = "ctrl1"
+    model.supportsService.return_value = False
+    shape.Control = model
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = shape
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    mgr = MagicMock()
+    mgr.isLocked.return_value = True
+    doc.getUndoManager.return_value = mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    # Locked undo manager on edit -> UNDO_UNAVAILABLE
+    edit_tool = FormEditControl()
+    res = edit_tool._execute_main(ctx, name="ctrl1", label="New")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+
+    # Locked undo manager on delete -> UNDO_UNAVAILABLE
+    del_tool = FormDeleteControl()
+    res_del = del_tool.execute(ctx, name="ctrl1")
+    assert res_del["status"] == "error"
+    assert res_del["code"] == "UNDO_UNAVAILABLE"
+
+    # Mid-edit exception calls rollback
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.return_value = ["WriterAgent: Edit form control"]
+    shape.setPosition.side_effect = RuntimeError("drawing engine crashed")
+    res_crash = edit_tool._execute_main(ctx, name="ctrl1", x=999)
+    assert res_crash["status"] == "error"
+    mgr.undo.assert_called()
+
+
+def test_forms_edit_rejects_unsupported_properties(monkeypatch):
+    doc = MagicMock()
+    dp = MagicMock()
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Name = "chk1"
+    model = MagicMock(spec=["Name", "supportsService"])
+    model.Name = "chk1"
+    model.supportsService.side_effect = lambda s: "CheckBox" in s
+    shape.Control = model
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = shape
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    ctx = SimpleNamespace(doc=doc)
+    tool = FormEditControl()
+
+    # Model has no Label
+    res = tool._execute_main(ctx, name="chk1", label="new label")
+    assert res["status"] == "error"
+    assert "checkbox control has no label." in res["message"]
+
+    # Model has no Text
+    res = tool._execute_main(ctx, name="chk1", text="some text")
+    assert res["status"] == "error"
+    assert "checkbox control has no text." in res["message"]
+
+    # Model has no StringItemList
+    res = tool._execute_main(ctx, name="chk1", items=["a", "b"])
+    assert res["status"] == "error"
+    assert "checkbox control has no items." in res["message"]
+
+
+def test_forms_create_rejects_duplicate_name_on_page(monkeypatch):
+    doc = MagicMock()
+    dp = MagicMock()
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Name = "ExistingField"
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = shape
+    monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
+
+    ctx = SimpleNamespace(doc=doc)
+    res = _create_control(ctx, control="text", name="ExistingField")
+    assert res["status"] == "error"
+    assert "already exists on this page" in res["message"]
+
+
+def test_forms_generate_rejects_duplicate_name_in_batch(monkeypatch):
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    tool = FormGenerate()
+    content = "{FIELD:control='text' name='same_name'} {FIELD:control='text' name='same_name'}"
+    res = tool._process_form_content(SimpleNamespace(doc=doc), content)
+    assert res["status"] == "error"
+    assert "Duplicate control name 'same_name' in batch." in res["message"]
+
+
+def test_resolve_form_page_out_of_range(monkeypatch):
+    doc = MagicMock()
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    bridge_mock = MagicMock()
+    bridge_mock.get_pages.return_value.getCount.return_value = 2
+    monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge_mock)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _resolve_form_page(doc, page=99)
+    assert "Page index 99 is out of range (document has 2 pages)." in str(exc_info.value)
+
+
+def test_parse_field_tag_quotes_and_empty_items():
+    tool = FormGenerate()
+    # Quotes containing other quote char
+    p1 = tool._parse_field_tag('{FIELD:control="text" name="f1" label="It\'s"}')
+    assert p1 is not None
+    assert p1["label"] == "It's"
+
+    p2 = tool._parse_field_tag('{FIELD:control=\'text\' name=\'f2\' label=\'say "hi"\'}')
+    assert p2 is not None
+    assert p2["label"] == 'say "hi"'
+
+    # Empty items string
+    p3 = tool._parse_field_tag('{FIELD:control="combobox" name="f3" items=""}')
+    assert p3 is None
+
+    p4 = tool._parse_field_tag("{FIELD:control='combobox' name='f4' items=''}")
+    assert p4 is None
+
+
+def test_form_tools_registered_for_all_doc_types():
+    from plugin.main import get_tools
+
+    registry = get_tools()
+    form_tools = [
+        "form_create",
+        "form_create_control",
+        "form_generate",
+        "form_list_controls",
+        "form_edit_control",
+        "form_delete_control",
+    ]
+
+    for doc_type in ("writer", "calc", "draw", "impress"):
+        tools = registry.get_tools(doc_type=doc_type, filter_doc_type=True, exclude_tiers=None)
+        names = {t.name for t in tools}
+        for ft in form_tools:
+            assert ft in names, f"Form tool '{ft}' missing from registry for {doc_type}"
+
 
 
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.errors import is_real_disposal
 from plugin.framework.prompts import get_sheets_create_completion_instruction
 from plugin.framework.tool import ToolBase
 
@@ -37,6 +38,34 @@ from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_vi
 from plugin.calc.analyzer import SheetAnalyzer
 
 log = logging.getLogger("writeragent.calc")
+
+_INVALID_SHEET_CHARS = set("[]*?:/\\")
+
+
+def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str | None:
+    """Validate sheet name for create or rename.
+
+    Returns an error message string if invalid, or None if valid.
+    Rejects empty/whitespace names, invalid characters ([]*?:/\\),
+    leading underscores (reserved for internal sheets), and case-insensitive
+    duplicates (ignoring `exclude`).
+    """
+    if not isinstance(name, str) or not name.strip():
+        return "Sheet name cannot be empty."
+    for ch in name:
+        if ch in _INVALID_SHEET_CHARS:
+            return f"Sheet name cannot contain '{ch}'."
+    if name.startswith("_"):
+        return "Sheet names starting with '_' are reserved for internal sheets."
+    sheets = doc.getSheets()
+    target_lower = name.casefold()
+    exclude_lower = exclude.casefold() if exclude is not None else None
+    for existing in sheets.getElementNames():
+        if exclude_lower is not None and existing.casefold() == exclude_lower:
+            continue
+        if existing.casefold() == target_lower:
+            return f"A sheet named '{existing}' already exists in the document."
+    return None
 
 
 class ListSheets(ToolCalcSheetBase):
@@ -93,16 +122,29 @@ class CreateSheet(ToolCalcSheetBase):
         position = kwargs.get("position")
 
         doc = ctx.doc
+        err = _sheet_name_error(doc, sheet_name)
+        if err:
+            return self._tool_error(err)
+
         sheets = doc.getSheets()
+        count = sheets.getCount()
         if position is None:
-            position = sheets.getCount()
+            position = count
+        elif not isinstance(position, int) or isinstance(position, bool) or position < 0 or position > count:
+            return self._tool_error(f"Position {position} is out of range (0..{count}).")
+
         sheets.insertNewByName(sheet_name, position)
         log.info("New sheet created: %s (position: %d)", sheet_name, position)
-        result = f"New sheet named '{sheet_name}' created; no cells copied."
-        # Inner-only ok string used to stop here; the outer never saw it.
-        # Same `instruction` field as web research so specialized finish
-        # can forward the create≠populate nudge to the main agent.
-        return {"status": "ok", "message": result, "instruction": get_sheets_create_completion_instruction()}
+        result = (
+            f"New sheet named '{sheet_name}' created; no cells copied. "
+            f"Not activated: qualify writes with the sheet name (e.g. '{sheet_name}'.A1)."
+        )
+        return {
+            "status": "ok",
+            "sheet": sheet_name,
+            "message": result,
+            "instruction": get_sheets_create_completion_instruction(),
+        }
 
 
 class RenameSheet(ToolCalcSheetBase):
@@ -120,10 +162,12 @@ class RenameSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheet = CalcBridge(doc).get_sheet(old_name)
-        sheets = doc.getSheets()
-        if old_name != new_name and sheets.hasByName(new_name):
-            return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
+        err = _sheet_name_error(doc, new_name, exclude=old_name)
+        if err:
+            return self._tool_error(err)
         sheet.setName(new_name)
+        if sheet.getName() != new_name:
+            return self._tool_error(f"LibreOffice did not rename '{old_name}' (invalid name or read-only document).")
         from plugin.calc.python.sheet_modify import migrate_sheet_rename
 
         migrate_sheet_rename(doc, old_name, new_name)
@@ -145,8 +189,11 @@ class DeleteSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         CalcBridge(doc).get_sheet(sheet_name)
+        if sheet_name.startswith("_"):
+            return self._tool_error(f"Cannot delete internal sheet '{sheet_name}'.")
         sheets = doc.getSheets()
-        if sheets.getCount() <= 1:
+        visible_names = [n for n in sheets.getElementNames() if not n.startswith("_")]
+        if len(visible_names) <= 1:
             return self._tool_error("Cannot delete the only sheet in the document.")
         sheets.removeByName(sheet_name)
         log.info("Sheet deleted: %s", sheet_name)
@@ -173,12 +220,36 @@ class ProtectSheet(ToolCalcSheetBase):
         else:
             sheet = bridge.get_active_sheet()
 
+        actual_name = sheet.getName()
+        is_currently_protected = sheet.isProtected()
+        if should_protect and is_currently_protected:
+            return {"status": "ok", "message": f"Sheet '{actual_name}' is already protected."}
+        if not should_protect and not is_currently_protected:
+            return {"status": "ok", "message": f"Sheet '{actual_name}' is already unprotected."}
+
         if should_protect:
-            sheet.protect("")
-            msg = f"Sheet '{sheet.getName()}' is now protected."
+            try:
+                sheet.protect("")
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Could not protect sheet '{actual_name}': {e}")
         else:
-            sheet.unprotect("")
-            msg = f"Sheet '{sheet.getName()}' is now unprotected."
+            try:
+                sheet.unprotect("")
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Sheet '{actual_name}' is password-protected; unprotect it in LibreOffice.")
+
+        if sheet.isProtected() == is_currently_protected:
+            target_state = "protected" if should_protect else "unprotected"
+            return self._tool_error(f"Failed to set sheet '{actual_name}' to {target_state}.")
+
+        if should_protect:
+            msg = f"Sheet '{actual_name}' is now protected."
+        else:
+            msg = f"Sheet '{actual_name}' is now unprotected."
 
         log.info("%s", msg)
         return {"status": "ok", "message": msg}

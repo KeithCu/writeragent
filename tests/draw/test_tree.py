@@ -130,3 +130,25 @@ def test_safe_attr_reraises_disposed():
 
     assert _safe_attr(ErrorObj(), "Name") == ""
 
+
+def test_control_snapshot_reraises_disposed():
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class _DisposedModel:
+        Name = "Agree"
+
+        def supportsService(self, svc):
+            return True
+
+        @property
+        def Text(self):
+            raise DocumentDisposedError("disposed")
+
+    with pytest.raises(DocumentDisposedError):
+        control_snapshot(_DisposedModel())
+
+

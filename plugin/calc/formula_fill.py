@@ -2,32 +2,38 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fill-down / fill-across for a single Calc formula into a 1-D range.
+"""Fill-down / fill-across for a single Calc formula into a 1-D or 2-D range.
 
 ``write_formula_range`` used to pin the same formula text on every cell
 (``[formula] * n``). Ordinary formulas now shift relative A1 refs per cell
-(``$`` stays absolute). ``=PY`` / PYTHON / PYTHONFUNCTION use a span-peek:
-only same-row or single-cell sheet refs outside the quoted Python string
-are adjusted; a multi-row DataRange (or anything unparseable) stays
+(``$`` stays absolute). ``=PY`` / PYTHON / PYTHONFUNCTION formulas use a
+direction-aware span policy: only refs whose span does not cross the fill
+axis are adjusted; other refs outside the quoted Python string stay
 verbatim so a block like ``A1:H1517`` is not walked down the column.
-
-Python A1-adjust is intentional for v1 (unit-testable, no soffice). LO
-fill/series APIs can be revisited if they prove cheaper and reliable
-across builds. 2-D destination + one formula is refused — no
-fill-down-and-right.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import enum
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
-from plugin.calc.array_formula import skip_double_quoted
-from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula, py_call_open_end, py_formula_has_unquoted_code_ref
-from plugin.framework.errors import CalcError
+from plugin.calc.array_formula import skip_double_quoted, skip_single_quoted
+from plugin.calc.python.formula_edit import py_call_open_end
 
 
-_TWOD_FORMULA_MSG = "A single formula cannot fill a 2-D range ({rows}×{cols}). Use a 1-column or 1-row range for fill-down/across (relative A1 refs adjust per cell), or pass an explicit array with one value per cell."
+class _RefKind(enum.Enum):
+    CELL = "cell"
+    RANGE = "range"
+    WHOLE_COL = "whole_col"
+    WHOLE_ROW = "whole_row"
+
+
+class _SpanKind(enum.Enum):
+    SINGLE_CELL = "single_cell"
+    SAME_ROW = "same_row"
+    MULTI_ROW = "multi_row"
+    AMBIGUOUS = "ambiguous"
 
 
 @dataclass(frozen=True)
@@ -58,68 +64,85 @@ class _Ref:
 
     sheet1: str
     sheet2: str
-    kind: str  # cell | range | whole_col | whole_row
+    kind: _RefKind
     start: _Part
     end: _Part | None
 
-    def row_span_kind(self) -> str:
-        """``single_cell``, ``same_row``, ``multi_row``, or ``ambiguous``."""
-        if self.kind == "whole_col":
-            return "multi_row"
+    def row_span_kind(self) -> _SpanKind:
+        """``SINGLE_CELL``, ``SAME_ROW``, ``MULTI_ROW``, or ``AMBIGUOUS``."""
+        if self.kind == _RefKind.WHOLE_COL:
+            return _SpanKind.MULTI_ROW
         left = self.start.row
         right = self.end.row if self.end is not None else left
         if left is None or right is None:
-            return "ambiguous"
+            return _SpanKind.AMBIGUOUS
         if left != right:
-            return "multi_row"
+            return _SpanKind.MULTI_ROW
         if self.end is None or (self.start.col is not None and self.end.col is not None and self.start.col == self.end.col):
-            return "single_cell"
-        return "same_row"
+            return _SpanKind.SINGLE_CELL
+        return _SpanKind.SAME_ROW
 
 
 def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[str]:
-    """Expand one formula into a row-major 1-D rectangle of formulas.
+    """Expand one formula into a row-major 1-D or 2-D rectangle of formulas.
 
     Raises:
-        CalcError: *num_rows* and *num_cols* are both greater than 1.
         ValueError: a dimension is less than 1.
     """
     if num_rows < 1 or num_cols < 1:
         raise ValueError("num_rows and num_cols must be >= 1")
     if num_rows > 1 and num_cols > 1:
-        raise CalcError(_TWOD_FORMULA_MSG.format(rows=num_rows, cols=num_cols))
-    adjust = should_adjust_formula_fill(formula)
-    count = num_rows if num_rows > 1 else num_cols
-    if not adjust or count == 1:
-        return [formula] * count
+        axis = "both" if _looks_like_python_formula(formula) else None
+        return [
+            adjust_a1_formula(formula, c, r, axis=axis)
+            for r in range(num_rows)
+            for c in range(num_cols)
+        ]
     if num_rows > 1:
-        return [formula] + [adjust_a1_formula(formula, 0, r) for r in range(1, num_rows)]
-    return [formula] + [adjust_a1_formula(formula, c, 0) for c in range(1, num_cols)]
+        return [adjust_a1_formula(formula, 0, r, axis="rows") for r in range(num_rows)]
+    return [adjust_a1_formula(formula, c, 0, axis="cols") for c in range(num_cols)]
 
 
-def should_adjust_formula_fill(formula: str) -> bool:
-    """True when a 1-D fill should shift relative A1 refs.
+def _ref_crosses_axis(ref: _Ref, axis: str) -> bool:
+    """True if ref's span crosses the fill axis."""
+    if axis == "rows":
+        if ref.kind == _RefKind.WHOLE_COL:
+            return True
+        if ref.end is not None and ref.start.row is not None and ref.end.row is not None and ref.start.row != ref.end.row:
+            return True
+        return False
+    if axis == "cols":
+        if ref.kind == _RefKind.WHOLE_ROW:
+            return True
+        if ref.end is not None and ref.start.col is not None and ref.end.col is not None and ref.start.col != ref.end.col:
+            return True
+        return False
+    if axis == "both":
+        if ref.kind != _RefKind.CELL:
+            return True
+        return False
+    return False
 
-    Ordinary Calc formulas always adjust. ``=PY`` / PYTHON / PYTHONFUNCTION
-    fail closed: unparseable or any multi-row sheet ref outside the quoted
-    Python string → no adjust (verbatim pin).
-    """
-    if _looks_like_python_formula(formula):
-        return _python_span_allows_adjust(formula)
-    return True
 
-
-def adjust_a1_formula(formula: str, dcol: int, drow: int) -> str:
+def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = None) -> str:
     """Shift relative A1 refs by *dcol*/*drow*. ``$`` stays put.
 
     Double-quoted strings (Calc ``""`` escape) are left untouched, so
     ``A1:H10`` inside ``=PY("…")`` is not a sheet ref. Common
     ``Sheet.A1`` / ``'Sheet'!A1`` prefixes are preserved.
     """
-    # crosshair: off
-    # Char-scan + sheet/A1 combinatorics; same class as formula_edit scanners.
     if not formula or (dcol == 0 and drow == 0):
         return formula
+
+    is_py = _looks_like_python_formula(formula)
+    if is_py and axis is None:
+        if dcol != 0 and drow == 0:
+            axis = "cols"
+        elif drow != 0 and dcol == 0:
+            axis = "rows"
+        elif dcol != 0 and drow != 0:
+            axis = "both"
+
     out: list[str] = []
     i = 0
     n = len(formula)
@@ -132,45 +155,39 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int) -> str:
         matched = _try_match_ref(formula, i)
         if matched is not None:
             end, ref = matched
-            out.append(_format_shifted_ref(ref, dcol, drow))
+            if is_py and axis and _ref_crosses_axis(ref, axis):
+                out.append(formula[i:end])
+            else:
+                out.append(_format_shifted_ref(ref, dcol, drow))
             i = end
+            continue
+        if formula[i] == "'":
+            j = skip_single_quoted(formula, i)
+            out.append(formula[i:j])
+            i = j
+            continue
+        if formula[i] == "[":
+            depth = 0
+            j = i
+            while j < n:
+                if formula[j] == "[":
+                    depth += 1
+                elif formula[j] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            out.append(formula[i:j])
+            i = j
             continue
         out.append(formula[i])
         i += 1
     return "".join(out)
 
 
-def classify_sheet_ref_span(token: str) -> str:
-    """Classify one DataRange-style token for the =PY span-peek."""
-    s = (token or "").strip()
-    if not s:
-        return "ambiguous"
-    matched = _try_match_ref(s, 0)
-    if matched is None:
-        return "ambiguous"
-    end, ref = matched
-    if end != len(s):
-        return "ambiguous"
-    return ref.row_span_kind()
-
-
 def _looks_like_python_formula(formula: str) -> bool:
     return py_call_open_end(formula, require_equals=True) is not None
-
-
-def _python_span_allows_adjust(formula: str) -> bool:
-    """Peek sheet refs outside the quoted Python string (esp. DataRange)."""
-    parts = parse_python_formula(formula)
-    if parts is None:
-        return False
-    tokens = parse_data_binding_text(format_data_binding_display(parts.data_suffix))
-    if py_formula_has_unquoted_code_ref(formula):
-        tokens = [parts.code, *tokens]
-    for tok in tokens:
-        kind = classify_sheet_ref_span(tok)
-        if kind in ("multi_row", "ambiguous"):
-            return False
-    return True
 
 
 def _is_letter(ch: str) -> bool:
@@ -321,15 +338,15 @@ def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
             if _next_is_open_paren(s, end):
                 return None
             if part.is_cell and other.is_cell:
-                return end, _Ref(sheet1, sheet2, "range", part, other)
+                return end, _Ref(sheet1, sheet2, _RefKind.RANGE, part, other)
             if part.is_col_only and other.is_col_only:
-                return end, _Ref(sheet1, sheet2, "whole_col", part, other)
+                return end, _Ref(sheet1, sheet2, _RefKind.WHOLE_COL, part, other)
             if part.is_row_only and other.is_row_only:
-                return end, _Ref(sheet1, sheet2, "whole_row", part, other)
+                return end, _Ref(sheet1, sheet2, _RefKind.WHOLE_ROW, part, other)
     if part.is_cell:
         if _next_is_open_paren(s, j):
             return None
-        return j, _Ref(sheet1, "", "cell", part, None)
+        return j, _Ref(sheet1, "", _RefKind.CELL, part, None)
     return None
 
 
@@ -358,11 +375,9 @@ def _format_part(part: _Part) -> str:
 
 def _format_shifted_ref(ref: _Ref, dcol: int, drow: int) -> str:
     left = _shift_part(ref.start, dcol, drow)
-    if left is None:
-        return "#REF!"
+    left_str = _format_part(left) if left is not None else "#REF!"
     if ref.end is None:
-        return f"{ref.sheet1}{_format_part(left)}"
+        return f"{ref.sheet1}{left_str}"
     right = _shift_part(ref.end, dcol, drow)
-    if right is None:
-        return "#REF!"
-    return f"{ref.sheet1}{_format_part(left)}:{ref.sheet2}{_format_part(right)}"
+    right_str = _format_part(right) if right is not None else "#REF!"
+    return f"{ref.sheet1}{left_str}:{ref.sheet2}{right_str}"

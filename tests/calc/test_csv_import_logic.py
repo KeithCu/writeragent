@@ -105,7 +105,7 @@ class TestFormulaParsingLogic:
         from plugin.calc.manipulator import _parse_formula_or_values_string
         s = '[["r1c1"; "r1c2"]; ["r2c1"; "r2c2"]]'
         result = _parse_formula_or_values_string(s)
-        assert (result) == (["r1c1", "r1c2", "r2c1", "r2c2"])
+        assert result == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
 
     def test_unicode_and_emoji(self):
         from plugin.calc.manipulator import _parse_formula_or_values_string

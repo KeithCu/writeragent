@@ -47,3 +47,37 @@ def test_forced_overrides_detection():
     assert returns_array("=A1+A2", forced=True) is True
     assert returns_array("=SORT(A1:A9)", forced=False) is False
     assert returns_array("not a formula", forced=True) is True
+
+
+def test_nested_array_calls_and_passthroughs():
+    assert returns_array('=IF(A1;SORT(B1:B9);"")') is True
+    assert returns_array('=IFERROR(SORT(B1:B9);"")') is True
+    assert returns_array('=LET(x;1;SORT(B1:B9))') is True
+    assert returns_array('=_xlfn.SORT(B1:B9)') is True
+    assert returns_array("=SUM(FILTER(A1:A9;B1:B9>0))") is False
+
+
+def test_quoted_sheet_names_with_parenthesis():
+    formula = "=SUM('Q1 (draft'.A1:A3)+SORT(B1:B3)"
+    assert top_level_calls(formula) == ["SUM", "SORT"]
+
+
+def test_result_range_clamps_bounds():
+    from plugin.calc.array_formula import result_range
+    from plugin.calc.address_utils import MAX_COL, MAX_ROW
+    from plugin.framework.errors import CalcError
+
+    # Out of bounds raises CalcError
+    with pytest.raises(CalcError, match="sheet bounds"):
+        result_range(MAX_COL, 0, 1, 2)
+
+    with pytest.raises(CalcError, match="sheet bounds"):
+        result_range(0, MAX_ROW, 2, 1)
+
+
+@pytest.mark.parametrize(
+    "func_name",
+    ["LINEST", "LOGEST", "TREND", "GROWTH", "MUNIT", "TEXTSPLIT"],
+)
+def test_missing_array_returners(func_name):
+    assert returns_array(f"={func_name}(A1:B2)") is True

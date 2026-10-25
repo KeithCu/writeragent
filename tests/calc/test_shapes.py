@@ -42,3 +42,28 @@ def test_calc_shapes_target_active_sheet_mock():
         bridge = DrawBridge(doc)
         idx = bridge.get_active_page_index()
         assert idx == 1
+
+
+def test_calc_shapes_wrapper_contract():
+    """Verify that the five Calc shape wrappers have expected name, tier, and doc_types."""
+    from plugin.calc.shapes import (
+        UpsertShape,
+        DeleteShape,
+        GetDrawSummary,
+        ConnectShapes,
+        GroupShapes,
+    )
+
+    expected = [
+        (UpsertShape, "shape_upsert"),
+        (DeleteShape, "shape_delete"),
+        (GetDrawSummary, "shape_summary"),
+        (ConnectShapes, "shape_connect"),
+        (GroupShapes, "shape_group"),
+    ]
+
+    for cls, name in expected:
+        instance = cls()
+        assert instance.name == name
+        assert instance.tier == "specialized"
+        assert "calc" in (instance.doc_types or [])

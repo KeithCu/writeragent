@@ -157,7 +157,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_columns',
                 'page_set_header_footer_text',
                 'page_set_style_properties'],
-    'pivot_table': ['create_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
+    'pivot_table': ['create_pivot_table', 'delete_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
     'python': ['symbolic_math'],
     'python/sql': ['query_folder_sql'],
     'range': [   'named_range_add',
@@ -247,6 +247,7 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'create_pivot_table': ('pivot_table', 'create_pivot_table'),
     'create_sheet': ('sheet', 'create_sheet'),
     'delete_cell_comment': ('comment', 'delete_cell_comment'),
+    'delete_pivot_table': ('pivot_table', 'delete_pivot_table'),
     'delete_sheet': ('sheet', 'delete_sheet'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
@@ -1117,13 +1118,14 @@ class _FormsProxy:
         """
         return _rpc_call("form_delete_control", index=index, name=name, page=page)
 
-    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> dict[str, Any]:
+    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, group_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> dict[str, Any]:
         """Edit a live form widget by name (preferred) or draw-page index from form_list_controls. Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. When index is omitted, name looks up the control; use new_name to rename. When index is passed, name still renames (older callers).
 
         Args:
             index (optional): Draw-page shape index from form_list_controls (optional if name is set).
             name (optional): Lookup Name when index is omitted; rename when index is passed.
             new_name (optional): Rename the control (use this when looking up by name).
+            group_name (optional): Group name for radio buttons (mutually exclusive in the same group).
             label (optional): New label text.
             text (optional): New text value (for text fields).
             state (optional): Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted).
@@ -1134,7 +1136,7 @@ class _FormsProxy:
             height (optional):
             page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
         """
-        return _rpc_call("form_edit_control", index=index, name=name, new_name=new_name, label=label, text=text, state=state, items=items, x=x, y=y, width=width, height=height, page=page)
+        return _rpc_call("form_edit_control", index=index, name=name, new_name=new_name, group_name=group_name, label=label, text=text, state=state, items=items, x=x, y=y, width=width, height=height, page=page)
 
     def generate(self, description: str) -> dict[str, Any]:
         """Generate a layout with interactive form widgets from a description. Writer: HTML at the cursor. Calc: plain text in the active cell area; widgets on the sheet draw page. Draw/Impress: labels as TextShapes and widgets stacked on the active page. Not a PDF/AcroForm fill — paper-form blanks stay empty TextShapes.
@@ -1600,7 +1602,7 @@ page = _PageProxy()
 class _PivotTableProxy:
     """Proxy for pivot_table tools."""
 
-    def create_pivot_table(self, name: str, source_range: str, destination_cell: str, data_fields: list[str], *, source_sheet: str | None = None, destination_sheet: str | None = None, row_fields: list[str] | None = None, column_fields: list[str] | None = None, page_fields: list[str] | None = None) -> dict[str, Any]:
+    def create_pivot_table(self, name: str, source_range: str, destination_cell: str, data_fields: list[str], *, source_sheet: str | None = None, destination_sheet: str | None = None, row_fields: list[str] | None = None, column_fields: list[str] | None = None, page_fields: list[str] | None = None, data_functions: dict[str, Any] | None = None, page_filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first).
 
         Args:
@@ -1613,8 +1615,19 @@ class _PivotTableProxy:
             row_fields (optional): Source column headers to use as row fields.
             column_fields (optional): Source column headers to use as column fields.
             page_fields (optional): Optional page/filter fields (headers).
+            data_functions (optional): Optional map of data field name to aggregate function: SUM, COUNT, AVERAGE, MAX, MIN, PRODUCT, COUNTNUMS, STDEV, STDEVP, VAR, VARP.
+            page_filters (optional): Optional map of page field name to filter value.
         """
-        return _rpc_call("create_pivot_table", name=name, source_range=source_range, source_sheet=source_sheet, destination_cell=destination_cell, destination_sheet=destination_sheet, row_fields=row_fields, column_fields=column_fields, data_fields=data_fields, page_fields=page_fields)
+        return _rpc_call("create_pivot_table", name=name, source_range=source_range, source_sheet=source_sheet, destination_cell=destination_cell, destination_sheet=destination_sheet, row_fields=row_fields, column_fields=column_fields, data_fields=data_fields, page_fields=page_fields, data_functions=data_functions, page_filters=page_filters)
+
+    def delete_pivot_table(self, name: str, *, sheet: str | None = None) -> dict[str, Any]:
+        """Delete a pivot table by name. If sheet is omitted, searches all sheets for name.
+
+        Args:
+            name (required): Name of the pivot table to delete.
+            sheet (optional): Sheet containing the pivot table. Omit to search all sheets.
+        """
+        return _rpc_call("delete_pivot_table", name=name, sheet=sheet)
 
     def list_pivot_tables(self, *, sheet: str | None = None) -> dict[str, Any]:
         """List pivot tables in the spreadsheet, optionally limited to one sheet.
@@ -1908,8 +1921,8 @@ class _SheetProxy:
         """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets').
 
         Args:
-            range_name (required): Same data range used when applying the filter (e.g. ["A1:D20"]).
-            has_header (optional): Should match apply_sheet_filter (default true).
+            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            has_header (optional): First row is headers only (default true).
         """
         return _rpc_call("clear_sheet_filter", range=range_name, has_header=has_header)
 
@@ -1934,7 +1947,7 @@ class _SheetProxy:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets').
 
         Args:
-            range_name (required): Same range as apply_sheet_filter.
+            range_name (required): Range to filter (e.g. ["A1:D20"]).
         """
         return _rpc_call("get_sheet_filter", range=range_name)
 

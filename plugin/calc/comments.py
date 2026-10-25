@@ -10,8 +10,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcCommentBase
-from plugin.calc.address_utils import format_address, parse_address, split_sheet_and_name
+from plugin.calc.address_utils import format_address, parse_address
+from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_sheet
+from plugin.framework.errors import is_real_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -66,15 +68,11 @@ def _resolve_comment_cell(
     sheet_name_arg: str | None = None,
 ) -> tuple[Any, int, int, str] | dict[str, Any]:
     try:
-        cell_ref, sheet_name = split_sheet_and_name(cell_ref, sheet_name_arg)
-    except ValueError as e:
-        return tool._tool_error(str(e))
-
-    sheet = resolve_sheet(doc, sheet_name)
-
-    try:
-        col, row = parse_address(cell_ref)
-    except ValueError as e:
+        sheet, address = CalcBridge(doc).resolve(cell_ref, sheet_name_arg)
+        col, row = parse_address(address)
+    except Exception as e:
+        if is_real_disposal(e):
+            raise
         return tool._tool_error(str(e))
 
     return sheet, col, row, cell_ref
@@ -92,7 +90,7 @@ class ListCellComments(ToolCalcCommentBase):
         doc = ctx.doc
         sheet = resolve_sheet(doc, kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
-        comments = []
+        raw_comments = []
         for i in range(annotations.getCount()):
             ann = annotations.getByIndex(i)
             pos = ann.getPosition()
@@ -102,17 +100,23 @@ class ListCellComments(ToolCalcCommentBase):
             # Fall back to getAnnotationShape() for lazy .xlsx captions.
             cell_ann, text = _annotation_text(sheet, pos.Column, pos.Row)
             date_str = _annotation_date(cell_ann.getDate())
-            comments.append(
-                {
-                    "cell": format_address(pos.Column, pos.Row),
-                    "author": ann.getAuthor(),
-                    # .xlsx has no date field on a comment element, so an
-                    # empty date there is the format, not a failure.
-                    "date": date_str,
-                    "text": text,
-                    "is_visible": ann.getIsVisible(),
-                }
+            raw_comments.append(
+                (
+                    pos.Row,
+                    pos.Column,
+                    {
+                        "cell": format_address(pos.Column, pos.Row),
+                        "author": ann.getAuthor(),
+                        # .xlsx has no date field on a comment element, so an
+                        # empty date there is the format, not a failure.
+                        "date": date_str,
+                        "text": text,
+                        "is_visible": ann.getIsVisible(),
+                    },
+                )
             )
+        raw_comments.sort(key=lambda item: (item[0], item[1]))
+        comments = [item[2] for item in raw_comments]
         return {"status": "ok", "comments": comments, "count": len(comments), "sheet": sheet.getName()}
 
 
@@ -142,21 +146,13 @@ class AddCellComment(ToolCalcCommentBase):
 
         cell = sheet.getCellByPosition(col, row)
 
-        # Insert or update annotation
-        from com.sun.star.table import CellAddress
-
-        addr = CellAddress()
-        addr.Sheet = sheet.getRangeAddress().Sheet
-        addr.Column = col
-        addr.Row = row
-
-        annotations = sheet.getAnnotations()
-        # Check if annotation already exists
-        ann = cell.getAnnotation()
-        if ann and ann.getString():
-            ann.setString(text)
+        cell_ann, existing_text = _annotation_text(sheet, col, row)
+        if existing_text:
+            cell_ann.setString(text)
         else:
-            annotations.insertNew(addr, text)
+            sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
+
+        return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 
         return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 

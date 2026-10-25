@@ -105,29 +105,37 @@ def coerce_control_state(value: Any) -> int | None:
 
 def control_snapshot(model: Any) -> dict[str, Any]:
     """Type, name, and current value/state from a form component model."""
-    info: dict[str, Any] = {"type": _readable_control_type(model), "name": _safe_attr(model, "Name")}
+    info: dict[str, Any] = {"type": readable_control_type(model), "name": _safe_attr(model, "Name")}
     label = _safe_attr(model, "Label")
     if label:
         info["label"] = label
     if hasattr(model, "Text"):
         try:
             info["text"] = model.Text
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("control snapshot Text read failed", exc_info=True)
     if hasattr(model, "State"):
         try:
             info["state"] = int(model.State)
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("control snapshot State read failed", exc_info=True)
     if hasattr(model, "StringItemList"):
         try:
             info["items"] = list(model.StringItemList)
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("control snapshot StringItemList read failed", exc_info=True)
     if hasattr(model, "SelectedItems"):
         try:
             info["selected"] = list(model.SelectedItems)
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("control snapshot SelectedItems read failed", exc_info=True)
     return info
 
@@ -145,12 +153,14 @@ CONTROL_TYPE_MAP: dict[str, str] = {
 }
 
 
-def _readable_control_type(model: Any) -> str:
+def readable_control_type(model: Any) -> str:
     for type_str, service in CONTROL_TYPE_MAP.items():
         try:
             if model is not None and model.supportsService(service):
                 return type_str
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             log.debug("supportsService(%s) failed", service, exc_info=True)
             continue
     return "unknown"

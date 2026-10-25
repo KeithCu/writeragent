@@ -24,11 +24,10 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 # crosshair: off
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_probe
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal, uno_probe
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -38,7 +37,7 @@ from plugin.calc.address_utils import format_range, index_to_column, parse_range
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.deal_shim import deal
 
@@ -64,6 +63,53 @@ _DISTINCT_PEEK_LIST_CAP = 12
 _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 
 log = logging.getLogger("writeragent.calc")
+
+
+def _opt_bool(kwargs: dict[str, Any], key: str) -> tuple[bool | None, str | None]:
+    if key not in kwargs:
+        return None, None
+    raw = kwargs[key]
+    if raw is None:
+        return None, None
+    if isinstance(raw, bool):
+        return raw, None
+    if isinstance(raw, str):
+        cleaned = raw.strip().lower()
+        if cleaned in ("true", "false"):
+            return cleaned == "true", None
+    return None, f"{key} must be a boolean (true or false), got {type(raw).__name__}"
+
+
+def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None) -> tuple[int | None, str | None]:
+    if key not in kwargs:
+        return None, None
+    raw = kwargs[key]
+    if raw is None:
+        return None, None
+    if type(raw) is not int:
+        msg = f"{key} must be an integer"
+        if minimum is not None:
+            msg += f" >= {minimum}"
+        return None, f"{msg}, got {type(raw).__name__}"
+    if minimum is not None and raw < minimum:
+        return None, f"{key} must be an integer >= {minimum}, got {raw}"
+    return raw, None
+
+
+def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
+    if key not in kwargs:
+        return None, None
+    raw = kwargs[key]
+    if raw is None:
+        return None, None
+    if isinstance(raw, str) and raw.strip() == "":
+        return None, None
+    if not isinstance(raw, str):
+        return None, f"{key} must be a string, got {type(raw).__name__}"
+    parsed = _parse_color(raw)
+    if parsed is None:
+        return None, f"Invalid {key}: '{raw}'"
+    return parsed, None
 
 
 # ── Colour helper ──────────────────────────────────────────────────────
@@ -133,8 +179,21 @@ def _compound_undo(doc: Any, title: str) -> Any:
     return WriterCompoundUndo(doc, title)
 
 
-def _undo_titled_group(doc: Any, title: str) -> bool:
-    """Undo the group we just closed, only when its title is the newest one."""
+def _undo_action_count(doc: Any) -> int:
+    def _do() -> int:
+        if not hasattr(doc, "getUndoManager"):
+            return 0
+        um = doc.getUndoManager()
+        if um is None:
+            return 0
+        titles = um.getAllUndoActionTitles()
+        return len(titles) if titles is not None else 0
+
+    return uno_probe(_do, 0)
+
+
+def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
+    """Undo the group we just closed, only when its title is the newest one and count grew."""
     def _do_undo() -> bool:
         if not hasattr(doc, "getUndoManager"):
             return False
@@ -142,7 +201,7 @@ def _undo_titled_group(doc: Any, title: str) -> bool:
         if um is None:
             return False
         titles = um.getAllUndoActionTitles()
-        if titles and titles[0] == title:
+        if titles and len(titles) > prev_count and titles[0] == title:
             um.undo()
             return True
         return False
@@ -155,44 +214,46 @@ def _mutate_ranges(
     doc: Any,
     ranges: list[Any],
     undo_title: str,
-    apply_one: Callable[[Any], str],
+    apply_one: Callable[[Any], str | dict[str, Any]],
     done_message: str,
+    format_result: Callable[[list[Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run apply_one on each range inside one compound undo. apply_one returns the single-range message."""
-    # Bugfix: Failures during multi-range mutations left previous ranges partially modified
-    # in separate or inconsistent undo states. This happened because loops lacked
-    # atomic compound undo rollback on failure. Wrapping operations in a titled compound
-    # undo and rolling back on failure ensures all-or-nothing mutations.
+    """Run apply_one on each range inside one compound undo."""
     if len(ranges) == 0:
         return tool._tool_error("range is required")
 
     group = None
     target = ranges[0]
     applied = 0
-    single_result = ""
+    results: list[Any] = []
+    prev_count = _undo_action_count(doc)
     try:
         group = _compound_undo(doc, undo_title)
         with group:
             for r in ranges:
                 target = r
-                single_result = apply_one(r)
+                res = apply_one(r)
                 applied += 1
+                results.append(res)
+        if format_result is not None:
+            return format_result(results)
         if len(ranges) == 1:
-            return {"status": "ok", "message": single_result}
+            single = results[0]
+            if isinstance(single, dict):
+                return {"status": "ok", **single}
+            return {"status": "ok", "message": single}
         return {"status": "ok", "message": done_message}
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException during a range mutation, and this
-        # except turned that into a tool error.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing error path.
         if is_real_disposal(exc):
             raise
         undone = False
         if group is not None and getattr(group, "entered", False):
-            undone = _undo_titled_group(doc, undo_title)
+            undone = _undo_titled_group(doc, undo_title, prev_count)
         if undone:
             return tool._tool_error(f"Failed on range {target!r}: {exc}. Nothing was kept.")
         if applied > 0:
+            if not (group is not None and getattr(group, "entered", False)):
+                return tool._tool_error(f"Failed on range {target!r}: {exc}. {applied} range(s) were already changed individually.")
             return tool._tool_error(f"Failed on range {target!r}: {exc}. {applied} range(s) were already changed; one Ctrl+Z undoes them.")
         return tool._tool_error(str(exc))
 
@@ -228,10 +289,9 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             "start_row": int(addr.StartRow),
         }
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_real_disposal(e):
             raise
-        log.exception("Could not size range %s for read_cell_range cap; reading in full", range_name)
-        return None
+        raise ToolExecutionError(f"Could not size range {range_name}: {e}")
 
 
 def _distinct_display(val: Any) -> str | None:
@@ -329,42 +389,6 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
         return None
 
 
-def _leaf_value_count(payload: Any) -> int:
-    """Count scalar cells in a JSON array (nested rows flatten)."""
-    if not isinstance(payload, list):
-        return 1
-    n = 0
-    for item in payload:
-        n += _leaf_value_count(item) if isinstance(item, list) else 1
-    return n
-
-
-def _json_array_value_count(fov: Any) -> int | None:
-    """How many cells a JSON/list ``values`` payload names, or None if not an array write.
-
-    Scalar strings fill the whole range; empty / ``[]`` clears. Those are not
-    length-checked. Named ranges are handled by the caller (unparseable A1).
-    """
-    data: Any
-    if isinstance(fov, list):
-        data = fov
-    elif isinstance(fov, str):
-        stripped = fov.strip()
-        if not stripped.startswith("["):
-            return None
-        try:
-            data = json.loads(stripped)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(data, list):
-            return None
-    else:
-        return None
-    if not data:
-        return None
-    return _leaf_value_count(data)
-
-
 def _a1_range_shape(range_name: str) -> tuple[int, int, int] | None:
     """``(cell_count, rows, cols)`` for an A1 range, or None for named/invalid refs."""
     try:
@@ -397,16 +421,6 @@ def _values_conflict_with_source(kwargs: dict[str, Any]) -> bool:
     if "values" not in kwargs:
         return False
     return kwargs.get("values") is not None
-
-
-def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
-    """Loud error so the model can resize the array or the range (no silent zip/pad)."""
-    hint = ""
-    if cols == 1 and rows > 1:
-        hint = " Write one value per row (each formula uses that row's cells)."
-    elif rows == 1 and cols > 1:
-        hint = " Write one value per column."
-    return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
 class ReadCellRange(ToolBase):
@@ -569,32 +583,31 @@ class WriteCellRange(ToolBase):
         if source:
             if _values_conflict_with_source(kwargs):
                 return self._tool_error("Do not pass values when source is set. To copy a block, pass source and dest range only.")
-            group = None
-            target = rn[0]
-            applied = 0
-            try:
-                group = _compound_undo(ctx.doc, "WriterAgent: Copy range")
-                with group:
-                    copied: dict[str, Any] | None = None
-                    for dest in rn:
-                        target = dest
-                        copied = manipulator.copy_formula_range(source, dest)
-                        applied += 1
-                    if copied is None:
-                        return self._tool_error("range is required")
-                    msg = copied["message"]
-                    if len(rn) > 1:
-                        msg = f"Copied {copied['rows_copied']}×{copied['cols_copied']} from {source} onto {len(rn)} ranges."
-                    return {"status": "ok", "message": msg, "rows_copied": copied["rows_copied"], "cols_copied": copied["cols_copied"]}
-            except Exception as e:
-                undone = False
-                if group is not None and getattr(group, "entered", False):
-                    undone = _undo_titled_group(ctx.doc, "WriterAgent: Copy range")
-                if undone:
-                    return self._tool_error(f"Failed on range {target!r}: {e}. Nothing was kept.")
-                if applied > 0:
-                    return self._tool_error(f"Failed on range {target!r}: {e}. {applied} range(s) were already changed; one Ctrl+Z undoes them.")
-                return self._tool_error(str(e))
+
+            def _apply_copy(dest: Any) -> dict[str, Any]:
+                return manipulator.copy_formula_range(source, dest)
+
+            def _format_copy(results: list[Any]) -> dict[str, Any]:
+                last = results[-1]
+                msg = last["message"]
+                if len(rn) > 1:
+                    msg = f"Copied {last['rows_copied']}×{last['cols_copied']} from {source} onto {len(rn)} ranges."
+                return {
+                    "status": "ok",
+                    "message": msg,
+                    "rows_copied": last["rows_copied"],
+                    "cols_copied": last["cols_copied"],
+                }
+
+            return _mutate_ranges(
+                self,
+                ctx.doc,
+                rn,
+                "WriterAgent: Copy range",
+                _apply_copy,
+                "",
+                format_result=_format_copy,
+            )
 
         fov = kwargs.get("values")
         # values is required when source is omitted (schema keeps it optional so
@@ -608,79 +621,79 @@ class WriteCellRange(ToolBase):
         # Normalize: schema is string for Gemini; accept number/list from other providers
         if isinstance(fov, (int, float)):
             fov = str(fov)
-        elif isinstance(fov, list):
-            fov = json.dumps(fov) if fov else ""
 
-        # Schema already says JSON array length must match the range. Models
-        # (solar-pro4) still passed 4 values into an 8-cell range; zip-style
-        # writes silently corrupt the extra cells. Fail before undo so the
-        # model can resize the array or the range. Named/unparseable A1 is
-        # left to the manipulator (it already errors on a 1-D mismatch).
-        n_vals = _json_array_value_count(fov)
-        if n_vals is not None:
-            for r in rn:
-                shape = _a1_range_shape(r)
-                if shape is None:
-                    continue
-                n_cells, rows, cols = shape
-                if n_vals != n_cells:
-                    return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
-
-        array_flag = kwargs.get("array")
-        if array_flag is not None and not isinstance(array_flag, bool):
-            if isinstance(array_flag, str) and array_flag.strip().lower() in ("true", "false"):
-                array_flag = array_flag.strip().lower() == "true"
+        single_cell = len(rn) == 1 and _a1_range_shape(rn[0]) == (1, 1, 1)
+        parsed_vals = _parse_formula_or_values_string(fov, single_cell_range=single_cell) if isinstance(fov, str) else (fov if isinstance(fov, list) else None)
+        if parsed_vals is not None and len(parsed_vals) > 0:
+            if isinstance(parsed_vals[0], (list, tuple)):
+                r_cnt = len(parsed_vals)
+                c_cnt = len(parsed_vals[0]) if r_cnt > 0 else 0
+                for r in rn:
+                    shape = _a1_range_shape(r)
+                    if shape is None:
+                        continue
+                    n_cells, rows, cols = shape
+                    if n_cells > 1:
+                        if not all(isinstance(row, (list, tuple)) and len(row) == c_cnt for row in parsed_vals) or r_cnt != rows or c_cnt != cols:
+                            return self._tool_error(f"Array is {r_cnt}x{c_cnt} but range is {rows}x{cols}.")
             else:
-                return self._tool_error("array must be a boolean")
+                n_vals = len(parsed_vals)
+                for r in rn:
+                    shape = _a1_range_shape(r)
+                    if shape is None:
+                        continue
+                    n_cells, rows, cols = shape
+                    if n_vals != n_cells:
+                        return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
 
-        group = None
-        target = rn[0]
-        applied = 0
-        try:
-            premeasured: list[tuple[int, int] | None] = []
-            for r in rn:
-                sz = manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag)
-                premeasured.append(sz)
+        array_flag, err = _opt_bool(kwargs, "array")
+        if err:
+            return self._tool_error(err)
 
-            group = _compound_undo(ctx.doc, "WriterAgent: Write formulas")
-            with group:
-                if len(rn) == 1:
-                    target = rn[0]
-                    result = manipulator.write_formula_range(rn[0], fov, array=array_flag, premeasured_array_size=premeasured[0])
-                    applied += 1
-                    if isinstance(result, dict):
-                        return {"status": "ok", **result}
-                    return {"status": "ok", "message": result}
+        first_sz = manipulator.prepare_array_formula_if_needed(rn[0], fov, array=array_flag)
+        premeasured: list[tuple[int, int] | None] = [first_sz]
+        for r in rn[1:]:
+            sz = manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag, premeasured_array_size=first_sz)
+            premeasured.append(sz)
 
-                results_list: list[Any] = []
-                for i, r in enumerate(rn):
-                    target = r
-                    res = manipulator.write_formula_range(r, fov, array=array_flag, premeasured_array_size=premeasured[i])
-                    applied += 1
-                    results_list.append(res)
+        idx = 0
 
-                if any(isinstance(res, dict) for res in results_list):
-                    ranges_payload: list[dict[str, Any]] = []
-                    for r, res in zip(rn, results_list):
-                        if isinstance(res, dict):
-                            ranges_payload.append({"range": r, **res})
-                        else:
-                            ranges_payload.append({"range": r, "message": res})
-                    return {
-                        "status": "ok",
-                        "message": f"Wrote to {len(rn)} ranges",
-                        "ranges": ranges_payload,
-                    }
-                return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
-        except Exception as e:
-            undone = False
-            if group is not None and getattr(group, "entered", False):
-                undone = _undo_titled_group(ctx.doc, "WriterAgent: Write formulas")
-            if undone:
-                return self._tool_error(f"Failed on range {target!r}: {e}. Nothing was kept.")
-            if applied > 0:
-                return self._tool_error(f"Failed on range {target!r}: {e}. {applied} range(s) were already changed; one Ctrl+Z undoes them.")
-            return self._tool_error(str(e))
+        def _apply_write(r: Any) -> Any:
+            nonlocal idx
+            sz = premeasured[idx]
+            idx += 1
+            return manipulator.write_formula_range(r, fov, array=array_flag, premeasured_array_size=sz)
+
+        def _format_write(results: list[Any]) -> dict[str, Any]:
+            if len(rn) == 1:
+                res = results[0]
+                if isinstance(res, dict):
+                    return {"status": "ok", **res}
+                return {"status": "ok", "message": res}
+
+            if any(isinstance(res, dict) for res in results):
+                ranges_payload: list[dict[str, Any]] = []
+                for r, res in zip(rn, results):
+                    if isinstance(res, dict):
+                        ranges_payload.append({"range": r, **res})
+                    else:
+                        ranges_payload.append({"range": r, "message": res})
+                return {
+                    "status": "ok",
+                    "message": f"Wrote to {len(rn)} ranges",
+                    "ranges": ranges_payload,
+                }
+            return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
+
+        return _mutate_ranges(
+            self,
+            ctx.doc,
+            rn,
+            "WriterAgent: Write formulas",
+            _apply_write,
+            f"Wrote to {len(rn)} ranges",
+            format_result=_format_write,
+        )
 
 
 class InsertCellHtml(ToolBase):
@@ -746,53 +759,20 @@ class SetCellStyle(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        # Strict color validation: callers/tests expect invalid color strings
-        # to produce a consistent `{status:"error"}` payload rather than
-        # silently treating unparseable values as "no change".
-        def _parse_or_error(color_key: str) -> int | dict[str, str] | None:
-            if color_key not in kwargs:
-                return None
-            raw = kwargs[color_key]
-            if raw is None:
-                return None
-            if isinstance(raw, str) and raw.strip() == "":
-                return None
-            # Bugfix: Non-string color values were silently treated as "no change"
-            # (returning None). Rejecting non-strings surfaces invalid types as errors.
-            if not isinstance(raw, str):
-                return {"__error__": f"{color_key} must be a string, got {type(raw).__name__}"}
-            parsed = _parse_color(raw)
-            if parsed is None:
-                return {"__error__": f"Invalid {color_key}: '{raw}'"}
-            return parsed
+        bg_color, err = _opt_color(kwargs, "bg_color")
+        if err:
+            return self._tool_error(err)
 
-        _bg = _parse_or_error("bg_color")
-        if isinstance(_bg, dict):
-            return self._tool_error(_bg["__error__"])
-        bg_color: int | None = _bg
+        font_color, err = _opt_color(kwargs, "font_color")
+        if err:
+            return self._tool_error(err)
 
-        _fc = _parse_or_error("font_color")
-        if isinstance(_fc, dict):
-            return self._tool_error(_fc["__error__"])
-        font_color: int | None = _fc
-
-        _bc = _parse_or_error("border_color")
-        if isinstance(_bc, dict):
-            return self._tool_error(_bc["__error__"])
-        border_color: int | None = _bc
+        border_color, err = _opt_color(kwargs, "border_color")
+        if err:
+            return self._tool_error(err)
 
         # Direct execute() skips validate; these type checks stay so
         # tests/calc/test_cells.py still gets a tool error instead of a silent no-op.
-        def _optional_bool(key: str) -> tuple[bool | None, str | None]:
-            if key not in kwargs:
-                return None, None
-            raw = kwargs[key]
-            if raw is None:
-                return None, None
-            if not isinstance(raw, bool):
-                return None, f"{key} must be a boolean (true or false), got {type(raw).__name__}"
-            return raw, None
-
         def _optional_font_size() -> tuple[float | None, str | None]:
             if "font_size" not in kwargs:
                 return None, None
@@ -816,13 +796,13 @@ class SetCellStyle(ToolBase):
                 return None, None
             return raw, None
 
-        bold, err = _optional_bool("bold")
+        bold, err = _opt_bool(kwargs, "bold")
         if err:
             return self._tool_error(err)
-        italic, err = _optional_bool("italic")
+        italic, err = _opt_bool(kwargs, "italic")
         if err:
             return self._tool_error(err)
-        wrap_text, err = _optional_bool("wrap_text")
+        wrap_text, err = _opt_bool(kwargs, "wrap_text")
         if err:
             return self._tool_error(err)
         font_size, err = _optional_font_size()
@@ -879,13 +859,10 @@ class MergeCells(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
-        raw_center = kwargs.get("center")
-        if raw_center is None:
-            center = True
-        elif not isinstance(raw_center, bool):
-            return self._tool_error(f"center must be a boolean (true or false), got {type(raw_center).__name__}")
-        else:
-            center = raw_center
+        center_val, err = _opt_bool(kwargs, "center")
+        if err:
+            return self._tool_error(err)
+        center = True if center_val is None else center_val
 
         def _apply_merge(r: Any) -> str:
             manipulator.merge_cells(r, center=center)
@@ -936,23 +913,15 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        raw_sc = kwargs.get("sort_column")
-        if raw_sc is None:
-            sort_column = 0
-        elif type(raw_sc) is not int:
-            return self._tool_error(f"sort_column must be an integer >= 0, got {type(raw_sc).__name__}")
-        elif raw_sc < 0:
-            return self._tool_error(f"sort_column must be an integer >= 0, got {raw_sc}")
-        else:
-            sort_column = raw_sc
+        sort_column_val, err = _strict_int(kwargs, "sort_column", 0)
+        if err:
+            return self._tool_error(err)
+        sort_column = 0 if sort_column_val is None else sort_column_val
 
-        raw_ascending = kwargs.get("ascending")
-        if raw_ascending is None:
-            ascending = True
-        elif not isinstance(raw_ascending, bool):
-            return self._tool_error(f"ascending must be a boolean (true or false), got {type(raw_ascending).__name__}")
-        else:
-            ascending = raw_ascending
+        ascending_val, err = _opt_bool(kwargs, "ascending")
+        if err:
+            return self._tool_error(err)
+        ascending = True if ascending_val is None else ascending_val
 
         has_header: bool = kwargs["has_header"]
         assert isinstance(has_header, bool)
@@ -997,9 +966,10 @@ class DeleteStructure(ToolBase):
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
 
-        count = kwargs.get("count", 1)
-        if type(count) is not int or count < 1:
-            return self._tool_error("count must be an integer >= 1")
+        count_val, err = _strict_int(kwargs, "count", 1)
+        if err:
+            return self._tool_error(err)
+        count = 1 if count_val is None else count_val
 
         start_raw = kwargs["start"]
         if structure_type == "rows":

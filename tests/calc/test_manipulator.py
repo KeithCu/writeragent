@@ -5,12 +5,12 @@
 """Unit tests for Calc cell manipulator helpers (no soffice)."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.framework.errors import CalcError
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import CellManipulator, _coerce_array_flag
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -113,7 +113,7 @@ def test_write_formula_range_rejects_wide_array():
     manipulator = CellManipulator(bridge)
     from unittest.mock import patch
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
-        with pytest.raises(CalcError, match="is too wide"):
+        with pytest.raises(CalcError, match=r"Array is 2x3 but range is 2x2"):
             manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
 def test_write_array_formula_refusal_leaves_prior_array():
     # Old array A1:B1. The new result is 1x3, and C1 already has a value.
@@ -194,20 +194,120 @@ def test_write_array_formula_explicit_rejects_large_range():
 
 def test_classify_write_cell_boolean():
     manipulator = CellManipulator(MagicMock())
-    val, formula, meta = manipulator._classify_write_cell(True, None, None)
-    assert val == 1.0
-    assert formula == ""
-    assert meta["kind"] == "number"
+    w = manipulator._classify_write_cell(True, None, None)
+    assert w.data == 1.0
+    assert w.formula == ""
+    assert w.kind == "number"
 
-    val_f, formula_f, meta_f = manipulator._classify_write_cell(False, None, None)
-    assert val_f == 0.0
-    assert formula_f == ""
-    assert meta_f["kind"] == "number"
+    w_f = manipulator._classify_write_cell(False, None, None)
+    assert w_f.data == 0.0
+    assert w_f.formula == ""
+    assert w_f.kind == "number"
 
-    val_str, formula_str, meta_str = manipulator._classify_write_cell("True", None, None)
-    assert val_str == "True"
-    assert formula_str == ""
-    assert meta_str["kind"] == "text"
+    w_str = manipulator._classify_write_cell("True", None, None)
+    assert w_str.data == "True"
+    assert w_str.formula == ""
+    assert w_str.kind == "text"
+
+
+def test_classify_write_cell_matrix():
+    manipulator = CellManipulator(MagicMock())
+    # int / float
+    w_int = manipulator._classify_write_cell(42, None, None)
+    assert w_int.data == 42 and w_int.formula == "" and w_int.kind == "number"
+    w_float = manipulator._classify_write_cell(3.14, None, None)
+    assert w_float.data == 3.14 and w_float.formula == "" and w_float.kind == "number"
+
+    # numeric string
+    w_numstr = manipulator._classify_write_cell("123.45", None, None)
+    assert w_numstr.data == 123.45 and w_numstr.formula == "" and w_numstr.kind == "number"
+
+    # formula
+    w_form = manipulator._classify_write_cell("=A1+1", None, None)
+    assert w_form.data == "" and w_form.formula == "=A1+1" and w_form.kind == "formula"
+
+    # apostrophe text
+    w_apos = manipulator._classify_write_cell("'00123", None, None)
+    assert w_apos.data == "00123" and w_apos.formula == "" and w_apos.kind == "forced_text"
+
+    # literal text
+    w_lit = manipulator._classify_write_cell("00123", None, None, literal_text=True)
+    assert w_lit.data == "00123" and w_lit.formula == "" and w_lit.kind == "forced_text"
+
+    # ISO date/time
+    mock_formatter = MagicMock()
+    mock_formatter.detectNumberFormat.return_value = 101
+    mock_formatter.convertStringToNumber.return_value = 45000.0
+    w_iso = manipulator._classify_write_cell("2024-01-01", mock_formatter, 0)
+    assert w_iso.data == 45000.0 and w_iso.kind == "temporal" and w_iso.detected_key == 101
+
+
+def test_oversized_write_raises_limit():
+    from plugin.calc.manipulator import MAX_WRITE_CELLS
+
+    bridge = MagicMock()
+    huge_addr = SimpleNamespace(StartColumn=0, EndColumn=16383, StartRow=0, EndRow=1048575, Sheet=0)
+    mock_sheet = MagicMock()
+    mock_cursor = MagicMock()
+    mock_cursor.getRangeAddress.return_value = SimpleNamespace(EndColumn=0, EndRow=0)
+    mock_sheet.createCursor.return_value = mock_cursor
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+    bridge.resolve_range_or_address.return_value = MagicMock()
+    manipulator = CellManipulator(bridge)
+
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=huge_addr):
+        with pytest.raises(CalcError, match="write limit"):
+            manipulator.write_formula_range("A1:XFD1048576", "1")
+
+        # Empty clear of huge range still works (clear_range is uncapped)
+        manipulator.clear_range("A1:XFD1048576")
+
+    # Exactly MAX_WRITE_CELLS is accepted (mocking setDataArray/write path)
+    exact_addr = SimpleNamespace(StartColumn=0, EndColumn=MAX_WRITE_CELLS - 1, StartRow=0, EndRow=0, Sheet=0)
+    mock_range = MagicMock()
+    mock_sheet = MagicMock()
+    mock_range.getSpreadsheet.return_value = mock_sheet
+    mock_range.getDataArray.return_value = ()
+    bridge.resolve_range_or_address.return_value = mock_range
+    bridge.doc.getNumberFormats.return_value = MagicMock()
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
+        with patch.object(manipulator, "_resolve_document_locale", return_value=MagicMock()):
+            res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
+            assert "filled with" in res
+
+
+def test_array_preview_capped():
+    bridge = MagicMock()
+    doc = MagicMock()
+    bridge.doc = doc
+    manipulator = CellManipulator(bridge)
+
+    sheet = MagicMock()
+    preview_data = tuple((float(i),) * 10 for i in range(3))
+    mock_preview_rng = MagicMock()
+    mock_preview_rng.getDataArray.return_value = preview_data
+    sheet.getCellRangeByPosition.return_value = mock_preview_rng
+
+    anchor = MagicMock()
+    anchor.Error = 0
+    anchor.getFormula.return_value = ""
+    anchor.getString.return_value = ""
+    sheet.getCellByPosition.return_value = anchor
+
+    res = manipulator._write_array_formula(
+        sheet,
+        "=MUNIT(20)",
+        start=(0, 0),
+        end=(19, 2),
+        premeasured_array_size=(3, 20),
+    )
+    assert res["rows"] == 3
+    assert res["cols"] == 20
+    assert len(res["preview"]) == 3
+    assert len(res["preview"][0]) == 10
+    assert res.get("preview_truncated") is True
 
 
 def test_sort_range_bounds_and_valid_types():
@@ -248,3 +348,26 @@ def test_quiet_probe_cleanup():
 
     # Does not raise
     _quiet_probe_cleanup(raise_val_error, "test_swallowed")
+
+
+def test_coerce_array_flag_string_regression():
+    # Item 3: String like "false" must not count as True.
+    assert _coerce_array_flag("false") is False
+    assert _coerce_array_flag("False") is False
+    assert _coerce_array_flag(" FALSE ") is False
+    assert _coerce_array_flag("true") is True
+    assert _coerce_array_flag("True") is True
+    assert _coerce_array_flag(False) is False
+    assert _coerce_array_flag(True) is True
+    assert _coerce_array_flag(None) is None
+
+
+def test_prepare_array_formula_string_false_does_not_force_array():
+    # Regression: array="false" must coerce to False, disabling forced array behavior
+    bridge = MagicMock()
+    manipulator = CellManipulator(bridge)
+    res = manipulator.prepare_array_formula_if_needed("A1:A5", "=A1+1", array="false")
+    assert res is None
+    res_sort = manipulator.prepare_array_formula_if_needed("A1:A5", "=SORT(B1:B5)", array="false")
+    assert res_sort is None
+

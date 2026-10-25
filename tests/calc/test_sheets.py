@@ -14,7 +14,15 @@ import pytest
 
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
-from plugin.calc.sheets import DeleteSheet, GetSheetSummary, ListSheets, ProtectSheet, RenameSheet, SwitchSheet
+from plugin.calc.sheets import (
+    CreateSheet,
+    DeleteSheet,
+    GetSheetSummary,
+    ListSheets,
+    ProtectSheet,
+    RenameSheet,
+    SwitchSheet,
+)
 
 
 def test_is_agent_visible_sheet_hides_leading_underscore():
@@ -188,3 +196,190 @@ def test_protect_sheet_missing_name_raises_uno_object_error():
     assert "No sheet named 'NoSuchSheet'." in err_msg
     assert "Available: Sheet1, Data" in err_msg
     assert "_hidden" not in err_msg
+
+
+def test_create_sheet_validations():
+    doc, sheets = _make_doc_with_sheets()
+    sheets.getCount.return_value = 3
+    ctx = SimpleNamespace(doc=doc)
+    tool = CreateSheet()
+
+    # Empty / whitespace
+    res = tool.execute(ctx, sheet="")
+    assert res["status"] == "error"
+    assert "cannot be empty" in res["message"]
+
+    res = tool.execute(ctx, sheet="   ")
+    assert res["status"] == "error"
+    assert "cannot be empty" in res["message"]
+
+    # Invalid characters
+    for ch in ("*", "?", ":", "/", "\\", "[", "]"):
+        res = tool.execute(ctx, sheet=f"Sheet{ch}1")
+        assert res["status"] == "error"
+        assert f"cannot contain '{ch}'" in res["message"]
+
+    # Leading underscore
+    res = tool.execute(ctx, sheet="_hidden_new")
+    assert res["status"] == "error"
+    assert "reserved for internal sheets" in res["message"]
+
+    # Case-insensitive duplicate
+    res = tool.execute(ctx, sheet="sheet1")
+    assert res["status"] == "error"
+    assert "already exists" in res["message"]
+
+    # Position out of range
+    res = tool.execute(ctx, sheet="ValidName", position=-1)
+    assert res["status"] == "error"
+    assert "out of range" in res["message"]
+
+    res = tool.execute(ctx, sheet="ValidName", position=4)
+    assert res["status"] == "error"
+    assert "out of range" in res["message"]
+
+
+def test_create_sheet_success_payload_and_no_activation():
+    doc, sheets = _make_doc_with_sheets()
+    sheets.getCount.return_value = 2
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    ctx = SimpleNamespace(doc=doc)
+
+    res = CreateSheet().execute(ctx, sheet="Budget 2026")
+    assert res["status"] == "ok"
+    assert res["sheet"] == "Budget 2026"
+    assert "Not activated" in res["message"]
+    controller.setActiveSheet.assert_not_called()
+
+
+def test_rename_sheet_set_name_noop_errors_and_does_not_migrate():
+    doc, sheets = _make_doc_with_sheets()
+    sheet = MagicMock()
+    # getName stays "Sheet1" despite setName
+    sheet.getName.return_value = "Sheet1"
+    doc.getSheets.return_value.getByName.return_value = sheet
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls, patch(
+        "plugin.calc.python.sheet_modify.migrate_sheet_rename"
+    ) as migrate_mock:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = RenameSheet().execute(ctx, old_name="Sheet1", new_name="Sheet Renamed")
+        assert res["status"] == "error"
+        assert "did not rename" in res["message"]
+        migrate_mock.assert_not_called()
+
+
+def test_rename_sheet_empty_name_error():
+    doc, _ = _make_doc_with_sheets()
+    sheet = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = RenameSheet().execute(ctx, old_name="Sheet1", new_name="")
+        assert res["status"] == "error"
+        assert "cannot be empty" in res["message"]
+
+
+def test_rename_sheet_case_only_rename_allowed():
+    doc, sheets = _make_doc_with_sheets()
+    sheet = MagicMock()
+    sheet.getName.return_value = "sheet1"
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls, patch(
+        "plugin.calc.python.sheet_modify.migrate_sheet_rename"
+    ) as migrate_mock:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = RenameSheet().execute(ctx, old_name="Sheet1", new_name="sheet1")
+        assert res["status"] == "ok"
+        sheet.setName.assert_called_once_with("sheet1")
+        migrate_mock.assert_called_once_with(doc, "Sheet1", "sheet1")
+
+
+def test_delete_sheet_last_visible_sheet_guard():
+    sheets = MagicMock()
+    sheets.getElementNames.return_value = ("Sheet1", "__Anonymous_Sheet_DB__0")
+    sheets.getCount.return_value = 2
+    sheet = MagicMock()
+    sheets.getByName.return_value = sheet
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = DeleteSheet().execute(ctx, sheet="Sheet1")
+        assert res["status"] == "error"
+        assert "Cannot delete the only sheet" in res["message"]
+        sheets.removeByName.assert_not_called()
+
+
+def test_delete_sheet_refuses_internal_sheet():
+    sheets = MagicMock()
+    sheets.getElementNames.return_value = ("Sheet1", "Sheet2", "_internal")
+    sheet = MagicMock()
+    sheets.getByName.return_value = sheet
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = DeleteSheet().execute(ctx, sheet="_internal")
+        assert res["status"] == "error"
+        assert "Cannot delete internal sheet" in res["message"]
+        sheets.removeByName.assert_not_called()
+
+
+def test_protect_sheet_already_in_target_state():
+    doc, _ = _make_doc_with_sheets()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.isProtected.return_value = True
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=True)
+        assert res["status"] == "ok"
+        assert "already protected" in res["message"]
+        sheet.protect.assert_not_called()
+
+        sheet.isProtected.return_value = False
+        res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=False)
+        assert res["status"] == "ok"
+        assert "already unprotected" in res["message"]
+        sheet.unprotect.assert_not_called()
+
+
+def test_protect_sheet_password_protected_unprotect():
+    doc, _ = _make_doc_with_sheets()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.isProtected.return_value = True
+    sheet.unprotect.side_effect = Exception("IllegalArgumentException: password required")
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=False)
+        assert res["status"] == "error"
+        assert "is password-protected" in res["message"]
+
+
+def test_protect_sheet_state_not_changed_error():
+    doc, _ = _make_doc_with_sheets()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.isProtected.return_value = False
+    # protect("") is called, but isProtected stays False
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=True)
+        assert res["status"] == "error"
+        assert "Failed to set sheet" in res["message"]
+

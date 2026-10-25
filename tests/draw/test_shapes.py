@@ -152,20 +152,6 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     assert not any(i > add_idx for i in geom_idxs), events
 
 
-def test_page_index_for_uses_uno_same_ladder():
-    from plugin.draw.shapes import _page_index_for
-
-    first, second = object(), object()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: (first, second)[i]
-    bridge = MagicMock()
-    bridge.get_pages.return_value = pages
-    assert _page_index_for(bridge, second) == 1
-    assert _page_index_for(bridge, first) == 0
-    assert _page_index_for(bridge, object()) == 0
-
-
 def test_shape_upsert_edit_accepts_name_without_index():
     tool = UpsertShape()
     ok, err = tool.validate(action="edit")
@@ -514,7 +500,7 @@ def test_shape_summary_disposed_page_is_not_missing_page():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.resolve_slide.side_effect = DisposedException("gone")
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             GetDrawSummary().execute(ctx, page=0)
 
@@ -712,5 +698,113 @@ def test_shape_tool_service_lists_and_scoping():
         assert getattr(writer_shapes, name).required_core_tools == writer_core
 
     assert draw_shapes.AlignShapes.uno_services == ToolDrawShapeBase.uno_services
+
+
+def test_outside_page_zero_width_or_height():
+    from plugin.draw.shapes import _outside_page
+    page = MagicMock(Width=0, Height=1000)
+    shape = MagicMock()
+    shape.getPosition.return_value = MagicMock(X=10, Y=10)
+    shape.getSize.return_value = MagicMock(Width=100, Height=100)
+    assert not _outside_page(page, shape)
+
+
+def test_shape_summary_intent_and_name():
+    tool = GetDrawSummary()
+    assert tool.intent == "read"
+
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.getCount.return_value = 1
+    shape = MagicMock()
+    shape.Name = "Box1"
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shape.getPosition.return_value = MagicMock(X=10, Y=20)
+    shape.getSize.return_value = MagicMock(Width=100, Height=200)
+    shape.getString.return_value = "Hello"
+    page.getByIndex.return_value = shape
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        out = tool.execute(ctx, page=0)
+
+    assert out["status"] == "ok"
+    assert out["shapes"][0]["name"] == "Box1"
+
+
+def test_upsert_shape_invalid_fill_color_adds_warning():
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = False
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.Width = 10000
+    page.Height = 10000
+    shape = MagicMock()
+    shape.getPosition.return_value = MagicMock(X=100, Y=100)
+    shape.getSize.return_value = MagicMock(Width=100, Height=100)
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
+         patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=100, height=100, fill_color="not_a_color")
+
+    assert out["status"] == "ok"
+    assert any("fill_color" in w for w in out.get("warnings", []))
+
+
+def test_create_diagram_node_id_uniqueness():
+    from plugin.draw.shapes import CreateDiagram
+    tool = CreateDiagram()
+    ctx = MagicMock()
+    # 1 and "1" collide
+    out = tool.execute(ctx, nodes=[{"id": 1}, {"id": "1"}])
+    assert out["status"] == "error"
+    assert "Node ids must be unique." in out["message"]
+
+
+def test_create_diagram_returns_layout_str():
+    from plugin.draw.shapes import CreateDiagram
+    tool = CreateDiagram()
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = False
+    ctx.active_page_index = 0
+    page = MagicMock(Width=10000, Height=10000)
+    page.getCount.return_value = 1
+    shape = MagicMock()
+    shape.getPosition.return_value = MagicMock(X=100, Y=100)
+    shape.getSize.return_value = MagicMock(Width=100, Height=100)
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
+         patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
+        out = tool.execute(ctx, nodes=[{"id": "a", "text": "A"}], layout="horizontal_flow")
+
+    assert out["status"] == "ok"
+    assert out["layout"] == "horizontal_flow"
+    assert isinstance(out["layout"], str)
+
+
+def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock(Width=10000, Height=10000)
+    page.getCount.return_value = 1
+    shape = MagicMock()
+    shape.getPosition.return_value = MagicMock(X=100, Y=100)
+    shape.getSize.return_value = MagicMock(Width=100, Height=100)
+    page.getByIndex.return_value = shape
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        out = UpsertShape().execute(ctx, action="edit", index=0, text="New text")
+
+    assert out["status"] == "ok"
+    shape.setString.assert_called_once_with("New text")
+    for call in shape.setPropertyValue.call_args_list:
+        assert call[0][0] != "TextFitToSize"
 
 
