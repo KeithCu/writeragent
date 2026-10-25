@@ -42,7 +42,6 @@ from plugin.writer.locale.harper_binary import (
 )
 import plugin.writer.locale.harper as harper_module
 import plugin.writer.locale.harper_binary as harper_binary_module
-from tests.harness.strip_bundle import module_source_contains
 
 
 @pytest.fixture(autouse=True)
@@ -1544,45 +1543,15 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
             default_executor._work_queue.put(item)
 
 
-def test_harper_try_lint_reenter_during_wait_logs_and_returns_none(caplog: pytest.LogCaptureFixture) -> None:
-    """Nested try_lint while a wait is active fail-softs and logs harper_wait_reenter once."""
-    lint_started = threading.Event()
-    release_lint = threading.Event()
-    nested: dict[str, object] = {}
-
-    def _slow_lint(*_a: object, **_k: object) -> list:
-        lint_started.set()
-        release_lint.wait(timeout=2.0)
-        return []
-
-    def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
-        # One nest per wait (not every later PE2I tick) — matches field logging.
-        if "res" not in nested:
-            nested["res"] = harper_try_lint("Other sentence.", "/tmp", ctx=_ctx)
-        if lint_started.is_set():
-            release_lint.set()
-        return True
-
-    _ready_harper_client(_slow_lint)
-    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
-    ctx = MagicMock()
-    with patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i):
-        res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
-
-    assert res == {"errors": []}
-    assert nested.get("res") is None
-    warn_recs = [r for r in caplog.records if r.levelno == logging.WARNING and "harper_wait_reenter" in r.message]
-    assert len(warn_recs) == 1
-    assert "wait_age_ms=" in warn_recs[0].message
-    assert "provider=" in warn_recs[0].message
-    # Bugfix: in stripped release bundles, scripts/strip_code.py strips out grammar_obs(...)
-    # call sites from plugin code, so the grammar_obs debug record is not emitted.
-    # We only assert on the debug record when running against unstripped source.
-    if module_source_contains(harper_module, "grammar_obs("):
-        assert any(
-            r.levelno == logging.DEBUG and "harper_wait_reenter" in r.message
-            for r in caplog.records
-        )
+def test_harper_try_lint_reenter_during_wait_asserts() -> None:
+    """Nested try_lint while a wait is active is a bug: it trips an assert."""
+    _ready_harper_client(lambda *_a, **_k: [])
+    assert harper_module._try_begin_harper_wait()
+    try:
+        with pytest.raises(AssertionError, match="re-entered during pumped wait"):
+            harper_try_lint("Other sentence.", "/tmp", ctx=MagicMock())
+    finally:
+        harper_module._end_harper_wait()
 
 
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:
