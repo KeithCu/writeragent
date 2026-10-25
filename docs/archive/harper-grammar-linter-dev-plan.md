@@ -40,7 +40,7 @@ Binary resolution, download, and install live in [`plugin/writer/locale/harper_b
    * **Linux x86_64:** `harper-ls-x86_64-unknown-linux-gnu.tar.gz`
    * **macOS Arm64:** `harper-ls-aarch64-apple-darwin.tar.gz`
    * **Windows x86_64:** `harper-ls-x86_64-pc-windows-msvc.zip`
-3. **Auto-install / auto-update:** First run downloads into `user_config_dir/harper/` and writes `harper-ls.version`. Release archives are downloaded and extracted in a temporary directory (deleted after install), leaving only the final binary (`harper-ls` or `harper-ls.exe` on Windows) plus version/release sidecars under `harper/`. Resolve also removes any leftover `.untar` / `.unzip` trees from older installs (**TEMP(2026-08):** remove that cleanup after ~2026-11 — new installs never create them). Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails). Legacy installs under `bin/` are migrated automatically (temporary; remove migration code after ~2026-09).
+3. **Auto-install / auto-update:** First run downloads into `user_config_dir/harper/` and writes `harper-ls.version`. Release archives are downloaded and extracted in a temporary directory (deleted after install), leaving only the final binary (`harper-ls` or `harper-ls.exe` on Windows) plus version/release sidecars under `harper/`. Resolve also removes any leftover `.untar` / `.unzip` trees from older installs (**TEMP(2026-08):** remove that cleanup after ~2026-11 — new installs never create them). Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails).
 
 ---
 
