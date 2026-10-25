@@ -11,7 +11,6 @@ from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     FRAME_HEARTBEAT,
     FRAME_RESULT,
-    get_child_ipc_stream,
     write_child_ipc_frame,
 )
 
@@ -21,8 +20,8 @@ class HeartbeatEmitter:
 
     _stream: BinaryIO
 
-    def __init__(self, stream: BinaryIO | None = None) -> None:
-        self._stream = stream if stream is not None else get_child_ipc_stream()
+    def __init__(self, stream: BinaryIO | Any) -> None:
+        self._stream = stream
 
     def emit(self, payload: dict[str, Any]) -> None:
         # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
