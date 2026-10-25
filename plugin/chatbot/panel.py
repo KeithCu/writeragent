@@ -458,14 +458,14 @@ class SendButtonListener(BaseActionListener):
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
-        # services.events is not always global_event_bus (a second import can
+        # services.events is not always get_event_bus() (a second import can
         # hold another bus). disposing must unsubscribe the bus we joined.
         self._mcp_event_bus = None
         self._events = PanelEventsController(self)
 
         # Subscribe to MCP/tool bus events
         try:
-            from plugin.framework.event_bus import global_event_bus
+            from plugin.framework.event_bus import get_event_bus
 
             # get_tools() may have to bootstrap, and bootstrap only runs on the
             # Python main thread. A Chat deck opened by an outside URP dispatch
@@ -476,7 +476,7 @@ class SendButtonListener(BaseActionListener):
                 self._events._post_to_main_thread(self._events._subscribe_mcp_events)
             else:
                 self._events._subscribe_mcp_events()
-            self._subscribe(global_event_bus, "grammar:status", self._on_grammar_status)
+            self._subscribe(get_event_bus(), "grammar:status", self._on_grammar_status)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
 

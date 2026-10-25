@@ -279,12 +279,13 @@ def test_disposing_swallows_disposed_focus_restore():
 
 
 def test_disposing_unsubscribes_config_changed():
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
     el = _thin_panel_element()
-    with patch("plugin.framework.event_bus.global_event_bus.unsubscribe") as mock_unsub:
+    bus = MagicMock()
+    with patch("plugin.framework.event_bus.get_event_bus", return_value=bus):
         el.disposing(None)
-        mock_unsub.assert_called_with("config:changed", el._on_config_changed)
+        bus.unsubscribe.assert_called_with("config:changed", el._on_config_changed)
 
 
 def test_disposing_swallows_disposed_remove_window_listener():
@@ -901,7 +902,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
 
     # Disposing must perform cleanup and release frame session
     with (
-        patch("plugin.framework.event_bus.global_event_bus.unsubscribe"),
+        patch("plugin.framework.event_bus.get_event_bus"),
         patch("plugin.doc.live_panels.unregister_live_panel") as unreg_mock,
     ):
         el._live_panel_uid = "doc-uid-1"
@@ -971,7 +972,7 @@ def test_queued_config_refresh_after_disposing_noops() -> None:
     el.frame_session = None
 
     with (
-        patch("plugin.framework.event_bus.global_event_bus.unsubscribe"),
+        patch("plugin.framework.event_bus.get_event_bus"),
         patch("plugin.doc.live_panels.unregister_live_panel"),
     ):
         el.disposing()

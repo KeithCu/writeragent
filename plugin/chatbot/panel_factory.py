@@ -611,9 +611,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         query = getattr(listener, "query_control", None) if listener is not None else None
         release_live_sidebar(self, query)
 
-        from plugin.framework.event_bus import global_event_bus
+        from plugin.framework.event_bus import get_event_bus
 
-        global_event_bus.unsubscribe("config:changed", self._on_config_changed)
+        get_event_bus().unsubscribe("config:changed", self._on_config_changed)
 
         # Clean up the always-present resize listener.
         # This listener is attached unconditionally in panel_wiring. Failing to

@@ -1598,12 +1598,13 @@ def _native_suite_set_config(
     """
     if key == "doc.agent_edit_review_mode":
         review_mode_override[key] = value
-        from plugin.framework.event_bus import global_event_bus
+        from plugin.framework.event_bus import get_event_bus
 
+        bus = get_event_bus()
         if event_key:
-            global_event_bus.emit("config:changed", key=event_key, value=value, ctx=ctx)
+            bus.emit("config:changed", key=event_key, value=value, ctx=ctx)
         else:
-            global_event_bus.emit("config:changed", ctx=ctx)
+            bus.emit("config:changed", ctx=ctx)
         return
     original_set_config(key, value, event_key=event_key)
 

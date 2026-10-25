@@ -79,7 +79,8 @@ def test_filter_stale_and_group_no_batch_stats_when_nothing_stale() -> None:
 
 
 def test_emit_grammar_status_emits_event_bus_payload() -> None:
-    with patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus:
+    mock_bus = MagicMock()
+    with patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus):
         go.emit_grammar_status("start", "Hello world.", result="queued", preview_source="Hello world.")
     mock_bus.emit.assert_called_once_with(
         "grammar:status",
@@ -92,8 +93,9 @@ def test_emit_grammar_status_emits_event_bus_payload() -> None:
 
 
 def test_emit_grammar_status_swallows_event_bus_failure() -> None:
+    mock_bus = MagicMock()
     with (
-        patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus,
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
         patch.object(go.log, "debug") as mock_debug,
     ):
         mock_bus.emit.side_effect = RuntimeError("bus unavailable")
@@ -103,7 +105,8 @@ def test_emit_grammar_status_swallows_event_bus_failure() -> None:
 
 
 def test_emit_harper_worker_status_emits_request_payload() -> None:
-    with patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus:
+    mock_bus = MagicMock()
+    with patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus):
         go.emit_harper_worker_status("They is here.", "Downloading harper-ls v2.7.0…")
     mock_bus.emit.assert_called_once_with(
         "grammar:status",

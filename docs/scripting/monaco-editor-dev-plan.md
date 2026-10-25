@@ -478,7 +478,7 @@ Defer until the simple `vs`/`vs-dark` + chrome class is solid and tested.
 
 - Minimum (automatic enough for most users): every `load` message (cell switch, reopen) carries a **fresh** theme computed at send time.
 - Nice-to-have: push a `{"type":"theme", ...}` when we notice a change.
-  - Hook `global_event_bus` for `"config:changed"` (some appearance keys may surface).
+  - Hook `get_event_bus()` for `"config:changed"` (some appearance keys may surface).
   - Or install a one-time listener via `com.sun.star.frame.theGlobalEventBroadcaster` if a suitable event exists for style settings.
   - Fallback: a cheap 5–10s poll inside the PersistentEditor reader (only while a session is active) that compares a signature (e.g. FieldColor) and sends delta.
 - Child must handle the update without resetting editor content or cursor (just `setTheme` + `applyChromeTheme`).

@@ -581,6 +581,6 @@ def install_geometric_recalc() -> None:
             return
         _RUNTIME.last_flag = geometric_flag_enabled()
         _RUNTIME.config_subscribed = True
-    from plugin.framework.event_bus import global_event_bus
+    from plugin.framework.event_bus import get_event_bus
 
-    global_event_bus.subscribe("config:changed", _on_geometric_config_changed)
+    get_event_bus().subscribe("config:changed", _on_geometric_config_changed)
