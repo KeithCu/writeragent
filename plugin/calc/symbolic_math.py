@@ -70,7 +70,8 @@ class SymbolicMathTool(ToolCalcPythonBase):
             return self._tool_error(f"Unknown helper {helper!r}")
 
         params = kwargs.get("params")
-        assert params is None or isinstance(params, dict)
+        if params is not None and not isinstance(params, dict):
+            return self._tool_error("params must be an object.", code="INVALID_PARAM")
 
         accepted = _HELPER_PARAM_KEYS.get(helper)
         if params and accepted is not None:
