@@ -232,7 +232,7 @@ What Python sees after UNO unwrap / pack ([`calc_addin_data.py`](../../plugin/ca
 | UNO boolean (rare on range args) | `bool` |
 | Text | `str` (including literal `"True"` until string-logical coercion) |
 
-**Logical string coercion (shipped):** text that looks like a logical or formula after import/paste (`"TRUE"`, `"=WAHR()"`, `"True"`, plus localized names from `XFormulaOpCodeMapper`) is coerced to Python `bool` in `_unwrap_cell` before packing. Typed Calc logicals that arrive as `1.0`/`0.0` are left numeric.
+**Logical string coercion (shipped):** text that looks like a logical or formula after import/paste (`"TRUE"`, `"=TRUE()"`, `"True"`) is coerced to Python `bool` in `_unwrap_cell` before packing. Typed Calc logicals that arrive as `1.0`/`0.0` are left numeric.
 
 | What the user sees | Typical Python value |
 | --- | --- |

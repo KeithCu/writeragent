@@ -15,7 +15,6 @@ import dataclasses
 import logging
 from typing import Any
 
-import uno
 import unohelper
 
 from plugin.calc.addin_common import CalcAddInBase, CalcFunctionSpec
@@ -65,46 +64,17 @@ except ImportError:
 class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
-    _true_strings: set[str]
-    _false_strings: set[str]
+    # Logical string coercion targets. Static baseline sets are used instead of
+    # XFormulaOpCodeMapper discovery: XFormulaOpCodeMapper in LibreOffice does
+    # not expose getAvailableSymbolTokens (only getMappings/getAvailableMappings)
+    # and FormulaToken lacks a .Token attribute, so dynamic mapping was dead code
+    # that always failed at runtime and fell back to these English defaults.
+    _true_strings = {"=TRUE()", "TRUE", "True"}
+    _false_strings = {"=FALSE()", "FALSE", "False"}
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
         super().__init__(ctx, PYTHON_FUNCTION_SPECS)
-        self._true_strings, self._false_strings = self._get_localized_booleans()
-
-    def _get_localized_booleans(self) -> tuple[set[str], set[str]]:
-        """Discover localized boolean function names (e.g. WAHR, VRAI) via OpCodeMapper.
-
-        Returns two sets of uppercase strings including English and native variants.
-        """
-        # Always include English and Python defaults as a safety baseline
-        true_strs = {"=TRUE()", "TRUE", "True"}
-        false_strs = {"=FALSE()", "FALSE", "False"}
-        try:
-            smgr = self.ctx.getServiceManager()
-            mapper = smgr.createInstanceWithContext("com.sun.star.sheet.FormulaOpCodeMapper", self.ctx)
-            if mapper:
-                english = uno.getConstantByName("com.sun.star.sheet.FormulaLanguage.ENGLISH")
-                native = uno.getConstantByName("com.sun.star.sheet.FormulaLanguage.NATIVE")
-
-                # Map English labels to internal OpCodes
-                mappings = mapper.getMappings(["TRUE", "FALSE"], english)
-                opcodes = [m.Token.OpCode for m in mappings]
-
-                # Map OpCodes to the user's NATIVE (localized) UI symbols
-                localized = mapper.getAvailableSymbolTokens(opcodes, native)
-                if len(localized) >= 2:
-                    for i, symbol_token in enumerate(localized[:2]):
-                        name = symbol_token.Symbol.upper()
-                        target_set = true_strs if i == 0 else false_strs
-                        target_set.add(f"={name}()")
-                        target_set.add(name)
-                        target_set.add(name.capitalize())
-        except Exception:
-            log.debug("Failed to map localized booleans via UNO", exc_info=True)
-
-        return true_strs, false_strs
 
     def python(self, caller: Any, code: str, data: Any = None) -> Any:
         # *caller* is LibreOffice's hidden SC_ADDINARG_CALLER argument (the
