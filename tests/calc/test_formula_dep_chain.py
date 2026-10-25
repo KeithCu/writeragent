@@ -7,8 +7,16 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.formula_dep_chain import _MAX_PRECEDENT_CELLS, _precedents_via_formula_query, _resolve_sheet_and_cell, fetch_formula_dep_chain
-from plugin.tests.testing_utils import CalcDocStub
+import pytest
+
+from plugin.calc.formula_dep_chain import (
+    _MAX_PRECEDENT_CELLS,
+    _cell_snapshot,
+    _precedents_via_formula_query,
+    _resolve_sheet_and_cell,
+    fetch_formula_dep_chain,
+)
+from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 
 
 def test_resolve_sheet_and_cell_with_sheet_prefix():
@@ -101,7 +109,7 @@ def _sheet_with_precedent_ranges(monkeypatch, range_addresses, calls: list[tuple
     monkeypatch.setitem(sys.modules, "com.sun.star.sheet", sheet_mod)
     monkeypatch.setattr(star, "sheet", sheet_mod, raising=False)
 
-    def _snapshot(_sheet, col, row):
+    def _snapshot(_sheet, col, row, sheet_name=None):
         calls.append((col, row))
         return {"address": f"{col},{row}"}
 
@@ -122,7 +130,7 @@ def _sheet_with_precedent_ranges(monkeypatch, range_addresses, calls: list[tuple
 
 
 def test_precedents_via_formula_query_caps_cell_snapshots(monkeypatch):
-    # Three columns by 4000 rows is 12_000 cells, then a later range.
+    # 78 cells fill rows 0..25 (3 columns); the 80th cell is row 26, col 1.
     # The walk must stop at the cap and must not read either the rest of
     # the first range or the second (a full-column ref would be billions).
     calls: list[tuple[int, int]] = []
@@ -141,8 +149,8 @@ def test_precedents_via_formula_query_caps_cell_snapshots(monkeypatch):
     assert len(result["precedents"]) == _MAX_PRECEDENT_CELLS
     assert len(calls) == _MAX_PRECEDENT_CELLS
     assert calls[0] == (0, 0)
-    # 9999 cells fill rows 0..3332 (3 columns); the 10000th is row 3333, col 0.
-    assert calls[-1] == (0, 3333)
+    assert calls[-1] == ((_MAX_PRECEDENT_CELLS - 1) % 3, (_MAX_PRECEDENT_CELLS - 1) // 3)
+    assert result["total_cells"] == 12001
     assert (5, 9) not in calls
 
 
@@ -251,7 +259,41 @@ def test_precedents_via_formula_query_small_range_is_not_truncated(monkeypatch):
 
     assert result["truncated"] is False
     assert len(result["precedents"]) == 5
+    assert result["total_cells"] == 5
     assert calls == [(0, 0), (1, 0), (0, 1), (1, 1), (3, 0)]
+
+
+def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch):
+    calls: list[tuple[int, int]] = []
+    sheet = _sheet_with_precedent_ranges(
+        monkeypatch,
+        [
+            SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=1048575),
+        ],
+        calls,
+    )
+
+    result = _precedents_via_formula_query(sheet, 0, 0)
+
+    assert result["total_cells"] == 1048576
+    assert result["truncated"] is True
+    assert len(result["precedents"]) == _MAX_PRECEDENT_CELLS
+
+
+def test_precedents_via_formula_query_reads_sheet_name_once(monkeypatch):
+    calls: list[tuple[int, int]] = []
+    sheet = _sheet_with_precedent_ranges(
+        monkeypatch,
+        [SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)],
+        calls,
+    )
+    name_calls: list[int] = []
+    sheet.getName = lambda: (name_calls.append(1), "Sheet1")[1]
+
+    result = _precedents_via_formula_query(sheet, 0, 0)
+
+    assert len(name_calls) == 1
+    assert len(result["precedents"]) == 4
 
 
 def test_cell_snapshot_formula_text_and_error(monkeypatch):
@@ -319,4 +361,59 @@ def test_cell_snapshot_formula_text_and_error(monkeypatch):
     assert snap_err["error_code"] == 532
     assert snap_err["formula"] == "=1/0"
     assert snap_err["value"] == "#DIV/0!"
+
+
+@pytest.mark.parametrize(
+    ("sheet_name", "expected_addr"),
+    [
+        ("My Sheet", "'My Sheet'.A1"),
+        ("O'Brien", "'O''Brien'.A1"),
+        ("Foo!Bar", "'Foo!Bar'.A1"),
+        ("mySheet", "mySheet.A1"),
+    ],
+)
+def test_cell_snapshot_quotes_sheet_name(sheet_name: str, expected_addr: str):
+    class _ValueCell:
+        def getType(self) -> int:
+            return 1
+
+        def getError(self) -> int:
+            return 0
+
+        def getValue(self) -> float:
+            return 1.0
+
+        def getString(self) -> str:
+            return "1.0"
+
+    class _FakeSheet:
+        def getName(self) -> str:
+            return sheet_name
+
+        def getCellByPosition(self, _col: int, _row: int) -> _ValueCell:
+            return _ValueCell()
+
+    snap = _cell_snapshot(_FakeSheet(), 0, 0)
+    assert snap["address"] == expected_addr
+
+
+def test_fetch_formula_dep_chain_preserves_sheet_name_case():
+    doc = CalcDocStub(sheets=[CalcSheetStub("mySheet")], command_values='{"commandValues": {"root": {}}}')
+    chain = fetch_formula_dep_chain(doc, None, "mySheet.B2")
+    assert chain is not None
+    assert chain["cell"] == "mySheet.B2"
+
+
+def test_fetch_formula_dep_chain_ignores_non_json_command_values():
+    doc = CalcDocStub(command_values="{'commandValues': {'root': {}}}")
+    fallback = {"source": "formula_query", "precedents": [], "truncated": False, "total_cells": 0}
+    with patch(
+        "plugin.calc.formula_dep_chain._precedents_via_formula_query",
+        return_value=fallback,
+    ) as mock_fallback:
+        chain = fetch_formula_dep_chain(doc, None, "A1")
+
+    assert chain is not None
+    assert chain["source"] == "formula_query"
+    mock_fallback.assert_called_once()
 
