@@ -947,6 +947,12 @@ def test_nested_never_finish_wins_over_advertised_peer_tool():
     assert phrase_only.tool_name != "specialized_workflow_finished"
 
 
+def test_none_transcript_uses_default():
+    from scripts.mock_llm_server import canned_transcript
+
+    assert canned_transcript(MockLLMConfig(transcript=None)) == DEFAULT_TRANSCRIPT
+
+
 def test_empty_transcript_stt_returns_empty_text():
     from scripts.mock_llm_server import canned_transcript
 
