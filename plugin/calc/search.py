@@ -39,7 +39,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
             "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
-            "max_results": {"type": "integer", "description": "Maximum results to return (default: 50)."},
+            "max_results": {"type": "integer", "minimum": 1, "description": "Maximum results to return (default: 50). Must be a positive integer."},
             "sheet": {"type": "string", "description": "Sheet to search (active sheet if omitted)."},
             "all_sheets": {"type": "boolean", "description": "Search all sheets (default: false)."},
         },
@@ -52,16 +52,29 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         if not pattern:
             return self._tool_error("pattern is required.")
 
+        raw_max = kwargs.get("max_results", 50)
+        if type(raw_max) is not int or raw_max < 1:
+            return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
+        max_results = raw_max
+
         use_regex = kwargs.get("regex", False)
         if use_regex:
             err = _validate_regex(self, pattern)
             if err:
                 return err
         case_sensitive = kwargs.get("case_sensitive", False)
-        max_results = kwargs.get("max_results", 50)
         all_sheets = kwargs.get("all_sheets", False)
 
-        matches = search_spreadsheet_cells(ctx.doc, pattern, regex=use_regex, case_sensitive=case_sensitive, max_results=max_results, all_sheets=all_sheets, sheet_name=kwargs.get("sheet"))
+        matches = search_spreadsheet_cells(
+            ctx.doc,
+            pattern,
+            regex=use_regex,
+            case_sensitive=case_sensitive,
+            max_results=max_results,
+            all_sheets=all_sheets,
+            sheet_name=kwargs.get("sheet"),
+            stop_checker=ctx.stop_checker,
+        )
 
         return {"status": "ok", "matches": matches, "count": len(matches)}
 
