@@ -231,6 +231,8 @@ def resolve_change_at_cursor(
         group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
         if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
             return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
+        if group_res.status == ResolveStatus.UNRELIABLE:
+            return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
         if group_res.status == ResolveStatus.PARTIAL:
             return False, _review_message(ResolveStatus.PARTIAL, accept=accept)
         return False, _review_message(ResolveStatus.REFUSED_SIBLING, accept=accept)
