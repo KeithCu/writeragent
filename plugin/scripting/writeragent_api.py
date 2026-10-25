@@ -2097,7 +2097,7 @@ class _StructuralProxy:
         return _rpc_call("nav_goto_page", page=page)
 
     def nav_heading(self, locator: str, direction: str) -> dict[str, Any]:
-        """Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing.
+        """Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
             locator (required): Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction').
@@ -2106,7 +2106,7 @@ class _StructuralProxy:
         return _rpc_call("nav_heading", locator=locator, direction=direction)
 
     def nav_heading_children(self, *, locator: str | None = None, para_index: int | None = None, bookmark: str | None = None, strategy: str | None = None, depth: int | None = None) -> dict[str, Any]:
-        """Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark. heading: is ordinal path among siblings, not Writer's chapter number. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text.
+        """Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
             locator (optional): Locator string (e.g. 'bookmark:_mcp_xxx', ordinal 'heading:1.2', or 'chapter_number:3.1' when Chapter Numbering is on).
@@ -2118,7 +2118,7 @@ class _StructuralProxy:
         return _rpc_call("nav_heading_children", locator=locator, para_index=para_index, bookmark=bookmark, strategy=strategy, depth=depth)
 
     def nav_surroundings(self, locator: str, *, radius: int | None = None, include: list[str] | None = None) -> dict[str, Any]:
-        """Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments.
+        """Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
             locator (required): Center position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42').
