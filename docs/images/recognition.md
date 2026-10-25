@@ -194,7 +194,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`client.py`](../../plugin/scripting/client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
 | **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
-| Tests | [`test_vision*.py`](../../tests/scripting/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
+| Tests | [`test_vision*.py`](../../tests/vision/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
 
@@ -294,15 +294,15 @@ png_bytes = base64.b64decode(b64)
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
 - **`ImportError` / missing paddle:** return `{"status": "error", "code": "PADDLEOCR_UNAVAILABLE", ...}` — do not raise uncaught from venv for missing pip packages.
 
-**CI / tests:** Mock `PaddleOCR` in [`tests/scripting/test_vision.py`](../../tests/scripting/test_vision.py); **`make test` must not download models or require paddle installed.**
+**CI / tests:** Mock `PaddleOCR` in [`tests/vision/venv/test_vision.py`](../../tests/vision/venv/test_vision.py); **`make test` must not download models or require paddle installed.**
 
 ### 4.6 Tests to add (Phase 1)
 
 | File | Covers |
 |------|--------|
-| `tests/scripting/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
-| `tests/scripting/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
-| `tests/scripting/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
+| `tests/vision/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
+| `tests/vision/venv/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
+| `tests/vision/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 | `tests/scripting/test_python_runner_vision.py` | Fast path in `execute_and_insert_result` (mock export + RPC + insert) |
 | `tests/scripting/test_document_scripts.py` | `test_build_scripts_list_includes_vision_section_for_writer` (mirror analysis Calc test) |
 
@@ -355,7 +355,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 
 ### Tests
 
-Extended [`test_vision.py`](../../tests/scripting/test_vision.py), [`test_vision_runner.py`](../../tests/scripting/test_vision_runner.py), [`test_vision_templates.py`](../../tests/scripting/test_vision_templates.py), [`test_vision_egress.py`](../../tests/scripting/test_vision_egress.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py) (Calc), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py).
+Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_vision_runner.py`](../../tests/vision/test_vision_runner.py), [`test_vision_templates.py`](../../tests/vision/test_vision_templates.py), [`test_vision_egress.py`](../../tests/vision/test_vision_egress.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py) (Calc), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py).
 
 ---
 
@@ -596,7 +596,12 @@ def is_vision_result(value: Any) -> bool:
         return False
     if "status" not in value:
         return False
-    return bool(value.get("helper")) or value.get("status") == "error"
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in HELPER_NAMES:
+        return True
+    if value.get("status") == "error":
+        return "VISION" in str(value.get("code") or "")
+    return False
 ```
 
 ### Success
@@ -641,7 +646,7 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
-Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a failed image, then returns `status: error` built from the first failure. Images that completed stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, and `inserted` into `details`.
+Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a later image fails: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, and `inserted` into `details`.
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 

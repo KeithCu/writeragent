@@ -51,6 +51,11 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
 _PARAGRAPH_BREAK = 0
 
 
+def _writer_graphic_present(doc: Any, name: str) -> bool:
+    """O(1) check: Writer keeps text graphics in a name container; scanning all is O(n)."""
+    return bool(doc.getGraphicObjects().hasByName(name))
+
+
 def _focus_writer_frame(controller: Any) -> None:
     try:
         frame = controller.getFrame()
@@ -101,7 +106,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     and model edits so StarWriter does not treat a multi-character selection as the
     insert target (which would delete intervening text between images).
     """
-    from plugin.doc.visual_helpers import get_graphic_object_by_name, list_graphic_objects, selected_graphic_object
+    from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 
     name = str(image_name or "").strip()
     resolved = graphic
@@ -112,12 +117,17 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     if resolved is None and not name:
         resolved = selected_graphic_object(doc)
     if resolved is None:
+        if name:
+            raise ToolExecutionError(
+                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
+                code="IMAGE_NOT_FOUND",
+                details={"image_name": name},
+            )
         raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
 
     graphic_name = str(resolved.getName() or "")
     if name and not graphic_name:
         graphic_name = name
-    graphics_before = len(list_graphic_objects(doc))
 
     controller = doc.getCurrentController()
     if controller is None:
@@ -152,9 +162,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
         _dispatch_escape(controller, ctx)
         _collapse_writer_view_cursor(controller, cursor.getStart())
 
-    if graphic_name and get_graphic_object_by_name(doc, graphic_name) is None:
-        raise ToolExecutionError(_("The image was removed while preparing OCR insert."), code="VISION_ERROR")
-    if len(list_graphic_objects(doc)) < graphics_before:
+    if graphic_name and not _writer_graphic_present(doc, graphic_name):
         raise ToolExecutionError(_("The image was removed while preparing OCR insert."), code="VISION_ERROR")
     return cursor
 
@@ -165,18 +173,16 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
 
     html = vision_html_from_result(result)
     # Log lengths and tag counts only. The document HTML is user content.
-    log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
-    params_dict = dict(params) if params is not None else {}
-    image_name = str(params_dict.get("image_name") or "").strip() or None
+    image_name = str((params or {}).get("image_name") or "").strip() or None
 
     def _apply_insert() -> None:
-        from plugin.doc.visual_helpers import list_graphic_objects
-
-        graphics_before = len(list_graphic_objects(doc))
         cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
         insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
-        if len(list_graphic_objects(doc)) < graphics_before:
+        # Shipped callers always set image_name; the selection-only path was checked pre-insert.
+        if image_name and not _writer_graphic_present(doc, image_name):
             raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
 
     from plugin.writer.format import run_writer_mutation_with_optional_review
@@ -196,8 +202,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
 
     insert_mode = resolve_vision_insert_mode(ctx, params)
     helper = str(result.get("helper") or "")
-    params_dict = params if params is not None else {}
-    image_name = str(params_dict.get("image_name") or "").strip() or None
+    image_name = str((params or {}).get("image_name") or "").strip() or None
 
     if is_calc(doc):
         if insert_mode == "structured" and helper == "extract_structure":
