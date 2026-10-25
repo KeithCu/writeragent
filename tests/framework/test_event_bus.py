@@ -182,6 +182,21 @@ def test_config_changed_reentry_allows_a_different_key():
     assert seen == ["a", "b"]
 
 
+def test_config_changed_reentry_allows_a_different_batch():
+    bus = EventBus()
+    seen = []
+
+    def handler(key, keys=(), ctx=None):
+        seen.append(tuple(keys))
+        if tuple(keys) == ("a",):
+            bus.emit("config:changed", key="", keys=("b",), ctx=None)
+            bus.emit("config:changed", key="", keys=("a",), ctx=None)
+
+    bus.subscribe("config:changed", handler)
+    bus.emit("config:changed", key="", keys=("a",), ctx=None)
+    assert seen == [("a",), ("b",)]
+
+
 def test_emit_allows_nested_different_event():
     bus = EventBus()
     order = []

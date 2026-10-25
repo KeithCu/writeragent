@@ -42,9 +42,13 @@ from plugin.framework.deal_shim import deal
 
 
 def _reentry_token(event: str, data: dict[str, Any]) -> str:
-    """Identity used to drop a nested emit. config:changed includes the key."""
+    """Identity used to drop a nested emit. config:changed includes the key set."""
     if event == "config:changed":
-        return "config:changed:" + str(data.get("key"))
+        # Bugfix: Batch saves pass key="" plus the full key set (config._emit_pending).
+        # Keying on key alone made every nested batch collide on "config:changed:",
+        # dropping nested batch emits for different key sets. Including the keys
+        # tuple distinguishes distinct batches while still dropping re-entrant dupes.
+        return f"config:changed:{data.get('key')!r}:{tuple(data.get('keys') or ())!r}"
     return event
 
 
@@ -226,8 +230,8 @@ class EventBus:
         'event' or 'self'.
         Exceptions in subscribers are logged and swallowed.
         Re-entrant emit of the same event on this thread is dropped.
-        ``config:changed`` is dropped only when the key matches, so a handler
-        that writes a second key still notifies listeners.
+        ``config:changed`` is dropped only when the key (or the batch key set)
+        matches, so a handler that writes a second key still notifies listeners.
         """
         # crosshair: off
         with self._guard():
