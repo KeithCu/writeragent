@@ -2397,7 +2397,8 @@ def test_clear_spill_uno_single_range_clear():
     report = ConversionReport(direction="dag", cells=[cell])
     errors = apply_dag_formulas_to_calc_doc(doc, report)
     assert errors == []
-    spill_range.clearContents.assert_called_once()
+    spill_range.clearContents.assert_called_once_with(55)
+    assert anchor_cell.getFormula.call_count == 1
     assert anchor_cell.setFormula.call_args[0][0] == '=PY("x = 1")'
 
 
