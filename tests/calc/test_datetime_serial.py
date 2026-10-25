@@ -75,6 +75,7 @@ def test_match_iso_temporal_gate(text, expected):
         ("[TT]:MM:SS", True),
         ("[RED][HH]:MM", True),
         ("[UU]:MM", True),
+        ("[HHH]:MM", True),
         ("HH:MM:SS", False),
         ("YYYY-MM-DD", False),
         ("HH:MM:SS;[RED]-HH:MM:SS", False),
