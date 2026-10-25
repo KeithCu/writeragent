@@ -136,28 +136,6 @@ def parse_search_queries_response(response: str, num_queries: int) -> list[dict[
     return line_queries[:num_queries]
 
 
-def parse_follow_up_questions_response(response: str, num_questions: int) -> list[str]:
-    parsed = _load_repaired_json(response)
-    candidate_questions = parsed
-    if isinstance(parsed, dict):
-        candidate_questions = parsed.get("questions") or parsed.get("followUpQuestions") or parsed.get("items")
-
-    if isinstance(candidate_questions, list):
-        parsed_questions = [str(item).strip() for item in candidate_questions if str(item).strip()]
-        if parsed_questions:
-            return parsed_questions[:num_questions]
-
-    line_questions: list[str] = []
-    for raw_line in _unfenced_lines(response):
-        line = raw_line.strip()
-        if not line:
-            continue
-        question_match = QUESTION_LINE_PATTERN.match(line)
-        if question_match:
-            line_questions.append(question_match.group("question").strip())
-    return line_questions[:num_questions]
-
-
 def parse_research_results_response(response: str, num_learnings: int) -> dict[str, Any]:
     parsed = _load_repaired_json(response)
 
@@ -289,8 +267,12 @@ class ResearchProgress:
     def status_text(self) -> str:
         q = (self.current_query or "")[:50]
         return (
-            f"Deep research round {self.current_round}/{self.max_rounds}, "
-            f"query {self.started_queries}/{self.max_sub_queries}"
+            _("Deep research round {round}/{rounds}, query {started}/{max}").format(
+                round=self.current_round,
+                rounds=self.max_rounds,
+                started=self.started_queries,
+                max=self.max_sub_queries,
+            )
             + (f": {q}..." if q else "")
         )
 
@@ -345,6 +327,16 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
     return {"score": 0.0, "knowledge_gaps": [], "suggested_queries": [], "stop": False, "reasoning": ""}
 
 
+def _format_cited_learnings(learnings: list[str], citations: dict[str, list[str]]) -> list[str]:
+    """Attach source URLs to each learning (assessment and synthesis share the format)."""
+    return [
+        f"{learning} [Sources: {', '.join(citations[learning])}]"
+        if citations.get(learning)
+        else learning
+        for learning in learnings
+    ]
+
+
 def assess_research_coverage(
     llm_chat: LlmChatFn,
     original_query: str,
@@ -353,11 +345,8 @@ def assess_research_coverage(
     *,
     quality_threshold: int,
 ) -> dict[str, Any]:
-    cited = []
     unique_learnings = list(dict.fromkeys(learnings))
-    for learning in unique_learnings[-40:]:
-        urls = citations.get(learning, [])
-        cited.append(f"{learning} [Sources: {', '.join(urls)}]" if urls else learning)
+    cited = _format_cited_learnings(unique_learnings[-40:], citations)
     evidence = "\n".join(cited) or "(No learnings yet.)"
     messages = [
         {
@@ -405,6 +394,7 @@ def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -
             "content": (
                 f"Given the following prompt, generate {num_queries} unique search queries to research the topic thoroughly. "
                 "For each query, provide a research goal.\n\n"
+                "Each query should cover a different aspect, time period, or perspective of the topic.\n\n"
                 'Return ONLY a JSON array of objects using this exact schema:\n'
                 '[{"query": "<search query>", "researchGoal": "<research goal>"}]\n\n'
                 f"Current time: {current_time}. Prefer recent information; where the topic is fast-changing, "
@@ -415,32 +405,6 @@ def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -
     ]
     response = llm_chat(messages, 1500)
     return parse_search_queries_response(response, num_queries)
-
-
-def generate_research_plan(llm_chat: LlmChatFn, query: str, search_results: str, num_questions: int = 3) -> list[str]:
-    current_time = _local_clock_stamp()
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an expert researcher. Your task is to analyze the original query and search results, "
-                "then generate targeted questions that explore different aspects and time periods of the topic. "
-                "Return valid JSON only."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Original query: {query}\n\nCurrent time: {current_time}\n\nSearch results:\n{search_results}\n\n"
-                f"Based on these results, the original query, and the current time, generate {num_questions} unique questions. "
-                f"Each question should explore a different aspect or time period of the topic, considering recent developments up to {current_time}.\n\n"
-                'Return ONLY a JSON object using this exact schema:\n'
-                '{"questions": ["<question 1>", "<question 2>"]}'
-            ),
-        },
-    ]
-    response = llm_chat(messages, 1500)
-    return parse_follow_up_questions_response(response, num_questions)
 
 
 def process_research_results(llm_chat: LlmChatFn, query: str, context: str, num_learnings: int = 3) -> dict[str, Any]:
@@ -797,7 +761,7 @@ def _run_adaptive_research_loop(
 
         if round_num == 1:
             if status_callback:
-                status_callback(f"Planning {breadth} research queries...")
+                status_callback(_("Planning {count} research queries...").format(count=breadth))
             raw_queries = generate_search_queries(llm_chat, combined_query, num_queries=breadth)
         else:
             raw_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
@@ -847,7 +811,7 @@ def _run_adaptive_research_loop(
 
         if round_num < max_rounds:
             if status_callback:
-                status_callback("Deep research: assessing coverage...")
+                status_callback(_("Deep research: assessing coverage..."))
             assessment = assess_research_coverage(
                 llm_chat,
                 original_query,
@@ -897,20 +861,9 @@ def run_deep_research(
         return stopped
 
     try:
-        if status_callback:
-            status_callback("Deep research: planning strategy...")
-
-        search_snippet = initial_search_snippet
-        if not search_snippet.strip():
-            search_snippet = "(No preview search results; proceed from the query alone.)"
-
-        follow_up_questions = generate_research_plan(llm_chat, query, search_snippet, num_questions=3)
-        if not follow_up_questions:
-            follow_up_questions = [query]
-
-        qa_pairs = [f"Q: {q}\nA: Automatically proceeding with research" for q in follow_up_questions]
+        search_snippet = initial_search_snippet.strip() or "(No preview search results; proceed from the query alone.)"
         combined_query = f"Initial Query: {query}\n"
-        combined_query += "Follow-up Questions and Answers:\n" + "\n".join(qa_pairs)
+        combined_query += f"Preview search results:\n{search_snippet}\n"
 
         loop_result = _run_adaptive_research_loop(
             combined_query,
@@ -934,10 +887,10 @@ def run_deep_research(
         citations = loop_result.get("citations") or {}
         sources = loop_result.get("sources") or []
 
-        if not learnings:
-            # Sub-agent / extract failures are swallowed per-branch; without this
-            # guard the orchestrator synthesizes a report from empty evidence and
-            # execute() labels it "Web research completed."
+        if not learnings and not context_chunks:
+            # A failed extraction drops only the extracted learnings; the sub-agent
+            # report in ``context`` is still evidence. Error only when both are empty,
+            # or the run would synthesize from nothing.
             err = loop_result.get("branch_error")
             if isinstance(err, dict) and err.get("status") == "error":
                 return err
@@ -945,16 +898,10 @@ def run_deep_research(
                 ToolExecutionError(_("Web research collected no usable evidence."))
             )
 
-        cited_learnings: list[str] = []
-        for learning in learnings:
-            urls = citations.get(learning, [])
-            if urls:
-                cited_learnings.append(f"{learning} [Sources: {', '.join(urls)}]")
-            else:
-                cited_learnings.append(learning)
+        cited_learnings = _format_cited_learnings(learnings, citations)
 
         if status_callback:
-            status_callback("Deep research: synthesizing report...")
+            status_callback(_("Deep research: synthesizing report..."))
 
         stopped = _check_stopped(stop_checker)
         if stopped is not None:

@@ -137,14 +137,13 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 
 **Flow (adaptive deep mode):**
 
-1. **Plan** — LLM generates follow-up questions from the user query (+ optional DuckDuckGo preview snippet).
-2. **Round loop** (up to `chatbot.deep_research_max_rounds`, default 3):
-   - **Breadth** — LLM generates N search queries per round (`chatbot.deep_research_breadth`, default 4).
+1. **Round loop** (up to `chatbot.deep_research_max_rounds`, default 3):
+   - **Breadth** — LLM generates N search queries per round (`chatbot.deep_research_breadth`, default 4). Round 1 generates the queries directly from the user query and the optional DuckDuckGo preview snippet (there is no separate planning call).
    - **Parallel sub-queries** — up to `chatbot.deep_research_concurrency` shallow ReAct sub-agents run at once (global cap: `chatbot.deep_research_max_sub_queries`, default 14).
    - **Per sub-query** — `_run_web_agent` with research goal, visited-URL dedup, and optional extra step budget.
    - **Extract** — LLM pulls learnings, citations, and source URLs from each sub-report.
    - **Assess** — LLM scores coverage (`chatbot.deep_research_quality_threshold`, default 7/10); stops early when sufficient or continues with gap-filling queries.
-3. **Synthesize** — LLM writes one plain-text report (`WEB_RESEARCH_PLAIN_TEXT_FORMAT` in [`web_research.py`](../../plugin/chatbot/web_research.py)) including a sources list. If that last LLM call fails, the orchestrator returns the collected learnings and sources instead of discarding the run. If no learnings were collected, it returns an error payload rather than a “completed” report on empty evidence.
+2. **Synthesize** — LLM writes one plain-text report (`WEB_RESEARCH_PLAIN_TEXT_FORMAT` in [`web_research.py`](../../plugin/chatbot/web_research.py)) including a sources list. If that last LLM call fails, the orchestrator returns the collected learnings and sources instead of discarding the run. If neither learnings nor raw sub-agent reports were collected, it returns an error payload rather than a “completed” report on empty evidence; a failed extraction keeps that sub-agent's raw report as evidence.
 
 `VisitWebpageTool` does not cache fetch-error strings (a transient 403/timeout must not replay for `web_cache_validity_days`).
 
