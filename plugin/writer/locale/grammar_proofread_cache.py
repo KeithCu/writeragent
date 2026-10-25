@@ -242,8 +242,9 @@ def cache_get_sentence(
 ) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0)."""
     ident = resolve_checker_identity(checker_identity)
-    key = make_sentence_key(locale_key, sentence, ident)
+    # The key already ends in fp; one fingerprint serves both (no double SHA-256).
     fp = sentence_identity_fp(sentence)
+    key = f"{sentence_cache_key_prefix(locale_key, ident)}{fp}"
     result = None
     with grammar_registry.lock:
         hit = grammar_registry.sentence_cache.get(key)
