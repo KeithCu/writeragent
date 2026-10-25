@@ -4,8 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for Calc formula evaluation messages (no soffice)."""
 
+from plugin.calc.calc_utils import FORMULA, VALUE
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.calc.formulas import FORMULA, VALUE, EvaluateFormula, formula_evaluation_error_message
+from plugin.calc.formulas import EvaluateFormula, formula_evaluation_error_message
 from plugin.framework.tool import ToolContext
 
 
@@ -351,4 +352,17 @@ def test_evaluate_formula_document_lock_and_mutation():
     assert tool.requires_document_lock() is True
     assert tool.detects_mutation() is False
     assert tool.is_mutation is False
+
+
+def test_evaluate_formula_flags_array_results():
+    res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=SORT(A1:A5)")
+    assert res["status"] == "ok"
+    assert res["requires_array"] is True
+    assert "only the top-left value" in res["note"]
+    plain = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=2+3")
+    assert "requires_array" not in plain
+    filter_res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=FILTER(A1:A5;A1:A5>0)")
+    assert filter_res["status"] == "ok"
+    assert filter_res["requires_array"] is True
+
 

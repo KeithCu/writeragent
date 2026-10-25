@@ -115,6 +115,25 @@ def test_inspector_formula_string_zero_stays_string():
     res = inspector.read_cell("A1")
     assert res["value"] == "0"
     assert isinstance(res["value"], str)
+    assert res["address"] == "A1"
+
+
+def test_inspector_read_cell_resolved_a1_address():
+    from plugin.calc.inspector import CellInspector
+
+    bridge = MagicMock()
+    cell = MagicMock()
+    cell.getType.return_value = 1  # VALUE
+    cell.getValue.return_value = 5.0
+    cell.getFormula.return_value = ""
+    cell.getRangeAddress.return_value = SimpleNamespace(
+        StartColumn=1, EndColumn=1, StartRow=2, EndRow=2
+    )
+    bridge.resolve_range_or_address.return_value = cell
+
+    inspector = CellInspector(bridge)
+    assert inspector.read_cell("MyRange")["address"] == "B3"
+    assert inspector.read_cell("Sheet1.MyRange")["address"] == "B3"
 
 
 def test_read_cell_range_address_stays_value_error():
@@ -345,6 +364,143 @@ def test_inspector_format_info_survives_queryContentCells_failure():
     assert result[0][0]["type"] == "date"
     cell_range.getUniqueCellFormatRanges.assert_called_once()
     formats.getByKey.assert_called_once_with(11)
+
+
+def test_inspector_temporal_span_lookup():
+    from plugin.calc.inspector import CellInspector
+    rows = {0: [(0, 1, "date", "YYYY-MM-DD"), (3, 4, "time", None)]}
+    assert CellInspector._temporal_span(rows, 0, 1) == ("date", "YYYY-MM-DD")
+    assert CellInspector._temporal_span(rows, 0, 2) is None
+    assert CellInspector._temporal_span(rows, 0, 3) == ("time", None)
+    assert CellInspector._temporal_span(rows, 5, 0) is None
+
+
+def test_inspector_read_cell_format_enrichment_and_negative_duration():
+    from plugin.calc.inspector import CellInspector
+
+    formats = MagicMock()
+    props10 = MagicMock()
+    props10.getPropertyValue.side_effect = lambda name: 2 if name == "Type" else "YYYY-MM-DD"
+    formats.getByKey.return_value = props10
+
+    doc = TestingFactory.create_doc(
+        doc_type="calc",
+        number_formats=formats,
+        null_date=SimpleNamespace(Year=1899, Month=12, Day=30),
+    )
+    bridge = MagicMock()
+    bridge.doc = doc
+
+    cell = MagicMock()
+    cell.getType.return_value = 1  # VALUE
+    cell.getValue.return_value = 46237.0
+    cell.getFormula.return_value = ""
+    cell.getPropertyValue.side_effect = lambda name: 10 if name == "NumberFormat" else None
+    cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+
+    bridge.resolve_range_or_address.return_value = cell
+
+    res = CellInspector(bridge).read_cell("A1", include_format_info=True)
+    assert res["value"] == "2026-08-03"
+    assert res["type"] == "date"
+    assert res["format_category"] == "date"
+    assert res["format_code"] == "YYYY-MM-DD"
+
+    # Second case: Type 4 / "[HH]:MM:SS" with -0.5
+    props43 = MagicMock()
+    props43.getPropertyValue.side_effect = lambda name: 4 if name == "Type" else "[HH]:MM:SS"
+    formats.getByKey.return_value = props43
+    cell.getValue.return_value = -0.5
+    cell.getPropertyValue.side_effect = lambda name: 43 if name == "NumberFormat" else None
+
+    res_neg = CellInspector(bridge).read_cell("A1", include_format_info=True)
+    assert res_neg["value"] == -0.5
+    assert "format_category" not in res_neg
+
+
+def test_inspector_read_range_negative_duration_stays_raw_and_does_not_fail():
+    from plugin.calc.inspector import CellInspector
+
+    date_addr0 = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    date_addr1 = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=0)
+
+    rep0 = MagicMock()
+    rep0.getPropertyValue.return_value = 43
+    group0 = MagicMock()
+    group0.getCount.return_value = 1
+    group0.getByIndex.return_value = rep0
+    group0.getRangeAddresses.return_value = (date_addr0,)
+
+    rep1 = MagicMock()
+    rep1.getPropertyValue.return_value = 10
+    group1 = MagicMock()
+    group1.getCount.return_value = 1
+    group1.getByIndex.return_value = rep1
+    group1.getRangeAddresses.return_value = (date_addr1,)
+
+    format_groups = MagicMock()
+    format_groups.getCount.return_value = 2
+    format_groups.getByIndex.side_effect = lambda idx: group0 if idx == 0 else group1
+
+    bridge, _cell_range, formats = _make_range_bridge(
+        data_array=((-0.5, 46237.0),),
+        formula_array=(("0", "0"),),
+        date_addresses=(date_addr0, date_addr1),
+        format_groups=format_groups,
+    )
+
+    props43 = MagicMock()
+    props43.getPropertyValue.side_effect = lambda name: 4 if name == "Type" else "[HH]:MM:SS"
+    props10 = MagicMock()
+    props10.getPropertyValue.side_effect = lambda name: 2 if name == "Type" else "YYYY-MM-DD"
+    formats.getByKey.side_effect = lambda key: props43 if key == 43 else props10
+
+    result = CellInspector(bridge).read_range("A1:B1", include_format_info=True)
+
+    assert result[0][0]["value"] == -0.5
+    assert "format_category" not in result[0][0]
+    assert result[0][1]["value"] == "2026-08-03"
+    assert result[0][1]["type"] == "date"
+    assert result[0][1]["format_category"] == "date"
+
+
+def test_inspector_format_group_failure_does_not_fail_other_groups():
+    from plugin.calc.inspector import CellInspector
+
+    date_addr1 = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=0)
+
+    group0 = MagicMock()
+    group0.getCount.side_effect = RuntimeError("bad key")
+
+    rep1 = MagicMock()
+    rep1.getPropertyValue.return_value = 10
+    group1 = MagicMock()
+    group1.getCount.return_value = 1
+    group1.getByIndex.return_value = rep1
+    group1.getRangeAddresses.return_value = (date_addr1,)
+
+    format_groups = MagicMock()
+    format_groups.getCount.return_value = 2
+    format_groups.getByIndex.side_effect = lambda idx: group0 if idx == 0 else group1
+
+    bridge, _cell_range, formats = _make_range_bridge(
+        data_array=((1.0, 46237.0),),
+        formula_array=(("1", "46237"),),
+        date_addresses=(date_addr1,),
+        format_groups=format_groups,
+        format_type=2,
+        format_key=10,
+    )
+    props10 = MagicMock()
+    props10.getPropertyValue.side_effect = lambda name: 2 if name == "Type" else "YYYY-MM-DD"
+    formats.getByKey.side_effect = lambda key: props10
+
+    result = CellInspector(bridge).read_range("A1:B1", include_format_info=True)
+
+    assert result[0][0]["value"] == 1.0
+    assert "format_category" not in result[0][0]
+    assert result[0][1]["value"] == "2026-08-03"
+    assert result[0][1]["type"] == "date"
 
 
 def _range_addr(*, start_col, end_col, start_row, end_row):
