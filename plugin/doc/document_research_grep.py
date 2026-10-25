@@ -163,8 +163,8 @@ def _grep_text_in_writer(
     # while matches was sliced to max_results, and partial was forced false.
     # Calc and Draw already set match_count to the returned length. Writer
     # now does too. partial is true when that total is larger than the slice,
-    # or when Stop cut extraction or the scan. search_paragraph_texts still
-    # returns the uncapped total so this does not guess from len == max_results.
+    # or when Stop cut extraction or the scan. search_paragraph_texts counts
+    # up to max_results + 1 hits so this does not guess from len == max_results.
     partial = total > len(matches) or bool(stop_checker and stop_checker())
     return matches, len(matches), partial
 
