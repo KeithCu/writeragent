@@ -999,6 +999,100 @@ def test_parse_and_convert_synthetic_workbook_with_table(tmp_path: Path):
     assert by_cell["H4"].data_args[0].endswith("A6:B10") or "A6:B10" in by_cell["H4"].data_args[0]
 
 
+def test_parse_ooxml_malformed_xml_parts_recorded_in_issues(tmp_path: Path):
+    content_types = """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+  <Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>
+</Types>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Data" sheetId="1" r:id="rId1"/>
+    <sheet name="Pivots" sheetId="2" r:id="rId2"/>
+  </sheets>
+</workbook>"""
+    wb_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>"""
+    sheet1 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetData/>
+  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+</worksheet>"""
+    sheet1_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>"""
+    sheet2 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="C1"><f>_xlfn._xlws.PY(0,1,tradeData[#All])</f></c></row>
+  </sheetData>
+</worksheet>"""
+    table = """<?xml version="1.0" encoding="UTF-8"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="tradeData" displayName="tradeData" ref="A1:AA10"/>"""
+    scripts = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>df = xl(%P2%, headers=True)</code></pythonScript>
+</pythonScripts>"""
+
+    # (a) replace xl/worksheets/sheet2.xml with malformed XML: sheet1's table still parses
+    path_corrupt_sheet = tmp_path / "corrupt_sheet2.xlsx"
+    with zipfile.ZipFile(path_corrupt_sheet, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+        zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet1_rels)
+        zf.writestr("xl/worksheets/sheet2.xml", b"<worksheet")
+        zf.writestr("xl/tables/table1.xml", table)
+        zf.writestr("xl/pythonScripts.xml", scripts)
+
+    model1 = load_excel_model(path_corrupt_sheet)
+    assert model1.tables.get("tradeData") == "Data!A1:AA10"
+    assert any("worksheets/sheet2.xml:" in iss for iss in model1.issues)
+
+    # (b) malformed scripts_xml yields model.scripts == [] plus xl/pythonScripts.xml: issue
+    path_corrupt_scripts = tmp_path / "corrupt_scripts.xlsx"
+    path_corrupt_scripts.write_bytes(_minimal_xlsx_bytes(
+        sheet_xml="""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>""",
+        workbook_xml=wb_xml,
+        rels_xml=wb_rels,
+        scripts_xml="<pythonScripts",
+    ))
+    model2 = load_excel_model(path_corrupt_scripts)
+    assert model2.scripts == []
+    assert any("xl/pythonScripts.xml:" in iss for iss in model2.issues)
+
+    # (c) corrupt xl/tables/table1.xml: issue names table part, tables is empty
+    path_corrupt_table = tmp_path / "corrupt_table.xlsx"
+    with zipfile.ZipFile(path_corrupt_table, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+        zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet1_rels)
+        zf.writestr("xl/worksheets/sheet2.xml", sheet2)
+        zf.writestr("xl/tables/table1.xml", b"<table")
+        zf.writestr("xl/pythonScripts.xml", scripts)
+
+    model3 = load_excel_model(path_corrupt_table)
+    assert model3.tables == {}
+    assert any("xl/tables/table1.xml:" in iss for iss in model3.issues)
+
+
 @pytest.mark.slow
 def test_libreoffice_import_smoke(tmp_path: Path):
     """When soffice is available, a converted synthetic XLSX must open without crash."""
@@ -1347,6 +1441,41 @@ def test_resolve_refs_lookup_anchor_sheet_qualified_priority():
     assert _lookup_anchor(model, "A1", sheet_hint="Sheet1") == "Sheet1!A1:B10"
     # Without sheet hint, bare A1 resolves bare key
     assert _lookup_anchor(model, "A1", sheet_hint="") == "Sheet1!A1:B10"
+
+    # Multi-sheet model: hint for a sheet with no snapshot must NOT leak another sheet's bare key
+    from plugin.calc.excel_py_convert.models import SheetInfo
+    model_multi = ExcelWorkbookModel(
+        sheets=[SheetInfo("Sheet1", 0, ""), SheetInfo("Sheet2", 1, "")],
+        anchor_snapshots={"Sheet1!A6": "Sheet1!A6:B10", "A6": "A6:B10", "Sheet2!A6": "Sheet2!A6:B12"},
+    )
+    assert _lookup_anchor(model_multi, "A6", sheet_hint="Sheet3") is None
+
+    # Hint with apostrophe (e.g. O'Brien) resolves "'O''Brien'!A6"
+    model_obrien = ExcelWorkbookModel(
+        sheets=[SheetInfo("O'Brien", 0, "")],
+        anchor_snapshots={"'O''Brien'!A6": "O'Brien!A6:C20"},
+    )
+    assert _lookup_anchor(model_obrien, "A6", sheet_hint="O'Brien") == "O'Brien!A6:C20"
+
+    # Hint with hyphen (e.g. My-Sheet) resolves "'My-Sheet'!A6"
+    model_hyphen = ExcelWorkbookModel(
+        sheets=[SheetInfo("My-Sheet", 0, "")],
+        anchor_snapshots={"'My-Sheet'!A6": "My-Sheet!A6:C20"},
+    )
+    assert _lookup_anchor(model_hyphen, "A6", sheet_hint="My-Sheet") == "My-Sheet!A6:C20"
+
+    # Explicit sheet with literal '$' in sheet name
+    model_dollar = ExcelWorkbookModel(
+        anchor_snapshots={"'A$B'!A6": "'A$B'!A6:D30"},
+    )
+    assert _lookup_anchor(model_dollar, "'A$B'!A6") == "'A$B'!A6:D30"
+
+    # Single-sheet model with only bare key still resolves with a hint
+    model_single = ExcelWorkbookModel(
+        sheets=[SheetInfo("Sheet1", 0, "")],
+        anchor_snapshots={"A6": "A6:B10"},
+    )
+    assert _lookup_anchor(model_single, "A6", sheet_hint="Sheet1") == "A6:B10"
 
 
 def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
@@ -1953,6 +2082,13 @@ def test_shift_xlws_py_dep_variants():
     assert shift_xlws_py_dep("_xlfn.ANCHORARRAY(B1)", 1, 0) == "_xlfn.ANCHORARRAY(B2)"
     assert shift_xlws_py_dep("B1+C1", 1, 0) is None
     assert shift_xlws_py_dep("MyNamedRange", 1, 0) == "MyNamedRange"
+    assert shift_xlws_py_dep("A:A", 1, 0) == "A:A"
+    assert shift_xlws_py_dep("A:C", 0, 1) == "B:D"
+    assert shift_xlws_py_dep("$A:$C", 0, 1) == "$A:$C"
+    assert shift_xlws_py_dep("1:5", 1, 0) == "2:6"
+    assert shift_xlws_py_dep("1:5", 0, 1) == "1:5"
+    assert shift_xlws_py_dep("Sheet1!A:A", 1, 0) == "Sheet1!A:A"
+    assert shift_xlws_py_dep("Sheet1!MyName", 1, 0) == "Sheet1!MyName"
 
 
 def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
@@ -1961,7 +2097,7 @@ def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetData>
     <row r="1">
-      <c r="A1"><f t="shared" ref="A1:A3" si="0">_xlfn._xlws.PY(0,0,B1,$B$1,B$1,Table1[Col],Sheet1!B1)</f></c>
+      <c r="A1"><f t="shared" ref="A1:A3" si="0">_xlfn._xlws.PY(0,0,B1,$B$1,B$1,Table1[Col],Sheet1!B1,A:A,1:5,Sheet1!MyName)</f></c>
     </row>
     <row r="2">
       <c r="A2"><f t="shared" si="0"/></c>
@@ -1993,11 +2129,11 @@ def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
     assert len(model.cells) == 3
     c1, c2, c3 = model.cells
     assert c1.cell == "A1"
-    assert c1.deps == ["B1", "$B$1", "B$1", "Table1[Col]", "Sheet1!B1"]
+    assert c1.deps == ["B1", "$B$1", "B$1", "Table1[Col]", "Sheet1!B1", "A:A", "1:5", "Sheet1!MyName"]
     assert c2.cell == "A2"
-    assert c2.deps == ["B2", "$B$1", "B$1", "Table1[Col]", "Sheet1!B2"]
+    assert c2.deps == ["B2", "$B$1", "B$1", "Table1[Col]", "Sheet1!B2", "A:A", "2:6", "Sheet1!MyName"]
     assert c3.cell == "A3"
-    assert c3.deps == ["B3", "$B$1", "B$1", "Table1[Col]", "Sheet1!B3"]
+    assert c3.deps == ["B3", "$B$1", "B$1", "Table1[Col]", "Sheet1!B3", "A:A", "3:7", "Sheet1!MyName"]
 
 
 def test_shared_xlws_py_group_invalid_dep_refused(tmp_path: Path):
@@ -3090,9 +3226,41 @@ def test_parse_python_scripts_normal_and_hostile_indices():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("xl/pythonScripts.xml", hostile_xml)
+    issues: list[str] = []
     with zipfile.ZipFile(buf, "r") as zf:
-        with pytest.raises(ValueError, match="invalid script index 1000000000 in xl/pythonScripts.xml"):
-            _parse_python_scripts(zf)
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == []
+        assert any("out of range" in iss for iss in issues)
+
+    # Duplicate index: last-wins and issue recorded
+    dup_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="0"><code>x = 1</code></pythonScript>
+  <pythonScript index="0"><code>x = 2</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", dup_xml)
+    issues = []
+    with zipfile.ZipFile(buf, "r") as zf:
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == ["x = 2"]
+        assert any("duplicate script index 0" in iss for iss in issues)
+
+    # Mixed: good script parses while bad index is skipped
+    mixed_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="0"><code>x = 1</code></pythonScript>
+  <pythonScript index="1000000000"><code>x = 2</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", mixed_xml)
+    issues = []
+    with zipfile.ZipFile(buf, "r") as zf:
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == ["x = 1"]
+        assert any("out of range" in iss for iss in issues)
 
 
 def test_standard_namespaces_x16_mapping():
