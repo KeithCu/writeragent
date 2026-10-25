@@ -18,7 +18,10 @@ import pytest
 
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
+    OutlineSnapshot,
     _enum_has_more,
+    _iter_portions,
+    _paint,
     capture_outline_hyperlinks,
     plan_outline_updates,
     restore_outline_hyperlinks,
@@ -90,13 +93,16 @@ class _Pos:
 
 
 class _Slice:
-    def __init__(self, text, url="", name="", target="", color=None, underline=None):
+    def __init__(self, text, url="", name="", target="", color=None, underline=None,
+                 text_type="Text", raise_props=False):
         self.text = text
         self.url = url
         self.name = name
         self.target = target
         self.color = color
         self.underline = underline
+        self.text_type = text_type
+        self.raise_props = raise_props
 
 
 class _Enum:
@@ -152,6 +158,15 @@ class _Doc:
         return _Cursor(self, n, n)
 
 
+def _advance_units(text, start, units):
+    used = 0
+    idx = start
+    while idx < len(text) and used < units:
+        used += len(text[idx].encode("utf-16-le")) // 2
+        idx += 1
+    return idx, used >= units
+
+
 class _Cursor:
     def __init__(self, doc, start, end):
         self.doc = doc
@@ -197,8 +212,8 @@ class _Cursor:
             self.end = n
 
     def goRight(self, count, expand):
-        nxt = self.end + count
-        if nxt > len(self.doc.text()):
+        nxt, full = _advance_units(self.doc.text(), self.end, count)
+        if not full:
             self.end = len(self.doc.text())
             return False
         if expand:
@@ -277,6 +292,10 @@ class _Portion:
         return _Pos(end)
 
     def getPropertyValue(self, name):
+        if name == "TextPortionType":
+            return self.sl.text_type
+        if self.sl.raise_props:
+            raise AttributeError(name)
         if name == "HyperLinkURL":
             return self.sl.url
         if name == "HyperLinkName":
@@ -287,12 +306,14 @@ class _Portion:
             return self.sl.color
         if name == "CharUnderline":
             return self.sl.underline
-        if name == "TextPortionType":
-            return "Text"
         raise AttributeError(name)
 
 
 def _match(doc, start, end):
+    text = doc.text()
+    if len(text.encode("utf-16-le")) // 2 != len(text):
+        start, _ = _advance_units(text, 0, start)
+        end, _ = _advance_units(text, 0, end)
     return _Cursor(doc, start, end)
 
 
@@ -503,3 +524,46 @@ def test_capture_outline_hyperlinks_magicmock_range_does_not_spin():
     """MagicMock.hasMoreElements() is truthy; the walker must stop (PR #823 merge CI)."""
     snap = capture_outline_hyperlinks(MagicMock())
     assert snap.links == []
+
+
+def test_restore_selects_after_a_non_bmp_prefix():
+    prefix = _Slice("😀 ", _OUTLINE)
+    title = _Slice("Old title", _OUTLINE)
+    suffix = _Slice(" tail", _OUTLINE)
+    doc = _Doc([prefix, title, suffix])
+    snapshot = capture_outline_hyperlinks(_match(doc, 3, 12))
+    _replace_equal(title, "New title")
+    reports = restore_outline_hyperlinks(_match(doc, 3, 3), snapshot, "New title", None)
+    assert title.url == "#1.New title|outline"
+    assert suffix.url == "#1.New title|outline"
+    assert reports[0]["hyperlink_updated"] is True
+    assert reports[0]["hyperlink_url_after"] == "#1.New title|outline"
+
+
+def test_paint_refuses_a_selection_that_does_not_match_the_replacement():
+    title = _Slice("Old title!", _OUTLINE)
+    doc = _Doc([title])
+    snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
+    plan = {"new_url": "#1.New title|outline", "new_name": None, "new_target": None}
+    with pytest.raises(RuntimeError, match="Could not select the replaced text"):
+        _paint(doc, _Pos(0), snapshot, "New title", plan, required=True)
+    assert title.url == _OUTLINE
+    assert _paint(doc, _Pos(0), snapshot, "New title", plan, required=False) is False
+    assert title.url == _OUTLINE
+
+
+def test_iter_portions_skips_redline_markers():
+    doc = _Doc([_Slice("Old title", _OUTLINE), _Slice("", text_type="Redline")])
+    assert "Redline" not in [p.getPropertyValue("TextPortionType") for p in _iter_portions(doc, _Pos(0))]
+
+
+def test_restore_ignores_a_marker_without_link_properties():
+    title = _Slice("Old title", _OUTLINE)
+    marker = _Slice("", text_type="Bookmark", raise_props=True)
+    doc = _Doc([title, marker])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
+    _replace_equal(title, "New title")
+    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    assert title.url == "#1.New title|outline"
+    assert reports[0]["hyperlink_updated"] is True
+    assert reports[0]["hyperlink_url_after"] == "#1.New title|outline"
