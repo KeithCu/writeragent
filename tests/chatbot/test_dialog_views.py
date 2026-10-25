@@ -42,12 +42,11 @@ class TestInputBoxExtraTokens:
 
         return dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect
 
-    @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_loads_selection_token_fields_from_config(
-        self, _init_log, mock_load, _populate, _translate,
+        self, _init_log, mock_load, _populate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
@@ -68,12 +67,11 @@ class TestInputBoxExtraTokens:
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
-    @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_saves_selection_token_fields_on_ok(
-        self, _init_log, mock_load, _populate, _translate,
+        self, _init_log, mock_load, _populate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
@@ -90,20 +88,21 @@ class TestInputBoxExtraTokens:
             return "rewrite this"
 
         with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
-             patch("plugin.chatbot.dialog_views.set_config") as mock_set_config, \
+             patch("plugin.chatbot.dialog_views.set_configs") as mock_set_configs, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             text, prompt = input_box(ctx, "msg", "title", "")
 
         assert (text) == ("rewrite this")
-        mock_set_config.assert_any_call("extend_selection_max_tokens", "1500")
-        mock_set_config.assert_any_call("edit_selection_max_new_tokens", "250")
+        mock_set_configs.assert_called_once_with({
+            "extend_selection_max_tokens": "1500",
+            "edit_selection_max_new_tokens": "250",
+        })
 
-    @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_delegates_selection_token_bounds_to_config(
-        self, _init_log, mock_load, _populate, _translate,
+        self, _init_log, mock_load, _populate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
@@ -120,12 +119,14 @@ class TestInputBoxExtraTokens:
             return "go"
 
         with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
-             patch("plugin.chatbot.dialog_views.set_config") as mock_set_config, \
+             patch("plugin.chatbot.dialog_views.set_configs") as mock_set_configs, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             input_box(ctx, "msg", "title", "")
 
-        mock_set_config.assert_any_call("extend_selection_max_tokens", "1")
-        mock_set_config.assert_any_call("edit_selection_max_new_tokens", "99999")
+        mock_set_configs.assert_called_once_with({
+            "extend_selection_max_tokens": "1",
+            "edit_selection_max_new_tokens": "99999",
+        })
 
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_raises_when_dialog_missing(self, _init_log):
@@ -137,12 +138,11 @@ class TestInputBoxExtraTokens:
                 input_box(MagicMock(), "msg")
         mock_load.assert_called_once()
 
-    @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_model_selector_skips_remote_fetch(
-        self, _init_log, mock_load, mock_populate, _translate,
+        self, _init_log, mock_load, mock_populate,
     ):
         """Edit/Extend must not fetch /v1/models on the UI thread."""
         from plugin.chatbot.dialog_views import input_box
@@ -2388,7 +2388,6 @@ def test_settings_dialog_retries_on_config_validation_error() -> None:
         patch("plugin.chatbot.dialog_views.clear_active_settings_dialog"),
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
         patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
-        patch("plugin.chatbot.dialog_views.translate_dialog") as mock_translate,
         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox,
         patch(
             "plugin.chatbot.settings_dialog.apply_settings_result",
@@ -2403,5 +2402,4 @@ def test_settings_dialog_retries_on_config_validation_error() -> None:
     mock_populate.assert_called_once()
     mock_apply.assert_called_once()
     mock_msgbox.assert_called_once()
-    mock_translate.assert_not_called()
     dlg.dispose.assert_called_once()

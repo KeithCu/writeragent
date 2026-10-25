@@ -43,9 +43,11 @@ _PRESET_EXPECTED_PROVIDER = {
         ("mistral", "mistral-large-latest", True),
         ("groq", "llama-3.1-8b-instant", True),
         ("ollama", "llama3.2", True),
+        ("ollama", "deepseek-chat", True),
         ("openrouter", "google/gemini-3.1-flash-lite", True),
         ("zai", "google/gemini-3.1-flash-lite", False),
         ("lmstudio", "llama3.2", True),
+        ("lmstudio", "deepseek-chat", True),
         (None, "llama3.2", True),
     ],
 )

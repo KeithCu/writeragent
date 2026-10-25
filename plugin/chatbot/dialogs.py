@@ -180,7 +180,11 @@ def _run_text_dialog(
         if dlg is None:
             return None
 
-        prepare(dlg)
+        try:
+            prepare(dlg)
+        except Exception:
+            best_effort(dlg.dispose, "dispose after prepare failed")
+            raise
 
         _outcome: list[str | None] | None = None
 
@@ -288,7 +292,7 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
                 return "text/plain" in aFlavor.MimeType
 
         clip.setContents(_TextTransferable(text), None)
-        log.info("Copied to clipboard: %s", text)
+        log.info("Copied to clipboard (%d chars)", len(text))
         return True
     except Exception:
         log.exception("Clipboard copy failed")

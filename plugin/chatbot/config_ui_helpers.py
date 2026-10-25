@@ -85,11 +85,16 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     return is_known_elsewhere and not is_known_here
 
 
+# Local endpoints (LM Studio, Ollama) serve arbitrary model IDs; do not stray-filter
+# models that happen to be catalogued under a different provider.
+_LOCAL_PROVIDERS: frozenset[str] = frozenset({"ollama", "lmstudio"})
+
+
 def _is_incompatible_model_for_provider(model_id: str, provider: str | None) -> bool:
     """True when model_id should not appear on this provider's combobox."""
     if not model_id or not provider:
         return False
-    if _is_model_id_associated_with_other_provider(model_id, provider):
+    if provider not in _LOCAL_PROVIDERS and _is_model_id_associated_with_other_provider(model_id, provider):
         return True
     if provider_requires_slug_model_id(provider) and "/" not in model_id:
         return True
@@ -156,8 +161,9 @@ _PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"
 
 
 def _paint_combo(ctrl: Any, items: list[str], selected: str) -> None:
+    # Always clear existing items so an empty list clears stale choices.
+    ctrl.removeItems(0, ctrl.getItemCount())
     if items:
-        ctrl.removeItems(0, ctrl.getItemCount())
         ctrl.addItems(tuple(items), 0)
     if selected:
         ctrl.setText(selected)
@@ -402,7 +408,7 @@ def endpoint_from_selector_text(text: Any) -> str:
             return normalize_endpoint_url(url)
     return normalize_endpoint_url(t)
 
-def populate_endpoint_selector(ctx: Any, ctrl: Any, current_endpoint: Any) -> None:
+def populate_endpoint_selector(ctrl: Any, current_endpoint: Any) -> None:
     """Populate endpoint combobox: preset labels first, then endpoint_lru URLs. Combobox text = URL (visible and editable)."""
     if not ctrl:
         return
