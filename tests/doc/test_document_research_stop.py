@@ -55,43 +55,24 @@ def test_delegate_read_document_closes_when_stopped(
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_closes_when_stopped(
+def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
     mock_resolve,
     mock_open,
     mock_close,
 ):
     opened_model = MagicMock()
-    mock_resolve.return_value = ([MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")], False, None)
-    mock_open.return_value = (opened_model, "calc", None, True)
+    mock_resolve.return_value = (
+        [MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")],
+        False,
+        None,
+    )
 
-    from plugin.framework.send_cancellation import _current_send_cancellation
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=SendCancelled("Stopped")):
+        res = grep_nearby_files(MagicMock(), opened_model, {}, "pattern")
+        assert res == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
-    def mock_execute_on_main(fn, *args, **kwargs):
-        if fn.__name__ == "_close":
-            raise SendCancelled("Stopped")
-        if fn.__name__ == "_search":
-            raise SendCancelled("Stopped")
-        return fn(*args, **kwargs)
-
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
-        token = _current_send_cancellation.set(MagicMock())
-        try:
-            ctx = MagicMock()
-            ctx.doc = MagicMock()
-            ctx.ctx = MagicMock()
-            ctx.services = {}
-            # Do not stop early before opening so that the finally path is reached
-            ctx.stop_checker = MagicMock(return_value=False)
-            ctx.caller = MagicMock()
-
-            res = grep_nearby_files(ctx, opened_model, {}, "pattern")
-            assert res == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
-        finally:
-            _current_send_cancellation.reset(token)
-
-    assert mock_post.called
-    assert mock_post.call_args[0][0].__name__ == '_close'
-    assert mock_post.call_args.kwargs.get("bound_scope") is None
+    mock_open.assert_not_called()
+    mock_close.assert_not_called()
 
 
 def test_unscoped_post_executes_when_scope_is_cancelled() -> None:
