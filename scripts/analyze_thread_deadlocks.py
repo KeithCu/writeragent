@@ -178,7 +178,7 @@ class DeadlockAnalyzer:
         builders: list[CallGraphBuilder] = []
         for py_file in sorted(self.root_dir.rglob("*.py")):
             rel = str(py_file)
-            if "plugin/contrib" in rel or "plugin/lib" in rel or "/tests/" in rel or "venv" in rel:
+            if "plugin/contrib/" in rel or "plugin/lib/" in rel or "/tests/" in rel or "venv" in rel:
                 continue
             try:
                 source = py_file.read_text(encoding="utf-8")

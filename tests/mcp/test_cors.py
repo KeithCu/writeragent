@@ -690,6 +690,11 @@ def test_drain_request_body_reads_up_to_content_length():
     _drain_request_body(handler)
     assert handler.rfile.read() == b""
 
+    # 100 KiB body is drained (> 64 KiB cap, <= MCP_HTTP_MAX_BODY_BYTES).
+    large_handler = _FakeHandler(b"x" * 102400)
+    _drain_request_body(large_handler)
+    assert large_handler.rfile.read() == b""
+
 
 def test_reload_cors_config_failure_propagates():
     services = MagicMock()

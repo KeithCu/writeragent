@@ -404,3 +404,26 @@ def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "ok"
     assert result["images_processed"] == 0
+
+
+@pytest.mark.parametrize(
+    ("raw_val", "expected"),
+    [
+        (True, True),
+        (False, False),
+        ("true", True),
+        ("TRUE", True),
+        ("1", True),
+        ("yes", True),
+        ("false", False),
+        ("FALSE", False),
+        ("0", False),
+        ("no", False),
+    ],
+)
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_coerces_insert_into_document(mock_run, tool_ctx, raw_val, expected):
+    mock_run.return_value = {"status": "ok", "images_processed": 1}
+    tool_ctx.stop_checker = None
+    ExtractStructureFromImage().execute(tool_ctx, insert_into_document=raw_val)
+    assert mock_run.call_args.kwargs["insert_into_document"] is expected

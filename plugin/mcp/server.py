@@ -32,6 +32,21 @@ iterates it; the lock is what keeps that from raising ``RuntimeError``.
 
 from __future__ import annotations
 
+# Maximum concurrent SSE streams to prevent thread exhaustion.
+SSE_MAX_STREAMS = 8
+
+# MCP JSON-RPC bodies are tool arguments, not file uploads. A few MiB is
+# enough for a document slice and small enough that one request cannot
+# force a multi-gigabyte allocation in the ThreadingMixIn worker.
+MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
+
+# rfile.read blocks forever when BaseHTTPRequestHandler.timeout is None.
+# A client that sends Content-Length and then stalls held one request
+# thread until the process exited. 30s fails that read closed. SSE
+# keepalive waits in select(), which does not follow this socket timeout,
+# so a long GET /mcp is not cut off by it.
+MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
+
 from plugin.framework.thread_guard import background
 import json
 import logging
@@ -56,21 +71,6 @@ if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
-
-# Maximum concurrent SSE streams to prevent thread exhaustion.
-SSE_MAX_STREAMS = 8
-
-# MCP JSON-RPC bodies are tool arguments, not file uploads. A few MiB is
-# enough for a document slice and small enough that one request cannot
-# force a multi-gigabyte allocation in the ThreadingMixIn worker.
-MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
-
-# rfile.read blocks forever when BaseHTTPRequestHandler.timeout is None.
-# A client that sends Content-Length and then stalls held one request
-# thread until the process exited. 30s fails that read closed. SSE
-# keepalive waits in select(), which does not follow this socket timeout,
-# so a long GET /mcp is not cut off by it.
-MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 
 def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
@@ -351,6 +351,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         Why: those disconnects are ``ConnectionError``. Any other exception
         still propagates.
         """
+        self._response_started = False
         try:
             super().handle_one_request()
         except ConnectionError:
@@ -366,6 +367,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def do_OPTIONS(self) -> None:
+        self._response_started = False
         if reject_forbidden_host(self):
             return
         if reject_forbidden_origin(self):
@@ -375,6 +377,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         write_http_empty(self, 204, extra_headers=lambda h: send_cors_headers(h, preflight=True))
 
     def _dispatch(self, method: str) -> None:
+        self._response_started = False
         if reject_forbidden_host(self):
             return
         if reject_forbidden_origin(self):

@@ -311,14 +311,16 @@ def _drain_request_body(handler: Any) -> None:
     receive buffer sends an immediate abortive TCP RST instead of a graceful
     FIN, raising ConnectionAbortedError (WinError 10053) on the client before it
     can read the 403 response line. Draining the declared Content-Length
-    (capped at 64KB) ensures a clean TCP shutdown.
+    (capped at MCP_HTTP_MAX_BODY_BYTES) ensures a clean TCP shutdown.
     """
     try:
+        from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
+
         if not hasattr(handler, "headers") or not handler.headers:
             return
         raw_length = handler.headers.get("Content-Length", 0)
         content_length = int(raw_length)
-        if 0 < content_length <= 65536:
+        if 0 < content_length <= MCP_HTTP_MAX_BODY_BYTES:
             rfile = getattr(handler, "rfile", None)
             if rfile is not None and hasattr(rfile, "read"):
                 rfile.read(content_length)

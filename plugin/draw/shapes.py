@@ -1014,7 +1014,7 @@ class CreateDiagram(ToolDrawShapeBase):
             tracked.append(page.getByIndex(conn_index))
             connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": conn_index})
 
-        out: dict[str, Any] = {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout, "nodes": created, "id_to_index": id_to_index, "connections": connected}
+        out: dict[str, Any] = {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout_name, "nodes": created, "id_to_index": id_to_index, "connections": connected}
         if warnings:
             out["warnings"] = list(dict.fromkeys(warnings))
         return out
