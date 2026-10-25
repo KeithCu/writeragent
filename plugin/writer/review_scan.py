@@ -10,6 +10,7 @@ This module is the shared scan + token layer only — not tracking.py tools.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from plugin.framework.errors import uno_read
@@ -18,6 +19,7 @@ from plugin.framework.errors import uno_read
 # uno_read default where None is a real UNO result.
 _FAILED: Any = object()
 TOKEN_PREFIX = "wa-review:"
+_TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
 
 
 class RedlineScanAbort(Exception):
@@ -35,8 +37,8 @@ def session_token_prefix(session_id: str) -> str:
 
 
 def is_agent_token(comment: str | None) -> bool:
-    """True when *comment* is a non-empty string starting with ``TOKEN_PREFIX``."""
-    return bool(comment) and str(comment).startswith(TOKEN_PREFIX)
+    """True only for an exact ``wa-review:<session>:<n>`` token (no whitespace, no extra colons, numeric ``<n>``)."""
+    return bool(comment) and _TOKEN_RE.match(str(comment)) is not None
 
 
 def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
@@ -130,36 +132,21 @@ def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[i
     without enumerating further. A full walk with no agent changes returns ``(0, True)``.
     Any enumeration or property read error returns ``(count_so_far, False)``.
     """
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return 0, False
-    if total < 0:
-        return 0, False
-
-    seen = 0
     tokens: set[str] = set()
-    while seen < total:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return len(tokens), False
-        seen += 1
-        try:
-            raw = rl.getPropertyValue("RedlineComment")
-            comment = str(raw) if raw is not None else None
-            if comment and is_agent_token(comment):
-                tokens.add(comment)
-                if stop_at_first:
-                    return 1, True
-        except Exception:
-            return len(tokens), False
 
-    reliable = (seen == total)
+    def on_item(rl: Any) -> bool:
+        comment, readable = read_redline_comment(rl)
+        if not readable:
+            return False
+        if comment and is_agent_token(comment):
+            tokens.add(comment)
+            if stop_at_first:
+                raise RedlineScanAbort()
+        return True
+
+    reliable, _seen, _total = scan_redlines(model, on_item)
+    if stop_at_first and tokens:
+        return 1, True
     return len(tokens), reliable
 
 
@@ -192,6 +179,16 @@ def redline_identity_key(rl: Any) -> tuple[Any, ...]:
     return (rid, prop("RedlineType"), prop("RedlineAuthor"), redline_date_key(prop("RedlineDateTime")), prop("RedlineComment"))
 
 
+def _redline_key_with_date(rl: Any) -> tuple[Any, ...]:
+    # Bugfix: RedlineDateTime read used to be swallowed into None, disabling split_piece
+    # detection and tagging the user's split-piece text as an agent change. Reading
+    # RedlineDateTime directly raises on failure so the caller's scan marks the snapshot/diff
+    # unreliable (fail closed).
+    key = redline_identity_key(rl)
+    rl.getPropertyValue("RedlineDateTime")
+    return key
+
+
 def _stacked_on_someone_else(rl: Any) -> bool:
     """True when *rl* sits on top of another author's pending change (``RedlineSuccessorData``
     is the layer underneath) that is not an agent change.
@@ -203,7 +200,8 @@ def _stacked_on_someone_else(rl: Any) -> bool:
     try:
         below = rl.getPropertyValue("RedlineSuccessorData")
     except Exception:
-        return False
+        # Bugfix: an unreadable layer must not enable tagging; fail closed by treating as stacked.
+        return True
     if not isinstance(below, (tuple, list)) or not below:
         return False
     comment = next((p.Value for p in below if getattr(p, "Name", "") == "RedlineComment"), "")
@@ -220,7 +218,7 @@ def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
 
     def on_item(rl: Any) -> bool:
         try:
-            keys.add(redline_identity_key(rl))
+            keys.add(_redline_key_with_date(rl))
         except Exception:
             return False
         return True
@@ -253,7 +251,7 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
 
     def on_item(rl: Any) -> bool:
         try:
-            key = redline_identity_key(rl)
+            key = _redline_key_with_date(rl)
         except Exception:
             return False
         # Without a date the split-piece test cannot tell a piece from a new redline.
