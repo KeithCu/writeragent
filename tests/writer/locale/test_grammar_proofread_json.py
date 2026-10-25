@@ -47,6 +47,11 @@ def test_parse_grammar_json_empty() -> None:
         gj.parse_grammar_json("not json")
 
 
+def test_parse_grammar_json_empty_object_is_clean() -> None:
+    assert gj.parse_grammar_json("{}") == []
+    assert gj.parse_grammar_batch_json("{}") == []
+
+
 def test_parse_grammar_json_unparseable_raises() -> None:
     for invalid in ("I cannot check this.", '{"other": 1}', '{"errors": "not a list"}'):
         with pytest.raises(ValueError):
