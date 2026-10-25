@@ -607,7 +607,7 @@ def test_set_style_rejects_mistyped_bold():
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manip_cls:
-        result = SetCellStyle().execute(ctx, range=["A1"], bold="true")
+        result = SetCellStyle().execute(ctx, range=["A1"], bold="notabool")
 
     assert result["status"] == "error"
     assert "bold" in result["message"]
@@ -834,17 +834,15 @@ def test_write_cell_range_tool_error_return():
 def test_json_array_value_count_and_a1_shape():
     from plugin.calc.cells import (
         _a1_range_shape,
-        _json_array_value_count,
         _normalize_source_arg,
         _values_conflict_with_source,
     )
+    from plugin.calc.manipulator import _parse_formula_or_values_string
 
-    assert _json_array_value_count('["a", "b", "c", "d"]') == 4
-    assert _json_array_value_count(["a", "b", "c", "d"]) == 4
-    assert _json_array_value_count([["a"], ["b"], ["c"], ["d"]]) == 4
-    assert _json_array_value_count("=B2+1") is None
-    assert _json_array_value_count("") is None
-    assert _json_array_value_count("[]") is None
+    assert len(_parse_formula_or_values_string('["a", "b", "c", "d"]')) == 4
+    assert _parse_formula_or_values_string("=B2+1") is None
+    assert _parse_formula_or_values_string("") is None
+    assert _parse_formula_or_values_string("[]") == []
     assert _a1_range_shape("C2:C9") == (8, 8, 1)
     assert _a1_range_shape("Sheet1.C2:C9") == (8, 8, 1)
     assert _a1_range_shape("A1:B1") == (2, 1, 2)
@@ -858,6 +856,25 @@ def test_json_array_value_count_and_a1_shape():
     assert not _values_conflict_with_source({"range": ["A1"], "values": None})
     assert _values_conflict_with_source({"range": ["A1"], "values": ""})
     assert _values_conflict_with_source({"range": ["A1"], "values": "=A1"})
+
+
+def test_write_formula_range_rejects_semicolon_json_mismatch():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(
+            ctx, range=["A1:A3"], values='["a"; "b"]'
+        )
+
+    assert result["status"] == "error"
+    assert "2 values" in result["message"]
+    assert "3 cells" in result["message"]
+    assert "one value per row" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
 
 
 def test_write_formula_range_rejects_json_length_mismatch():
@@ -1436,6 +1453,125 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
         assert res.get("code") == "TOOL_EXECUTION_ERROR"
 
 
+def test_write_formula_range_disposal_propagates():
+    from plugin.calc.cells import WriteCellRange
+
+    class DisposedException(Exception):
+        pass
+
+    titles_stack = []
+    undo_mgr = MagicMock()
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
+    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    class FakeCompoundUndo:
+        def __init__(self, doc, title):
+            self.title = title
+            self.entered = True
+
+        def __enter__(self):
+            titles_stack.insert(0, self.title)
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator = manipulator_cls.return_value
+        manipulator.write_formula_range.side_effect = DisposedException("gone")
+
+        tool = WriteCellRange()
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, range=["A1"], values="1")
+        undo_mgr.undo.assert_not_called()
+
+        manipulator.copy_formula_range.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, range=["B1"], source="A1")
+        undo_mgr.undo.assert_not_called()
+
+
+def test_empty_new_group_does_not_undo_older_action():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.framework.errors import CalcError
+
+    titles_stack = ["WriterAgent: Write formulas"]
+    undo_mgr = MagicMock()
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
+    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    class FakeCompoundUndo:
+        def __init__(self, doc, title):
+            self.title = title
+            self.entered = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator = manipulator_cls.return_value
+        manipulator.prepare_array_formula_if_needed.return_value = None
+        manipulator.write_formula_range.side_effect = CalcError("fail")
+
+        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+        assert res["status"] == "error"
+        undo_mgr.undo.assert_not_called()
+
+
+def test_read_cell_range_sizing_failure_fails_closed():
+    from plugin.calc.cells import ReadCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.side_effect = RuntimeError("sizing failed")
+
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellInspector") as inspector_cls,
+    ):
+        bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
+        res = ReadCellRange().execute(ctx, range=["A1:H10"])
+
+    assert res["status"] == "error"
+    assert "Could not size range" in res["message"]
+    inspector_cls.return_value.read_range.assert_not_called()
+
+
+def test_two_range_array_write_measures_once():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+    ):
+        manipulator = manip_cls.return_value
+        manipulator.prepare_array_formula_if_needed.side_effect = [(2, 2), (2, 2)]
+        manipulator.write_formula_range.return_value = {"message": "ok"}
+
+        res = WriteCellRange().execute(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
+        assert res["status"] == "ok"
+        assert manipulator.prepare_array_formula_if_needed.call_count == 2
+        calls = manipulator.prepare_array_formula_if_needed.call_args_list
+        assert calls[0].kwargs.get("premeasured_array_size") is None
+        assert calls[1].kwargs.get("premeasured_array_size") == (2, 2)
+
+
 def test_delete_structure_schema_start_type_is_integer():
     from plugin.calc.cells import DeleteStructure
 
@@ -1511,7 +1647,7 @@ def test_merge_cells_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res = MergeCells().execute(ctx, range=["A1:B1"], center="false")
+        res = MergeCells().execute(ctx, range=["A1:B1"], center="invalid")
         assert res["status"] == "error"
         assert "center" in res["message"]
         manipulator.merge_cells.assert_not_called()
@@ -1528,7 +1664,7 @@ def test_sort_range_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_asc = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="false")
+        res_asc = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="invalid")
         assert res_asc["status"] == "error"
         assert "ascending" in res_asc["message"]
         manipulator.sort_range.assert_not_called()
@@ -1547,6 +1683,23 @@ def test_sort_range_validation():
         res_ok = SortRange().execute(ctx, range=["A1:B2"], has_header=True)
         assert res_ok["status"] == "ok"
         manipulator.sort_range.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
+
+
+def test_string_booleans_accepted():
+    from plugin.calc.cells import MergeCells, SortRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res_merge = MergeCells().execute(ctx, range=["A1:B1"], center="true")
+        assert res_merge["status"] == "ok"
+        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True)
+
+        manipulator.reset_mock()
+        manipulator.sort_range.return_value = "Sorted"
+        res_sort = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="false")
+        assert res_sort["status"] == "ok"
+        manipulator.sort_range.assert_called_once_with("A1:B2", sort_column=0, ascending=False, has_header=True)
 
 
 def test_delete_structure_validation():

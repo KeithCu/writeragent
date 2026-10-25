@@ -116,12 +116,21 @@ def test_calc_sheet_filter_invalid_range(ctx, doc):
         ],
     })
     assert res_apply.get("status") == "error", f"Expected error for empty range in apply_sheet_filter, got {res_apply}"
-    assert "range parameter must be a non-empty list" in res_apply.get("message", "")
+    assert "Pass exactly one range." in res_apply.get("message", "")
 
     res_get = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": []})
     assert res_get.get("status") == "error", f"Expected error for empty range in get_sheet_filter, got {res_get}"
-    assert "range parameter must be a non-empty list" in res_get.get("message", "")
+    assert "Pass exactly one range." in res_get.get("message", "")
 
     res_clear = _execute_calc_tool(doc, ctx, "clear_sheet_filter", {"range": [], "has_header": True})
     assert res_clear.get("status") == "error", f"Expected error for empty range in clear_sheet_filter, got {res_clear}"
-    assert "range parameter must be a non-empty list" in res_clear.get("message", "")
+    assert "Pass exactly one range." in res_clear.get("message", "")
+
+
+@native_test
+def test_filter_operator2_table_matches_live_uno(ctx):
+    from com.sun.star.sheet import FilterOperator2
+    from plugin.calc.sheet_filter_criteria import _FILTER_OPERATOR2
+
+    for name, code in _FILTER_OPERATOR2:
+        assert getattr(FilterOperator2, name) == code

@@ -164,26 +164,6 @@ class DrawBridge:
             raise ToolExecutionError("Page index %s out of range." % page_index)
         # Other failures propagate. execute_safe maps them to TOOL_EXECUTION_ERROR.
 
-    def create_shape(self, shape_type: str, x: int, y: int, width: int, height: int, page: Any | None = None) -> Any:
-        """
-        Creates a shape of specified type and adds it to the page.
-        shape_type: e.g. "com.sun.star.drawing.RectangleShape"
-        """
-        if page is None:
-            page = self.get_active_page()
-        if page is None:
-            raise RuntimeError("No draw page available to create shape.")
-
-        shape = self.doc.createInstance(shape_type)
-        page.add(shape)
-
-        # Set size and position
-        from com.sun.star.awt import Size, Point
-
-        shape.setSize(Size(width, height))
-        shape.setPosition(Point(x, y))
-        return shape
-
     def get_shapes(self, page: Any | None = None) -> list[Any]:
         if page is None:
             page = self.get_active_page()

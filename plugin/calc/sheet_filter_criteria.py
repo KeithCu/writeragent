@@ -15,34 +15,45 @@ Colocated with ``sheet_filter.py`` in this package.
 
 from __future__ import annotations
 
-from typing import Any
+import math
+from typing import Any, NamedTuple
 
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, _profile, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
-# Stable tuple of all FilterOperator2 names (for tool JSON schemas).
-FILTER_OPERATOR2_LABELS: tuple[str, ...] = (
-    "EMPTY",
-    "NOT_EMPTY",
-    "EQUAL",
-    "NOT_EQUAL",
-    "GREATER",
-    "GREATER_EQUAL",
-    "LESS",
-    "LESS_EQUAL",
-    "TOP_VALUES",
-    "TOP_PERCENT",
-    "BOTTOM_VALUES",
-    "BOTTOM_PERCENT",
-    "CONTAINS",
-    "DOES_NOT_CONTAIN",
-    "BEGINS_WITH",
-    "DOES_NOT_BEGIN_WITH",
-    "ENDS_WITH",
-    "DOES_NOT_END_WITH",
+# Stable table of all FilterOperator2 (name, code) pairs (for tool JSON schemas).
+_FILTER_OPERATOR2: tuple[tuple[str, int], ...] = (
+    ("EMPTY", 0),
+    ("NOT_EMPTY", 1),
+    ("EQUAL", 2),
+    ("NOT_EQUAL", 3),
+    ("GREATER", 4),
+    ("GREATER_EQUAL", 5),
+    ("LESS", 6),
+    ("LESS_EQUAL", 7),
+    ("TOP_VALUES", 8),
+    ("TOP_PERCENT", 9),
+    ("BOTTOM_VALUES", 10),
+    ("BOTTOM_PERCENT", 11),
+    ("CONTAINS", 12),
+    ("DOES_NOT_CONTAIN", 13),
+    ("BEGINS_WITH", 14),
+    ("DOES_NOT_BEGIN_WITH", 15),
+    ("ENDS_WITH", 16),
+    ("DOES_NOT_END_WITH", 17),
 )
 
-_NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(FILTER_OPERATOR2_LABELS)}
+FILTER_OPERATOR2_LABELS: tuple[str, ...] = tuple(name for name, _code in _FILTER_OPERATOR2)
+_NAME_TO_CODE: dict[str, int] = {name: code for name, code in _FILTER_OPERATOR2}
+
+
+class FilterCriterion(NamedTuple):
+    field: int
+    operator: int
+    connection: int
+    is_numeric: bool
+    numeric_value: float
+    string_value: str
 
 
 # Dual-profile: Closed FilterOperator2 labels under CrossHair.
@@ -133,22 +144,15 @@ def filter_connection_code(name: str | None) -> int:
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
 @deal.raises(UnoObjectError)
 def resolve_filter_operator_code(operator: str) -> int:
-    """Resolve ``FilterOperator2`` name to numeric code (table + optional UNO enum)."""
+    """Resolve ``FilterOperator2`` name to numeric code."""
     code = filter_operator2_name_to_code(operator)
     if code is not None:
         return code
-    from com.sun.star.sheet import FilterOperator2 as FO2
-
-    op_u = _normalize_operator_name(operator)
-    if hasattr(FO2, op_u):
-        return int(getattr(FO2, op_u))
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
 def _deal_filter_criterion_ok_pytest(raw: object) -> bool:
-    # Extra JSON keys and long operator strings are model output. The
-    # body raises UnoObjectError for a missing field or unknown operator.
-    return isinstance(raw, dict)
+    return True
 
 
 def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
@@ -164,10 +168,10 @@ _deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair, _deal_
 
 
 @deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 6)
+@deal.post(lambda result: isinstance(result, FilterCriterion))
 @deal.raises(UnoObjectError)
-def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:
-    """Return ``Field``, ``Operator``, ``Connection``, ``IsNumeric``, ``NumericValue``, ``StringValue``.
+def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
+    """Return ``FilterCriterion`` (Field, Operator, Connection, IsNumeric, NumericValue, StringValue).
 
     ``Connection`` on the first ``TableFilterField2`` is always AND in UNO; any
     ``connection`` key on the first JSON object is ignored so callers match LO behavior.
@@ -175,13 +179,31 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     previous condition only (linear chain — not arbitrary parentheses).
     """
     # crosshair: off
+    if not isinstance(raw, dict):
+        raise UnoObjectError("Each criterion must be an object.")
+
     if "field" not in raw:
         raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
+    raw_field = raw["field"]
+    if isinstance(raw_field, bool):
+        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}")
     try:
-        field = int(raw["field"])
+        if isinstance(raw_field, float):
+            if not raw_field.is_integer():
+                raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
+            field = int(raw_field)
+        elif isinstance(raw_field, str):
+            if "." in raw_field:
+                raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
+            field = int(raw_field)
+        else:
+            field = int(raw_field)
     except (TypeError, ValueError) as e:
-        # Empty/non-numeric field must stay UnoObjectError (@deal.raises); bare int('') is ValueError.
-        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw['field']!r}") from e
+        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}") from e
+
+    if field < 0:
+        raise UnoObjectError(f"Invalid filter 'field' (column index cannot be negative): {field}")
+
     op_name = str(raw.get("operator", "")).strip()
     if not op_name:
         raise UnoObjectError("Each criterion needs 'operator' (FilterOperator2 name).")
@@ -194,25 +216,34 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
 
     kind = _OP_VALUE_KIND.get(op_label, "text")
     if kind == "none":
-        return field, op_code, conn, False, 0.0, ""
+        return FilterCriterion(field, op_code, conn, False, 0.0, "")
+
+    v = raw.get("value")
+    if isinstance(v, (list, dict)):
+        raise UnoObjectError(f"Invalid filter 'value': {v!r}")
 
     if kind == "numeric":
-        v = raw.get("value")
-        if v is None or str(v).strip() == "":
+        if v is None or str(v).strip() == "" or isinstance(v, bool):
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
         try:
             fv = float(v)
-        except ValueError:
-            raise UnoObjectError(f"Operator {op_label} requires a valid numeric 'value', got {v!r}.")
-        return field, op_code, conn, True, fv, ""
+        except (TypeError, ValueError) as e:
+            raise UnoObjectError(f"Operator {op_label} requires a valid numeric 'value', got {v!r}.") from e
+        if math.isnan(fv) or math.isinf(fv):
+            raise UnoObjectError(f"Operator {op_label} requires a finite numeric 'value', got {v!r}.")
+        return FilterCriterion(field, op_code, conn, True, fv, "")
 
-    v = raw.get("value")
     if v is None:
         raise UnoObjectError(f"Operator {op_label} requires 'value'.")
-    if raw.get("is_numeric") is True:
+
+    is_num = raw.get("is_numeric")
+    if is_num is True or (is_num is None and isinstance(v, (int, float)) and not isinstance(v, bool)):
         try:
             fv = float(v)
-        except ValueError:
-            raise UnoObjectError(f"is_numeric=True requires a valid numeric 'value', got {v!r}.")
-        return field, op_code, conn, True, fv, ""
-    return field, op_code, conn, False, 0.0, str(v)
+        except (TypeError, ValueError) as e:
+            raise UnoObjectError(f"Requires a valid numeric 'value', got {v!r}.") from e
+        if math.isnan(fv) or math.isinf(fv):
+            raise UnoObjectError(f"Numeric 'value' cannot be NaN or infinity, got {v!r}.")
+        return FilterCriterion(field, op_code, conn, True, fv, "")
+
+    return FilterCriterion(field, op_code, conn, False, 0.0, str(v))

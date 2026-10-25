@@ -48,8 +48,13 @@ def test_form_edit_by_name_and_checkbox_state(ctx, doc):
     from plugin.draw.bridge import DrawBridge
 
     bridge = DrawBridge(doc)
+    from com.sun.star.awt import Point, Size
+    from plugin.draw.shapes import DrawShapes
+
     page = bridge.get_active_page()
-    deco = bridge.create_shape("com.sun.star.drawing.RectangleShape", 200, 200, 800, 800, page=page)
+    deco, _, _ = DrawShapes().safe_create_shape(
+        doc, page, "com.sun.star.drawing.RectangleShape", Point(200, 200), Size(800, 800)
+    )
     deco.Name = "decoration"
 
     res = _exec_tool(doc, ctx, "form_create_control", {"control": "checkbox", "name": "MyCheck", "label": "Agree"})

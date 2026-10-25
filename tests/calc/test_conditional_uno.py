@@ -98,3 +98,24 @@ def test_calc_conditional_formatting(ctx, doc):
     assert len(dr) == 1, dr
     assert dr[0].get("operator") == "DUPLICATE", dr[0]
     assert dr[0].get("operator_code") == 10, dr[0]
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_conditional_formula_source_position(ctx, doc):
+    _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "range": ["C5:C9"],
+        "values": [[50], [150], [80], [200], [90]],
+    })
+    res_add = _execute_calc_tool(doc, ctx, "add_conditional_format", {
+        "range": ["C5:C9"],
+        "operator": "FORMULA",
+        "formula1": "C5>100",
+        "style": "Result",
+    })
+    assert res_add.get("status") == "ok"
+    res_list = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C5:C9"]})
+    rules = res_list.get("rules", [])
+    assert len(rules) == 1
+    assert rules[0]["operator"] == "FORMULA"
+    assert rules[0]["formula1"] == "C5>100"

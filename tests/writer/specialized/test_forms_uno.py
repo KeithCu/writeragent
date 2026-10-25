@@ -350,4 +350,34 @@ def test_forms_date(ctx, doc):
         assert date_model.DefaultDate == 20260815
 
 
+@native_test
+@with_native_doc("writer")
+def test_forms_radio_group_rename(ctx, doc):
+    _clear_doc(doc)
+    from plugin.main import get_tools
+
+    registry = get_tools()
+    mock_ctx = MockCtx(doc)
+    create_tool = registry.get("form_create_control")
+    edit_tool = registry.get("form_edit_control")
+
+    r1 = create_tool.execute(mock_ctx, control="radio", name="radio1", group_name="groupA")
+    assert r1["status"] == "ok"
+    r2 = create_tool.execute(mock_ctx, control="radio", name="radio2", group_name="groupA")
+    assert r2["status"] == "ok"
+
+    # Rename shape only
+    edit_res = edit_tool.execute(mock_ctx, name="radio1", new_name="radio1_renamed")
+    assert edit_res["status"] == "ok"
+    assert edit_res["control_name"] == "radio1_renamed"
+    assert edit_res["group_name"] == "groupA"
+
+    # Rename group only
+    edit_res2 = edit_tool.execute(mock_ctx, name="radio2", group_name="groupB")
+    assert edit_res2["status"] == "ok"
+    assert edit_res2["control_name"] == "radio2"
+    assert edit_res2["group_name"] == "groupB"
+
+
+
 

@@ -40,3 +40,18 @@ def test_calc_comments(ctx, doc):
     comments_after = res_list_after.get("comments", [])
     found_after = any(c.get("cell") == "A10" for c in comments_after)
     assert not found_after, "Comment was not deleted"
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_comments_update_keeps_one_note(ctx, doc):
+    res_add1 = _execute_calc_tool(doc, ctx, "add_cell_comment", {"cell": "B5", "text": "First note"})
+    assert res_add1.get("status") == "ok"
+
+    res_add2 = _execute_calc_tool(doc, ctx, "add_cell_comment", {"cell": "B5", "text": "Updated note"})
+    assert res_add2.get("status") == "ok"
+
+    res_list = _execute_calc_tool(doc, ctx, "list_cell_comments", {})
+    matching = [c for c in res_list.get("comments", []) if c.get("cell") == "B5"]
+    assert len(matching) == 1
+    assert matching[0]["text"] == "Updated note"

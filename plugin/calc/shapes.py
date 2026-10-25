@@ -13,21 +13,20 @@ from plugin.draw.shapes import GroupShapes as DrawGroupShapes
 
 
 class UpsertShape(DrawUpsertShape, ToolCalcShapeBase):
-    name: str | None = "shape_upsert"
-    tier: str = "specialized"
+    pass
 
 
 class DeleteShape(DrawDeleteShape, ToolCalcShapeBase):
-    name: str | None = "shape_delete"
+    pass
 
 
 class GetDrawSummary(DrawGetDrawSummary, ToolCalcShapeBase):
-    name: str | None = "shape_summary"
+    pass
 
 
 class ConnectShapes(DrawConnectShapes, ToolCalcShapeBase):
-    name: str | None = "shape_connect"
+    pass
 
 
 class GroupShapes(DrawGroupShapes, ToolCalcShapeBase):
-    name: str | None = "shape_group"
+    pass

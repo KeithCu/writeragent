@@ -31,16 +31,51 @@ import uno
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
-from plugin.framework.errors import UnoObjectError, reraise_if_disposed, uno_read
+from plugin.calc.sheet_filter_criteria import (
+    FILTER_OPERATOR2_LABELS,
+    filter_operator2_code_to_name,
+    parse_sheet_filter_criterion,
+)
+from plugin.framework.errors import UnoObjectError, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
+_FILTER_CONNECTION_AND: int = 0
+_FILTER_CONNECTION_OR: int = 1
 
-def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
+_RANGE_PARAM_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": 'Range to filter (e.g. ["A1:D20"]).',
+}
+_HAS_HEADER_PARAM_SCHEMA: dict[str, Any] = {
+    "type": "boolean",
+    "description": "First row is headers only (default true).",
+}
+
+
+def _connection_name(cv: Any) -> str:
+    """Pure helper to decode FilterConnection to 'AND' or 'OR'."""
+    if cv is None:
+        return "AND"
+    val = getattr(cv, "value", None)
+    if val in ("OR", "AND"):
+        return str(val)
+    s = str(cv)
+    if s.endswith(".OR") or s == "1":
+        return "OR"
+    if s.endswith(".AND") or s == "0":
+        return "AND"
+    try:
+        return "OR" if int(cv) == 1 else "AND"
+    except (ValueError, TypeError):
+        return "AND"
+
+
+def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     op = uno_read(lambda: int(ff.Operator), None)
     if op is not None:
@@ -51,26 +86,8 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
     if field is not None:
         out["field"] = field
 
-    # What was wrong: ff.Connection in live PyUNO is an uno.Enum instance representing
-    #   com.sun.star.sheet.FilterConnection. Calling int(cv) raised TypeError because uno.Enum
-    #   cannot be directly converted to int, and getConstantByName is not reliable on enum values.
-    # How it happened: d1152b3f4 (#1993) simplified connection inspection, attempting int(cv).
-    # Why this change: Check .value, string representation (.endswith(".OR")), or int equality
-    #   to robustly support both live PyUNO uno.Enum and mock integer representations.
     cv = uno_read(lambda: ff.Connection, None)
-    if cv is not None:
-        try:
-            if getattr(cv, "value", None) == "OR" or str(cv).endswith(".OR") or cv == 1:
-                out["connection"] = "OR"
-            elif getattr(cv, "value", None) == "AND" or str(cv).endswith(".AND") or cv == 0:
-                out["connection"] = "AND"
-            else:
-                out["connection"] = "OR" if int(cv) == 1 else "AND"
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            out["connection"] = "AND"
-    else:
-        out["connection"] = "AND"
+    out["connection"] = _connection_name(cv)
 
     is_num = uno_read(lambda: bool(ff.IsNumeric), None)
     if is_num is True:
@@ -86,33 +103,30 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
     return out
 
 
-def _build_filter_fields2(uno: Any, criteria: list[dict[str, Any]]) -> tuple[Any, ...]:
-    try:
-        fc_and = uno.getConstantByName("com.sun.star.sheet.FilterConnection.AND")
-        fc_or = uno.getConstantByName("com.sun.star.sheet.FilterConnection.OR")
-    except Exception:
-        fc_and, fc_or = 0, 1
-
+def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_width: int | None = None) -> tuple[Any, ...]:
     fields: list[Any] = []
-    for i, c in enumerate(criteria):
-        field, op_code, conn, is_num, num_val, str_val = parse_sheet_filter_criterion(c, i == 0)
-
-        st = uno.createUnoStruct("com.sun.star.sheet.TableFilterField2")
-        st.Field = field
-        st.Operator = op_code
-        st.Connection = fc_or if conn == 1 else fc_and
-        st.IsNumeric = is_num
-        st.NumericValue = float(num_val)
-        st.StringValue = str_val
+    for i, c_raw in enumerate(criteria):
+        c = parse_sheet_filter_criterion(c_raw, i == 0)
+        if range_width is not None and c.field >= range_width:
+            raise UnoObjectError(
+                f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns)."
+            )
+        st = uno_obj.createUnoStruct("com.sun.star.sheet.TableFilterField2")
+        st.Field = c.field
+        st.Operator = c.operator
+        st.Connection = _FILTER_CONNECTION_OR if c.connection == 1 else _FILTER_CONNECTION_AND
+        st.IsNumeric = c.is_numeric
+        st.NumericValue = float(c.numeric_value)
+        st.StringValue = c.string_value
         fields.append(st)
     return tuple(fields)
 
 
 def _first_range_name(kwargs: dict[str, Any]) -> str:
     range_arg = kwargs.get("range")
-    if not range_arg or not isinstance(range_arg, list):
-        raise UnoObjectError("range parameter must be a non-empty list.")
-    return range_arg[0]
+    if not isinstance(range_arg, list) or len(range_arg) != 1 or not isinstance(range_arg[0], str) or not range_arg[0].strip():
+        raise UnoObjectError("Pass exactly one range.")
+    return range_arg[0].strip()
 
 
 def _get_filterable_for_range(ctx: Any, range_name: str) -> Any:
@@ -136,12 +150,54 @@ def _filter_descriptor(
     fd = xf.createFilterDescriptor(empty)
     if has_header is not None:
         ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is not None:
-            ps.setPropertyValue("ContainsHeader", has_header)
+        if ps is None:
+            raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
+        ps.setPropertyValue("ContainsHeader", has_header)
     fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
     if fd2 is None:
         raise UnoObjectError(missing_msg)
     return xf, fd, fd2
+
+
+def _run_filter(
+    ctx: ToolContext,
+    kwargs: dict[str, Any],
+    *,
+    empty: bool,
+    criteria: list[dict[str, Any]] | None = None,
+) -> tuple[str, int]:
+    range_name = _first_range_name(kwargs)
+    has_header = bool(kwargs.get("has_header", True))
+
+    bridge = CalcBridge(ctx.doc)
+    cell_range = bridge.resolve_range_or_address(range_name)
+    ra = cell_range.getRangeAddress()
+    range_width = ra.EndColumn - ra.StartColumn + 1
+
+    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
+    if xf is None:
+        raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
+
+    fd = xf.createFilterDescriptor(empty)
+    if has_header is not None:
+        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        if ps is None:
+            raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
+        ps.setPropertyValue("ContainsHeader", has_header)
+
+    fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+    if fd2 is None:
+        raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
+
+    if criteria:
+        fields = _build_filter_fields2(uno, criteria, range_width=range_width)
+        fd2.setFilterFields2(fields)
+    else:
+        fd2.setFilterFields2(())
+        fields = ()
+
+    xf.filter(fd)
+    return range_name, len(fields)
 
 
 _CRITERIA_ARRAY_DESCRIPTION = (
@@ -175,8 +231,8 @@ class ApplySheetFilter(ToolCalcSheetBase):
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": 'Range to filter (e.g. ["A1:D20"]).'},
-            "has_header": {"type": "boolean", "description": "First row is headers only (default true)."},
+            "range": _RANGE_PARAM_SCHEMA,
+            "has_header": _HAS_HEADER_PARAM_SCHEMA,
             "criteria": {"type": "array", "items": _CRITERION_ITEM_SCHEMA, "description": _CRITERIA_ARRAY_DESCRIPTION, "minItems": 1},
         },
         "required": ["range", "criteria"],
@@ -184,27 +240,13 @@ class ApplySheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name = _first_range_name(kwargs)
-        criteria = kwargs["criteria"]
-        assert isinstance(criteria, list)
-        if not criteria:
+        criteria = kwargs.get("criteria")
+        if not isinstance(criteria, list) or not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
-        has_header = bool(kwargs.get("has_header", True))
-
-        xf, fd, fd2 = _filter_descriptor(
-            ctx,
-            range_name,
-            empty=True,
-            has_header=has_header,
-            missing_msg="XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).",
-        )
-        fields = _build_filter_fields2(uno, criteria)
-        fd2.setFilterFields2(fields)
-        xf.filter(fd)
-
-        log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), len(fields))
-        return {"status": "ok", "range": range_name, "criteria_count": len(fields)}
+        range_name, count = _run_filter(ctx, kwargs, empty=True, criteria=criteria)
+        log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), count)
+        return {"status": "ok", "range": range_name, "criteria_count": count}
 
 
 class ClearSheetFilter(ToolCalcSheetBase):
@@ -215,25 +257,16 @@ class ClearSheetFilter(ToolCalcSheetBase):
     description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Same data range used when applying the filter (e.g. ["A1:D20"]).'}, "has_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
+        "properties": {
+            "range": _RANGE_PARAM_SCHEMA,
+            "has_header": _HAS_HEADER_PARAM_SCHEMA,
+        },
         "required": ["range"],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name = _first_range_name(kwargs)
-        has_header = bool(kwargs.get("has_header", True))
-
-        xf, fd, fd2 = _filter_descriptor(
-            ctx,
-            range_name,
-            empty=True,
-            has_header=has_header,
-            missing_msg="XSheetFilterDescriptor2 is not available.",
-        )
-        fd2.setFilterFields2(())
-        xf.filter(fd)
-
+        range_name, _ = _run_filter(ctx, kwargs, empty=True, criteria=None)
         log.info("Sheet filter cleared on %s.", range_name.upper())
         return {"status": "ok", "range": range_name, "cleared": True}
 
@@ -244,7 +277,7 @@ class GetSheetFilter(ToolCalcSheetBase):
     name: str | None = "get_sheet_filter"
     intent: str | None = "navigate"
     description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": _RANGE_PARAM_SCHEMA}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = _first_range_name(kwargs)
@@ -262,7 +295,7 @@ class GetSheetFilter(ToolCalcSheetBase):
         if fields_seq is not None:
             n = len(fields_seq)
             for i in range(n):
-                crit.append(_field_to_dict(fields_seq[i], i, uno))
+                crit.append(_field_to_dict(fields_seq[i], i))
 
         ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
         ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None

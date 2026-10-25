@@ -19,31 +19,48 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import UnoObjectError
 from plugin.framework.uno_context import create_property_value
+from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
+from plugin.calc.cells import _range_args
 
 from com.sun.star.lang import IllegalArgumentException
+from com.sun.star.table import CellAddress
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
-# LibreOffice ``ConditionOperator`` / ``ConditionOperator2`` code labels (no UNO import).
-_CONDITION_OPERATOR_CODE_NAMES: tuple[str, ...] = ("NONE", "EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE")
+_OPERATORS: tuple[tuple[str, int], ...] = (
+    ("NONE", 0),
+    ("EQUAL", 1),
+    ("NOT_EQUAL", 2),
+    ("GREATER", 3),
+    ("GREATER_EQUAL", 4),
+    ("LESS", 5),
+    ("LESS_EQUAL", 6),
+    ("BETWEEN", 7),
+    ("NOT_BETWEEN", 8),
+    ("FORMULA", 9),
+    ("DUPLICATE", 10),
+    ("NOT_DUPLICATE", 11),
+)
+_CODE_TO_NAME: dict[int, str] = {code: name for name, code in _OPERATORS}
+_NAME_TO_CODE: dict[str, int] = {name: code for name, code in _OPERATORS}
+_SCHEMA_OPERATORS: list[str] = [name for name, _ in _OPERATORS if name != "NONE"]
 
 
 def condition_operator_code_to_name(code: int) -> str:
     """Map UNO condition operator *code* (long) to a stable string label."""
-    if 0 <= code < len(_CONDITION_OPERATOR_CODE_NAMES):
-        return _CONDITION_OPERATOR_CODE_NAMES[code]
-    return str(int(code))
+    return _CODE_TO_NAME.get(code, str(int(code)))
 
 
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
@@ -66,7 +83,7 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     if f1:
         result["formula1"] = f1
     f2 = entry.getFormula2()
-    if f2 and f2 != "0":
+    if op_name in ("BETWEEN", "NOT_BETWEEN") and f2 is not None:
         result["formula2"] = f2
     sn = entry.getStyleName()
     if sn:
@@ -100,18 +117,23 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_arg = kwargs.get("range") or []
-        range_str = range_arg[0] if range_arg else None
+        ranges = _range_args(kwargs.get("range"))
+        if len(ranges) > 1:
+            return self._tool_error("Pass exactly one range.")
 
         try:
             sheet = bridge.get_active_sheet()
-            if range_str:
+            if ranges:
+                range_str = ranges[0]
                 cell_range = bridge.resolve_range_or_address(range_str)
+                resolved_range_name = range_str
             else:
                 cursor = sheet.createCursor()
                 cursor.gotoStartOfUsedArea(False)
                 cursor.gotoEndOfUsedArea(True)
                 cell_range = cursor
+                addr = cell_range.getRangeAddress()
+                resolved_range_name = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
 
             formats = cell_range.getPropertyValue("ConditionalFormat")
             if formats is None or formats.getCount() == 0:
@@ -122,7 +144,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
                     entry = formats.getByIndex(i)
                     rules.append(_entry_to_dict(entry, i))
 
-            return {"status": "ok", "range": range_str or "(used area)", "rules": rules, "count": len(rules)}
+            return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
         except IllegalArgumentException as e:
             log.exception("List conditional formats failed")
             return self._tool_error(f"Failed to list conditional formats: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
@@ -146,7 +168,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
-            "operator": {"type": "string", "enum": ["EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE"], "description": "Condition operator."},
+            "operator": {"type": "string", "enum": _SCHEMA_OPERATORS, "description": "Condition operator."},
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
@@ -157,33 +179,20 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
+        ranges = _range_args(kwargs.get("range"))
+        if len(ranges) != 1:
+            return self._tool_error("Pass exactly one range.")
+        range_str = ranges[0]
+
         operator = kwargs["operator"]
         style_name = kwargs["style"]
         formula1 = kwargs.get("formula1") or ""
         formula2 = kwargs.get("formula2") or ""
 
         try:
-            range_str = kwargs["range"][0]
-            import uno
-
-            op_map: dict[str, Any] = {
-                "NONE": uno.Enum("com.sun.star.sheet.ConditionOperator", "NONE"),
-                "EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "EQUAL"),
-                "NOT_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_EQUAL"),
-                "GREATER": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER"),
-                "GREATER_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER_EQUAL"),
-                "LESS": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS"),
-                "LESS_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS_EQUAL"),
-                "BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "BETWEEN"),
-                "NOT_BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_BETWEEN"),
-                "FORMULA": uno.Enum("com.sun.star.sheet.ConditionOperator", "FORMULA"),
-                "DUPLICATE": 10,
-                "NOT_DUPLICATE": 11,
-            }
-
             op_upper = operator.upper()
-            op_val = op_map.get(op_upper)
-            if op_val is None:
+            op_code = _NAME_TO_CODE.get(op_upper)
+            if op_code is None or op_upper == "NONE":
                 return self._tool_error(f"Unknown condition operator: {operator}", code="INVALID_OPERATOR")
 
             if op_upper in ("BETWEEN", "NOT_BETWEEN") and not formula2.strip():
@@ -191,9 +200,25 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             if op_upper not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
                 return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
 
-            cell_range = bridge.resolve_range_or_address(range_str)
+            cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
+            if not cell_styles.hasByName(style_name):
+                available = list(cell_styles.getElementNames())
+                matches = difflib.get_close_matches(style_name, available, n=3)
+                match_str = f" Close matches: {', '.join(matches)}" if matches else ""
+                return self._tool_error(f"Unknown cell style '{style_name}'.{match_str}", code="INVALID_STYLE")
 
-            props = [create_property_value("Operator", op_val), create_property_value("Formula1", formula1)]
+            cell_range = bridge.resolve_range_or_address(range_str)
+            ra = cell_range.getRangeAddress()
+            addr = CellAddress()
+            addr.Sheet = ra.Sheet
+            addr.Column = ra.StartColumn
+            addr.Row = ra.StartRow
+
+            props = [
+                create_property_value("Operator", op_code),
+                create_property_value("Formula1", formula1),
+                create_property_value("SourcePosition", addr),
+            ]
             if formula2:
                 props.append(create_property_value("Formula2", formula2))
             props.append(create_property_value("StyleName", style_name))
@@ -226,10 +251,13 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
+        ranges = _range_args(kwargs.get("range"))
+        if len(ranges) != 1:
+            return self._tool_error("Pass exactly one range.")
+        range_str = ranges[0]
         index = kwargs.get("rule_index")
 
         try:
-            range_str = kwargs["range"][0]
             cell_range = bridge.resolve_range_or_address(range_str)
             formats = cell_range.getPropertyValue("ConditionalFormat")
 
