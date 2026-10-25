@@ -761,12 +761,12 @@ class _CoreProxy:
         return _rpc_call("get_guidance", topic=topic)
 
     def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None) -> dict[str, Any]:
-        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from image_list / get_page_objects> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look.
+        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from image_list / get_page_objects> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
 
         Args:
-            image (optional): Name of the embedded graphic to fetch (from image_list / get_page_objects).
-            selection (optional): If true, fetch the currently selected image instead of naming one.
-            page (optional): 0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image.
+            image (optional): Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page.
+            selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
+            page (optional): 0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image. Pass at most one of image, selection, or page.
         """
         return _rpc_call("get_image", image=image, selection=selection, page=page)
 
