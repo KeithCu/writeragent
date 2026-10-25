@@ -46,6 +46,8 @@ Edit selection clears the range while tokens stream. If the model returns no tex
 `WriterStreamedRewriteSession.finish()` writes the original back and does not record an empty
 replacement. Whitespace the model actually sent is kept.
 
+Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
+
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It selects the table and dispatches
 `.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
