@@ -650,6 +650,10 @@ def document_to_content(
                 (time.perf_counter() - t_phase) * 1000.0,
                 len(content),
             )
+            if walk_warnings is not None:
+                walk_warnings.append(
+                    "XHTML export failed; content came from the legacy HTML export and has no style tokens."
+                )
             return _done(content, "starwriter")
     except Exception as e:
         # Disposal is not a double export failure.
@@ -698,39 +702,33 @@ _PAGE_NUMBER_SPAN_RE = re.compile(
 )
 
 
+def _enum_token(value: Any, names_by_value: dict[int, str], valid_names: Any, default: str, label: str) -> str:
+    if hasattr(value, "value"):
+        val = value.value
+        if isinstance(val, str) and val in valid_names:
+            return val
+    elif isinstance(value, int):
+        if value in names_by_value:
+            return names_by_value[value]
+    elif isinstance(value, str):
+        u = value.strip().upper()
+        if u in valid_names:
+            return u
+        if u.isdigit() and int(u) in names_by_value:
+            return names_by_value[int(u)]
+    log.warning("Unknown %s: %r, defaulting to %s", label, value, default)
+    return default
+
+
 def _page_number_subtype_to_name(subtype: Any) -> str:
     """Return a readable SubType enum name ('PREV', 'CURRENT', 'NEXT')."""
-    if hasattr(subtype, "value"):
-        val = subtype.value
-        if isinstance(val, str) and val in ("PREV", "CURRENT", "NEXT"):
-            return val
-    elif isinstance(subtype, int):
-        if subtype in _PAGE_NUMBER_SUBTYPE_NAMES:
-            return _PAGE_NUMBER_SUBTYPE_NAMES[subtype]
-    elif isinstance(subtype, str):
-        u = subtype.strip().upper()
-        if u in ("PREV", "CURRENT", "NEXT"):
-            return u
-        if u.isdigit() and int(u) in _PAGE_NUMBER_SUBTYPE_NAMES:
-            return _PAGE_NUMBER_SUBTYPE_NAMES[int(u)]
-    log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", subtype)
-    return "CURRENT"
+    return _enum_token(subtype, _PAGE_NUMBER_SUBTYPE_NAMES, ("PREV", "CURRENT", "NEXT"), "CURRENT", "PageNumber SubType")
 
 
 def _page_number_numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
     from . import format as format_mod
-    if isinstance(num_type, int):
-        if num_type in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-            return format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[num_type]
-    elif isinstance(num_type, str):
-        u = num_type.strip().upper()
-        if u in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
-            return u
-        if u.isdigit() and int(u) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-            return format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(u)]
-    log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", num_type)
-    return "ARABIC"
+    return _enum_token(num_type, format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES, format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
 
 
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
@@ -738,17 +736,12 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
     if text_obj is None:
         return fields
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception as e:
-        log.debug("extract_page_number_fields createEnumeration failed: %s", e)
-        return fields
 
     def _walk_para(para: Any):
         try:
             portions = para.createEnumeration()
         except Exception as e:
-            log.debug("extract_page_number_fields _walk_para failed: %s", e)
+            log.debug("extract_page_number_fields createEnumeration failed: %s", e)
             return
         while portions.hasMoreElements() is True:
             try:
@@ -775,34 +768,44 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
                     log.debug("extract_page_number_fields TextField processing failed: %s", e)
                     continue
 
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception as e:
-            log.debug("extract_page_number_fields enum failed: %s", e)
-            break
-        if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
-            try:
-                cell_names = el.getCellNames()
-            except Exception as e:
-                log.debug("extract_page_number_fields getCellNames failed: %s", e)
-                continue
-            for cell_name in cell_names:
-                try:
-                    cell = el.getCellByName(cell_name)
-                    cell_enum = cell.createEnumeration()
-                except Exception as e:
-                    log.debug("extract_page_number_fields getCellByName failed: %s", e)
-                    continue
-                while cell_enum.hasMoreElements() is True:
-                    try:
-                        _walk_para(cell_enum.nextElement())
-                    except Exception as e:
-                        log.debug("extract_page_number_fields cell_enum failed: %s", e)
-                        break
-        else:
-            _walk_para(el)
+    for para in _iter_xtext_paragraphs(text_obj):
+        _walk_para(para)
     return fields
+
+
+def _inject_page_number_attributes(content: str, fields: list[dict[str, Any]]) -> str:
+    """Add data-subtype/offset/numbering-type to each page-number span; defaults are omitted."""
+    if not content or not fields:
+        return content
+    spans = list(_PAGE_NUMBER_SPAN_RE.finditer(content))
+    if len(spans) != len(fields):
+        log.warning(
+            "xtext_to_content: PageNumber fields count mismatch. Extracted %d, found %d spans. Skipping attribute injection.",
+            len(fields), len(spans),
+        )
+        return content
+    out: list[str] = []
+    last_end = 0
+    for match, props in zip(spans, fields):
+        attrs = ""
+        # Only inject attributes if different from defaults:
+        # com.sun.star.text.PageNumberType.CURRENT = 1
+        # Offset = 0
+        # ARABIC = 4
+        st_name = _page_number_subtype_to_name(props.get("SubType"))
+        if st_name != "CURRENT":
+            attrs += f' data-subtype="{st_name}"'
+        offset_val = props.get("Offset", 0)
+        if offset_val != 0:
+            attrs += f' data-offset="{offset_val}"'
+        nt_name = _page_number_numbering_type_to_name(props.get("NumberingType"))
+        if nt_name != "ARABIC":
+            attrs += f' data-numbering-type="{nt_name}"'
+        out.append(content[last_end:match.start()])
+        out.append(xhtml_post._inject_attr(match.group(0), attrs) if attrs else match.group(0))
+        last_end = match.end()
+    out.append(content[last_end:])
+    return "".join(out)
 
 
 def xtext_to_content(
@@ -848,56 +851,7 @@ def xtext_to_content(
         if math_records:
             content = substitute_math_placeholders(content, math_records, ctx)
 
-        if extracted_fields:
-            # Re-inject the collected properties into the resulting HTML string
-            # Find all <span ... title="page-number" ...> elements in the exported HTML
-            spans = list(_PAGE_NUMBER_SPAN_RE.finditer(content))
-            if len(spans) == len(extracted_fields):
-                new_content = []
-                last_end = 0
-                for match, field_props in zip(spans, extracted_fields):
-                    new_content.append(content[last_end:match.start()])
-                    tag = match.group(0)
-
-                    # Only inject attributes if different from defaults:
-                    # com.sun.star.text.PageNumberType.CURRENT = 1
-                    # Offset = 0
-                    # ARABIC = 4
-                    attrs = []
-                    st_name = _page_number_subtype_to_name(field_props.get("SubType"))
-                    if st_name != "CURRENT":
-                        attrs.append(f' data-subtype="{st_name}"')
-
-                    # Offset is a UNO short; it is already an int.
-                    offset_val = field_props.get("Offset", 0)
-                    if offset_val != 0:
-                        attrs.append(f' data-offset="{offset_val}"')
-
-                    nt_name = _page_number_numbering_type_to_name(field_props.get("NumberingType"))
-                    if nt_name != "ARABIC":
-                        attrs.append(f' data-numbering-type="{nt_name}"')
-
-                    if attrs:
-                        attr_str = "".join(attrs)
-                        if tag.endswith("/>"):
-                            new_tag = tag[:-2] + attr_str + "/>"
-                        elif tag.endswith(">"):
-                            new_tag = tag[:-1] + attr_str + ">"
-                        else:
-                            new_tag = tag
-                    else:
-                        new_tag = tag
-
-                    new_content.append(new_tag)
-                    last_end = match.end()
-                new_content.append(content[last_end:])
-                content = "".join(new_content)
-            else:
-                log.warning(
-                    "xtext_to_content: PageNumber fields count mismatch. Extracted %d, found %d spans. Skipping attribute injection.",
-                    len(extracted_fields),
-                    len(spans),
-                )
+        content = _inject_page_number_attributes(content, extracted_fields)
 
         return content
     finally:
