@@ -542,14 +542,14 @@ def _apply_fake_stt(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_stt", True)
 
-            def fake_run_cmd(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str] | None:
+            def fake_run_cmd(*args: Any, **kwargs: Any) -> stt_service.SttCommandResult:
                 cmd = args[0]
                 if "whisper_transcribe.py" in str(cmd):
                     if _FAKE_STT_DELAY > 0:
                         time.sleep(_FAKE_STT_DELAY)
                     if _FAKE_STT_MODE == "silence":
-                        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='{"status": "ok", "text": ""}\n', stderr='')
-                    return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='{"status": "ok", "text": "Fake STT transcript."}\n', stderr='')
+                        return stt_service.SttCommandResult(0, '{"status": "ok", "text": ""}\n', "")
+                    return stt_service.SttCommandResult(0, '{"status": "ok", "text": "Fake STT transcript."}\n', "")
                 return orig_run_cmd(*args, **kwargs)
 
             setattr(audio_recorder_service.subprocess, "Popen", fake_popen)
