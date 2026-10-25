@@ -21,9 +21,9 @@ from plugin.calc.python.geometric_recalc import (
     GeometricCell,
     GeometricRecord,
     after_py_cell_save,
+    compute_eval_index,
     compute_sheet_repair,
     current_geometric_strip_safe,
-    discovery_cap_hit,
     ensure_geometric_strip_index_for_eval,
     geometric_cap_hit_user_message,
     geometric_workbook_key,
@@ -69,17 +69,29 @@ def _repair(
     cells: list[GeometricCell],
     records: dict[str, GeometricRecord] | None = None,
     *,
-    workbook_key: str = WB,
     sheet_name: str = "Sheet1",
     truncated: bool = False,
 ):
     return compute_sheet_repair(
         cells,
         records,
-        workbook_key=workbook_key,
         sheet_name=sheet_name,
         truncated=truncated,
     )
+
+
+def _safe_after_patches(cells: list[GeometricCell], result, workbook_key: str = WB) -> frozenset[EvalIndexKey]:
+    patches_by_addr = {p.address: p.new_formula for p in result.patches}
+    formulas = {cell.address: patches_by_addr.get(cell.address, cell.formula) for cell in cells}
+    patched = [
+        GeometricCell(
+            address=cell.address,
+            formula=formulas[cell.address],
+            resolved_code=cell.resolved_code,
+        )
+        for cell in cells
+    ]
+    return compute_eval_index(patched, formulas, result.records, workbook_key)
 
 
 def _patch_map(result):
@@ -111,14 +123,12 @@ def test_empty_list():
     assert result.skipped is False
     assert result.patches == ()
     assert result.records == {}
-    assert result.strip_safe == frozenset()
 
 
 def test_one_cell_no_predecessor():
     result = _repair([_cell("A1", '=PY("df = load()")')])
     assert result.patches == ()
     assert result.records == {}
-    assert not result.strip_safe
 
 
 def test_two_cells_append_predecessor():
@@ -143,6 +153,29 @@ def test_formula_mentions_cell_one_hop():
     assert not formula_mentions_cell('=PY("result = xl(\'A2\')")', "A2")
     assert formula_mentions_cell("=PY(A2)", "A2")
     assert not formula_mentions_cell("=PY(A3)", "A2")
+    assert formula_mentions_cell('=PY("x"; Sheet2.A2)', "A2", sheet_name="Sheet1") is False
+
+
+def test_other_sheet_ref_is_not_a_local_cycle():
+    cells = [
+        _cell("A1", '=PY("x"; Sheet2.A2)'),
+        _cell("A2", '=PY("y")'),
+    ]
+    result = _repair(cells, sheet_name="Sheet1")
+    patches = _patch_map(result)
+    assert "A2" in patches
+    assert patches["A2"].new_formula == '=PY("y";A1)'
+
+
+def test_quoted_same_sheet_ref_is_a_local_cycle():
+    cells = [
+        _cell("A1", '=PY("x"; \'Sheet1\'.A2)'),
+        _cell("A2", '=PY("y")'),
+    ]
+    result = _repair(cells, sheet_name="Sheet1")
+    patches = _patch_map(result)
+    assert "A2" not in patches
+    assert "A2" not in result.records
 
 
 def test_reverse_ref_skips_attach_to_avoid_cycle():
@@ -189,6 +222,117 @@ def test_pred_code_in_cell_ref_to_successor_skips_attach():
     ]
     result = _repair(cells)
     assert "A2" not in result.records
+
+
+def test_3_cell_reverse_ref_chain_skips_attach():
+    """A1 -> A3; A2 attaches to A1; A3 must not attach to A2 (A1->A3->A2->A1 cycle)."""
+    cells = [
+        _cell("A1", '=PY("x"; A3)'),
+        _cell("A2", '=PY("y")'),
+        _cell("A3", '=PY("z")'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    assert "A2" in patches
+    assert patches["A2"].new_formula == '=PY("y";A1)'
+    assert "A3" not in patches
+    assert "A3" not in result.records
+
+
+def test_4_cell_reverse_ref_chain_skips_attach():
+    """A1 -> A4; A2 -> A1, A3 -> A2; A4 must not attach to A3."""
+    cells = [
+        _cell("A1", '=PY("w"; A4)'),
+        _cell("A2", '=PY("x")'),
+        _cell("A3", '=PY("y")'),
+        _cell("A4", '=PY("z")'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    assert "A2" in patches
+    assert "A3" in patches
+    assert "A4" not in patches
+    assert "A4" not in result.records
+
+
+def test_range_arg_3_cell_cycle_skips_attach():
+    """A1 -> A2:A4 covers A2; A2 must not attach to A1."""
+    cells = [
+        _cell("A1", '=PY("x"; A2:A4)'),
+        _cell("A2", '=PY("y")'),
+        _cell("A3", '=PY("z")'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    assert "A2" not in patches
+    assert "A2" not in result.records
+
+
+def test_code_in_cell_3_cell_cycle_skips_attach():
+    """A1 =PY(A3); A2 attaches to A1; A3 must not attach to A2."""
+    cells = [
+        GeometricCell("A1", "=PY(A3)", resolved_code="x = 1"),
+        _cell("A2", '=PY("y")'),
+        _cell("A3", '=PY("z")'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    assert "A2" in patches
+    assert "A3" not in patches
+    assert "A3" not in result.records
+
+
+def test_diamond_still_attaches():
+    """Diamond topology (no cycle): A1, A2(A1), A3(A1), A4(A2, A3) chaining sequentially."""
+    cells = [
+        _cell("A1", '=PY("a")'),
+        _cell("A2", '=PY("b"; A1)'),
+        _cell("A3", '=PY("c"; A1)'),
+        _cell("A4", '=PY("d")'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    # A4 desired is A3; A3 reaches A1 (not A4), so A4 attaching to A3 does not cycle
+    assert "A4" in patches
+    assert patches["A4"].new_formula == '=PY("d";A3)'
+
+
+def test_acyclic_after_repair_dfs():
+    """All repaired chains across arbitrary configurations produce acyclic graphs."""
+    cells = [
+        _cell("A1", '=PY("a"; A3)'),
+        _cell("A2", '=PY("b")'),
+        _cell("A3", '=PY("c")'),
+        _cell("A4", '=PY("d"; A1)'),
+    ]
+    result = _repair(cells)
+    patches = _patch_map(result)
+    formulas = {c.address: patches[c.address].new_formula if c.address in patches else c.formula for c in cells}
+    # Check that following formula_data_args on local cells has no cycle
+    adj: dict[str, list[str]] = {}
+    for c in cells:
+        args = formula_data_args(formulas[c.address]) or []
+        adj[local_a1(c.address)] = [local_a1(a) for a in args if local_a1(a) in {local_a1(x.address) for x in cells}]
+
+    visited: set[str] = set()
+    rec_stack: set[str] = set()
+
+    def has_cycle(v: str) -> bool:
+        visited.add(v)
+        rec_stack.add(v)
+        for neighbor in adj.get(v, []):
+            if neighbor not in visited:
+                if has_cycle(neighbor):
+                    return True
+            elif neighbor in rec_stack:
+                return True
+        rec_stack.remove(v)
+        return False
+
+    for c in cells:
+        k = local_a1(c.address)
+        if k not in visited:
+            assert not has_cycle(k)
 
 
 def test_insert_in_middle_retargets_successor():
@@ -484,7 +628,32 @@ def test_user_already_passed_previous_py_not_recorded():
     )
     assert result.patches == ()
     assert "A2" not in result.records
-    assert not result.strip_safe
+
+
+def test_read_code_ref_text_missing_sheet_returns_empty():
+    from plugin.calc.python.geometric_recalc import _read_code_ref_text
+    from plugin.tests.testing_utils import CalcDocStub
+
+    doc = CalcDocStub(url="file:///code-ref.ods")
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    sheet1.getCellByPosition(0, 0).setString("default_code")
+    assert _read_code_ref_text(doc, sheet1, "Missing.A1") == ""
+
+
+def test_read_code_ref_text_other_sheet_and_quoted_name():
+    from plugin.calc.python.geometric_recalc import _read_code_ref_text
+    from plugin.tests.testing_utils import CalcDocStub
+
+    doc = CalcDocStub(url="file:///code-ref.ods")
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    sheet1.getCellByPosition(0, 0).setString("code1")
+    doc.getSheets().insertNewByName("Sheet 2", 1)
+    sheet2 = doc.getSheets().getByName("Sheet 2")
+    sheet2.getCellByPosition(0, 0).setString("code2")
+
+    assert _read_code_ref_text(doc, sheet1, "A1") == "code1"
+    assert _read_code_ref_text(doc, sheet1, "Sheet 2.A1") == "code2"
+    assert _read_code_ref_text(doc, sheet1, "'Sheet 2'.A1") == "code2"
 
 
 def test_code_in_cell_splice_keeps_unquoted_ref():
@@ -516,7 +685,14 @@ def test_code_in_cell_repair_and_resolved_source():
     assert resolved_code_for_formula("=PY($A$1; C1:C10)", code_cell_text=source) == source
     assert resolved_code_for_formula('=PY("df = clean(df)")') == "df = clean(df)"
     key = _key(source, 2)
-    assert key in result.strip_safe
+    safe = _safe_after_patches(
+        [
+            _cell("B1", '=PY("df = load()")'),
+            _cell("B2", "=PY($A$1; C1:C10)", source),
+        ],
+        result,
+    )
+    assert key in safe
 
 
 def test_repair_n_args_is_not_semicolon_count():
@@ -547,16 +723,24 @@ def test_fill_down_unanimous_ours_is_strip_safe():
     assert formula_data_args(_patch_map(result)["A2"].new_formula) == ["B1:B10", "A1"]
     assert formula_data_args(_patch_map(result)["A3"].new_formula) == ["B1:B10", "A2"]
     key = _key(code, 2)
-    assert key in result.strip_safe
+    safe = _safe_after_patches(
+        [
+            _cell("A1", f'=PY("{code}"; B1:B10)'),
+            _cell("A2", f'=PY("{code}"; B1:B10)'),
+            _cell("A3", f'=PY("{code}"; B1:B10)'),
+        ],
+        result,
+    )
+    assert key in safe
     assert should_strip_eval_args(
         workbook_key=WB,
         resolved_code=code,
         n_args=2,
-        strip_safe=result.strip_safe,
+        strip_safe=safe,
         unambiguous=True,
     )
     first_key = _key(code, 1)
-    assert first_key not in result.strip_safe
+    assert first_key not in safe
 
 
 def test_mixed_matrix_index_poisons_the_triple():
@@ -594,29 +778,30 @@ def test_user_passed_previous_mixed_with_mapped_poisons():
     key = _key(code, 1)
     assert "A2" not in result.records
     assert "A3" in result.records
-    assert key not in result.strip_safe
+    safe = _safe_after_patches(cells, result)
+    assert key not in safe
 
 
 def test_two_workbooks_unambiguous_false_no_strip():
-    result = _repair(
-        [
-            _cell("A1", '=PY("np.mean(data)"; B1:B10)'),
-            _cell("A2", '=PY("np.mean(data)"; B1:B10)'),
-        ]
-    )
-    assert _key("np.mean(data)", 2) in result.strip_safe
+    cells = [
+        _cell("A1", '=PY("np.mean(data)"; B1:B10)'),
+        _cell("A2", '=PY("np.mean(data)"; B1:B10)'),
+    ]
+    result = _repair(cells)
+    safe = _safe_after_patches(cells, result)
+    assert _key("np.mean(data)", 2) in safe
     assert not should_strip_eval_args(
         workbook_key=WB,
         resolved_code="np.mean(data)",
         n_args=2,
-        strip_safe=result.strip_safe,
+        strip_safe=safe,
         unambiguous=False,
     )
     assert not should_strip_eval_args(
         workbook_key="",
         resolved_code="np.mean(data)",
         n_args=2,
-        strip_safe=result.strip_safe,
+        strip_safe=safe,
         unambiguous=True,
     )
 
@@ -624,14 +809,9 @@ def test_two_workbooks_unambiguous_false_no_strip():
 def test_cap_hit_skips_sheet_no_patches_no_strip_safe():
     cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
     result = _repair(cells, sheet_name="Data", truncated=True)
-    assert discovery_cap_hit(len(cells), truncated=True)
     assert result.skipped is True
     assert result.skip_reason == "discovery_cap"
     assert result.patches == ()
-    assert result.strip_safe == frozenset()
-    assert result.user_message is not None
-    assert "Data" in result.user_message
-    assert str(GEOMETRIC_DISCOVERY_CAP) in result.user_message
 
 
 def test_exact_100_without_truncated_is_chained():
@@ -640,14 +820,6 @@ def test_exact_100_without_truncated_is_chained():
     result = _repair(cells, sheet_name="Data", truncated=False)
     assert result.skipped is False
     assert result.patches  # A2..A100 get a predecessor
-    assert discovery_cap_hit(len(cells), truncated=False) is False
-
-
-def test_discovery_cap_hit_uses_truncated_flag():
-    assert discovery_cap_hit(99, truncated=False) is False
-    assert discovery_cap_hit(100, truncated=False) is False
-    assert discovery_cap_hit(100, truncated=True) is True
-    assert discovery_cap_hit(50, truncated=True) is True
 
 
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
@@ -694,6 +866,44 @@ def test_cap_hit_user_message_names_the_sheet():
     text = geometric_cap_hit_user_message("Pivots")
     assert "Pivots" in text
     assert str(GEOMETRIC_DISCOVERY_CAP) in text
+
+
+def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
+    """K3: a truncated sheet poisons the entire workbook's strip safe index."""
+    from plugin.calc.python.geometric_recalc import reconcile_geometric_document
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///truncated-wb.ods")
+    # Sheet1 has GEOMETRIC_DISCOVERY_CAP + 1 cells
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
+        c = sheet1.getCellByPosition(0, i)
+        c.setFormula('=PY("np.mean(data)"; B1:B10; C1)')
+
+    # Sheet2 has 2 cells
+    doc.getSheets().insertNewByName("Sheet2", 1)
+    sheet2 = doc.getSheets().getByName("Sheet2")
+    sheet2.getCellByPosition(0, 0).setFormula('=PY("np.mean(data)"; B1:B10)')
+    sheet2.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10)')
+
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    col, pred = _mean_range_and_pred()
+    with (
+        patch("plugin.doc.udprops.get_document_property", return_value=None),
+        patch("plugin.doc.udprops.set_document_property"),
+        patch("plugin.chatbot.dialogs.msgbox"),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        reconcile_geometric_document("ctx", doc)
+
+    assert current_geometric_strip_safe() == frozenset()
+    assert (
+        maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc)
+        == [col, pred]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1089,6 +1299,35 @@ def test_isolated_caller_doc_strips():
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
         assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
+
+
+def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///empty-reg.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x = 1")')
+    wk = geometric_workbook_key(doc)
+    replace_geometric_strip_safe(wk, frozenset({_key("seeded", 1, wk)}))
+
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
+    )
+    mock_discover = MagicMock()
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.discover_python_cells_on_sheet",
+        mock_discover,
+    )
+    with (
+        patch("plugin.doc.udprops.get_document_property", lambda _doc, _name, default=None: None),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+
+    assert mock_discover.call_count == 0
+    assert current_geometric_strip_safe() == frozenset()
 
 
 def test_ensure_strip_index_hydrates_from_udprop():
@@ -1589,11 +1828,10 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # No patches applied
     )
-    res, _cells = _repair_one_sheet("ctx", doc, sheet, wk, apply_patches=True)
+    res, _cells = _repair_one_sheet("ctx", doc, sheet, wk)
     # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
     assert "A2" not in res.records
     assert "A2" not in records_for_sheet(wk, "Sheet1")
-    assert not res.strip_safe
 
     # Scenario B: Remove patch fails (e.g. stale cell).
     # Pre-seed record: A2 was previously chained to A1.
@@ -1605,7 +1843,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # Remove patch fails to apply
     )
-    res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk, apply_patches=True)
+    res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk)
     # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
     assert res2.records.get("A2") == GeometricRecord(predecessor="A1")
     assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
