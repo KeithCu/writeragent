@@ -35,9 +35,9 @@ FormatDecision: TypeAlias = tuple[str, int | None] | str | None
 ApplyRun: TypeAlias = tuple[int, int, int]  # c0, c1, key (inclusive, relative)
 ApplyRect: TypeAlias = tuple[int, int, int, int, int]  # r0, r1, c0, c1, key
 
-# Bracketed elapsed unit: [HH], [H], [MM], [SS], localized [TT]/[UU].
-# Cap at 2 letters so color/modifier brackets ([RED], [NatNum1]) do not match.
-_ELAPSED_BRACKET_RE = re.compile(r"\[[A-Za-z]{1,2}\]")
+# Bracketed elapsed unit: one letter repeated ([H], [HH], [HHH], [MM], localized [TT]).
+# Color/modifier brackets ([RED], [NatNum1]) mix letters, so they do not match.
+_ELAPSED_BRACKET_RE = re.compile(r"\[([A-Za-z])\1*\]")
 
 _DATE_PART = r"([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
 _TIME_PART = r"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?"
