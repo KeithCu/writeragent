@@ -78,6 +78,14 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = False) -> dict[str, Any]:
+    """``error_dict`` whose ``error`` ends with the child's stderr tail (also under ``stderr``)."""
+    res = error_dict(code, f"{msg}\n{tail}" if tail else msg, message=msg if with_message else None)
+    if tail:
+        res["stderr"] = tail
+    return res
+
+
 class _KokoroWorker:
     """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
 
@@ -171,13 +179,7 @@ class _KokoroWorker:
         stdout = self._managed.stdout
         if stdin is None or stdout is None or not self.is_alive():
             self.kill()
-            msg = "Kokoro worker has no stdio pipes or is not alive."
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("WORKER_CRASHED", err_msg, message=msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("WORKER_CRASHED", "Kokoro worker has no stdio pipes or is not alive.", self.stderr_tail(), with_message=True)
 
         start_time = time.monotonic()
         try:
@@ -189,65 +191,29 @@ class _KokoroWorker:
             write_packed_frame_with_timeout(stdin, frame, timeout_sec, is_alive=self.is_alive)
         except subprocess.TimeoutExpired:
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("EXECUTION_TIMEOUT", err_msg, message=msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
         except Exception as exc:
             self.kill()
-            msg = f"Failed to send request to Kokoro: {exc}"
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("WORKER_PIPE_BROKEN", err_msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("WORKER_PIPE_BROKEN", f"Failed to send request to Kokoro: {exc}", self.stderr_tail())
 
         elapsed = time.monotonic() - start_time
         remaining = timeout_sec - elapsed
         if remaining <= 0:
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("EXECUTION_TIMEOUT", err_msg, message=msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
 
         try:
             resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, require_dict=True)
             if not isinstance(resp, dict):
                 self.kill()
-                msg = "No response returned from Kokoro."
-                tail = self.stderr_tail()
-                err_msg = f"{msg}\n{tail}" if tail else msg
-                res = error_dict("EMPTY_RESPONSE", err_msg)
-                if tail:
-                    res["stderr"] = tail
-                return res
+                return _error_with_tail("EMPTY_RESPONSE", "No response returned from Kokoro.", self.stderr_tail())
             return resp
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("EXECUTION_TIMEOUT", err_msg, message=msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
         except Exception as exc:
             self.kill()
-            msg = f"Kokoro error: {exc}"
-            tail = self.stderr_tail()
-            err_msg = f"{msg}\n{tail}" if tail else msg
-            res = error_dict("WORKER_CRASHED", err_msg, message=msg)
-            if tail:
-                res["stderr"] = tail
-            return res
+            return _error_with_tail("WORKER_CRASHED", f"Kokoro error: {exc}", self.stderr_tail(), with_message=True)
         except BaseException:
             self.kill()
             raise
@@ -318,7 +284,6 @@ class KokoroProcessPool:
     _last_active: float
     _reaper_stop: threading.Event
     _seen_warnings: dict[str, None]
-    configured_venv: str | None
 
     def __init__(
         self,
@@ -345,7 +310,6 @@ class KokoroProcessPool:
         self._last_active = time.monotonic()
         self._reaper_stop = threading.Event()
         self._seen_warnings = {}
-        self.configured_venv = None
         if idle_worker_ttl_sec is not None and idle_worker_ttl_sec > 0:
             self._start_reaper()
 
@@ -469,19 +433,9 @@ class KokoroProcessPool:
                                 if spawn_cancelled:
                                     result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
                                 elif deadline.left() < _MIN_SPAWN_REMAINING_SEC:
-                                    msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                                    tail = spawned.stderr_tail() if hasattr(spawned, "stderr_tail") else ""
-                                    err_msg = f"{msg}\n{tail}" if tail else msg
-                                    result = error_dict("EXECUTION_TIMEOUT", err_msg, message=msg)
-                                    if tail:
-                                        result["stderr"] = tail
+                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", spawned.stderr_tail(), with_message=True)
                                 else:
-                                    tail = spawned.stderr_tail() if hasattr(spawned, "stderr_tail") else ""
-                                    msg = "Kokoro worker could not be started."
-                                    err_msg = f"{msg}\n{tail}" if tail else msg
-                                    result = error_dict("WORKER_SPAWN_FAILED", err_msg)
-                                    if tail:
-                                        result["stderr"] = tail
+                                    result = _error_with_tail("WORKER_SPAWN_FAILED", "Kokoro worker could not be started.", spawned.stderr_tail())
                             else:
                                 if deadline.left() <= 0:
                                     self._retire_worker(spawned)
@@ -630,38 +584,21 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
 
     venv_str = get_config_str("scripting.python_venv_path").strip()
     with _POOL_LOCK:
-        if not venv_str:
-            if _POOL is not None:
-                _POOL.shutdown()
-                _POOL = None
-            _POOL_PYTHON = None
-            _POOL_CONFIG_VENV = None
-            return None
-
-        if _POOL is not None and _POOL_CONFIG_VENV == venv_str:
+        # Same configured path: reuse without re-resolving the interpreter.
+        if venv_str and _POOL is not None and _POOL_CONFIG_VENV == venv_str:
             return _POOL
-
-        py = resolve_venv_python(venv_str)
-        if not py:
-            if _POOL is not None:
-                _POOL.shutdown()
-                _POOL = None
-            _POOL_PYTHON = None
-            _POOL_CONFIG_VENV = None
-            return None
-
+        py = resolve_venv_python(venv_str) if venv_str else None
         if _POOL is not None and _POOL_PYTHON != py:
             _POOL.shutdown()
             _POOL = None
-
+        if not py:
+            _POOL_PYTHON = None
+            _POOL_CONFIG_VENV = None
+            return None
         if _POOL is None:
             _POOL = KokoroProcessPool(py)
             _POOL_PYTHON = py
-            _POOL_CONFIG_VENV = venv_str
-            _POOL.configured_venv = venv_str
-        else:
-            _POOL_CONFIG_VENV = venv_str
-            _POOL.configured_venv = venv_str
+        _POOL_CONFIG_VENV = venv_str
         return _POOL
 
 

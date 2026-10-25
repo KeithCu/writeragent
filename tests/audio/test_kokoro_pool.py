@@ -325,6 +325,9 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
         def respawn(self) -> None:
             return None
 
+        def stderr_tail(self) -> str:
+            return ""
+
         def execute(self, payload, timeout_sec):
             del payload, timeout_sec
             self.executes += 1
